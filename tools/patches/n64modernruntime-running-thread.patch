@@ -1,0 +1,37 @@
+diff --git a/ultramodern/include/ultramodern/ultramodern.hpp b/ultramodern/include/ultramodern/ultramodern.hpp
+index 46aea61..bae10e6 100644
+--- a/ultramodern/include/ultramodern/ultramodern.hpp
++++ b/ultramodern/include/ultramodern/ultramodern.hpp
+@@ -96,6 +96,8 @@ enum class ThreadPriority {
+ void set_native_thread_name(const std::string& name);
+ void set_native_thread_priority(ThreadPriority pri);
+ PTR(OSThread) this_thread();
++// Keep a libultra-style `__osRunningThread` variable in RDRAM up to date whenever a thread resumes.
++void set_running_thread_address(PTR(PTR(OSThread)) address);
+ void set_entrypoint_thread();
+ bool is_entrypoint_thread();
+ bool is_game_thread();
+diff --git a/ultramodern/src/threads.cpp b/ultramodern/src/threads.cpp
+index 6e3ed18..93b3505 100644
+--- a/ultramodern/src/threads.cpp
++++ b/ultramodern/src/threads.cpp
+@@ -150,8 +150,19 @@ void ultramodern::set_native_thread_name(const std::string& name) {
+ void ultramodern::set_native_thread_priority(ThreadPriority pri) {}
+ #endif
+ 
++// Optional libultra-compatible `__osRunningThread` mirror. Some games (e.g. Rare's) read the
++// current thread's fields through this global instead of calling osGetThreadId/osGetThreadPri.
++static PTR(PTR(OSThread)) running_thread_address = NULLPTR;
++
++void ultramodern::set_running_thread_address(PTR(PTR(OSThread)) address) {
++    running_thread_address = address;
++}
++
+ void wait_for_resumed(RDRAM_ARG UltraThreadContext* thread_context) {
+     thread_context->running.wait();
++    if (running_thread_address != NULLPTR) {
++        *TO_PTR(PTR(OSThread), running_thread_address) = ultramodern::this_thread();
++    }
+     // If this thread's context was replaced by another thread or deleted, destroy it again from its own context.
+     // This will trigger thread cleanup instead.
+     if (TO_PTR(OSThread, ultramodern::this_thread())->context != thread_context) {

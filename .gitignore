@@ -1,0 +1,14 @@
+# Build trees, generated recompiler output, extracted game images, virtual ROM
+build/
+conker-recomp-data/
+
+# Never commit ROMs or anything derived from ROM bytes
+*.z64
+*.n64
+*.v64
+*.bin
+
+# Editor / OS noise
+.DS_Store
+.vscode/
+.idea/
