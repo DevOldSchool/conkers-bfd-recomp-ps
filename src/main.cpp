@@ -2,10 +2,10 @@
 //
 //   ConkerRecomp <path to US ROM .z64>
 //
-// Registers the game with librecomp, wires every ultramodern callback to a do-nothing
-// implementation (no window, no audio output, no input) and starts the game thread. The point
-// of this binary today is to exercise the recompiled code; graphics arrive with RT64 support
-// for Conker's microcode.
+// Registers the game with librecomp, wires the ultramodern callbacks and starts the game thread.
+// Audio and input are do-nothing implementations. Graphics depend on CONKER_RENDERER: the null
+// renderer (default) runs headless and only logs graphics tasks, RT64 opens a window and draws
+// the display lists through Conker's F3DEX2CBFD microcode support.
 #include <atomic>
 #include <csignal>
 #include <cstdio>
@@ -29,8 +29,13 @@ static long _dyld_get_image_vmaddr_slide(int) { return 0; }
 #include "ultramodern/ultramodern.hpp"
 
 #include "game.hpp"
-#include "renderer_null.hpp"
 #include "rsp.hpp"
+#include "window.hpp"
+#if CONKER_RENDERER_RT64
+#include "renderer_rt64.hpp"
+#else
+#include "renderer_null.hpp"
+#endif
 
 namespace conker::trace { void dump_recent_calls(int fd); }
 
@@ -81,11 +86,6 @@ ultramodern::input::connected_device_info_t get_connected_device_info(int contro
 void queue_samples(int16_t* /*samples*/, size_t /*count*/) {}
 size_t get_frames_remaining() { return 0; }
 void set_frequency(uint32_t /*freq*/) {}
-
-// --- window / gfx loop ---------------------------------------------------------------------
-void* create_gfx() { return nullptr; }
-ultramodern::renderer::WindowHandle create_window(void* /*gfx_data*/) { return {}; }
-void update_gfx(void* /*gfx_data*/) {}
 
 // --- misc ----------------------------------------------------------------------------------
 void message_box(const char* msg) { std::fprintf(stderr, "[conker] %s\n", msg); }
@@ -211,7 +211,11 @@ int main(int argc, char** argv) {
     cfg.argv = argv;
     cfg.project_version = recomp::Version{0, 1, 0, "-dev"};
     cfg.rsp_callbacks = {.get_rsp_microcode = conker::rsp::get_rsp_microcode};
+#if CONKER_RENDERER_RT64
+    cfg.renderer_callbacks = {.create_render_context = conker::renderer::create_rt64_render_context};
+#else
     cfg.renderer_callbacks = {.create_render_context = conker::renderer::create_null_render_context};
+#endif
     cfg.audio_callbacks = {.queue_samples = queue_samples, .get_frames_remaining = get_frames_remaining, .set_frequency = set_frequency};
     cfg.input_callbacks = {
         .poll_input = poll_input,
@@ -219,7 +223,11 @@ int main(int argc, char** argv) {
         .set_rumble = set_rumble,
         .get_connected_device_info = get_connected_device_info,
     };
-    cfg.gfx_callbacks = {.create_gfx = create_gfx, .create_window = create_window, .update_gfx = update_gfx};
+    cfg.gfx_callbacks = {
+        .create_gfx = conker::window::create_gfx,
+        .create_window = conker::window::create_window,
+        .update_gfx = conker::window::update_gfx,
+    };
     cfg.events_callbacks = {.vi_callback = vi_callback, .gfx_init_callback = gfx_init_callback};
     cfg.error_handling_callbacks = {.message_box = message_box};
     cfg.threads_callbacks = {.get_game_thread_name = nullptr};

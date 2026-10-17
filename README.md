@@ -22,7 +22,7 @@ This repository contains no ROM data. You need your own US ROM
 | Static recompilation | done: every function recompiles; 13 CP0/TLB/exception routines are stubbed; Rare's handwritten geometry code is recompiled as a shared code region |
 | Headless runtime (no graphics, audio or input) | boots: ROM load, game-archive inflation, thread creation, main init, game entry, software-geometry setup, visibility-partition build, main loop, legal and Nintendo screens, intro cutscene; stops entering the title scene (see below) |
 | Crash diagnostics | crash reporter with MIPS registers, per-thread call trace, `tools/symbolicate.sh`; display-list dumper and scripted Start press (see "Diagnostics") |
-| Graphics: RT64 support for Rare's F3DEX2CBFD microcode | not started, see [docs/rsp-microcode.md](docs/rsp-microcode.md) |
+| Graphics: RT64 support for Rare's F3DEX2CBFD microcode | first light: all eight variants recognised, the intro scene renders in an RT64 window (`CONKER_RENDERER=rt64`); see [docs/rsp-microcode.md](docs/rsp-microcode.md) |
 | Audio: RSPRecomp of the `n_aspMain` microcode | not started |
 | Saving: EEPROM through a PIF shim | volatile in-memory image only |
 | Windows support for the memory aliasing | not started |
@@ -36,6 +36,13 @@ trigger node `0xC8` (`func_1509B5AC` → `func_150ADAF0(node, 0)`) ends in a cal
 through a null function pointer ("Failed to find function at 0x00000000"). The
 last recompiled calls on that thread are `func_150183D0`, `func_15018500`,
 `__conker_mp3_alloc` and `func_80003C6C`. That is the next thing to look at.
+
+With `CONKER_RENDERER=rt64` (PR #3) the scene the run used to sit on renders:
+the intro scene, with Conker animated in an armchair under a hanging lamp on a
+wooden floor. That picture is the intro's opening state, before its cutscene
+script starts (explained below).
+
+![RT64 window at the old steady state](docs/images/rt64-intro.png)
 
 What the display-list dumper (`CONKER_DUMP_DL`) shows, with the screens
 identified against emulator screenshots (`./conker mupen-trace
@@ -110,13 +117,13 @@ config/us.toml          N64Recomp configuration (stub list lives here)
 config/us.syms.toml     generated: sections and functions at runtime addresses
 tools/gen_syms.py       builds us.syms.toml and the virtual ROM from the decomp
 tools/regenerate.sh     extraction + generation + recompilation in one go
-tools/patches/          patches applied to the N64Recomp and N64ModernRuntime submodules
-src/                    runtime glue: entry, memory windows, RZIP, overlays, null renderer
+tools/patches/          patches applied to the N64Recomp, N64ModernRuntime and RT64 submodules
+src/                    runtime glue: entry, memory windows, RZIP, overlays, renderers, window
 docs/memory-layout.md   why main runs at 0x10001000 and the game at 0x15000000
 docs/rsp-microcode.md   the microcode situation and the RT64 work
 lib/N64Recomp           recompiler (submodule, patched; see tools/patches)
 lib/N64ModernRuntime    libultra reimplementation and recomp glue (submodule)
-lib/rt64                renderer (submodule, not wired in yet)
+lib/rt64                renderer (submodule, patched for F3DEX2CBFD; CONKER_RENDERER=rt64)
 ```
 
 ## Building
@@ -137,6 +144,22 @@ cmake -S . -B build/host -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/host
 build/host/ConkerRecomp /path/to/conker-us.z64
 ```
+
+The default build uses the null renderer: no window, graphics tasks are only
+logged. For a window rendered by RT64, apply the CBFD patch to the RT64
+submodule and configure with `CONKER_RENDERER=rt64`. This needs SDL2
+(`brew install sdl2`) and, on macOS, Xcode's Metal toolchain for RT64's shaders
+(`xcodebuild -downloadComponent MetalToolchain` on Xcode 26 or later):
+
+```sh
+(cd lib/rt64 && git apply ../../tools/patches/rt64-f3dex2cbfd.patch)
+cmake -S . -B build/rt64 -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER=rt64
+cmake --build build/rt64
+build/rt64/ConkerRecomp /path/to/conker-us.z64
+```
+
+RT64 prints `GBI: F3DEXBG.NoN fifo 2.08 (Conker)` when it recognises the
+microcode of the first graphics task.
 
 On a crash the binary prints the faulting N64 address, the MIPS registers,
 the last 64 recompiled function entries on that thread and the image slide;
@@ -218,5 +241,11 @@ libultra-style `__osRunningThread` mirror that Rare's code reads directly.
 priority, return queue, addresses, size) and makes PI DMA completion send that
 `OSIoMesg` pointer to the return queue, as libultra's PI manager does, instead
 of a null message.
+
+`tools/patches/rt64-f3dex2cbfd.patch` (apply in `lib/rt64`) adds Rare's
+F3DEX2CBFD microcode: GBI database entries for the eight variants, a
+`GBI_F3DEX2CBFD` command table on top of F3DEX2 and the RSP state for its
+vertex normals, 48-byte lights, coordinate modifiers and TRI4. Details in
+[docs/rsp-microcode.md](docs/rsp-microcode.md).
 
 All of these are candidates for upstreaming.
