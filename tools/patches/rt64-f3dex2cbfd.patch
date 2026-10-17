@@ -1,0 +1,551 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 55b5d67..8ae8995 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -327,6 +327,7 @@ set (SOURCES
+     "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_f3d.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_f3dex.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_f3dex2.cpp"
++    "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_f3dex2cbfd.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_f3dgolden.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_f3dpd.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_f3dwave.cpp"
+diff --git a/src/gbi/rt64_gbi.cpp b/src/gbi/rt64_gbi.cpp
+index 7006549..7b1e875 100644
+--- a/src/gbi/rt64_gbi.cpp
++++ b/src/gbi/rt64_gbi.cpp
+@@ -13,6 +13,7 @@
+ #include "rt64_gbi_f3dpd.h"
+ #include "rt64_gbi_f3dex.h"
+ #include "rt64_gbi_f3dex2.h"
++#include "rt64_gbi_f3dex2cbfd.h"
+ #include "rt64_gbi_f3dwave.h"
+ #include "rt64_gbi_f3dzex2.h"
+ #include "rt64_gbi_l3dex2.h"
+@@ -110,6 +111,14 @@ namespace RT64 {
+     const GBIInstance   F3DLX2_FIFO_2_08_REJ      = { "F3DLX2.fifo 2.08.Rej",                      GBIUCode::F3DEX2,      { true,   false,  true,   false,  false } }; // Needs confirmation.
+     const GBIInstance   F3DEX2_FIFO_2_08_CRUISN   = { "F3DEX2.fifo 2.08 (Cruis'n Exotica)",        GBIUCode::Unknown,     { false,  false,  false,  false,  false } }; // Needs confirmation.
+     const GBIInstance   F3DEX2_FIFO_2_08_PL       = { "F3DEX2.fifo 2.08 (POSLIGHT)",               GBIUCode::F3DEX2,      { false,  false,  false,  false,  true  } };
++    const GBIInstance   F3DEX2CBFD_NON            = { "F3DEX.NoN fifo 2.08 (Conker)",             GBIUCode::F3DEX2CBFD,  { false,  true,   false,  false,  false } };
++    const GBIInstance   F3DEX2CBFD                = { "F3DEX fifo 2.08 (Conker)",                 GBIUCode::F3DEX2CBFD,  { false,  false,  false,  false,  false } };
++    const GBIInstance   F3DEX2CBFD_BS_NON         = { "F3DEXBS.NoN fifo 2.08 (Conker)",           GBIUCode::F3DEX2CBFD,  { false,  true,   false,  false,  false } };
++    const GBIInstance   F3DEX2CBFD_BS             = { "F3DEXBS fifo 2.08 (Conker)",               GBIUCode::F3DEX2CBFD,  { false,  false,  false,  false,  false } };
++    const GBIInstance   F3DEX2CBFD_BG_NON         = { "F3DEXBG.NoN fifo 2.08 (Conker)",           GBIUCode::F3DEX2CBFD,  { false,  true,   false,  false,  false } };
++    const GBIInstance   F3DEX2CBFD_BG             = { "F3DEXBG fifo 2.08 (Conker)",               GBIUCode::F3DEX2CBFD,  { false,  false,  false,  false,  false } };
++    const GBIInstance   F3DEX2CBFD_BGBS_NON       = { "F3DEXBGBS.NoN fifo 2.08 (Conker)",         GBIUCode::F3DEX2CBFD,  { false,  true,   false,  false,  false } };
++    const GBIInstance   F3DEX2CBFD_BGBS           = { "F3DEXBGBS fifo 2.08 (Conker)",             GBIUCode::F3DEX2CBFD,  { false,  false,  false,  false,  false } };
+     const GBIInstance   F3DEX2_XBUS_2_05          = { "F3DEX2.xbus 2.05",                          GBIUCode::F3DEX2,      { false,  false,  false,  false,  false } }; // Needs confirmation.
+     const GBIInstance   F3DEX2_XBUS_2_07          = { "F3DEX2.xbus 2.07",                          GBIUCode::F3DEX2,      { false,  false,  false,  false,  false } }; // Needs confirmation.
+     const GBIInstance   F3DLX2_XBUS_2_07_REJ      = { "F3DLX2.xbus 2.07.Rej",                      GBIUCode::F3DEX2,      { true,   false,  true,   false,  false } }; // Needs confirmation.
+@@ -160,7 +169,7 @@ namespace RT64 {
+     // 
+     //                  Length      Hash                    Known instances               
+     //     
+-    static std::array<GBISegment, 94> textSegments = {
++    static std::array<GBISegment, 102> textSegments = {
+             GBISegment{ 0x1408,     0x9C0926F5E466BE70ULL,  { &F3D_SDK_E } }, // Needs confirmation.
+             GBISegment{ 0x1400,     0x34EAA6E921BCF1B2ULL,  { &F3D_SDK_F, &F3D_SDK_UNKNOWN_G, &F3D_SDK_UNKNOWN_H } }, // Needs confirmation.
+             GBISegment{ 0x1408,     0x3E05E9BBE814C700ULL,  { &F3D_FIFO_SDK_E } }, // Needs confirmation.
+@@ -215,6 +224,14 @@ namespace RT64 {
+             GBISegment{ 0x1188,     0x5235C026EC14B4FBULL,  { &F3DLX2_FIFO_2_08_REJ } }, // Needs confirmation.
+             GBISegment{ 0x1378,     0xC2AE06B691610132ULL,  { &F3DEX2_FIFO_2_08_CRUISN } }, // Needs confirmation.
+             GBISegment{ 0x1630,     0x4588323F6F7E7720ULL,  { &F3DEX2_FIFO_2_08_PL } },
++            GBISegment{ 0x1510,     0x5C1B21290CECB813ULL,  { &F3DEX2CBFD_NON } },
++            GBISegment{ 0x1510,     0x03264D6F0EC69D2CULL,  { &F3DEX2CBFD } },
++            GBISegment{ 0x1528,     0x4D6DA143A67D0816ULL,  { &F3DEX2CBFD_BS_NON } },
++            GBISegment{ 0x1528,     0x03A207C092908241ULL,  { &F3DEX2CBFD_BS } },
++            GBISegment{ 0x14A0,     0x54C7842FDDBB6324ULL,  { &F3DEX2CBFD_BG_NON } },
++            GBISegment{ 0x14A0,     0x8EC722205C465CFCULL,  { &F3DEX2CBFD_BG } },
++            GBISegment{ 0x14A0,     0x3873EBBE4229648BULL,  { &F3DEX2CBFD_BGBS_NON } },
++            GBISegment{ 0x14A0,     0xF9D3730B1BF8508EULL,  { &F3DEX2CBFD_BGBS } },
+             GBISegment{ 0x13A0,     0xD734CFD78F6CCD45ULL,  { &F3DEX2_XBUS_2_05 } }, // Needs confirmation.
+             GBISegment{ 0x13A0,     0x0A4F40D3A58CB674ULL,  { &F3DEX2_XBUS_2_07 } }, // Needs confirmation.
+             GBISegment{ 0x1198,     0x3B23DFF75831391CULL,  { &F3DLX2_XBUS_2_07_REJ } }, // Needs confirmation.
+@@ -257,7 +274,7 @@ namespace RT64 {
+             GBISegment{ 0x10B0,     0xE8028E4BC6529E6EULL,  { &ZSORTP_0_33 } }, // Needs confirmation.
+     };
+ 
+-    static std::array<GBISegment, 105> dataSegments = {
++    static std::array<GBISegment, 113> dataSegments = {
+             GBISegment{ 0x800,      0xEEB10D73400213B3ULL,  { &F3D_SDK_E } }, // Needs confirmation.
+             GBISegment{ 0x800,      0x49651E384B48F694ULL,  { &F3D_SDK_F } }, // Needs confirmation.
+             GBISegment{ 0x800,      0x1A736198F90E81C5ULL,  { &F3D_SDK_UNKNOWN_G } }, // Needs confirmation.
+@@ -322,6 +339,14 @@ namespace RT64 {
+             GBISegment{ 0x410,      0x25A00931C3C2A573ULL,  { &F3DLX2_FIFO_2_08_REJ } }, // Needs confirmation.
+             GBISegment{ 0x420,      0xD381B0139965EE5CULL,  { &F3DEX2_FIFO_2_08_CRUISN } }, // Needs confirmation.
+             GBISegment{ 0x420,      0xB411ADC06FAA9D83ULL,  { &F3DEX2_FIFO_2_08_PL } },
++            GBISegment{ 0x6C0,      0xD7843E48A0715C70ULL,  { &F3DEX2CBFD_NON } },
++            GBISegment{ 0x6C0,      0xE66E0527A610422FULL,  { &F3DEX2CBFD } },
++            GBISegment{ 0x6C0,      0x950AAC1BC68963DCULL,  { &F3DEX2CBFD_BS_NON } },
++            GBISegment{ 0x6C0,      0xF8D85E56C313A4FDULL,  { &F3DEX2CBFD_BS } },
++            GBISegment{ 0x6C0,      0x45CACD155D8ADF4EULL,  { &F3DEX2CBFD_BG_NON } },
++            GBISegment{ 0x6C0,      0xFE11F9B90D58B251ULL,  { &F3DEX2CBFD_BG } },
++            GBISegment{ 0x6C0,      0x020848863D5A2C5BULL,  { &F3DEX2CBFD_BGBS_NON } },
++            GBISegment{ 0x6C0,      0x185B27B2D4CF4013ULL,  { &F3DEX2CBFD_BGBS } },
+             GBISegment{ 0x420,      0x58BA836DE5C3B968ULL,  { &F3DEX2_XBUS_2_05 } }, // Needs confirmation.
+             GBISegment{ 0x420,      0x1D0B2B02F7C09D84ULL,  { &F3DEX2_XBUS_2_07 } }, // Needs confirmation.
+             GBISegment{ 0x410,      0xCE0DAA8259433956ULL,  { &F3DLX2_XBUS_2_07_REJ } }, // Needs confirmation.
+@@ -487,6 +512,9 @@ namespace RT64 {
+             case GBIUCode::F3DEX2:
+                 GBI_F3DEX2::setup(&gbi);
+                 break;
++            case GBIUCode::F3DEX2CBFD:
++                GBI_F3DEX2CBFD::setup(&gbi);
++                break;
+             case GBIUCode::F3DZEX2:
+                 GBI_F3DZEX2::setup(&gbi);
+                 break;
+@@ -505,6 +533,8 @@ namespace RT64 {
+             }
+         }
+ 
++        fprintf(stdout, "GBI: %s\n", matchingInstance->name);
++
+         // Update the cached GBI to use the instance's flags.
+         gbi.flags = matchingInstance->flags;
+ 
+diff --git a/src/gbi/rt64_gbi.h b/src/gbi/rt64_gbi.h
+index 69c35d2..c6e7531 100644
+--- a/src/gbi/rt64_gbi.h
++++ b/src/gbi/rt64_gbi.h
+@@ -24,6 +24,7 @@ namespace RT64 {
+         F3DWAVE,
+         F3DEX,
+         F3DEX2,
++        F3DEX2CBFD,
+         F3DZEX2,
+         S2DEX,
+         S2DEX2,
+diff --git a/src/gbi/rt64_gbi_f3dex2cbfd.cpp b/src/gbi/rt64_gbi_f3dex2cbfd.cpp
+new file mode 100644
+index 0000000..78418d6
+--- /dev/null
++++ b/src/gbi/rt64_gbi_f3dex2cbfd.cpp
+@@ -0,0 +1,117 @@
++//
++// RT64
++//
++
++#include "rt64_gbi_f3dex2cbfd.h"
++
++#include "hle/rt64_interpreter.h"
++
++#include "rt64_gbi_f3dex2.h"
++
++// F3DEX2CBFD is Rare's modification of F3DEX2 2.08 for Conker's Bad Fur Day. The command set is
++// F3DEX2's with these differences (reference: GLideN64's F3DEX2CBFD.cpp):
++//
++// - VTX: same fields, but the vertex color is always a color. Normals X/Y come from a separate
++//   stream set with MOVEMEM 0x0E, normal Z is the low byte of the vertex flag.
++// - MOVEWORD NUMLIGHT counts 48-byte light records, index 0x10 sets the coordinate modifiers.
++// - MOVEMEM LIGHT offsets are in units of 48 bytes; records carry a position and attenuation.
++// - LOAD_UCODE switches to the "advanced" lighting path instead of loading a microcode.
++// - Opcodes 0x10 to 0x1F draw four triangles with 5-bit vertex indices.
++
++namespace RT64 {
++    namespace GBI_F3DEX2CBFD {
++        void vertex(State *state, DisplayList **dl) {
++            const uint8_t vtxCount = (*dl)->p0(12, 8);
++            state->rsp->setVertexCBFD((*dl)->w1, vtxCount, (*dl)->p0(1, 7) - vtxCount);
++        }
++
++        void moveMem(State *state, DisplayList **dl) {
++            const uint8_t index = (*dl)->p0(0, 8);
++            switch (index) {
++            case F3DEX2_G_MV_VIEWPORT:
++                state->rsp->setViewport((*dl)->w1);
++                break;
++            case F3DEX2_G_MV_LIGHT: {
++                const uint32_t offset = (*dl)->p0(5, 14);
++                const uint32_t lightIndex = offset / 48;
++                if (lightIndex < 2) {
++                    state->rsp->setLookAt(lightIndex, (*dl)->w1);
++                }
++                else {
++                    state->rsp->setLightCBFD(lightIndex - 2, (*dl)->w1);
++                }
++
++                break;
++            }
++            case F3DEX2CBFD_G_MV_NORMALS:
++                state->rsp->setNormalBaseCBFD((*dl)->w1);
++                break;
++            default:
++                break;
++            }
++        }
++
++        void moveWord(State *state, DisplayList **dl) {
++            const uint8_t type = (*dl)->p0(16, 8);
++            switch (type) {
++            case G_MW_NUMLIGHT:
++                state->rsp->setLightCountCBFD((*dl)->w1 / 48);
++                break;
++            case G_MW_LIGHTCOL:
++                state->rsp->setLightColorCBFD((*dl)->p0(0, 16), (*dl)->w1);
++                break;
++            case F3DEX2CBFD_G_MW_COORD_MOD:
++                state->rsp->setCoordModCBFD((*dl)->w0, (*dl)->w1);
++                break;
++            default:
++                GBI_F3DEX2::moveWord(state, dl);
++                break;
++            }
++        }
++
++        void switchLightingMode(State *state, DisplayList **dl) {
++            state->rsp->setAdvancedLightingCBFD(true);
++        }
++
++        void tri4(State *state, DisplayList **dl) {
++            const uint32_t w0 = (*dl)->w0;
++            const uint32_t w1 = (*dl)->w1;
++            const uint32_t idx[12] = {
++                (w0 >> 23) & 0x1F, (w0 >> 18) & 0x1F, (((w0 >> 15) & 0x7) << 2) | ((w1 >> 30) & 0x3),
++                (w0 >> 10) & 0x1F, (w0 >> 5) & 0x1F, w0 & 0x1F,
++                (w1 >> 25) & 0x1F, (w1 >> 20) & 0x1F, (w1 >> 15) & 0x1F,
++                (w1 >> 10) & 0x1F, (w1 >> 5) & 0x1F, w1 & 0x1F
++            };
++
++            for (uint32_t t = 0; t < 4; t++) {
++                const uint32_t a = idx[t * 3 + 0], b = idx[t * 3 + 1], c = idx[t * 3 + 2];
++                // Unused slots are encoded as (0, 0, 0).
++                if ((a == b) && (b == c)) {
++                    continue;
++                }
++
++                state->rsp->drawIndexedTri(a, b, c);
++            }
++        }
++
++        void reset(State *state) {
++            state->rsp->setClipRatioAll(2U);
++            state->rsp->resetCBFD();
++        }
++
++        void setup(GBI *gbi) {
++            GBI_F3DEX2::setup(gbi);
++
++            gbi->map[F3DEX2_G_VTX] = &vertex;
++            gbi->map[F3DEX2_G_MOVEMEM] = &moveMem;
++            gbi->map[F3DEX2_G_MOVEWORD] = &moveWord;
++            gbi->map[F3DEX2_G_LOAD_UCODE] = &switchLightingMode;
++            for (uint32_t i = 0; i < 16; i++) {
++                gbi->map[F3DEX2CBFD_G_TRI4 + i] = &tri4;
++            }
++
++            gbi->resetFromTask = &reset;
++            gbi->resetFromLoad = &reset;
++        }
++    }
++};
+diff --git a/src/gbi/rt64_gbi_f3dex2cbfd.h b/src/gbi/rt64_gbi_f3dex2cbfd.h
+new file mode 100644
+index 0000000..39316bf
+--- /dev/null
++++ b/src/gbi/rt64_gbi_f3dex2cbfd.h
+@@ -0,0 +1,18 @@
++//
++// RT64
++//
++
++#pragma once
++
++#include "rt64_gbi.h"
++
++// Rare's F3DEX2 2.08 derivative used by Conker's Bad Fur Day.
++#define F3DEX2CBFD_G_TRI4 0x10
++#define F3DEX2CBFD_G_MW_COORD_MOD 0x10
++#define F3DEX2CBFD_G_MV_NORMALS 0x0E
++
++namespace RT64 {
++    namespace GBI_F3DEX2CBFD {
++        void setup(GBI *gbi);
++    };
++};
+diff --git a/src/hle/rt64_rsp.cpp b/src/hle/rt64_rsp.cpp
+index 1da2550..a5d150b 100644
+--- a/src/hle/rt64_rsp.cpp
++++ b/src/hle/rt64_rsp.cpp
+@@ -5,6 +5,7 @@
+ #include "rt64_rsp.h"
+ 
+ #include <cassert>
++#include <cmath>
+ 
+ #include "../include/rt64_extended_gbi.h"
+ #include "common/rt64_common.h"
+@@ -92,6 +93,10 @@ namespace RT64 {
+         lookAtChanged = true;
+ 
+         clearExtended();
++
++        cbfd.coordMod.fill(0.0f);
++        cbfd.normalBase = 0;
++        resetCBFD();
+     }
+ 
+     constexpr uint32_t ExtendedMask = 0x80000000U;
+@@ -561,7 +566,8 @@ namespace RT64 {
+         uint32_t &geometryMode = geometryModeStack[geometryModeStackSize - 1];
+         const bool usesLighting = (geometryMode & G_LIGHTING);
+         const bool usesPointLighting = curGBI->flags.pointLighting && (geometryMode & G_POINT_LIGHTING);
+-        if (usesLighting) {
++        const bool usesLightingCBFD = usesLighting && (curGBI->ucode == GBIUCode::F3DEX2CBFD);
++        if (usesLighting && !usesLightingCBFD) {
+             if (lightsChanged) {
+                 auto &rspLights = workload.drawData.rspLights;
+                 vertexLightIndex = static_cast<uint32_t>(rspLights.size());
+@@ -715,6 +721,10 @@ namespace RT64 {
+             floatIndex += 3;
+         }
+ 
++        if (usesLightingCBFD) {
++            lightVerticesCBFD(dstIndex, dstMax, globalIndex);
++        }
++
+         if (usesTextureGen) {
+             const float TextureSc = static_cast<float>(textureState.sc);
+             const float TextureTc = static_cast<float>(textureState.tc);
+@@ -1311,4 +1321,188 @@ namespace RT64 {
+             this->NoN = NoN;
+         }
+     }
++    // F3DEX2CBFD
++
++    void RSP::setVertexCBFD(uint32_t address, uint32_t vtxCount, uint32_t dstIndex) {
++        // Same vertex layout as F3DEX2. The difference is how lit vertices get their normals, which
++        // setVertexCommon handles through lightVerticesCBFD.
++        setVertex(address, vtxCount, dstIndex);
++    }
++
++    void RSP::setLightCBFD(uint32_t index, uint32_t address) {
++        if (index > RSP_CBFD_MAX_LIGHTS) {
++            return;
++        }
++
++        // 48-byte record: color at +0, second color at +4, direction at +8, attenuation at +12 and
++        // a 16-bit position at +32.
++        const uint32_t rdramAddress = fromSegmentedMasked(address);
++        const uint8_t *RDRAM = state->RDRAM;
++        auto readU8 = [&](uint32_t offset) { return RDRAM[(rdramAddress + offset) ^ 3]; };
++        auto readS8 = [&](uint32_t offset) { return int8_t(RDRAM[(rdramAddress + offset) ^ 3]); };
++        auto readS16 = [&](uint32_t offset) { return *reinterpret_cast<const int16_t *>(&RDRAM[(rdramAddress + offset) ^ 2]); };
++        CBFDLight &light = cbfd.lights[index];
++        light.col = { readU8(0) / 255.0f, readU8(1) / 255.0f, readU8(2) / 255.0f };
++        const hlslpp::float3 dir = { float(readS8(8)), float(readS8(9)), float(readS8(10)) };
++        const float dirLength = hlslpp::length(dir);
++        light.dir = (dirLength > 0.0f) ? (dir / dirLength) : dir;
++        light.pos = { float(readS16(32)), float(readS16(34)), float(readS16(36)) };
++        light.ca = readU8(12) / 16.0f;
++    }
++
++    void RSP::setLightColorCBFD(uint32_t offset, uint32_t value) {
++        const uint32_t index = offset / 48;
++        if ((index > RSP_CBFD_MAX_LIGHTS) || ((offset % 48) != 0)) {
++            return;
++        }
++
++        cbfd.lights[index].col = { ((value >> 24) & 0xFF) / 255.0f, ((value >> 16) & 0xFF) / 255.0f, ((value >> 8) & 0xFF) / 255.0f };
++    }
++
++    void RSP::setLightCountCBFD(uint32_t count) {
++        cbfd.lightCount = std::min(int(count), RSP_CBFD_MAX_LIGHTS);
++    }
++
++    void RSP::setNormalBaseCBFD(uint32_t address) {
++        cbfd.normalBase = fromSegmentedMasked(address);
++    }
++
++    void RSP::setCoordModCBFD(uint32_t w0, uint32_t w1) {
++        if ((w0 & 0x8) != 0) {
++            return;
++        }
++
++        auto &mod = cbfd.coordMod;
++        const uint32_t idx = (w0 >> 1) & 0x3;
++        const uint32_t pos = w0 & 0x30;
++        if (pos == 0x00) {
++            mod[0 + idx] = float(int16_t(w1 >> 16));
++            mod[1 + idx] = float(int16_t(w1 & 0xFFFF));
++        }
++        else if (pos == 0x10) {
++            mod[4 + idx] = (w1 >> 16) / 65536.0f;
++            mod[5 + idx] = (w1 & 0xFFFF) / 65536.0f;
++            mod[12 + idx] = mod[0 + idx] + mod[4 + idx];
++            mod[13 + idx] = mod[1 + idx] + mod[5 + idx];
++        }
++        else if (pos == 0x20) {
++            mod[8 + idx] = float(int16_t(w1 >> 16));
++            mod[9 + idx] = float(int16_t(w1 & 0xFFFF));
++        }
++    }
++
++    void RSP::setAdvancedLightingCBFD(bool enabled) {
++        cbfd.advancedLighting = enabled;
++    }
++
++    void RSP::resetCBFD() {
++        cbfd.lights.fill({});
++        cbfd.lightCount = 0;
++        cbfd.advancedLighting = false;
++    }
++
++    void RSP::lightVerticesCBFD(uint32_t dstIndex, uint32_t dstMax, uint32_t globalIndex) {
++        const int workloadCursor = state->ext.workloadQueue->writeCursor;
++        Workload &workload = state->ext.workloadQueue->workloads[workloadCursor];
++        auto &normColBytes = workload.drawData.normColBytes;
++        auto &lightIndices = workload.drawData.lightIndices;
++        auto &lightCounts = workload.drawData.lightCounts;
++        auto &rspLights = workload.drawData.rspLights;
++        const auto &posTransformed = workload.drawData.posTransformed;
++        const uint32_t &geometryMode = geometryModeStack[geometryModeStackSize - 1];
++        const bool pointLightingNormals = (geometryMode & G_POINT_LIGHTING) != 0;
++        const uint32_t textureGenMask = G_LIGHTING | G_TEXTURE_GEN;
++        const bool usesTextureGen = (geometryMode & textureGenMask) == textureGenMask;
++        const uint8_t *RDRAM = state->RDRAM;
++        const auto &mod = cbfd.coordMod;
++        const int lightCount = cbfd.lightCount;
++
++        // Light directions in model space (inverse of the modelview rotation).
++        const hlslpp::float4x4 &modelView = modelMatrixStack[modelMatrixStackSize - 1];
++        std::array<hlslpp::float3, RSP_CBFD_MAX_LIGHTS + 1> modelDirs;
++        for (int l = 0; l < lightCount; l++) {
++            const hlslpp::float3 dir = hlslpp::mul(modelView, hlslpp::float4(cbfd.lights[l].dir, 0.0f)).xyz;
++            const float dirLength = hlslpp::length(dir);
++            modelDirs[l] = (dirLength > 0.0f) ? (dir / dirLength) : dir;
++        }
++
++        // Matches std::min(1.0f, x) in GLideN64, including x being NaN.
++        auto clampIntensity = [](float x) { return (x < 1.0f) ? x : 1.0f; };
++        auto pointIntensity = [&](int l, const hlslpp::float3 &vPos) {
++            const hlslpp::float3 d = vPos - cbfd.lights[l].pos;
++            const float len = 2.0f * hlslpp::dot(d, d) / 65536.0f;
++            return clampIntensity(cbfd.lights[l].ca / len);
++        };
++
++        for (uint32_t i = dstIndex; i < dstMax; i++) {
++            const Vertex &v = vertices[i];
++            const uint32_t g = globalIndex + (i - dstIndex);
++            const int8_t nx = int8_t(RDRAM[(cbfd.normalBase + i * 2 + 0) ^ 3]);
++            const int8_t ny = int8_t(RDRAM[(cbfd.normalBase + i * 2 + 1) ^ 3]);
++            const int8_t nz = int8_t(v.flag & 0xFF);
++            const hlslpp::float3 normal = { nx / 127.0f, ny / 127.0f, nz / 127.0f };
++            hlslpp::float3 color = { v.color.r / 255.0f, v.color.g / 255.0f, v.color.b / 255.0f };
++
++            // Vertices with the top flag bit set keep their color.
++            if (int16_t(v.flag) >= 0) {
++                const hlslpp::float4 &tf = posTransformed[g];
++                const hlslpp::float3 vPos = {
++                    (float(tf.x) + mod[8]) * mod[12],
++                    (float(tf.y) + mod[9]) * mod[13],
++                    (float(tf.z) + mod[10]) * mod[14]
++                };
++
++                hlslpp::float3 light = cbfd.lights[lightCount].col;
++                int l = lightCount - 1;
++                if (cbfd.advancedLighting && (l >= 0)) {
++                    const float intensity = clampIntensity(hlslpp::dot(normal, modelDirs[l]));
++                    if (intensity > 0.0f) {
++                        light += cbfd.lights[l].col * intensity;
++                    }
++
++                    while (--l >= 0) {
++                        float intensity = pointIntensity(l, vPos);
++                        if (pointLightingNormals) {
++                            intensity *= clampIntensity(hlslpp::dot(normal, modelDirs[l]));
++                        }
++
++                        if (intensity > 0.0f) {
++                            light += cbfd.lights[l].col * intensity;
++                        }
++                    }
++                }
++                else if (!cbfd.advancedLighting) {
++                    for (l = lightCount - 2; l >= 0; l--) {
++                        const float intensity = pointIntensity(l, vPos);
++                        if (intensity > 0.0f) {
++                            light += cbfd.lights[l].col * intensity;
++                        }
++                    }
++                }
++
++                color *= hlslpp::min(light, hlslpp::float3(1.0f, 1.0f, 1.0f));
++            }
++
++            // Without texgen the lit color is the vertex color and the GPU does no lighting. With
++            // texgen the shader reads the same bytes as the normal, so the vertex carries its normal
++            // and the lit color reaches the shader as a per-vertex ambient light.
++            if (usesTextureGen && (rspLights.size() < 0xFFFF)) {
++                normColBytes[g * 4 + 0] = uint8_t(nx);
++                normColBytes[g * 4 + 1] = uint8_t(ny);
++                normColBytes[g * 4 + 2] = uint8_t(nz);
++                interop::RSPLight rspLight = {};
++                rspLight.col = color;
++                lightIndices[g] = uint16_t(rspLights.size());
++                lightCounts[g] = 1;
++                rspLights.push_back(rspLight);
++            }
++            else {
++                normColBytes[g * 4 + 0] = uint8_t(std::lround(float(color.x) * 255.0f));
++                normColBytes[g * 4 + 1] = uint8_t(std::lround(float(color.y) * 255.0f));
++                normColBytes[g * 4 + 2] = uint8_t(std::lround(float(color.z) * 255.0f));
++                lightIndices[g] = 0;
++                lightCounts[g] = 0;
++            }
++        }
++    }
+ };
+diff --git a/src/hle/rt64_rsp.h b/src/hle/rt64_rsp.h
+index 61bb3b1..07527e6 100644
+--- a/src/hle/rt64_rsp.h
++++ b/src/hle/rt64_rsp.h
+@@ -22,6 +22,7 @@
+ #define RSP_DMA_MASK 0xFFFFF8 // Only bits 3-23 (0-indexed) are used by the DMA hardware.
+ 
+ #define RSP_MAX_LIGHTS              7
++#define RSP_CBFD_MAX_LIGHTS         15
+ #define RSP_MATRIX_STACK_SIZE       32
+ #define RSP_EXTENDED_STACK_SIZE     16
+ #define RSP_MAX_VERTICES            256
+@@ -229,6 +230,24 @@ namespace RT64 {
+             bool forceBranch;
+         } extended;
+ 
++        // State for Rare's F3DEX2CBFD microcode (Conker's Bad Fur Day). Lighting is evaluated on the CPU
++        // as GLideN64 does, because it depends on clip-space positions, 48-byte light records and a
++        // separate normal stream that the generic RSP lighting path cannot express.
++        struct CBFDLight {
++            hlslpp::float3 col = { 0.0f, 0.0f, 0.0f };
++            hlslpp::float3 dir = { 0.0f, 0.0f, 0.0f };
++            hlslpp::float3 pos = { 0.0f, 0.0f, 0.0f };
++            float ca = 0.0f;
++        };
++
++        struct {
++            std::array<CBFDLight, RSP_CBFD_MAX_LIGHTS + 1> lights;
++            std::array<float, 16> coordMod;
++            uint32_t normalBase;
++            int lightCount;
++            bool advancedLighting;
++        } cbfd;
++
+         RSP(State *state);
+         void reset();
+         Projection::Type getCurrentProjectionType() const;
+@@ -303,5 +322,14 @@ namespace RT64 {
+         void clearExtended();
+         void setGBI(GBI *gbi);
+         void setNoN(bool NoN);
++        void setVertexCBFD(uint32_t address, uint32_t vtxCount, uint32_t dstIndex);
++        void setLightCBFD(uint32_t index, uint32_t address);
++        void setLightColorCBFD(uint32_t offset, uint32_t value);
++        void setLightCountCBFD(uint32_t count);
++        void setNormalBaseCBFD(uint32_t address);
++        void setCoordModCBFD(uint32_t w0, uint32_t w1);
++        void setAdvancedLightingCBFD(bool enabled);
++        void resetCBFD();
++        void lightVerticesCBFD(uint32_t dstIndex, uint32_t dstMax, uint32_t globalIndex);
+     };
+ };
+\ No newline at end of file
