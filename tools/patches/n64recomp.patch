@@ -1,0 +1,472 @@
+diff --git a/include/recompiler/context.h b/include/recompiler/context.h
+index e7b4431..e56e988 100644
+--- a/include/recompiler/context.h
++++ b/include/recompiler/context.h
+@@ -32,10 +32,16 @@ namespace N64Recomp {
+         bool reimplemented;
+         bool stubbed;
+         std::unordered_map<int32_t, std::string> function_hooks;
++        // Entry point for functions that live in a shared code region (handwritten assembly whose
++        // routines branch into common tails). `vram`/`words` then cover the whole region and
++        // execution starts at `entry_vram`. Zero means the function starts at `vram`.
++        uint32_t entry_vram = 0;
+ 
+         Function(uint32_t vram, uint32_t rom, std::vector<uint32_t> words, std::string name, uint16_t section_index, bool ignored = false, bool reimplemented = false, bool stubbed = false)
+                 : vram(vram), rom(rom), words(std::move(words)), name(std::move(name)), section_index(section_index), ignored(ignored), reimplemented(reimplemented), stubbed(stubbed) {}
+         Function() = default;
++
++        uint32_t entry() const { return entry_vram != 0 ? entry_vram : vram; }
+     };
+     
+     struct JumpTable {
+@@ -226,6 +232,20 @@ namespace N64Recomp {
+         std::vector<std::vector<size_t>> section_functions;
+         // A mapping of vram address to every function with that address.
+         std::unordered_map<uint32_t, std::vector<size_t>> functions_by_vram;
++        // Shared code regions (start, end) declared in the symbol file; see Function::entry_vram.
++        std::vector<std::pair<uint32_t, uint32_t>> regions;
++        // Regions whose shared body has already been emitted during this run.
++        mutable std::unordered_set<uint32_t> emitted_regions;
++
++        // Start address of the region containing `addr`, if any.
++        std::optional<uint32_t> region_containing(uint32_t addr) const {
++            for (const auto& [start, end] : regions) {
++                if (addr >= start && addr < end) {
++                    return start;
++                }
++            }
++            return std::nullopt;
++        }
+         // A mapping of bss section index to the corresponding non-bss section index.
+         std::unordered_map<uint16_t, uint16_t> bss_section_to_section;
+         // The target ROM being recompiled, TODO move this outside of the context to avoid making a copy for mod contexts.
+diff --git a/src/analysis.cpp b/src/analysis.cpp
+index 9eaaa30..ffe7a85 100644
+--- a/src/analysis.cpp
++++ b/src/analysis.cpp
+@@ -146,13 +146,10 @@ bool analyze_instruction(const rabbitizer::InstructionCpu& instr, const N64Recom
+     case InstrId::cpu_sw:
+         // If this is a store to the stack, copy the state of rt into the stack at the given offset
+         if (base == (int)RegId::GPR_O32_sp) {
+-            if ((imm & 0b11) != 0) {
+-                fmt::print(stderr, "Invalid alignment on offset for sw to stack: {}\n", (int16_t)imm);
+-                return false;
+-            }
+-            if (((int16_t)imm) < 0) {
+-                fmt::print(stderr, "Negative offset for sw to stack: {}\n", (int16_t)imm);
+-                return false;
++            if ((imm & 0b11) != 0 || ((int16_t)imm) < 0) {
++                // Handwritten assembly addresses the stack in ways this tracker does not model;
++                // stop tracking rather than failing the function.
++                break;
+             }
+             size_t stack_offset = imm / 4;
+             if (stack_offset >= stack_states.size()) {
+@@ -166,13 +163,10 @@ bool analyze_instruction(const rabbitizer::InstructionCpu& instr, const N64Recom
+         temp.invalidate();
+         // If this is a load from the stack, copy the state of the stack at the given offset to rt
+         if (base == (int)RegId::GPR_O32_sp) {
+-            if ((imm & 0b11) != 0) {
+-                fmt::print(stderr, "Invalid alignment on offset for lw from stack: {}\n", (int16_t)imm);
+-                return false;
+-            }
+-            if (((int16_t)imm) < 0) {
+-                fmt::print(stderr, "Negative offset for lw from stack: {}\n", (int16_t)imm);
+-                return false;
++            if ((imm & 0b11) != 0 || ((int16_t)imm) < 0) {
++                // Handwritten assembly addresses the stack in ways this tracker does not model;
++                // stop tracking rather than failing the function.
++                break;
+             }
+             size_t stack_offset = imm / 4;
+             if (stack_offset >= stack_states.size()) {
+@@ -314,14 +308,30 @@ bool N64Recomp::analyze_function(const N64Recomp::Context& context, const N64Rec
+             end_address = stats.jump_tables[i + 1].vram;
+         }
+ 
+-        // TODO this assumes that the jump table is in the same section as the function itself
+-        cur_jtbl.rom = cur_jtbl.vram + func.rom - func.vram;
++        // Jump tables are usually in the same section as the function, but IDO places them in
++        // .rodata, which can be a different section when a symbol file describes code at a
++        // TLB-aliased address. Resolve the table's ROM location through whichever section holds it.
++        const Section* jtbl_section = section;
+         cur_jtbl.section_index = func.section_index;
++        if (!(cur_jtbl.vram >= section->ram_addr && cur_jtbl.vram < section->ram_addr + section->size)) {
++            for (size_t candidate_index = 0; candidate_index < context.sections.size(); candidate_index++) {
++                const Section& candidate = context.sections[candidate_index];
++                if (cur_jtbl.vram >= candidate.ram_addr && cur_jtbl.vram < candidate.ram_addr + candidate.size) {
++                    jtbl_section = &candidate;
++                    cur_jtbl.section_index = static_cast<decltype(cur_jtbl.section_index)>(candidate_index);
++                    break;
++                }
++            }
++        }
++        cur_jtbl.rom = cur_jtbl.vram - jtbl_section->ram_addr + jtbl_section->rom_addr;
+ 
+         while (vram < end_address) {
+             // Retrieve the current entry of the jump table
+-            // TODO same as above
+-            uint32_t rom_addr = vram + func.rom - func.vram;
++            uint32_t rom_addr = vram - jtbl_section->ram_addr + jtbl_section->rom_addr;
++            if (rom_addr + sizeof(uint32_t) > context.rom.size()) {
++                // The table runs past the end of the provided binary.
++                break;
++            }
+             uint32_t jtbl_word = byteswap(*reinterpret_cast<const uint32_t*>(&context.rom[rom_addr]));
+ 
+             if (cur_jtbl.got_offset.has_value() && got_ram_addr.has_value()) {
+@@ -340,12 +350,17 @@ bool N64Recomp::analyze_function(const N64Recomp::Context& context, const N64Rec
+         }
+ 
+         if (cur_jtbl.entries.size() == 0) {
+-            fmt::print("Failed to determine size of jump table at 0x{:08X} for instruction at 0x{:08X}\n", cur_jtbl.vram, cur_jtbl.jr_vram);
+-            return false;
++            // Not a jump table into this function (e.g. a table of function pointers followed by
++            // jr). Drop it so the jr is emitted as an indirect call instead.
++            fmt::print("[Info] Table at 0x{:08X} used by jr at 0x{:08X} has no entries in the function; treating as an indirect jump\n", cur_jtbl.vram, cur_jtbl.jr_vram);
++            cur_jtbl.jr_vram = 0xFFFFFFFF;
+         }
+ 
+         //fmt::print("Jtbl at 0x{:08X} (rom 0x{:08X}) with {} entries used by instr at 0x{:08X}\n", cur_jtbl.vram, cur_jtbl.rom, cur_jtbl.entries.size(), cur_jtbl.jr_vram);
+     }
+ 
++    // Drop the tables that turned out not to be jump tables.
++    std::erase_if(stats.jump_tables, [](const JumpTable& jtbl) { return jtbl.entries.empty(); });
++
+     return true;
+ }
+diff --git a/src/cgenerator.cpp b/src/cgenerator.cpp
+index 94f85c5..22da869 100644
+--- a/src/cgenerator.cpp
++++ b/src/cgenerator.cpp
+@@ -569,6 +569,11 @@ void N64Recomp::CGenerator::process_binary_op(const BinaryOp& op, const Instruct
+     thread_local std::string expression{};
+     get_operand_string(op.output, UnaryOpType::None, ctx, output);
+     get_binary_expr_string(op.type, op.operands, ctx, output, expression);
++    if (output == "0") {
++        // Destination is $zero (data words decoded as instructions, or a deliberate no-op).
++        fmt::print(output_file, "(void)({});\n", expression);
++        return;
++    }
+     fmt::print(output_file, "{} = {};\n", output, expression);
+ }
+ 
+@@ -579,6 +584,10 @@ void N64Recomp::CGenerator::process_unary_op(const UnaryOp& op, const Instructio
+     thread_local std::string input{};
+     get_operand_string(op.output, UnaryOpType::None, ctx, output);
+     get_operand_string(op.input, op.operation, ctx, input);
++    if (output == "0") {
++        fmt::print(output_file, "(void)({});\n", input);
++        return;
++    }
+     fmt::print(output_file, "{} = {};\n", output, input);
+ }
+ 
+diff --git a/src/config.cpp b/src/config.cpp
+index 1066aff..997be5e 100644
+--- a/src/config.cpp
++++ b/src/config.cpp
+@@ -581,6 +581,24 @@ bool N64Recomp::Context::from_symbol_file(const std::filesystem::path& symbol_fi
+                 section.got_ram_addr = got_ram_addr;
+                 section.executable = true;
+ 
++                // Optional shared code regions: functions whose entry lies inside one are recompiled
++                // with the whole region as their body so that branches into common tails resolve.
++                std::vector<std::pair<uint32_t, uint32_t>> regions{};
++                const toml::node_view regions_value = el["regions"];
++                if (regions_value.is_array()) {
++                    regions_value.as_array()->for_each([&regions, &ret](auto&& region_el) {
++                        if constexpr (toml::is_table<decltype(region_el)>) {
++                            std::optional<uint32_t> start = region_el["start"].template value<uint32_t>();
++                            std::optional<uint32_t> end = region_el["end"].template value<uint32_t>();
++                            if (!start.has_value() || !end.has_value() || end.value() <= start.value()) {
++                                throw toml::parse_error("Region entry needs start < end", region_el.source());
++                            }
++                            regions.emplace_back(start.value(), end.value());
++                            ret.regions.emplace_back(start.value(), end.value());
++                        }
++                    });
++                }
++
+                 // Read functions for the section.
+                 const toml::node_view cur_functions_value = el["functions"];
+                 if (!cur_functions_value.is_array()) {
+@@ -588,7 +606,7 @@ bool N64Recomp::Context::from_symbol_file(const std::filesystem::path& symbol_fi
+                 }
+ 
+                 const toml::array* cur_functions = cur_functions_value.as_array();
+-                cur_functions->for_each([&ret, &rom, &section, section_index](auto&& func_el) {
++                cur_functions->for_each([&ret, &rom, &section, &regions, section_index](auto&& func_el) {
+                     size_t function_index = ret.functions.size();
+ 
+                     if constexpr (toml::is_table<decltype(func_el)>) {
+@@ -608,6 +626,16 @@ bool N64Recomp::Context::from_symbol_file(const std::filesystem::path& symbol_fi
+                         cur_func.rom = cur_func.vram - section.ram_addr + section.rom_addr;
+                         cur_func.section_index = section_index;
+ 
++                        for (const auto& [region_start, region_end] : regions) {
++                            if (cur_func.vram >= region_start && cur_func.vram < region_end) {
++                                cur_func.entry_vram = cur_func.vram;
++                                cur_func.vram = region_start;
++                                cur_func.rom = region_start - section.ram_addr + section.rom_addr;
++                                func_size = region_end - region_start;
++                                break;
++                            }
++                        }
++
+                         if (cur_func.vram & 0b11) {
+                             // Function isn't word aligned in vram.
+                             throw toml::parse_error("Function's vram address isn't word aligned", func_el.source());
+@@ -632,9 +660,9 @@ bool N64Recomp::Context::from_symbol_file(const std::filesystem::path& symbol_fi
+                             }
+                         }
+ 
+-                        section.function_addrs.push_back(cur_func.vram);
++                        section.function_addrs.push_back(cur_func.entry());
+                         ret.functions_by_name[cur_func.name] = function_index;
+-                        ret.functions_by_vram[cur_func.vram].push_back(function_index);
++                        ret.functions_by_vram[cur_func.entry()].push_back(function_index);
+                         ret.section_functions[section_index].push_back(function_index);
+ 
+                         ret.functions.emplace_back(std::move(cur_func));
+diff --git a/src/main.cpp b/src/main.cpp
+index 669c4a1..22de84f 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -510,6 +510,10 @@ int main(int argc, char** argv) {
+     fmt::print("Working dir: {}\n", std::filesystem::current_path().string());
+ 
+     // Stub out any functions specified in the config file.
++    for (const auto& [region_start, region_end] : context.regions) {
++        fmt::print(func_header_file, "void region_{:08X}(uint8_t* rdram, recomp_context* ctx, uint32_t region_target);\n", region_start);
++    }
++
+     for (const std::string& stubbed_func : config.stubbed_funcs) {
+         // Check if the specified function exists.
+         auto func_find = context.functions_by_name.find(stubbed_func);
+@@ -734,6 +738,7 @@ int main(int argc, char** argv) {
+     bool failed_strict_mode = false;
+ 
+     //#pragma omp parallel for
++    std::vector<std::string> failed_functions{};
+     for (size_t i = 0; i < context.functions.size(); i++) {
+         const auto& func = context.functions[i];
+ 
+@@ -783,7 +788,9 @@ int main(int argc, char** argv) {
+             }
+             if (result == false) {
+                 fmt::print(stderr, "Error recompiling {}\n", func.name);
+-                std::exit(EXIT_FAILURE);
++                // Keep going so that one run reports every function that needs attention
++                // (e.g. to be added to the ignored list); fail at the end instead.
++                failed_functions.push_back(func.name);
+             }
+         } else if (func.reimplemented) {
+             fmt::print(func_header_file,
+@@ -791,6 +798,14 @@ int main(int argc, char** argv) {
+         }
+     }
+ 
++    if (!failed_functions.empty()) {
++        fmt::print(stderr, "\n{} function(s) failed to recompile:\n", failed_functions.size());
++        for (const std::string& name : failed_functions) {
++            fmt::print(stderr, "  {}\n", name);
++        }
++        exit_failure("Recompilation failed\n");
++    }
++
+     if (failed_strict_mode) {
+         if (config.single_file_output || config.functions_per_output_file > 1) {
+             current_output_file.close();
+@@ -960,7 +975,7 @@ int main(int argc, char** argv) {
+ 
+                     if (func.reimplemented || (!func.name.empty() && !func.ignored && func.words.size() != 0)) {
+                         fmt::print(overlay_file, "    {{ .func = {}, .offset = 0x{:08X}, .rom_size = 0x{:08X} }},\n",
+-                            func.name, func.rom - section.rom_addr, func_size);
++                            func.name, func.entry() - section.ram_addr, func_size);
+                     }
+                 }
+ 
+diff --git a/src/recompilation.cpp b/src/recompilation.cpp
+index c228433..2c1d441 100644
+--- a/src/recompilation.cpp
++++ b/src/recompilation.cpp
+@@ -259,7 +259,7 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+         return true;
+     };
+ 
+-    auto print_func_call_by_address = [&generator, reloc_target_section_offset, has_reloc, reloc_section, reloc_reference_symbol, reloc_type, &context, &func, &static_funcs_out, &needs_link_branch, &print_indent, &process_delay_slot, &print_link_branch]
++    auto print_func_call_by_address = [&generator, &output_file, reloc_target_section_offset, has_reloc, reloc_section, reloc_reference_symbol, reloc_type, &context, &func, &static_funcs_out, &needs_link_branch, &print_indent, &process_delay_slot, &print_link_branch]
+         (uint32_t target_func_vram, bool tail_call = false, bool indent = false)
+     {
+         bool call_by_lookup = false;
+@@ -303,6 +303,22 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+                 }
+                 JalResolutionResult jal_result = resolve_jal(context, target_section, target_func_vram, matched_func_index);
+ 
++                if (jal_result != JalResolutionResult::Match) {
++                    if (std::optional<uint32_t> region = context.region_containing(target_func_vram); region.has_value()) {
++                        needs_link_branch = !tail_call;
++                        if (indent) {
++                            print_indent();
++                        }
++                        if (!process_delay_slot(false)) {
++                            return false;
++                        }
++                        print_indent();
++                        fmt::print(output_file, "region_{:08X}(rdram, ctx, 0x{:08X});\n", region.value(), target_func_vram);
++                        print_link_branch();
++                        return true;
++                    }
++                }
++
+                 switch (jal_result) {
+                     case JalResolutionResult::NoMatch:
+                         fmt::print(stderr, "No function found for jal target: 0x{:08X}\n", target_func_vram);
+@@ -518,6 +534,15 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+                 print_indent();
+                 generator.emit_return(context, func_index);
+             }
++            else if (std::optional<uint32_t> region = context.region_containing(branch_target); region.has_value()) {
++                if (!process_delay_slot(false)) {
++                    return false;
++                }
++                print_indent();
++                fmt::print(output_file, "region_{:08X}(rdram, ctx, 0x{:08X});\n", region.value(), branch_target);
++                print_indent();
++                generator.emit_return(context, func_index);
++            }
+             else {
+                 fmt::print(stderr, "Unhandled branch in {} at 0x{:08X} to 0x{:08X}\n", func.name, instr_vram, branch_target);
+                 return false;
+@@ -526,6 +551,18 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+         break;
+     case InstrId::cpu_jr:
+         if (rs == (int)rabbitizer::Registers::Cpu::GprO32::GPR_O32_ra) {
++            if (func.entry_vram != 0) {
++                // Inside a shared region $ra is either the wrapper's sentinel (a real return) or an
++                // address the handwritten code placed there explicitly (`lui/addiu $ra` before a
++                // `j` into a helper), in which case execution continues at that label.
++                if (!process_delay_slot(false)) {
++                    return false;
++                }
++                print_indent();
++                fmt::print(output_file, "if ((uint32_t)ctx->r31 == 0xFFFFFFFFu) {{ {}return; }} region_target = (uint32_t)ctx->r31; region_source = 0x{:08X}; goto region_dispatch;\n",
++                    context.trace_mode ? "TRACE_RETURN() " : "", instr_vram);
++                break;
++            }
+             print_return_with_delay_slot();
+         } else {
+             auto jtbl_find_result = std::find_if(stats.jump_tables.begin(), stats.jump_tables.end(),
+@@ -553,6 +590,16 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+                 break;
+             }
+ 
++            if (func.entry_vram != 0) {
++                // Computed jump inside a shared code region: dispatch to the target label.
++                if (!process_delay_slot(false)) {
++                    return false;
++                }
++                print_indent();
++                fmt::print(output_file, "region_target = (uint32_t)ctx->r{}; region_source = 0x{:08X}; if (region_target == 0xFFFFFFFFu) {{ {}return; }} goto region_dispatch;\n",
++                    rs, instr_vram, context.trace_mode ? "TRACE_RETURN() " : "");
++                break;
++            }
+             fmt::print("[Info] Indirect tail call in {}\n", func.name);
+             print_func_call_by_register(rs);
+             print_indent();
+@@ -746,8 +793,16 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+     }
+ 
+     if (!handled) {
+-        fmt::print(stderr, "Unhandled instruction: {}\n", instr.getOpcodeName());
+-        return false;
++        if (!instr.isValid()) {
++            // An undecodable word inside a function (data in a code region). Trap if reached.
++            fmt::print("[Info] Invalid instruction word at 0x{:08X} in {}, emitting a break\n", instr_vram, func.name);
++            print_indent();
++            generator.emit_do_break(instr_vram);
++            handled = true;
++        } else {
++            fmt::print(stderr, "Unhandled instruction: {}\n", instr.getOpcodeName());
++            return false;
++        }
+     }
+ 
+     // TODO is this used?
+@@ -765,12 +820,36 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
+     //fmt::print("Recompiling {}\n", func.name);
+     std::vector<rabbitizer::InstructionCpu> instructions;
+ 
+-    generator.emit_function_start(func.name, func_index);
+-
+-    if (context.trace_mode) {
++    // Functions inside a shared code region are thin wrappers around one body per region
++    // (`region_<start>`), which starts with a switch over every instruction address so that
++    // entries and computed jumps (`jr $reg`) resolve to labels. Returns leave the body.
++    const bool in_region = func.entry_vram != 0;
++    if (in_region) {
++        generator.emit_function_start(func.name, func_index);
++        if (context.trace_mode) {
++            fmt::print(output_file, "    TRACE_ENTRY()\n");
++        }
++        // Handwritten routines may keep the return address in another register (e.g. `or $t7, $ra`
++        // ... `jr $t7`). Recompiled calls carry no real return address, so seed $ra with a sentinel
++        // that the region's computed-jump handling turns into a return.
++        fmt::print(output_file, "    ctx->r31 = (gpr)(int32_t)0xFFFFFFFF;\n    region_{:08X}(rdram, ctx, 0x{:08X});\n    return;\n", func.vram, func.entry_vram);
++        generator.emit_function_end();
++        if (!context.emitted_regions.insert(func.vram).second) {
++            return true;
++        }
+         fmt::print(output_file,
+-            "    TRACE_ENTRY()\n",
+-            func.name);
++            "\nvoid region_{:08X}(uint8_t* rdram, recomp_context* ctx, uint32_t region_target) {{\n"
++            "    uint64_t hi = 0, lo = 0, result = 0;\n"
++            "    int c1cs = 0;\n"
++            "    uint32_t region_source = 0;\n", func.vram);
++    } else {
++        generator.emit_function_start(func.name, func_index);
++
++        if (context.trace_mode) {
++            fmt::print(output_file,
++                "    TRACE_ENTRY()\n",
++                func.name);
++        }
+     }
+ 
+     // Skip analysis and recompilation of this function is stubbed.
+@@ -798,6 +877,14 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
+             vram += 4;
+         }
+ 
++        // A shared region body gets a label at every instruction so the dispatcher can reach any
++        // entry or computed-jump target.
++        if (in_region) {
++            for (uint32_t addr = func.vram; addr < func.vram + func.words.size() * sizeof(uint32_t); addr += 4) {
++                branch_labels.insert(addr);
++            }
++        }
++
+         // Analyze function
+         N64Recomp::FunctionStats stats{};
+         if (!N64Recomp::analyze_function(context, func, instructions, stats)) {
+@@ -816,6 +903,18 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
+             }
+         }
+ 
++        if (in_region) {
++            const uint32_t region_end = func.vram + func.words.size() * sizeof(uint32_t);
++            fmt::print(output_file, "region_dispatch:\n    switch (region_target) {{\n");
++            for (uint32_t label : branch_labels) {
++                if (label >= func.vram && label < region_end) {
++                    fmt::print(output_file, "        case 0x{0:08X}: goto L_{0:08X};\n", label);
++                }
++            }
++            // A computed jump to 0 means a jump through an uninitialised pointer; report the jr site.
++            fmt::print(output_file, "        default: if (region_target == 0) {{ switch_error(__func__, region_source, 0); }} LOOKUP_FUNC(region_target)(rdram, ctx); return;\n    }}\n");
++        }
++
+         // Second pass, emit code for each instruction and emit labels
+         auto cur_label = branch_labels.cbegin();
+         vram = func.vram;
