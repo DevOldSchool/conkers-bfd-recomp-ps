@@ -20,8 +20,8 @@ This repository contains no ROM data. You need your own US ROM
 | --- | --- |
 | Symbol file from the decomp inventory, ELF and evidence docs | done: 5,900+ functions across main, game and debugger overlays, SDK copies in the game overlay named so the runtime replaces them |
 | Static recompilation | done: every function recompiles; 13 CP0/TLB/exception routines are stubbed; Rare's handwritten geometry code is recompiled as a shared code region |
-| Headless runtime (no graphics, audio or input) | boots: ROM load, game-archive inflation, thread creation, main init, game entry, software-geometry setup, visibility-partition build, main loop (graphics tasks are submitted); stops in the audio thread (see below) |
-| Crash diagnostics | crash reporter with MIPS registers, per-thread call trace, `tools/symbolicate.sh` |
+| Headless runtime (no graphics, audio or input) | boots: ROM load, game-archive inflation, thread creation, main init, game entry, software-geometry setup, visibility-partition build, main loop, legal and Nintendo screens, intro cutscene; stops entering the title scene (see below) |
+| Crash diagnostics | crash reporter with MIPS registers, per-thread call trace, `tools/symbolicate.sh`; display-list dumper and scripted Start press (see "Diagnostics") |
 | Graphics: RT64 support for Rare's F3DEX2CBFD microcode | not started, see [docs/rsp-microcode.md](docs/rsp-microcode.md) |
 | Audio: RSPRecomp of the `n_aspMain` microcode | not started |
 | Saving: EEPROM through a PIF shim | volatile in-memory image only |
@@ -29,16 +29,61 @@ This repository contains no ROM data. You need your own US ROM
 
 ### Where the headless boot stops
 
-The headless run no longer crashes: it runs until killed (checked for 240
-seconds), the game thread loops in `func_15007B3C` and submits a graphics task
-every frame (6,600+ in 240 s), and the audio thread runs its RSP tasks through
-the silent stub. From about the 600th task on, every graphics task uses the
-same display list address (`0x00122C20`). Without a renderer it is not yet
-known whether that is a title or attract screen or the game waiting on input
-or on an event the runtime never sends. Wiring up RT64 (or dumping that display
-list) is the next step.
+The headless run now plays the boot sequence and the intro cutscene, then
+stops around graphics task 1,270 as the game enters scene
+`0x1D`, the title scene in the Cock and Plucker bar. Creating that scene's
+trigger node `0xC8` (`func_1509B5AC` → `func_150ADAF0(node, 0)`) ends in a call
+through a null function pointer ("Failed to find function at 0x00000000"). The
+last recompiled calls on that thread are `func_150183D0`, `func_15018500`,
+`__conker_mp3_alloc` and `func_80003C6C`. That is the next thing to look at.
 
-The last crash before this was on the audio thread: `func_8000A03C` reads the
+What the display-list dumper (`CONKER_DUMP_DL`) shows, with the screens
+identified against emulator screenshots (`./conker mupen-trace
+--software-renderer ... -- --testshots`):
+
+| Graphics tasks | Display list | Screen |
+| --- | --- | --- |
+| 1-110 | 440 commands, 22 texture rectangles | blank or fade |
+| 120-260 | 3,283 commands, 380 texture rectangles | legal text (Dolby, Miles, MPEG, Rare) |
+| 270-420 | 296 commands, 4 texture rectangles | Nintendo logo |
+| 422 on | ~1,900 commands, ~1,100 triangles, alternating buffers `0x10ADC0` / `0x122C20` | intro scene `0x21` (wooden floor, N64 logo, Conker) |
+
+The earlier note that every task from about the 600th on used display list
+`0x00122C20` was a sampling artefact: the log printed every 600th task, always
+an even one, and the game double-buffers its display lists.
+
+**Why the intro used to hang.** Before the fix in this section, the run never
+got past the first shot of the intro scene. It rendered the scene's starting
+state forever: Conker's textures are in the display list, but the shot never
+changed. The cause was not missing input, EEPROM data, VI messages or audio:
+
+* The intro is cutscene script 1 of scene `0x21`. It is started by a scene
+  trigger node: `func_1509BBA0` walks the node list `D_800D2F48` every frame and
+  runs each node's action through `func_150ADAF0`; action type 1 is
+  `func_1509C440`, which installs the script with `func_1501D348(0x21, 1, ...)`.
+  The emulator shows this happening (node at `0x800D5050`).
+* In the recomp the node list was empty. Scene loading (`func_15002FB4`)
+  reads the scene header's trigger count (`header[0x12]`). It also checks one
+  ROM word with `osPiReadIo(0x40F0FAAC ^ 0xF0F0F0F0 = 0xB0000A5C)` and expects
+  `0x1740FFF9 ^ 0xF0F0F0F0`. If the check fails, it **halves the trigger
+  count**, which looks like Rare's anti-tamper measure. Scene `0x21` has one
+  trigger, so halving left none.
+* `osPiRawReadIo` in `src/ultra_extras.cpp` treated its argument as a cartridge
+  physical address and returned 0 for the KSEG1 address `0xB0000A5C`.
+  libultra reads `osRomBase | devAddr`, so the shim now masks the address the
+  same way. With that fix the script clock runs from 0 to its end time (1,700
+  ticks), the shots play out and the game moves on to scene `0x1D`.
+
+The input shim had nothing to do with it. Controllers are read through
+`osContGetReadData` (the runtime's `get_input`), not raw SI DMA. Holding Start
+with `CONKER_PRESS_START=1800` at the stuck scene changed nothing, because the
+skip check in `func_1501E05C` needs a running cutscene clock of at least 301
+ticks. The game made no EEPROM access through the PIF shim before this point.
+
+Other checks of this kind may be present. Any native shim that reads ROM, PI or
+PIF state should behave like the hardware for every address form the game uses.
+
+The last crash before the main loop ran was on the audio thread: `func_8000A03C` reads the
 message the PI DMA completion puts on the queue at `0x800416F0` as the
 `OSIoMesg` it passed to `osPiStartDma` (it compares `dramAddr` against its
 sound-bank buffers). The runtime's PI code sent a null message and never
@@ -102,6 +147,24 @@ to generated C lines and N64 instruction addresses.
 tool, writes `config/us.syms.toml` plus a virtual ROM (the real ROM with the
 decompressed game images appended, read only by N64Recomp), and runs the
 recompiler into `build/us/RecompiledFuncs`.
+
+### Diagnostics
+
+These environment variables are read by the headless binary:
+
+* `CONKER_DUMP_DL=<task>[,<task>...]` prints every command of the listed
+  graphics tasks (1-based). It walks the F3DEX2-style display list from the
+  task's data pointer, follows `gSPDisplayList` (`DE`), returns at
+  `gSPEndDisplayList` (`DF`), applies `gSPSegment` bases and resolves image
+  addresses (`FD`/`FE`/`FF`). While the variable is set, a one-line summary is
+  also printed every 60 tasks and whenever the command count changes: command,
+  list, triangle and rectangle counts, colour image, content hash and texture
+  addresses. `CONKER_DUMP_DL=0` gives only the summaries.
+* `CONKER_DUMP_RDRAM=1` also writes `conker-task-<n>.rdram` (8 MiB,
+  big-endian) for each fully dumped task, so its textures can be decoded
+  offline.
+* `CONKER_PRESS_START=<vi>[,<vi>...]` holds Start on controller 1 for 10 VIs
+  from each listed VI count.
 
 ## How the recompilation is set up
 
