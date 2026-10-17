@@ -1,5 +1,5 @@
-// A renderer that accepts display lists and draws nothing. It lets the recompiled game run
-// headless while RT64 gains support for Conker's F3DEX2CBFD microcode (docs/rsp-microcode.md).
+// A renderer that accepts display lists and draws nothing (the default, CONKER_RENDERER=null).
+// It lets the recompiled game run headless; CONKER_RENDERER=rt64 draws them (renderer_rt64.hpp).
 #pragma once
 
 #include <memory>
