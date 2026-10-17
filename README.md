@@ -20,7 +20,7 @@ This repository contains no ROM data. You need your own US ROM
 | --- | --- |
 | Symbol file from the decomp inventory, ELF and evidence docs | done: 5,900+ functions across main, game and debugger overlays, SDK copies in the game overlay named so the runtime replaces them |
 | Static recompilation | done: every function recompiles; 13 CP0/TLB/exception routines are stubbed; Rare's handwritten geometry code is recompiled as a shared code region |
-| Headless runtime (no graphics, audio or input) | boots: ROM load, game-archive inflation, thread creation, main init, game entry, software-geometry setup; stops in the space-partition builder (see below) |
+| Headless runtime (no graphics, audio or input) | boots: ROM load, game-archive inflation, thread creation, main init, game entry, software-geometry setup, visibility-partition build, main loop (graphics tasks are submitted); stops in the audio thread (see below) |
 | Crash diagnostics | crash reporter with MIPS registers, per-thread call trace, `tools/symbolicate.sh` |
 | Graphics: RT64 support for Rare's F3DEX2CBFD microcode | not started, see [docs/rsp-microcode.md](docs/rsp-microcode.md) |
 | Audio: RSPRecomp of the `n_aspMain` microcode | not started |
@@ -29,16 +29,34 @@ This repository contains no ROM data. You need your own US ROM
 
 ### Where the headless boot stops
 
-`func_15001BC8` builds a visibility partition by recursing through
-`func_15001DE0`, classifying polygon lists with `func_15049260`, which calls
-into the handwritten geometry region (`func_150AAD98`, `func_150AA470`,
-`func_150AA9A0`). The recursion never terminates (depth 44,000+), overruns a
-buffer with `0x01` bytes and crashes freeing a node. The handwritten code
-recompiles and runs, so this is a semantic mismatch in how one of those
-routines is translated (FPU compare flags, a return-address convention, or a
-computed jump). The decomp's `./conker mupen-trace` harness can log register
-state at these function entries in the emulator; comparing it with the
-recomp's trace is the next step.
+The headless run no longer crashes: it runs until killed (checked for 240
+seconds), the game thread loops in `func_15007B3C` and submits a graphics task
+every frame (6,600+ in 240 s), and the audio thread runs its RSP tasks through
+the silent stub. From about the 600th task on, every graphics task uses the
+same display list address (`0x00122C20`). Without a renderer it is not yet
+known whether that is a title or attract screen or the game waiting on input
+or on an event the runtime never sends. Wiring up RT64 (or dumping that display
+list) is the next step.
+
+The last crash before this was on the audio thread: `func_8000A03C` reads the
+message the PI DMA completion puts on the queue at `0x800416F0` as the
+`OSIoMesg` it passed to `osPiStartDma` (it compares `dramAddr` against its
+sound-bank buffers). The runtime's PI code sent a null message and never
+filled in the `OSIoMesg`; `tools/patches/n64modernruntime-pi-dma-message.patch`
+makes it behave like libultra's PI manager.
+
+Three translation bugs in the handwritten geometry region were fixed to get
+here (the emulator trace of `func_15049260` entries and returns now matches
+the recomp call for call):
+
+* the runtime started every thread in the FR=0 FPU register layout, while the
+  game runs with FR=1 (IPL3 sets it) and Rare's assembly does arithmetic on
+  odd registers; `src/game.cpp` switches each thread to FR=1;
+* `jal` inside the region was a nested host call, but the routines return
+  through other registers (continuations loaded before the call), so the
+  continuation ran twice; calls inside a region now link `$ra` and jump;
+* `jr $t0` with a delay slot that writes `$t0`: the target is now read
+  before the delay slot.
 
 ## Layout
 
@@ -47,7 +65,7 @@ config/us.toml          N64Recomp configuration (stub list lives here)
 config/us.syms.toml     generated: sections and functions at runtime addresses
 tools/gen_syms.py       builds us.syms.toml and the virtual ROM from the decomp
 tools/regenerate.sh     extraction + generation + recompilation in one go
-tools/patches/          two small N64Recomp patches applied to the submodule
+tools/patches/          patches applied to the N64Recomp and N64ModernRuntime submodules
 src/                    runtime glue: entry, memory windows, RZIP, overlays, null renderer
 docs/memory-layout.md   why main runs at 0x10001000 and the game at 0x15000000
 docs/rsp-microcode.md   the microcode situation and the RT64 work
@@ -68,6 +86,7 @@ optional.
 git submodule update --init --recursive
 (cd lib/N64Recomp && git apply ../../tools/patches/n64recomp.patch)
 (cd lib/N64ModernRuntime && git apply ../../tools/patches/n64modernruntime-running-thread.patch)
+(cd lib/N64ModernRuntime && git apply ../../tools/patches/n64modernruntime-pi-dma-message.patch)
 tools/regenerate.sh
 cmake -S . -B build/host -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/host
@@ -118,8 +137,11 @@ recompiler into `build/us/RecompiledFuncs`.
   computed jumps (`jr $reg`) and `jr $ra` with an explicitly loaded `$ra`
   resolve to labels; the wrapper seeds `$ra` with a sentinel so routines that
   return through another register (`or $t7, $ra` ... `jr $t7`) still return.
-  This is how Rare's handwritten geometry code (0x150A3A70:0x150AE35C) is
-  recompiled;
+  Calls inside a region to targets in the same region link `$ra` and jump to
+  the label (hardware semantics, since the callee may return through a
+  continuation register), `jalr` links and dispatches, and the jump register
+  of `jr`/`jalr` is read before the delay slot runs. This is how Rare's
+  handwritten geometry code (0x150A3A70:0x150AE35C) is recompiled;
 * stack accesses with negative or unaligned offsets, tables without in-function
   entries and undecodable words no longer fail a function; writes to `$zero`
   are discarded.
@@ -127,5 +149,11 @@ recompiler into `build/us/RecompiledFuncs`.
 `tools/patches/n64modernruntime-running-thread.patch` (apply in
 `lib/N64ModernRuntime`) adds `ultramodern::set_running_thread_address`, a
 libultra-style `__osRunningThread` mirror that Rare's code reads directly.
+
+`tools/patches/n64modernruntime-pi-dma-message.patch` (apply in
+`lib/N64ModernRuntime`) makes `osPiStartDma` fill in the `OSIoMesg` (type,
+priority, return queue, addresses, size) and makes PI DMA completion send that
+`OSIoMesg` pointer to the return queue, as libultra's PI manager does, instead
+of a null message.
 
 All of these are candidates for upstreaming.
