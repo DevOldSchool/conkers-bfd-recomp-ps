@@ -6,12 +6,14 @@
 // Audio and input are do-nothing implementations. Graphics depend on CONKER_RENDERER: the null
 // renderer (default) runs headless and only logs graphics tasks, RT64 opens a window and draws
 // the display lists through Conker's F3DEX2CBFD microcode support.
+#include <atomic>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #include <execinfo.h>
 #include <unistd.h>
@@ -40,10 +42,32 @@ namespace conker::trace { void dump_recent_calls(int fd); }
 namespace {
 
 // --- input ---------------------------------------------------------------------------------
+constexpr uint16_t kButtonStart = 0x1000;
+constexpr uint64_t kPressLength = 10;  // VIs
+
+std::atomic<uint64_t> vi_count{0};
+std::vector<uint64_t> start_presses;  // VI numbers, from CONKER_PRESS_START
+
+void parse_scripted_input() {
+    const char* spec = std::getenv("CONKER_PRESS_START");
+    for (const char* p = spec; p != nullptr && *p != '\0';) {
+        char* end;
+        const unsigned long long vi = std::strtoull(p, &end, 0);
+        if (end == p) break;
+        start_presses.push_back(vi);
+        p = (*end == ',') ? end + 1 : end;
+    }
+}
+
 void poll_input() {}
 
-bool get_input(int /*controller_num*/, uint16_t* buttons, float* x, float* y) {
-    *buttons = 0;
+bool get_input(int controller_num, uint16_t* buttons, float* x, float* y) {
+    static std::atomic<bool> reported{false};
+    if (!reported.exchange(true)) {
+        std::printf("[conker] controllers read through osContGetReadData (VI %llu)\n",
+                    static_cast<unsigned long long>(vi_count.load()));
+    }
+    *buttons = controller_num == 0 ? conker::scripted_buttons() : 0;
     *x = 0.0f;
     *y = 0.0f;
     return true;
@@ -65,7 +89,7 @@ void set_frequency(uint32_t /*freq*/) {}
 
 // --- misc ----------------------------------------------------------------------------------
 void message_box(const char* msg) { std::fprintf(stderr, "[conker] %s\n", msg); }
-void vi_callback() {}
+void vi_callback() { vi_count++; }
 void gfx_init_callback() { std::printf("[conker] gfx thread started\n"); }
 
 // Crash reporter: prints the faulting address as an N64 address when it lies inside rdram, plus
@@ -146,9 +170,24 @@ const char* rom_error_name(recomp::RomValidationError err) {
 
 } // namespace
 
+uint16_t conker::scripted_buttons() {
+    const uint64_t now = vi_count.load();
+    for (uint64_t vi : start_presses) {
+        if (now >= vi && now < vi + kPressLength) {
+            static std::atomic<uint64_t> last_reported{~0ull};
+            if (last_reported.exchange(vi) != vi) {
+                std::printf("[conker] scripted input: Start held from VI %llu\n", static_cast<unsigned long long>(now));
+            }
+            return kButtonStart;
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char** argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);  // keep log order intact if the game thread crashes
     install_crash_handler();
+    parse_scripted_input();
     if (argc < 2) {
         std::fprintf(stderr, "usage: %s <conker-us.z64>\n", argv[0]);
         return 2;

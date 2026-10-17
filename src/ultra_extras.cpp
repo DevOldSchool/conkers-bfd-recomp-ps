@@ -16,6 +16,7 @@
 #include "librecomp/game.hpp"
 #include "ultramodern/ultramodern.hpp"
 
+#include "game.hpp"
 #include "memory.hpp"
 
 namespace {
@@ -82,7 +83,15 @@ void pif_process_commands() {
             if (cmd[0] == 0x00 || cmd[0] == 0xFF) {  // status / reset
                 if (rx >= 3) { resp[0] = 0x05; resp[1] = 0x00; resp[2] = 0x00; handled = true; }  // controller, no pak
             } else if (cmd[0] == 0x01) {  // read buttons
-                if (rx >= 4) { std::memset(resp, 0, 4); handled = true; }
+                if (rx >= 4) {
+                    report_once("PIF read buttons", "controllers read through raw SI DMA");
+                    const uint16_t buttons = channel == 0 ? conker::scripted_buttons() : 0;
+                    resp[0] = static_cast<uint8_t>(buttons >> 8);
+                    resp[1] = static_cast<uint8_t>(buttons);
+                    resp[2] = 0;
+                    resp[3] = 0;
+                    handled = true;
+                }
             }
             // 0x02/0x03 pak read/write: no pak present -> error below
         } else if (channel == 4) {
@@ -91,12 +100,14 @@ void pif_process_commands() {
             } else if (cmd[0] == 0x04 && tx >= 2) {  // read 8-byte block
                 const size_t block = cmd[1] & 0xFF;
                 if (rx >= 8 && block * 8 + 8 <= sizeof(eeprom_image)) {
+                    report_once("PIF EEPROM read", "blank image");
                     std::memcpy(resp, &eeprom_image[block * 8], 8);
                     handled = true;
                 }
             } else if (cmd[0] == 0x05 && tx >= 10) {  // write 8-byte block
                 const size_t block = cmd[1] & 0xFF;
                 if (block * 8 + 8 <= sizeof(eeprom_image)) {
+                    report_once("PIF EEPROM write", "kept in memory only");
                     std::memcpy(&eeprom_image[block * 8], &cmd[2], 8);
                     if (rx >= 1) { resp[0] = 0x00; }
                     handled = true;
@@ -265,7 +276,11 @@ void __osAiDeviceBusy_recomp(uint8_t* /*rdram*/, recomp_context* ctx) { RET(0); 
 void osPiReadIo_recomp(uint8_t* rdram, recomp_context* ctx);
 
 void osPiRawReadIo_recomp(uint8_t* rdram, recomp_context* ctx) {
-    const uint32_t dev_addr = as_u32(ARG0);
+    // libultra reads `osRomBase | devAddr`, so a ROM offset, a cartridge physical address and a
+    // KSEG1 address all reach the same word. Conker's scene loader (func_15002FB4) checks the
+    // word at 0xB0000A5C and halves the scene's trigger count when it does not match, which
+    // drops the trigger that starts the intro cutscene.
+    const uint32_t dev_addr = (0xB0000000u | as_u32(ARG0)) & 0x1FFFFFFFu;
     gpr data = ARG1;
     std::span<const uint8_t> rom = recomp::get_rom();
     const uint32_t offset = dev_addr - 0x10000000u;
