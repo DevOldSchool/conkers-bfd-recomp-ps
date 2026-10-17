@@ -1,0 +1,82 @@
+diff --git a/librecomp/src/pi.cpp b/librecomp/src/pi.cpp
+index 43509ba..ef21976 100644
+--- a/librecomp/src/pi.cpp
++++ b/librecomp/src/pi.cpp
+@@ -266,7 +266,7 @@ void ultramodern::join_saving_thread() {
+     }
+ }
+ 
+-void do_dma(RDRAM_ARG PTR(OSMesgQueue) mq, gpr rdram_address, uint32_t physical_addr, uint32_t size, uint32_t direction) {
++void do_dma(RDRAM_ARG PTR(OSMesgQueue) mq, PTR(OSIoMesg) mb, gpr rdram_address, uint32_t physical_addr, uint32_t size, uint32_t direction) {
+     // TODO asynchronous transfer
+     // TODO implement unaligned DMA correctly
+     if (direction == 0) {
+@@ -275,7 +275,8 @@ void do_dma(RDRAM_ARG PTR(OSMesgQueue) mq, gpr rdram_address, uint32_t physical_
+             recomp::do_rom_read(rdram, rdram_address, physical_addr, size);
+ 
+             // Send a message to the mq to indicate that the transfer completed
+-            ultramodern::enqueue_external_message_src(mq, 0, false, ultramodern::EventMessageSource::Pi);
++            // Like libultra's PI manager, the message is the OSIoMesg the request was made with
++            ultramodern::enqueue_external_message_src(mq, mb, false, ultramodern::EventMessageSource::Pi);
+         } else if (physical_addr >= recomp::sram_base) {
+             if (!recomp::sram_allowed()) {
+                 ultramodern::error_handling::message_box("Attempted to use SRAM saving with other save type");
+@@ -285,7 +286,8 @@ void do_dma(RDRAM_ARG PTR(OSMesgQueue) mq, gpr rdram_address, uint32_t physical_
+             save_read(rdram, rdram_address, physical_addr - recomp::sram_base, size);
+ 
+             // Send a message to the mq to indicate that the transfer completed
+-            ultramodern::enqueue_external_message_src(mq, 0, false, ultramodern::EventMessageSource::Pi);
++            // Like libultra's PI manager, the message is the OSIoMesg the request was made with
++            ultramodern::enqueue_external_message_src(mq, mb, false, ultramodern::EventMessageSource::Pi);
+         } else {
+             fprintf(stderr, "[WARN] PI DMA read from unknown region, phys address 0x%08X\n", physical_addr);
+         }
+@@ -302,7 +304,8 @@ void do_dma(RDRAM_ARG PTR(OSMesgQueue) mq, gpr rdram_address, uint32_t physical_
+             save_write(rdram, rdram_address, physical_addr - recomp::sram_base, size);
+ 
+             // Send a message to the mq to indicate that the transfer completed
+-            ultramodern::enqueue_external_message_src(mq, 0, false, ultramodern::EventMessageSource::Pi);
++            // Like libultra's PI manager, the message is the OSIoMesg the request was made with
++            ultramodern::enqueue_external_message_src(mq, mb, false, ultramodern::EventMessageSource::Pi);
+         } else {
+             fprintf(stderr, "[WARN] PI DMA write to unknown region, phys address 0x%08X\n", physical_addr);
+         }
+@@ -310,7 +313,7 @@ void do_dma(RDRAM_ARG PTR(OSMesgQueue) mq, gpr rdram_address, uint32_t physical_
+ }
+ 
+ extern "C" void osPiStartDma_recomp(RDRAM_ARG recomp_context* ctx) {
+-    uint32_t mb = ctx->r4;
++    PTR(OSIoMesg) mb = ctx->r4;
+     uint32_t pri = ctx->r5;
+     uint32_t direction = ctx->r6;
+     uint32_t devAddr = ctx->r7 | recomp::rom_base;
+@@ -321,7 +324,19 @@ extern "C" void osPiStartDma_recomp(RDRAM_ARG recomp_context* ctx) {
+ 
+     debug_printf("[pi] DMA from 0x%08X into 0x%08X of size 0x%08X\n", devAddr, dramAddr, size);
+ 
+-    do_dma(PASS_RDRAM mq, dramAddr, physical_addr, size, direction);
++    // osPiStartDma fills in the OSIoMesg before handing it to the PI manager
++    if (mb != 0) {
++        OSIoMesg* mb_ptr = TO_PTR(OSIoMesg, mb);
++        mb_ptr->hdr.type = direction == 0 ? 11 : 12; // OS_MESG_TYPE_DMAREAD / DMAWRITE
++        mb_ptr->hdr.pri = pri;
++        mb_ptr->hdr.status = 0;
++        mb_ptr->hdr.retQueue = mq;
++        mb_ptr->dramAddr = dramAddr;
++        mb_ptr->devAddr = ctx->r7;
++        mb_ptr->size = size;
++    }
++
++    do_dma(PASS_RDRAM mq, mb, dramAddr, physical_addr, size, direction);
+ 
+     ctx->r2 = 0;
+ }
+@@ -338,7 +353,7 @@ extern "C" void osEPiStartDma_recomp(RDRAM_ARG recomp_context* ctx) {
+ 
+     debug_printf("[pi] DMA from 0x%08X into 0x%08X of size 0x%08X\n", devAddr, dramAddr, size);
+ 
+-    do_dma(PASS_RDRAM mq, dramAddr, physical_addr, size, direction);
++    do_dma(PASS_RDRAM mq, ctx->r5, dramAddr, physical_addr, size, direction);
+ 
+     ctx->r2 = 0;
+ }

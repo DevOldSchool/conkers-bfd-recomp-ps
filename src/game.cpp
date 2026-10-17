@@ -24,8 +24,25 @@ recomp::GameEntry make_game_entry() {
     entry.entrypoint_address = static_cast<gpr>(static_cast<int32_t>(0x80001000));
     entry.entrypoint = entrypoint;
     entry.on_init_callback = on_init;
-    entry.thread_create_callback = [](uint8_t*, recomp_context* ctx) { set_current_context(ctx); };
+    entry.thread_create_callback = [](uint8_t*, recomp_context* ctx) {
+        set_current_context(ctx);
+        use_fr1_float_mode(ctx);
+    };
     return entry;
+}
+
+// IPL3 leaves CP0 Status at 0x34000000 (CU0 | CU1 | FR) and libultra keeps FR set, so the game
+// runs with 32 independent single-precision FPU registers. Rare's handwritten geometry code
+// relies on that: it does arithmetic on odd registers ($f21, $f23, ...) and saves $f20..$f31 as
+// twelve separate singles. librecomp starts every thread in the FR=0 layout, where an odd
+// register is the upper half of the even one, so the generated `ctx->f_odd[...]` loads and the
+// `ctx->f23.fl` arithmetic would address different storage. Switch each N64 thread to FR=1
+// before it runs any recompiled code.
+void use_fr1_float_mode(recomp_context* ctx) {
+    constexpr uint32_t kStatusFr = 0x04000000;
+    ctx->status_reg |= kStatusFr;
+    ctx->f_odd = &ctx->f1.u32l;
+    ctx->mips3_float_mode = 1;
 }
 
 static thread_local recomp_context* t_current_context = nullptr;
@@ -35,6 +52,7 @@ recomp_context* current_context() { return t_current_context; }
 
 void entrypoint(uint8_t* rdram, recomp_context* ctx) {
     set_current_context(ctx);
+    use_fr1_float_mode(ctx);
     // ROM 0x1000: clear bss and set the stack pointer.
     std::memset(rdram + memory::rdram_offset(memory::kBssStart), 0, memory::kBssSize);
     ctx->r29 = static_cast<gpr>(static_cast<int32_t>(memory::kInitialSp));

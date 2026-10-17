@@ -288,19 +288,44 @@ index 669c4a1..22de84f 100644
                  }
  
 diff --git a/src/recompilation.cpp b/src/recompilation.cpp
-index c228433..2c1d441 100644
+index c228433..97b1fb1 100644
 --- a/src/recompilation.cpp
 +++ b/src/recompilation.cpp
-@@ -259,7 +259,7 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+@@ -259,11 +259,32 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
          return true;
      };
  
 -    auto print_func_call_by_address = [&generator, reloc_target_section_offset, has_reloc, reloc_section, reloc_reference_symbol, reloc_type, &context, &func, &static_funcs_out, &needs_link_branch, &print_indent, &process_delay_slot, &print_link_branch]
-+    auto print_func_call_by_address = [&generator, &output_file, reloc_target_section_offset, has_reloc, reloc_section, reloc_reference_symbol, reloc_type, &context, &func, &static_funcs_out, &needs_link_branch, &print_indent, &process_delay_slot, &print_link_branch]
++    auto print_func_call_by_address = [&generator, &output_file, instr_vram, reloc_target_section_offset, has_reloc, reloc_section, reloc_reference_symbol, reloc_type, &context, &func, &static_funcs_out, &needs_link_branch, &print_indent, &process_delay_slot, &print_link_branch]
          (uint32_t target_func_vram, bool tail_call = false, bool indent = false)
      {
          bool call_by_lookup = false;
-@@ -303,6 +303,22 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+         bool call_by_name = false;
++        // Inside a shared code region a call to a target in the same region is translated the way the
++        // hardware executes it: link $ra and jump to the target's label. The handwritten routines
++        // return through whatever register holds an address (`jr $t7` after `or $t7, $ra`, or a
++        // continuation the caller loaded before the `jal`), which a nested host call cannot follow:
++        // the callee would run the caller's continuation itself and the caller would run it again
++        // once the nested call returned.
++        if (func.entry_vram != 0 && !tail_call) {
++            const uint32_t region_end = func.vram + static_cast<uint32_t>(func.words.size() * sizeof(uint32_t));
++            if (target_func_vram >= func.vram && target_func_vram < region_end) {
++                if (indent) {
++                    print_indent();
++                }
++                if (!process_delay_slot(false)) {
++                    return false;
++                }
++                print_indent();
++                fmt::print(output_file, "ctx->r31 = (gpr)(int32_t)0x{:08X}u; goto L_{:08X};\n", instr_vram + 8, target_func_vram);
++                needs_link_branch = false;
++                return true;
++            }
++        }
+         // Event symbol, emit a call to the runtime to trigger this event.
+         if (reloc_section == N64Recomp::SectionEvent) {
+             needs_link_branch = !tail_call;
+@@ -303,6 +324,23 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
                  }
                  JalResolutionResult jal_result = resolve_jal(context, target_section, target_func_vram, matched_func_index);
  
@@ -314,7 +339,8 @@ index c228433..2c1d441 100644
 +                            return false;
 +                        }
 +                        print_indent();
-+                        fmt::print(output_file, "region_{:08X}(rdram, ctx, 0x{:08X});\n", region.value(), target_func_vram);
++                        // The region's `jr` through a register returns when it sees the sentinel.
++                        fmt::print(output_file, "ctx->r31 = (gpr)(int32_t)0xFFFFFFFF; region_{:08X}(rdram, ctx, 0x{:08X});\n", region.value(), target_func_vram);
 +                        print_link_branch();
 +                        return true;
 +                    }
@@ -323,7 +349,29 @@ index c228433..2c1d441 100644
                  switch (jal_result) {
                      case JalResolutionResult::NoMatch:
                          fmt::print(stderr, "No function found for jal target: 0x{:08X}\n", target_func_vram);
-@@ -518,6 +534,15 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+@@ -483,6 +521,21 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+             fmt::print(stderr, "Invalid return address reg for jalr: f{}\n", rd);
+             return false;
+         }
++        if (func.entry_vram != 0) {
++            // Register call inside a shared code region: link $ra and dispatch to the label when the
++            // target is in the region, otherwise call the target function and continue.
++            print_indent();
++            fmt::print(output_file, "region_target = (uint32_t)ctx->r{}; region_source = 0x{:08X};\n", rs, instr_vram);
++            if (!process_delay_slot(false)) {
++                return false;
++            }
++            print_indent();
++            fmt::print(output_file,
++                "ctx->r31 = (gpr)(int32_t)0x{:08X}u; "
++                "if (region_target >= 0x{:08X}u && region_target < 0x{:08X}u) {{ goto region_dispatch; }} LOOKUP_FUNC(region_target)(rdram, ctx);\n",
++                instr_vram + 8, func.vram, func.vram + static_cast<uint32_t>(func.words.size() * sizeof(uint32_t)));
++            break;
++        }
+         needs_link_branch = true;
+         print_func_call_by_register(rs);
+         break;
+@@ -518,6 +571,15 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
                  print_indent();
                  generator.emit_return(context, func_index);
              }
@@ -332,14 +380,14 @@ index c228433..2c1d441 100644
 +                    return false;
 +                }
 +                print_indent();
-+                fmt::print(output_file, "region_{:08X}(rdram, ctx, 0x{:08X});\n", region.value(), branch_target);
++                fmt::print(output_file, "ctx->r31 = (gpr)(int32_t)0xFFFFFFFF; region_{:08X}(rdram, ctx, 0x{:08X});\n", region.value(), branch_target);
 +                print_indent();
 +                generator.emit_return(context, func_index);
 +            }
              else {
                  fmt::print(stderr, "Unhandled branch in {} at 0x{:08X} to 0x{:08X}\n", func.name, instr_vram, branch_target);
                  return false;
-@@ -526,6 +551,18 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+@@ -526,6 +588,21 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
          break;
      case InstrId::cpu_jr:
          if (rs == (int)rabbitizer::Registers::Cpu::GprO32::GPR_O32_ra) {
@@ -347,35 +395,41 @@ index c228433..2c1d441 100644
 +                // Inside a shared region $ra is either the wrapper's sentinel (a real return) or an
 +                // address the handwritten code placed there explicitly (`lui/addiu $ra` before a
 +                // `j` into a helper), in which case execution continues at that label.
++                // The jump target is read before the delay slot runs (it may write the register).
++                print_indent();
++                fmt::print(output_file, "region_target = (uint32_t)ctx->r31; region_source = 0x{:08X};\n", instr_vram);
 +                if (!process_delay_slot(false)) {
 +                    return false;
 +                }
 +                print_indent();
-+                fmt::print(output_file, "if ((uint32_t)ctx->r31 == 0xFFFFFFFFu) {{ {}return; }} region_target = (uint32_t)ctx->r31; region_source = 0x{:08X}; goto region_dispatch;\n",
-+                    context.trace_mode ? "TRACE_RETURN() " : "", instr_vram);
++                fmt::print(output_file, "if (region_target == 0xFFFFFFFFu) {{ {}return; }} goto region_dispatch;\n",
++                    context.trace_mode ? "TRACE_RETURN() " : "");
 +                break;
 +            }
              print_return_with_delay_slot();
          } else {
              auto jtbl_find_result = std::find_if(stats.jump_tables.begin(), stats.jump_tables.end(),
-@@ -553,6 +590,16 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+@@ -553,6 +630,19 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
                  break;
              }
  
 +            if (func.entry_vram != 0) {
 +                // Computed jump inside a shared code region: dispatch to the target label.
++                // The jump target is read before the delay slot runs (it may write the register).
++                print_indent();
++                fmt::print(output_file, "region_target = (uint32_t)ctx->r{}; region_source = 0x{:08X};\n", rs, instr_vram);
 +                if (!process_delay_slot(false)) {
 +                    return false;
 +                }
 +                print_indent();
-+                fmt::print(output_file, "region_target = (uint32_t)ctx->r{}; region_source = 0x{:08X}; if (region_target == 0xFFFFFFFFu) {{ {}return; }} goto region_dispatch;\n",
-+                    rs, instr_vram, context.trace_mode ? "TRACE_RETURN() " : "");
++                fmt::print(output_file, "if (region_target == 0xFFFFFFFFu) {{ {}return; }} goto region_dispatch;\n",
++                    context.trace_mode ? "TRACE_RETURN() " : "");
 +                break;
 +            }
              fmt::print("[Info] Indirect tail call in {}\n", func.name);
              print_func_call_by_register(rs);
              print_indent();
-@@ -746,8 +793,16 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+@@ -746,8 +836,16 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
      }
  
      if (!handled) {
@@ -394,7 +448,7 @@ index c228433..2c1d441 100644
      }
  
      // TODO is this used?
-@@ -765,12 +820,36 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
+@@ -765,12 +863,36 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
      //fmt::print("Recompiling {}\n", func.name);
      std::vector<rabbitizer::InstructionCpu> instructions;
  
@@ -436,7 +490,7 @@ index c228433..2c1d441 100644
      }
  
      // Skip analysis and recompilation of this function is stubbed.
-@@ -798,6 +877,14 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
+@@ -798,6 +920,14 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
              vram += 4;
          }
  
@@ -451,7 +505,7 @@ index c228433..2c1d441 100644
          // Analyze function
          N64Recomp::FunctionStats stats{};
          if (!N64Recomp::analyze_function(context, func, instructions, stats)) {
-@@ -816,6 +903,18 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
+@@ -816,6 +946,18 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
              }
          }
  
