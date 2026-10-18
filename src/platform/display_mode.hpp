@@ -1,6 +1,6 @@
 // The display mode and resolution: a window, a borderless window covering the screen, or full
 // screen, and how large the game's 292x216 picture is drawn in each. They are chosen in the
-// OPTIONS menu (src/enhancements/display_option/display_option.cpp) or, for the mode, with the
+// OPTIONS menu (src/enhancements/display_options/display_options.cpp) or, for the mode, with the
 // full-screen shortcuts, kept in conker-recomp-data/display.cfg, and applied by the SDL window
 // (src/platform/window_sdl.cpp) and RT64 (src/platform/renderer_rt64.cpp). The null build keeps
 // the settings but has no window to apply them to.

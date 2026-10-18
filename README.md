@@ -66,7 +66,7 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
 
 ## Enhancements
 
-* **Display mode and resolution:** the OPTIONS page of the title menu has
+* **Display options:** the OPTIONS page of the title menu has
   three rows under the sound setting.
   * WINDOWED, BORDERLESS or FULL SCREEN. Full screen (the default) is macOS
     full screen in a Space of its own; borderless covers the screen in the
@@ -89,7 +89,7 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   The choices are kept in `conker-recomp-data/display.cfg`, not in the
   game's save, so the OPTIONS saved to EEPROM are unchanged.
   `CONKER_DISPLAY=windowed`, `borderless` or `fullscreen` overrides the mode
-  for one run, `CONKER_DISPLAY_OPTION=0` hides the rows, and
+  for one run, `CONKER_DISPLAY_OPTIONS=0` hides the rows, and
   `CONKER_ORIGINAL_SIZE=1` opens the original 960x720 window instead.
 * **Skip to the title menu:** Start at any point during the boot logos or the
   intro fades to black and then into the GAME 1 menu, skipping the title

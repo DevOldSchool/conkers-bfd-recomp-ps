@@ -2,7 +2,7 @@
 // (WINDOWED, BORDERLESS, FULL SCREEN), the resolution the picture is drawn at in that mode, and
 // whether it is scaled to fill the window or screen or drawn at its own size.
 // Native helpers called from the [[patches.hook]] snippets in config/us.toml (func_151DF1BC,
-// func_151E3344); CONKER_DISPLAY_OPTION=0 leaves the page as it was.
+// func_151E3344); CONKER_DISPLAY_OPTIONS=0 leaves the page as it was.
 //
 // func_151DF1BC draws the OPTIONS page with func_151E3344, the menu engine Rare also uses for the
 // multiplayer set-up. Its first argument is a mask of the options to show, one bit for each of
@@ -117,9 +117,9 @@ int8_t g_shown_fill = 0;
 std::vector<int> g_scales;  // the resolution row's choices in this mode
 int g_scale_index = 0;      // the one shown
 
-bool display_option_enabled() {
+bool display_options_enabled() {
     static const bool enabled = [] {
-        const char* value = std::getenv("CONKER_DISPLAY_OPTION");
+        const char* value = std::getenv("CONKER_DISPLAY_OPTIONS");
         return value == nullptr || value[0] != '0';
     }();
     return enabled;
@@ -225,8 +225,8 @@ int wrap(int index) {
 }  // namespace
 
 // Before func_151DF1BC's `jal func_151E3344` ($a0 = the options to show).
-extern "C" void conker_display_option_begin(uint8_t* rdram, recomp_context* ctx) {
-    if (!display_option_enabled() || static_cast<uint32_t>(ctx->r4) != kOptionsPageMask ||
+extern "C" void conker_display_options_begin(uint8_t* rdram, recomp_context* ctx) {
+    if (!display_options_enabled() || static_cast<uint32_t>(ctx->r4) != kOptionsPageMask ||
         !record_matches(rdram, g_mode_row) || !record_matches(rdram, g_scale_row) ||
         !record_matches(rdram, g_fill_row)) {
         return;
@@ -252,7 +252,7 @@ extern "C" void conker_display_option_begin(uint8_t* rdram, recomp_context* ctx)
 }
 
 // After that call: take the rows' values and give the options back.
-extern "C" void conker_display_option_end(uint8_t* rdram, recomp_context* /*ctx*/) {
+extern "C" void conker_display_options_end(uint8_t* rdram, recomp_context* /*ctx*/) {
     if (!g_active) {
         return;
     }
@@ -275,7 +275,7 @@ extern "C" void conker_display_option_end(uint8_t* rdram, recomp_context* /*ctx*
 }
 
 // In func_151E3344 before it draws the joysticks at 0x94 +- $s0: further apart for these rows.
-extern "C" void conker_display_option_sticks(uint8_t* rdram, recomp_context* ctx) {
+extern "C" void conker_display_options_sticks(uint8_t* rdram, recomp_context* ctx) {
     const int selected = MEM_BU(0, kseg0(kSelected));
     if (g_active && (selected == g_mode_row.option || selected == g_scale_row.option || selected == g_fill_row.option)) {
         ctx->r16 += kStickSpread;
@@ -284,7 +284,7 @@ extern "C" void conker_display_option_sticks(uint8_t* rdram, recomp_context* ctx
 
 // In func_151E3344 before `addiu $s2, $s2, 0x22`, which moves $s2 to the next row's y ($s0 = the
 // option just placed).
-extern "C" void conker_display_option_row_y(uint8_t* /*rdram*/, recomp_context* ctx) {
+extern "C" void conker_display_options_row_y(uint8_t* /*rdram*/, recomp_context* ctx) {
     if (g_active) {
         ctx->r18 -= kEngineRowSpacing - gap_after(static_cast<int>(ctx->r16));
     }
@@ -292,7 +292,7 @@ extern "C" void conker_display_option_row_y(uint8_t* /*rdram*/, recomp_context* 
 
 // In func_151E3344 once it has placed the joysticks ($s1 = 0x46 + 0x22 * the row they are moving
 // through, from D_8008FDE4 towards the selected row): the same rows' y.
-extern "C" void conker_display_option_stick_y(uint8_t* rdram, recomp_context* ctx) {
+extern "C" void conker_display_options_stick_y(uint8_t* rdram, recomp_context* ctx) {
     if (!g_active) {
         return;
     }

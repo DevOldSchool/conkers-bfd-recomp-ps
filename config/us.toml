@@ -216,31 +216,32 @@ func = "func_151DD9E4"
 before_vram = 0x151DD9E4
 text = "{ void conker_surround_default(uint8_t*, recomp_context*); conker_surround_default(rdram, ctx); }"
 
-# A display mode row (WINDOWED, BORDERLESS, FULL SCREEN) on the title menu's OPTIONS page: around
-# its call to the menu engine func_151E3344, multiplayer option 12 is lent to the row and given
-# back. See src/enhancements/display_option/display_option.cpp; CONKER_DISPLAY_OPTION=0 turns it
-# off.
+# Display options on the title menu's OPTIONS page: rows for the display mode, the resolution and
+# FILL SCREEN/CENTERED. Around the page's call to the menu engine func_151E3344, multiplayer
+# options 12, 16 and 19 are lent to the rows and given back; hooks inside the engine space the
+# rows and the joysticks that flank the selected one. See
+# src/enhancements/display_options/display_options.cpp; CONKER_DISPLAY_OPTIONS=0 turns them off.
 [[patches.hook]]
 func = "func_151DF1BC"
 before_vram = 0x151DF384
-text = "{ void conker_display_option_begin(uint8_t*, recomp_context*); conker_display_option_begin(rdram, ctx); }"
+text = "{ void conker_display_options_begin(uint8_t*, recomp_context*); conker_display_options_begin(rdram, ctx); }"
 
 [[patches.hook]]
 func = "func_151DF1BC"
 before_vram = 0x151DF38C
-text = "{ void conker_display_option_end(uint8_t*, recomp_context*); conker_display_option_end(rdram, ctx); }"
+text = "{ void conker_display_options_end(uint8_t*, recomp_context*); conker_display_options_end(rdram, ctx); }"
 
 [[patches.hook]]
 func = "func_151E3344"
 before_vram = 0x151E418C
-text = "{ void conker_display_option_sticks(uint8_t*, recomp_context*); conker_display_option_sticks(rdram, ctx); }"
+text = "{ void conker_display_options_sticks(uint8_t*, recomp_context*); conker_display_options_sticks(rdram, ctx); }"
 
 [[patches.hook]]
 func = "func_151E3344"
 before_vram = 0x151E3940
-text = "{ void conker_display_option_row_y(uint8_t*, recomp_context*); conker_display_option_row_y(rdram, ctx); }"
+text = "{ void conker_display_options_row_y(uint8_t*, recomp_context*); conker_display_options_row_y(rdram, ctx); }"
 
 [[patches.hook]]
 func = "func_151E3344"
 before_vram = 0x151E414C
-text = "{ void conker_display_option_stick_y(uint8_t*, recomp_context*); conker_display_option_stick_y(rdram, ctx); }"
+text = "{ void conker_display_options_stick_y(uint8_t*, recomp_context*); conker_display_options_stick_y(rdram, ctx); }"
