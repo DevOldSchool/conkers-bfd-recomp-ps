@@ -106,7 +106,10 @@ The RT64 patch (`tools/patches/rt64-f3dex2cbfd.patch`, applied in
 Still open: the lighting follows GLideN64 and has not been checked against
 the real microcode or a hardware capture; the wooden floor in the intro looks
 streaky (texture filtering, LOD or texture coordinates, not yet investigated);
-and nothing is known about what the BS/BG variants change.
+and nothing is known about what the BS/BG variants change. The large grey
+shapes on the weasels in the title scene are their tails and match a
+cycle-accurate emulator render; they are not a CBFD decoding error (see the
+README).
 
 ## Audio: n_aspMain with the MP3 overlay
 
