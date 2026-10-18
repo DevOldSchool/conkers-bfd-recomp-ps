@@ -108,8 +108,8 @@ the real microcode or a hardware capture; the wooden floor in the intro looks
 streaky (texture filtering, LOD or texture coordinates, not yet investigated);
 and nothing is known about what the BS/BG variants change. The large grey
 shapes on the weasels in the title scene are their tails and match a
-cycle-accurate emulator render; they are not a CBFD decoding error (see
-[investigations.md](investigations.md#the-grey-shapes-on-the-weasels)).
+cycle-accurate emulator render (Mupen64Plus with CXD4 and Angrylion); they
+are not a CBFD decoding error.
 
 ## Audio: n_aspMain with the MP3 overlay
 
@@ -254,5 +254,5 @@ runs that would have failed.
 The CPU side of MP3 decoding lives in main (`__conker_mp3_*` in the decomp's
 ELF) and recompiles normally. The large handwritten block in the game overlay
 at `0x150A3A70:0x150AE35C` is not audio at all but Rare's software
-geometry/visibility code; it is recompiled as a shared code region (see the
-[investigations.md](investigations.md#the-grey-shapes-on-the-weasels)).
+geometry/visibility code; it is recompiled as a shared code region (see
+[recompilation.md](recompilation.md#patches-to-the-submodules)).
