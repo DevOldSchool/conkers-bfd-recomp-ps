@@ -242,5 +242,5 @@ text = "{ void conker_display_option_row_y(uint8_t*, recomp_context*); conker_di
 
 [[patches.hook]]
 func = "func_151E3344"
-before_vram = 0x151E40C8
+before_vram = 0x151E414C
 text = "{ void conker_display_option_stick_y(uint8_t*, recomp_context*); conker_display_option_stick_y(rdram, ctx); }"

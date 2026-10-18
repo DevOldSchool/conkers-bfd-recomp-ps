@@ -28,11 +28,13 @@
 //   mode (src/platform/display_mode.hpp).
 //
 // The two joysticks that flank the selected row are moved apart for these rows, since their
-// longer words would run under them, and the rows are set closer together than the engine's 34
-// pixels so the page's six rows fit above the bottom of the picture.
+// longer words would run under them. The engine puts every row 34 pixels below the last; with
+// these rows the page would reach the bottom of the picture, so the display rows are grouped
+// closer together, with more room before CHEATS, and the joysticks follow the same rows.
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -55,7 +57,11 @@ constexpr uint32_t kSelected = 0x8008FE34;       // D_8008FE34: the selected opt
 constexpr int8_t kNoLabel = -1;
 constexpr int kStickSpread = 18;                 // extra room on each side of the rows, in pixels
 constexpr int kEngineRowSpacing = 0x22;          // func_151E3344's row pitch on this page
-constexpr int kRowSpacing = 26;
+constexpr int kFirstRowY = 0x46;                 // and its first row's y
+constexpr uint32_t kStickFrom = 0x8008FDE4;      // D_8008FDE4: the row the joysticks move from
+constexpr uint32_t kStickProgress = 0x8008FDE8;  // D_8008FDE8: how far they have moved (float)
+constexpr int kStickToSlot = 0x108;              // func_151E3344's stack: the row they move to
+constexpr int kMaxRows = 23;
 constexpr uint32_t kStringArea = 0x807FA000;     // free RDRAM, see pause_save.cpp
 constexpr uint32_t kStringStride = 0x20;
 constexpr int kMaxValues = 5;
@@ -80,6 +86,32 @@ Borrowed g_fill_row{19, 52, 2, {-62, 43, 44}, kStringArea + 8 * kStringStride};
 constexpr int8_t kCarouselMiddle = 2;
 
 bool g_active = false;
+int g_row_y[kMaxRows];  // each shown row's y, in the order shown
+int g_row_count = 0;
+
+// The gap below a row, by the option it shows.
+int gap_after(int option) {
+    switch (option) {
+        case 9: return 28;    // the sound icon, then the display rows
+        case 12:
+        case 16: return 20;   // between the display rows
+        case 19: return 32;   // the display rows, then CHEATS
+        default: return kEngineRowSpacing;
+    }
+}
+
+void lay_out(uint32_t mask) {
+    g_row_count = 0;
+    int y = kFirstRowY;
+    for (int option = 0; option < kMaxRows; option++) {
+        if (mask & (1u << option)) {
+            g_row_y[g_row_count++] = y;
+            y += gap_after(option);
+        }
+    }
+}
+
+int row_y(int row) { return g_row_y[row < 0 ? 0 : row >= g_row_count ? g_row_count - 1 : row]; }
 int8_t g_shown_mode = 0;
 int8_t g_shown_fill = 0;
 std::vector<int> g_scales;  // the resolution row's choices in this mode
@@ -215,6 +247,7 @@ extern "C" void conker_display_option_begin(uint8_t* rdram, recomp_context* ctx)
     g_shown_fill = conker::display::fill(mode) ? 0 : 1;
     borrow(rdram, g_fill_row, g_shown_fill, {"FILL SCREEN", "CENTERED"});
     ctx->r4 |= 1u << g_fill_row.option;
+    lay_out(static_cast<uint32_t>(ctx->r4));
     g_active = true;
 }
 
@@ -249,16 +282,25 @@ extern "C" void conker_display_option_sticks(uint8_t* rdram, recomp_context* ctx
     }
 }
 
-// In func_151E3344 before `addiu $s2, $s2, 0x22`, which moves $s2 to the next row's y.
+// In func_151E3344 before `addiu $s2, $s2, 0x22`, which moves $s2 to the next row's y ($s0 = the
+// option just placed).
 extern "C" void conker_display_option_row_y(uint8_t* /*rdram*/, recomp_context* ctx) {
     if (g_active) {
-        ctx->r18 -= kEngineRowSpacing - kRowSpacing;
+        ctx->r18 -= kEngineRowSpacing - gap_after(static_cast<int>(ctx->r16));
     }
 }
 
-// In func_151E3344 before it places the joysticks at 0x46 + row * $v1 (0x22): the same pitch.
-extern "C" void conker_display_option_stick_y(uint8_t* /*rdram*/, recomp_context* ctx) {
-    if (g_active) {
-        ctx->r3 = kRowSpacing;
+// In func_151E3344 once it has placed the joysticks ($s1 = 0x46 + 0x22 * the row they are moving
+// through, from D_8008FDE4 towards the selected row): the same rows' y.
+extern "C" void conker_display_option_stick_y(uint8_t* rdram, recomp_context* ctx) {
+    if (!g_active) {
+        return;
     }
+    const int from = MEM_B(0, kseg0(kStickFrom));
+    const int to = MEM_W(kStickToSlot, ctx->r29);
+    const uint32_t bits = static_cast<uint32_t>(MEM_W(0, kseg0(kStickProgress)));
+    float progress;
+    std::memcpy(&progress, &bits, sizeof(progress));
+    const float y = static_cast<float>(row_y(from)) + progress * static_cast<float>(row_y(to) - row_y(from));
+    ctx->r17 = static_cast<int32_t>(y);
 }
