@@ -78,6 +78,11 @@ the keyboard at the same time. There is no remapping yet.
   the save does not record are reset, as at a checkpoint. Neither sign is
   offered when replaying a chapter, where the game does not save.
   `CONKER_PAUSE_SAVE=0` turns them off.
+* **Surround by default:** with no saved options (a new save file), the
+  OPTIONS menu's sound setting is surround instead of stereo. The
+  game keeps its options in EEPROM next to the saved games, so a sound
+  setting chosen and saved from that menu stays as it was.
+  `CONKER_SURROUND_DEFAULT=0` keeps the stereo default.
 * **Camera on the right stick:** C-left and C-right are swapped (also on J/L),
   so pushing left turns the view left.
 
