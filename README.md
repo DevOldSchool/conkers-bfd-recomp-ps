@@ -62,9 +62,12 @@ the keyboard at the same time. There is no remapping yet.
 
 ## Enhancements
 
-* **Skippable intro:** Start skips the intro after about five seconds, on
-  every boot. `CONKER_SKIP_INTRO=1` skips it automatically;
-  `CONKER_SKIP_INTRO=0` makes it unskippable, as on an N64 cold boot.
+* **Skip to the title menu:** Start at any point during the boot logos or the
+  intro fades to black and then into the GAME 1 menu, skipping the title
+  scene's opening (the clock and the Cock and Plucker) too. On an N64, Start only skips the intro after about five seconds and after
+  the reset button, and the title scene needs another press.
+  `CONKER_SKIP_INTRO=1` skips without a press; `CONKER_SKIP_INTRO=0` keeps the
+  original behaviour, where the intro cannot be skipped after a cold boot.
 * **SAVE and LOAD in the pause menu:** two signs sit under the lever, LOAD
   below QUIT and SAVE below CONT.... Push down from the sign above, or use
   the stick's down-left and down-right diagonals, and press A. SAVE saves

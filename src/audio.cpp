@@ -1,5 +1,7 @@
 #include "audio.hpp"
 
+#include "memory.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -43,7 +45,61 @@ void note_queue_depth(size_t queued) {
     if (queued == 0 && total_frames != 0) stats_underruns++;
 }
 
+// --- silence report: once the game's output has been exactly zero for a while after it had sound,
+// print the music manager's view of the three sequence players, so a run that goes silent leaves
+// a trace in the log. The pause menu is silent by design (it pauses every player and sets the
+// music-paused flag), so the flag is part of the report.
+constexpr double kSilenceReportSeconds = 10.0;
+uint64_t silent_frames = 0;
+bool had_sound = false;
+bool silence_reported = false;
+
+uint32_t rdram_word(const uint8_t* rdram, uint32_t address) {
+    return *reinterpret_cast<const uint32_t*>(rdram + memory::rdram_offset(address));
+}
+
+uint8_t rdram_byte(const uint8_t* rdram, uint32_t address) {
+    return rdram[memory::rdram_offset(address) ^ 3];
+}
+
+void report_silence() {
+    const uint8_t* rdram = memory::current_rdram();
+    if (rdram == nullptr) return;
+    constexpr uint32_t kSequencePlayers = 0x8003C900;  // D_8003C900: the three ALCSPlayer pointers
+    constexpr uint32_t kMusicRecords = 0x800417B0;     // D_800417B0: the music manager's record per player
+    constexpr uint32_t kMusicPaused = 0x80041F00;      // D_80041F00: set by func_8000E2F4 (pause menu)
+    std::printf("[conker] audio: silent for %.0f s after %.1f s of audio; music paused flag %u;",
+                kSilenceReportSeconds, static_cast<double>(total_frames) / frequency, rdram_byte(rdram, kMusicPaused));
+    for (uint32_t i = 0; i < 3; i++) {
+        const uint32_t player = rdram_word(rdram, kSequencePlayers + 4 * i);
+        const uint32_t record = rdram_word(rdram, kMusicRecords + 4 * i);
+        // ALCSPlayer.state (+0x2C): 0 stopped, 1 playing, 2 stopping, 3 paused
+        std::printf(" player %u state %d", i, static_cast<int32_t>(rdram_word(rdram, player + 0x2C)));
+        if (record != 0) {
+            std::printf(" (sequence %d, volume %d, pause mode %u)", static_cast<int32_t>(rdram_word(rdram, record + 0x4)),
+                        static_cast<int32_t>(rdram_word(rdram, record + 0x30)), rdram_byte(rdram, record + 0x15));
+        }
+        std::printf(i == 2 ? "\n" : ";");
+    }
+}
+
+void track_silence(const int16_t* data, size_t frame_count) {
+    const bool silent = std::all_of(data, data + frame_count * 2, [](int16_t v) { return v == 0; });
+    if (!silent) {
+        had_sound = true;
+        silent_frames = 0;
+        silence_reported = false;
+        return;
+    }
+    silent_frames += frame_count;
+    if (had_sound && !silence_reported && silent_frames >= kSilenceReportSeconds * frequency) {
+        silence_reported = true;
+        report_silence();
+    }
+}
+
 void update_stats(const int16_t* data, size_t frame_count) {
+    track_silence(data, frame_count);
     for (size_t i = 0; i < frame_count * 2; i++) {
         const int v = data[i];
         stats_peak = std::max(stats_peak, std::abs(v));
