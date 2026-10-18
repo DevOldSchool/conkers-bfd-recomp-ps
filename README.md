@@ -60,14 +60,20 @@ the keyboard at the same time. There is no remapping yet.
 | C buttons | Right stick | Right stick | I J K L |
 | D-pad | D-pad | D-pad | T F G H |
 
+Keys held with Cmd or Alt are not passed to the game, so the full-screen
+shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
+
 ## Enhancements
 
-* **Window sized to the display:** the window opens at the largest whole
-  multiple of the game's 292x216 picture that fits the display (1460x1080,
-  5x, on a 2560x1440 display with the Dock showing), and RT64 renders at that
-  multiple, so every game pixel is drawn as an even block without being
-  resampled. Resizing the window or going full screen picks the multiple
-  again. `CONKER_ORIGINAL_SIZE=1` keeps the original 960x720 window.
+* **Full screen, and a window sized to the display:** the game starts in
+  full screen, where RT64 renders at the multiple of the game's 292x216
+  picture that covers the screen height (7x on a 1440-line display) and
+  fits it to the screen. F11, Cmd+Enter, Alt+Enter or Ctrl+Cmd+F switch to a
+  window at the largest whole multiple of the picture that fits the display
+  (1460x1080, 5x, on a 2560x1440 display with the Dock showing), where every
+  game pixel is drawn as an even block without being resampled.
+  `CONKER_FULLSCREEN=0` starts in the window; `CONKER_ORIGINAL_SIZE=1` opens
+  the original 960x720 window instead.
 * **Skip to the title menu:** Start at any point during the boot logos or the
   intro fades to black and then into the GAME 1 menu, skipping the title
   scene's opening (the clock and the Cock and Plucker) too. On an N64, Start only skips the intro after about five seconds and after

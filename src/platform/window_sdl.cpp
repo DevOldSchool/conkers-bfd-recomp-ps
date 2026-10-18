@@ -7,6 +7,10 @@
 // RT64 (which scales by the window height, src/platform/renderer_rt64.cpp) renders at exactly that
 // multiple and draws every game pixel as an n x n block, without resampling. CONKER_ORIGINAL_SIZE=1
 // keeps the original 960x720 window instead, which is quicker for test runs.
+//
+// The game starts in full screen (CONKER_FULLSCREEN=0 starts in the window); F11, Cmd+Enter,
+// Alt+Enter or Ctrl+Cmd+F switch between the two. In full screen RT64 renders at the multiple that
+// covers the screen height and shrinks it slightly to fit (7x on a 1440-line display).
 #include "platform/window.hpp"
 
 #include "platform/input_sdl.hpp"
@@ -55,6 +59,33 @@ bool original_size() {
     return value != nullptr && value[0] != '\0' && value[0] != '0';
 }
 
+bool start_fullscreen() {
+    if (original_size()) {
+        return false;
+    }
+    const char* value = std::getenv("CONKER_FULLSCREEN");
+    return value == nullptr || value[0] != '0';
+}
+
+void set_fullscreen(bool fullscreen) {
+    if (SDL_SetWindowFullscreen(g_window, fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0) != 0) {
+        std::fprintf(stderr, "[conker] SDL_SetWindowFullscreen failed: %s\n", SDL_GetError());
+        return;
+    }
+    SDL_ShowCursor(fullscreen ? SDL_DISABLE : SDL_ENABLE);
+}
+
+bool is_fullscreen_toggle(const SDL_KeyboardEvent& key) {
+    if (key.repeat) {
+        return false;
+    }
+    const SDL_Scancode code = key.keysym.scancode;
+    const Uint16 mod = key.keysym.mod;
+    return code == SDL_SCANCODE_F11 ||
+           ((code == SDL_SCANCODE_RETURN || code == SDL_SCANCODE_KP_ENTER) && (mod & (KMOD_GUI | KMOD_ALT))) ||
+           (code == SDL_SCANCODE_F && (mod & KMOD_GUI) && (mod & KMOD_CTRL));
+}
+
 } // namespace
 
 void* create_gfx() {
@@ -88,6 +119,9 @@ ultramodern::renderer::WindowHandle create_window(void* /*gfx_data*/) {
         std::fprintf(stderr, "[conker] SDL_CreateWindow failed: %s\n", SDL_GetError());
         return {};
     }
+    if (start_fullscreen()) {
+        set_fullscreen(true);
+    }
 
     SDL_SysWMinfo wm_info;
     SDL_VERSION(&wm_info.version);
@@ -112,6 +146,9 @@ void update_gfx(void* /*gfx_data*/) {
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_QUIT) {
             ultramodern::quit();
+        }
+        if (event.type == SDL_KEYDOWN && is_fullscreen_toggle(event.key)) {
+            set_fullscreen((SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) == 0);
         }
         conker::input::handle_event(event);
     }

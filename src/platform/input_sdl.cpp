@@ -253,15 +253,18 @@ void update() {
     float x = 0.0f;
     float y = 0.0f;
 
-    int key_count = 0;
-    const Uint8* keys = SDL_GetKeyboardState(&key_count);
-    for (const Key& k : kKeys) {
-        if (k.key < key_count && keys[k.key]) {
-            buttons |= k.n64;
+    // Keys held with Cmd or Alt are shortcuts (Cmd+Enter toggles full screen), not game input.
+    if ((SDL_GetModState() & (KMOD_GUI | KMOD_ALT)) == 0) {
+        int key_count = 0;
+        const Uint8* keys = SDL_GetKeyboardState(&key_count);
+        for (const Key& k : kKeys) {
+            if (k.key < key_count && keys[k.key]) {
+                buttons |= k.n64;
+            }
         }
+        x = static_cast<float>((keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) - (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT]));
+        y = static_cast<float>((keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) - (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]));
     }
-    x = static_cast<float>((keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) - (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT]));
-    y = static_cast<float>((keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) - (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]));
 
     if (g_pad != nullptr) {
         for (const PadButton& b : kPadButtons) {

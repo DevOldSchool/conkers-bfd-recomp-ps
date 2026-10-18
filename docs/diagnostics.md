@@ -50,10 +50,10 @@ These environment variables are read by both builds:
   save. An emulator-style save state is not possible here, because each N64
   thread runs as a native host thread with its own C stack.
 * `CONKER_ORIGINAL_SIZE=1` (RT64 build) opens the original 960x720 window
-  instead of the largest multiple of the 292x216 picture that fits the
-  display, which renders faster and gives smaller window captures. The log
-  shows the window size chosen and, in `RT64 renders at <n>x`, the scale RT64
-  picked (4x for the 960x720 window, then shrunk to fit).
+  instead of starting in full screen, which renders faster and gives smaller
+  window captures. The log shows the window size chosen and, in
+  `RT64 renders at <n>x`, the scale RT64 picked (4x for the 960x720 window,
+  then shrunk to fit).
 * `CONKER_DUMP_AUDIO=<file.wav>` records every buffer the game queues
   (16-bit stereo at the game's 22,020 Hz) in either build. The log prints a
   line every 5 s of audio with the peak, RMS, minimum output-queue depth and
