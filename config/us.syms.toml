@@ -20,7 +20,7 @@ functions = [
     { name = "osSyncPrintf", vram = 0x10002088, size = 0x48 },
     { name = "_Printf", vram = 0x100020d0, size = 0x648 },
     { name = "_Putfld", vram = 0x10002718, size = 0x690 },
-    { name = "func_80002DB0", vram = 0x10002db0, size = 0xa0 },
+    { name = "osAiSetNextBuffer", vram = 0x10002db0, size = 0xa0 },
     { name = "func_80002E50", vram = 0x10002e50, size = 0x250 },
     { name = "func_800030A0", vram = 0x100030a0, size = 0x180 },
     { name = "func_80003220", vram = 0x10003220, size = 0x110 },

@@ -20,10 +20,10 @@ This repository contains no ROM data. You need your own US ROM
 | --- | --- |
 | Symbol file from the decomp inventory, ELF and evidence docs | done: 5,900+ functions across main, game and debugger overlays, SDK copies in the game overlay named so the runtime replaces them |
 | Static recompilation | done: every function recompiles; 13 CP0/TLB/exception routines are stubbed; Rare's handwritten geometry code and one handwritten prefix-code tree builder are recompiled as shared code regions |
-| Headless runtime (no graphics, audio or input) | boots: ROM load, game-archive inflation, thread creation, main init, game entry, software-geometry setup, visibility-partition build, main loop, legal and Nintendo screens, intro cutscene, title scene, menus after a scripted Start press; no known crash (see below) |
+| Headless runtime (no graphics, sound output or input) | boots: ROM load, game-archive inflation, thread creation, main init, game entry, software-geometry setup, visibility-partition build, main loop, legal and Nintendo screens, intro cutscene, title scene, menus after a scripted Start press; no known crash (see below) |
 | Crash diagnostics | crash reporter with MIPS registers, per-thread call trace, `tools/symbolicate.sh`; display-list dumper and scripted Start press (see "Diagnostics") |
 | Graphics: RT64 support for Rare's F3DEX2CBFD microcode | first light: all eight variants recognised, the intro cutscene, the title scene and the menus render in an RT64 window (`CONKER_RENDERER=rt64`); the title scene matches a cycle-accurate emulator render, including the weasels' tails that looked like stray polygons; see [docs/rsp-microcode.md](docs/rsp-microcode.md) |
-| Audio: RSPRecomp of the `n_aspMain` microcode | not started |
+| Audio: RSPRecomp of the `n_aspMain` microcode | working through the intro and title scene: Rare's MP3-capable audio microcode recompiled with its overlays, SDL2 output in the RT64 build, WAV dump with `CONKER_DUMP_AUDIO`; music in tune and MP3 voice at the right pitch and speed (checked against the decomp's extracted assets); see [docs/rsp-microcode.md](docs/rsp-microcode.md#audio-n_aspmain-with-the-mp3-overlay) |
 | Saving: EEPROM through a PIF shim | volatile in-memory image only |
 | Windows support for the memory aliasing | not started |
 
@@ -39,7 +39,7 @@ new game's opening: the credits ("Nintendo presents", "A Rareware game",
 "Starring Conker & Berri"), then the throne-room cutscene. The later presses
 pause and resume it (the PAUSED / QUIT / CONT. menu appears; its options were not tried). A 5.5-minute run
 with those presses ended on the timer, not a crash. Nothing past the opening
-cutscene has been tried yet, and there is still no audio.
+cutscene has been tried yet.
 
 In RT64 the title scene and the menus look right. The large grey shapes on
 the weasels at the bar (picture below) are **not a rendering bug**. They are
@@ -173,11 +173,12 @@ the recomp call for call):
 ```
 config/us.toml          N64Recomp configuration (stub list lives here)
 config/us.syms.toml     generated: sections and functions at runtime addresses
+config/aspMain.toml     RSPRecomp configuration for the audio microcode
 tools/gen_syms.py       builds us.syms.toml and the virtual ROM from the decomp
 tools/regenerate.sh     extraction + generation + recompilation in one go
 tools/cbfd_dl.py        offline display-list replay from a CONKER_DUMP_RDRAM image
 tools/patches/          patches applied to the N64Recomp, N64ModernRuntime and RT64 submodules
-src/                    runtime glue: entry, memory windows, RZIP, overlays, renderers, window
+src/                    runtime glue: entry, memory windows, RZIP, overlays, renderers, window, audio
 docs/memory-layout.md   why main runs at 0x10001000 and the game at 0x15000000
 docs/rsp-microcode.md   the microcode situation and the RT64 work
 lib/N64Recomp           recompiler (submodule, patched; see tools/patches)
@@ -227,12 +228,17 @@ to generated C lines and N64 instruction addresses.
 
 `regenerate.sh` extracts the compressed game overlay with the decomp's RZIP
 tool, writes `config/us.syms.toml` plus a virtual ROM (the real ROM with the
-decompressed game images appended, read only by N64Recomp), and runs the
-recompiler into `build/us/RecompiledFuncs`.
+decompressed game images appended, read only by N64Recomp), runs the
+recompiler into `build/us/RecompiledFuncs` and RSPRecomp into
+`build/us/rsp/aspMain.cpp`. From a git worktree, point it at the decomp with
+`CONKER_DECOMP=/path/to/conkers-bfd-decomp`.
+
+The RT64 build plays sound through SDL2; the null build renders the audio but
+has no output device.
 
 ### Diagnostics
 
-These environment variables are read by the headless binary:
+These environment variables are read by both builds:
 
 * `CONKER_DUMP_DL=<task>[,<task>...]` prints every command of the listed
   graphics tasks (1-based). It walks the F3DEX2-style display list from the
@@ -253,6 +259,13 @@ These environment variables are read by the headless binary:
   renderer that misreads good data.
 * `CONKER_PRESS_START=<vi>[,<vi>...]` holds Start on controller 1 for 10 VIs
   from each listed VI count.
+* `CONKER_DUMP_AUDIO=<file.wav>` records every buffer the game queues
+  (16-bit stereo at the game's 22,020 Hz) in either build. The log prints a
+  line every 5 s of audio with the peak, RMS, minimum output-queue depth and
+  underrun count.
+* `CONKER_AUDIO=0` (RT64 build) disables the SDL device; `CONKER_AUDIO_LATENCY_MS`
+  (default 60) sets the extra buffering kept on top of what the game asks for;
+  `CONKER_SILENT_AUDIO=1` skips the audio microcode entirely.
 
 ## How the recompilation is set up
 

@@ -54,3 +54,12 @@ stubs = [
     # Rare's handwritten software geometry code (0x150A3A70:0x150AE35C) is recompiled as a shared
     # code region (see `regions` in us.syms.toml), not stubbed.
 ]
+
+# The audio frame builder (func_800095A0, src/done/main/init_8F90.c) reads AI_LEN directly
+# (`lui $t6, 0xA450; lw $v1, 4($t6)`) to choose this frame's sample count. The RCP registers are
+# plain memory in the recomp, so replace the loaded value with the runtime's osAiGetLength (the
+# bytes still queued for playback), as libultra's osAiGetLength would return on hardware.
+[[patches.hook]]
+func = "func_800095A0"
+before_vram = 0x100095D4
+text = "{ void osAiGetLength_recomp(uint8_t*, recomp_context*); uint64_t saved_v0 = ctx->r2; osAiGetLength_recomp(rdram, ctx); ctx->r3 = ctx->r2; ctx->r2 = saved_v0; }"
