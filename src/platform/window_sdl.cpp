@@ -74,6 +74,14 @@ Mode g_screen_mode = Mode::Fullscreen;  // where the shortcuts go from the windo
 int g_window_width = kOriginalWidth;    // the window's size when it is a window
 int g_window_height = kOriginalHeight;
 
+// Leaving a full-screen Space is animated, and when it ends macOS puts the window back at the frame
+// it had before, after apply_mode has set the new one; coming back from the borderless frame, it is
+// also left maximized, which makes SDL ignore new sizes. So for a while after a change the window is
+// un-maximized and given the frame the mode wants whenever it has another.
+constexpr Uint64 kSettleMs = 3000;
+SDL_Rect g_wanted_frame{};  // x and y SDL_WINDOWPOS_CENTERED for the window
+Uint64 g_settle_until = 0;
+
 // A borderless window can only cover the menu bar while the app hides it and the Dock
 // (NSApplication.presentationOptions); macOS shows them again whenever another app is in front.
 void hide_menu_bar(bool hide) {
@@ -93,6 +101,27 @@ void hide_menu_bar(bool hide) {
 // to. Full screen is then SDL's desktop full screen, a Space of its own on macOS. Borderless is a
 // window without a frame laid over the whole display in the current Space; SDL's exclusive full
 // screen would do that too, but it may change the display mode.
+void set_frame(const SDL_Rect& frame) {
+    if ((SDL_GetWindowFlags(g_window) & SDL_WINDOW_MAXIMIZED) != 0) {
+        SDL_RestoreWindow(g_window);
+    }
+    SDL_SetWindowSize(g_window, frame.w, frame.h);
+    SDL_SetWindowPosition(g_window, frame.x, frame.y);
+}
+
+void keep_frame() {
+    if (SDL_GetTicks64() >= g_settle_until || (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) != 0) {
+        return;
+    }
+    int x, y, w, h;
+    SDL_GetWindowPosition(g_window, &x, &y);
+    SDL_GetWindowSize(g_window, &w, &h);
+    const bool centered = g_wanted_frame.x == static_cast<int>(SDL_WINDOWPOS_CENTERED);
+    if (w != g_wanted_frame.w || h != g_wanted_frame.h || (!centered && (x != g_wanted_frame.x || y != g_wanted_frame.y))) {
+        set_frame(g_wanted_frame);
+    }
+}
+
 void apply_mode(Mode mode) {
     if (SDL_SetWindowFullscreen(g_window, 0) != 0) {
         std::fprintf(stderr, "[conker] SDL_SetWindowFullscreen failed: %s\n", SDL_GetError());
@@ -100,8 +129,9 @@ void apply_mode(Mode mode) {
     }
     hide_menu_bar(false);
     SDL_SetWindowBordered(g_window, SDL_TRUE);
-    SDL_SetWindowSize(g_window, g_window_width, g_window_height);
-    SDL_SetWindowPosition(g_window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+    g_wanted_frame = {static_cast<int>(SDL_WINDOWPOS_CENTERED), static_cast<int>(SDL_WINDOWPOS_CENTERED), g_window_width,
+                      g_window_height};
+    set_frame(g_wanted_frame);
     if (mode == Mode::Fullscreen) {
         if (SDL_SetWindowFullscreen(g_window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0) {
             std::fprintf(stderr, "[conker] SDL_SetWindowFullscreen failed: %s\n", SDL_GetError());
@@ -111,10 +141,11 @@ void apply_mode(Mode mode) {
         if (SDL_GetDisplayBounds(std::max(SDL_GetWindowDisplayIndex(g_window), 0), &bounds) == 0) {
             hide_menu_bar(true);
             SDL_SetWindowBordered(g_window, SDL_FALSE);
-            SDL_SetWindowPosition(g_window, bounds.x, bounds.y);
-            SDL_SetWindowSize(g_window, bounds.w, bounds.h);
+            g_wanted_frame = bounds;
+            set_frame(g_wanted_frame);
         }
     }
+    g_settle_until = SDL_GetTicks64() + kSettleMs;
     SDL_ShowCursor(mode == Mode::Windowed ? SDL_ENABLE : SDL_DISABLE);
     if (mode != Mode::Windowed) {
         g_screen_mode = mode;
@@ -209,6 +240,7 @@ void update_gfx(void* /*gfx_data*/) {
     if (Mode mode; conker::display::take_request(&mode)) {
         apply_mode(mode);
     }
+    keep_frame();
     conker::input::update();
 }
 
