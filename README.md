@@ -280,14 +280,14 @@ the keyboard at the same time; the null build has no input device. A
 controller can be plugged in or removed while the game runs (the log prints
 `[conker] controller 1: <name>`). There is no remapping yet.
 
-| N64 | Game controller (Xbox names) | Keyboard |
+| N64 | Game controller (Xbox names, PlayStation in brackets) | Keyboard |
 | --- | --- | --- |
 | Analog stick | left stick (20% radial deadzone) | W A S D or the arrow keys |
 | A | A | Space |
 | B | X or B | Left Shift |
-| Z | left trigger | Q |
-| L | left bumper | Tab |
-| R | right trigger or right bumper | E |
+| Z | right trigger (R2) or left trigger (L2) | Q |
+| L | left bumper (L1) | Tab |
+| R | right bumper (R1) | E |
 | Start | Start | Enter |
 | C buttons | right stick | I J K L (up, right, down, left) |
 | D-pad | D-pad | T F G H (up, left, down, right) |
