@@ -1,5 +1,5 @@
 // No input device: the null renderer has no window to take keyboard focus.
-#include "input.hpp"
+#include "platform/input.hpp"
 
 namespace conker::input {
 

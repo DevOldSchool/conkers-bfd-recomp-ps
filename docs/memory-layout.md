@@ -78,7 +78,7 @@ functions `func_15xxxxxx` and debugger functions `func_16xxxxxx`.
   shared memory; the RCP register block (`0xA4000000`), the ROM (`0xB0000000`),
   cart domain 2 (`0xBC000000`) and PIF RAM (`0xBFC00000`) get plain windows so
   Rare's direct hardware pokes do not fault. Register-driven PI and SP DMA is
-  intercepted in `src/ultra_extras.cpp` instead.
+  intercepted in `src/runtime/ultra_extras.cpp` instead.
 * The handwritten CP0/TLB routines (entry stub, `0x5AB0` TLB setup, the
   demand-paging fault handler and bitmap setup, `0x8120` alias install,
   exception handling) are not recompiled. The native entry function clears bss, sets `$sp` and

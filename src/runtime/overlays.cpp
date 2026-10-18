@@ -12,8 +12,8 @@
 
 #include "recomp_overlays.inl"
 
-#include "game.hpp"
-#include "memory.hpp"
+#include "runtime/game.hpp"
+#include "runtime/memory.hpp"
 
 namespace conker {
 

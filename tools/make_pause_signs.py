@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Render the lettering for the pause menu's SAVE and LOAD signs into src/pause_sign_letters.inc.
+"""Render the lettering for the pause menu's SAVE and LOAD signs into
+src/enhancements/pause_save/pause_sign_letters.inc.
 
-The signs are built at runtime (src/pause_save.cpp): the game's own CONT... (for SAVE) and QUIT
-(for LOAD) sign frames with their lettering cleared, plus these layers. Only the lettering is
-stored here, so the repository keeps no ROM data. Each sign has two 64x32 RGBA layers, dark (not
-selected) and bright (selected), in the style of the game's signs: filled letters, a dark ring
-around them and, when bright, a glow.
+The signs are built at runtime (src/enhancements/pause_save/pause_save.cpp): the game's own CONT...
+(for SAVE) and QUIT (for LOAD) sign frames with their lettering cleared, plus these layers. Only the
+lettering is stored here, so the repository keeps no ROM data. Each sign has two 64x32 RGBA layers,
+dark (not selected) and bright (selected), in the style of the game's signs: filled letters, a dark
+ring around them and, when bright, a glow.
 
 Needs Pillow and numpy. Usage: tools/make_pause_signs.py [--font FILE] [--preview out.png]
 """
@@ -70,7 +71,7 @@ def main():
     root = Path(__file__).resolve().parent.parent
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--font", default="/System/Library/Fonts/Supplemental/Arial Rounded Bold.ttf")
-    parser.add_argument("--out", type=Path, default=root / "src" / "pause_sign_letters.inc")
+    parser.add_argument("--out", type=Path, default=root / "src" / "enhancements" / "pause_save" / "pause_sign_letters.inc")
     parser.add_argument("--preview", type=Path)
     args = parser.parse_args()
 

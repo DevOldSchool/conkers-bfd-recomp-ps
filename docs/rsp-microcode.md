@@ -108,8 +108,8 @@ the real microcode or a hardware capture; the wooden floor in the intro looks
 streaky (texture filtering, LOD or texture coordinates, not yet investigated);
 and nothing is known about what the BS/BG variants change. The large grey
 shapes on the weasels in the title scene are their tails and match a
-cycle-accurate emulator render; they are not a CBFD decoding error (see
-[investigations.md](investigations.md#the-grey-shapes-on-the-weasels)).
+cycle-accurate emulator render (Mupen64Plus with CXD4 and Angrylion); they
+are not a CBFD decoding error.
 
 ## Audio: n_aspMain with the MP3 overlay
 
@@ -178,7 +178,7 @@ Conker does not call the libultra AI functions the runtime replaces by name:
   replaces the loaded value with `osAiGetLength`.
 * `osAiSetFrequency` is already replaced by name. The game asks for 22,020 Hz.
 
-`src/audio.cpp` implements ultramodern's audio callbacks. The RT64 build plays
+`src/platform/audio.cpp` implements ultramodern's audio callbacks. The RT64 build plays
 through SDL2 (an `S16` stereo device opened at the game's rate; SDL converts).
 The null build has no device and drains a virtual queue against the wall
 clock instead, so the game's `AI_LEN` feedback behaves the same. The game
@@ -245,7 +245,7 @@ manager sees the new player as stopped. Traced over 12 runs, the music played
 whenever the audio thread applied Play within 19.5 ms and was lost whenever it
 took 24 ms or more.
 
-A hook on `func_8000853C` (`conker_seqp_state_hook` in `src/hooks.cpp`) reports
+A hook on `func_8000853C` (`conker_seqp_state_hook` in `src/fixes/music_start.cpp`) reports
 a stopped player that still has a Play event queued as playing, which is the
 state hardware shows at that point. Without it 10 of 33 runs lost the music.
 With it 30 of 30 played `0034` (corr 0.89 to 0.90), and the hook fired in the
@@ -254,5 +254,5 @@ runs that would have failed.
 The CPU side of MP3 decoding lives in main (`__conker_mp3_*` in the decomp's
 ELF) and recompiles normally. The large handwritten block in the game overlay
 at `0x150A3A70:0x150AE35C` is not audio at all but Rare's software
-geometry/visibility code; it is recompiled as a shared code region (see the
-[investigations.md](investigations.md#the-grey-shapes-on-the-weasels)).
+geometry/visibility code; it is recompiled as a shared code region (see
+[recompilation.md](recompilation.md#patches-to-the-submodules)).

@@ -16,9 +16,9 @@
 #include "librecomp/game.hpp"
 #include "ultramodern/ultramodern.hpp"
 
-#include "game.hpp"
-#include "input.hpp"
-#include "memory.hpp"
+#include "runtime/game.hpp"
+#include "platform/input.hpp"
+#include "runtime/memory.hpp"
 
 namespace {
 

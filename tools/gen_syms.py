@@ -108,7 +108,7 @@ CONKER_RENAMES = {
     # the queue Rare's paced EEPROM write (func_151DCEF0 / __conker_eeprom_wait) waits on. The
     # runtime's osContInit only does the controller part, so the queue stayed zeroed (count 0,
     # treated as full), the timer message was dropped and the game hung at its first save. These
-    # names are `ignored` in config/us.toml; src/ultra_extras.cpp wraps the runtime's version.
+    # names are `ignored` in config/us.toml; src/runtime/ultra_extras.cpp wraps the runtime's version.
     0x10025340: "conker_osContInit",
     0x151EF090: "conker_osContInit_game",
     # Rare's osEepromLongRead (libultrare/io/conteeplongread.c) first drains a pending paced write

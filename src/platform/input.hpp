@@ -1,6 +1,6 @@
 // Player input for controller 1. The RT64 build reads an SDL game controller and the keyboard
-// (src/input_sdl.cpp, pumped by the window's event loop); the null build has no input device
-// (src/input_headless.cpp).
+// (src/platform/input_sdl.cpp, pumped by the window's event loop); the null build has no input
+// device (src/platform/input_headless.cpp).
 #pragma once
 
 #include <cstdint>

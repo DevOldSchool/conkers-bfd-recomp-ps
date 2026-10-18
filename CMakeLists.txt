@@ -41,6 +41,9 @@ target_include_directories(ConkerRecompiled PUBLIC
     "${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/include"
     "${CMAKE_SOURCE_DIR}/src"
 )
+# trace_mode makes N64Recomp include "trace.h" by that name (src/runtime/trace.h), in funcs.h too,
+# so everything that includes funcs.h needs it.
+target_include_directories(ConkerRecompiled PUBLIC "${CMAKE_SOURCE_DIR}/src/runtime")
 target_compile_options(ConkerRecompiled PRIVATE ${CONKER_RECOMPILED_OPT} -w)
 if(CONKER_TRACE)
     target_compile_definitions(ConkerRecompiled PRIVATE CONKER_TRACE=1)
@@ -55,20 +58,26 @@ if(NOT EXISTS "${CONKER_RSP_DIR}/aspMain.cpp")
     message(FATAL_ERROR "No ${CONKER_RSP_DIR}/aspMain.cpp. Run tools/regenerate.sh first.")
 endif()
 
+# src/runtime: boot, memory layout, overlays and the libultra pieces the recompiled code needs.
+# src/platform: host backends (audio, input, window, renderer); the renderer-specific ones are
+# added below. src/fixes: hooks that make the recompiled game behave as it does on hardware.
+# src/enhancements: one folder per feature the console does not have, each with its own switch.
 add_executable(ConkerRecomp
     src/main.cpp
-    src/audio.cpp
+    src/runtime/game.cpp
+    src/runtime/memory.cpp
+    src/runtime/overlays.cpp
+    src/runtime/rsp.cpp
+    src/runtime/rzip.cpp
+    src/runtime/trace.cpp
+    src/runtime/ultra_extras.cpp
     "${CONKER_RSP_DIR}/aspMain.cpp"
-    src/game.cpp
-    src/memory.cpp
-    src/overlays.cpp
-    src/rsp.cpp
-    src/rzip.cpp
-    src/trace.cpp
-    src/hooks.cpp
-    src/pause_save.cpp
-    src/resume_point.cpp
-    src/ultra_extras.cpp
+    src/platform/audio.cpp
+    src/fixes/geometry_escape.cpp
+    src/fixes/music_start.cpp
+    src/enhancements/intro_skip/intro_skip.cpp
+    src/enhancements/pause_save/pause_save.cpp
+    src/enhancements/pause_save/resume_point.cpp
 )
 target_include_directories(ConkerRecomp PRIVATE
     "${CMAKE_SOURCE_DIR}/src"
@@ -85,7 +94,8 @@ set_source_files_properties("${CONKER_RSP_DIR}/aspMain.cpp" PROPERTIES COMPILE_O
 if(CONKER_RENDERER STREQUAL "rt64")
     set(RT64_STATIC ON CACHE BOOL "" FORCE)
     add_subdirectory(lib/rt64 EXCLUDE_FROM_ALL)
-    target_sources(ConkerRecomp PRIVATE src/renderer_rt64.cpp src/window_sdl.cpp src/input_sdl.cpp)
+    target_sources(ConkerRecomp PRIVATE
+        src/platform/renderer_rt64.cpp src/platform/window_sdl.cpp src/platform/input_sdl.cpp)
     target_include_directories(ConkerRecomp PRIVATE
         ${SDL2_INCLUDE_DIRS}
         "${CMAKE_SOURCE_DIR}/lib/rt64/src"
@@ -97,7 +107,8 @@ if(CONKER_RENDERER STREQUAL "rt64")
     target_compile_definitions(ConkerRecomp PRIVATE CONKER_RENDERER_RT64=1 CONKER_AUDIO_SDL=1 HLSL_CPU FFX_GCC)
     target_link_libraries(ConkerRecomp PRIVATE rt64 ${SDL2_LIBRARIES})
 else()
-    target_sources(ConkerRecomp PRIVATE src/renderer_null.cpp src/window_headless.cpp src/input_headless.cpp)
+    target_sources(ConkerRecomp PRIVATE
+        src/platform/renderer_null.cpp src/platform/window_headless.cpp src/platform/input_headless.cpp)
 endif()
 
 if(APPLE)

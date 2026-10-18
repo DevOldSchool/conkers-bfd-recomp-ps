@@ -89,4 +89,5 @@ the keyboard at the same time. There is no remapping yet.
   up and what the submodule patches change
 * [docs/memory-layout.md](docs/memory-layout.md): the TLB layout
 * [docs/rsp-microcode.md](docs/rsp-microcode.md): graphics and audio microcode
-* [docs/investigations.md](docs/investigations.md): bugs fixed so far
+* [docs/investigations.md](docs/investigations.md): open problems and what
+  has been ruled out

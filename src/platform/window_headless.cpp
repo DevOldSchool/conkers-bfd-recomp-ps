@@ -1,5 +1,5 @@
 // No window: the null renderer draws nothing, so the runtime stays headless.
-#include "window.hpp"
+#include "platform/window.hpp"
 
 namespace conker::window {
 
