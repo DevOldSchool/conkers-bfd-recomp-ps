@@ -65,6 +65,16 @@ the keyboard at the same time. There is no remapping yet.
 * **Skippable intro:** Start skips the intro after about five seconds, on
   every boot. `CONKER_SKIP_INTRO=1` skips it automatically;
   `CONKER_SKIP_INTRO=0` makes it unskippable, as on an N64 cold boot.
+* **SAVE and LOAD in the pause menu:** two signs sit under the lever, LOAD
+  below QUIT and SAVE below CONT.... Push down from the sign above, or use
+  the stick's down-left and down-right diagonals, and press A. SAVE saves
+  the game where Conker stands, and LOAD, or starting that save from the
+  title menu, puts him back on that spot. Quitting from the pause menu keeps
+  the spot too. The spot is kept in `conker_us.resume` next to the save; a
+  checkpoint reached later takes over as usual. Enemies and other things
+  the save does not record are reset, as at a checkpoint. Neither sign is
+  offered when replaying a chapter, where the game does not save.
+  `CONKER_PAUSE_SAVE=0` turns them off.
 * **Camera on the right stick:** C-left and C-right are swapped (also on J/L),
   so pushing left turns the view left.
 

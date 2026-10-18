@@ -11,7 +11,7 @@
 // whole pad path (hot-plug, mapping, deadzone) can be exercised without hardware. Each line is
 // "<vi> <length in VIs> <control>...", where a control is an SDL button name (a, b, x, start,
 // leftshoulder, dpup, ...) or "<axis>=<value>" (leftx, lefty, rightx, righty, lefttrigger,
-// righttrigger; -1 to 1, SDL's +y is down). '#' starts a comment.
+// righttrigger; -1 to 1, SDL's +y is down). '#' starts a comment. Real pads are then ignored.
 #include "input.hpp"
 #include "input_sdl.hpp"
 
@@ -78,12 +78,19 @@ constexpr Key kKeys[] = {
 SDL_GameController* g_pad = nullptr;
 SDL_JoystickID g_pad_id = -1;
 
+bool g_scripted = false;  // CONKER_VIRTUAL_PAD: only the virtual pad counts
+
 std::atomic<uint16_t> g_buttons{0};
 std::atomic<float> g_stick_x{0.0f};
 std::atomic<float> g_stick_y{0.0f};
 
 void open_pad(int device_index) {
     if (g_pad != nullptr || !SDL_IsGameController(device_index)) {
+        return;
+    }
+    // A real pad would take controller 1 from the script, and SDL hands pad input to every
+    // process, so a scripted run would also pick up whatever is played in another window.
+    if (g_scripted && !SDL_JoystickIsVirtual(device_index)) {
         return;
     }
     g_pad = SDL_GameControllerOpen(device_index);
@@ -171,6 +178,7 @@ void attach_virtual_pad() {
         std::fprintf(stderr, "[conker] CONKER_VIRTUAL_PAD: %s\n", SDL_GetError());
         return;
     }
+    g_scripted = true;
     std::printf("[conker] virtual pad: %zu scripted steps from %s\n", g_script.size(), path);
 }
 
