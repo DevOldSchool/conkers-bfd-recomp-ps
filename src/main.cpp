@@ -3,9 +3,10 @@
 //   ConkerRecomp <path to US ROM .z64>
 //
 // Registers the game with librecomp, wires the ultramodern callbacks and starts the game thread.
-// Audio and input are do-nothing implementations. Graphics depend on CONKER_RENDERER: the null
-// renderer (default) runs headless and only logs graphics tasks, RT64 opens a window and draws
-// the display lists through Conker's F3DEX2CBFD microcode support.
+// Input is scripted (CONKER_PRESS_START). Graphics depend on CONKER_RENDERER: the null renderer
+// (default) runs headless and only logs graphics tasks, RT64 opens a window and draws the display
+// lists through Conker's F3DEX2CBFD microcode support. Audio is rendered by the recompiled audio
+// microcode and played through SDL2 in the RT64 build (src/audio.cpp).
 #include <atomic>
 #include <csignal>
 #include <cstdio>
@@ -28,6 +29,7 @@ static long _dyld_get_image_vmaddr_slide(int) { return 0; }
 #include "librecomp/game.hpp"
 #include "ultramodern/ultramodern.hpp"
 
+#include "audio.hpp"
 #include "game.hpp"
 #include "rsp.hpp"
 #include "window.hpp"
@@ -81,11 +83,6 @@ ultramodern::input::connected_device_info_t get_connected_device_info(int contro
         ultramodern::input::Pak::None,
     };
 }
-
-// --- audio ---------------------------------------------------------------------------------
-void queue_samples(int16_t* /*samples*/, size_t /*count*/) {}
-size_t get_frames_remaining() { return 0; }
-void set_frequency(uint32_t /*freq*/) {}
 
 // --- misc ----------------------------------------------------------------------------------
 void message_box(const char* msg) { std::fprintf(stderr, "[conker] %s\n", msg); }
@@ -216,7 +213,12 @@ int main(int argc, char** argv) {
 #else
     cfg.renderer_callbacks = {.create_render_context = conker::renderer::create_null_render_context};
 #endif
-    cfg.audio_callbacks = {.queue_samples = queue_samples, .get_frames_remaining = get_frames_remaining, .set_frequency = set_frequency};
+    conker::audio::init();
+    cfg.audio_callbacks = {
+        .queue_samples = conker::audio::queue_samples,
+        .get_frames_remaining = conker::audio::get_frames_remaining,
+        .set_frequency = conker::audio::set_frequency,
+    };
     cfg.input_callbacks = {
         .poll_input = poll_input,
         .get_input = get_input,

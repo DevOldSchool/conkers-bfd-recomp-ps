@@ -49,8 +49,16 @@ endif()
 # ---------------------------------------------------------------------------------------------
 # Runtime executable
 # ---------------------------------------------------------------------------------------------
+# Audio microcode recompiled by RSPRecomp (config/aspMain.toml, run by tools/regenerate.sh).
+set(CONKER_RSP_DIR "${CMAKE_SOURCE_DIR}/build/us/rsp" CACHE PATH "Directory containing aspMain.cpp produced by RSPRecomp")
+if(NOT EXISTS "${CONKER_RSP_DIR}/aspMain.cpp")
+    message(FATAL_ERROR "No ${CONKER_RSP_DIR}/aspMain.cpp. Run tools/regenerate.sh first.")
+endif()
+
 add_executable(ConkerRecomp
     src/main.cpp
+    src/audio.cpp
+    "${CONKER_RSP_DIR}/aspMain.cpp"
     src/game.cpp
     src/memory.cpp
     src/overlays.cpp
@@ -65,6 +73,8 @@ target_include_directories(ConkerRecomp PRIVATE
     "${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/thirdparty/miniz"
 )
 target_link_libraries(ConkerRecomp PRIVATE ConkerRecompiled librecomp ultramodern miniz)
+# The microcode runs once per audio frame on the audio thread; keep it optimised in Debug builds.
+set_source_files_properties("${CONKER_RSP_DIR}/aspMain.cpp" PROPERTIES COMPILE_OPTIONS "-O2;-w")
 
 # ---------------------------------------------------------------------------------------------
 # Renderer
@@ -81,7 +91,7 @@ if(CONKER_RENDERER STREQUAL "rt64")
         "${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/hlslpp/include"
         "${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/imgui"
     )
-    target_compile_definitions(ConkerRecomp PRIVATE CONKER_RENDERER_RT64=1 HLSL_CPU FFX_GCC)
+    target_compile_definitions(ConkerRecomp PRIVATE CONKER_RENDERER_RT64=1 CONKER_AUDIO_SDL=1 HLSL_CPU FFX_GCC)
     target_link_libraries(ConkerRecomp PRIVATE rt64 ${SDL2_LIBRARIES})
 else()
     target_sources(ConkerRecomp PRIVATE src/renderer_null.cpp src/window_headless.cpp)
