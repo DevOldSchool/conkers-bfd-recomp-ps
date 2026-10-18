@@ -169,7 +169,12 @@ public:
             if (reported_scale_ != 0.0f) {
                 app_->updateUserConfig(true);
             }
+        }
+        // The window's size reaches RT64 a frame after a new scale, so report either change.
+        if (scale != reported_scale_ || width != reported_width_ || height != reported_height_) {
             reported_scale_ = scale;
+            reported_width_ = width;
+            reported_height_ = height;
             std::printf("[conker] RT64 renders at %gx for a %ux%u window\n", scale, width, height);
         }
         return scale;
@@ -198,6 +203,8 @@ private:
 
     std::unique_ptr<RT64::Application> app_;
     mutable float reported_scale_ = 0.0f;
+    mutable uint32_t reported_width_ = 0;
+    mutable uint32_t reported_height_ = 0;
     int applied_scale_ = 0;
     bool applied_native_ = false;
 };
