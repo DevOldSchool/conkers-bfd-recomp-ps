@@ -83,7 +83,11 @@ def read_elf_functions(path: Path) -> list[tuple[int, int, str]]:
 # Handwritten assembly regions whose routines branch into shared tails. N64Recomp (patched)
 # recompiles every function inside with the whole region as its body. 0x150A3A70:0x150AE35C is
 # Rare's software geometry/visibility code (decomp: game_D0F20.c and neighbours).
-GAME_REGIONS = [(0x150A3A70, 0x150AE35C)]
+# 0x15018500:0x150186D0 is func_15018500, a handwritten prefix-code tree builder (game_45880.c) that
+# keeps its return address in $s4 (`or $s4, $ra, $zero` ... `jr $s4`). Outside a region `jal` does
+# not write $ra, so `jr $s4` became a lookup of a stale value; the region wrapper seeds the
+# sentinel that turns it into a return.
+GAME_REGIONS = [(0x15018500, 0x150186D0), (0x150A3A70, 0x150AE35C)]
 
 CONKER_RENAMES = {
     0x100037F0: "osCreateThread",  # src/done/main/init_37F0.c: identical field setup, sp - 16
