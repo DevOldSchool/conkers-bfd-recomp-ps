@@ -98,6 +98,12 @@ set_source_files_properties("${CONKER_RSP_DIR}/aspMain.cpp" PROPERTIES COMPILE_O
 if(CONKER_RENDERER STREQUAL "rt64")
     set(RT64_STATIC ON CACHE BOOL "" FORCE)
     add_subdirectory(lib/rt64 EXCLUDE_FROM_ALL)
+    if(APPLE)
+        # RT64 turns plume's Retina support off, which sizes the swap chain in points and leaves macOS
+        # to upscale it on a Retina screen. The window is sized in pixels (src/platform/window_sdl.cpp),
+        # so the swap chain should be too.
+        target_compile_definitions(plume PRIVATE PLUME_APPLE_RETINA_ENABLED)
+    endif()
     target_sources(ConkerRecomp PRIVATE
         src/platform/renderer_rt64.cpp src/platform/window_sdl.cpp src/platform/input_sdl.cpp)
     target_include_directories(ConkerRecomp PRIVATE
