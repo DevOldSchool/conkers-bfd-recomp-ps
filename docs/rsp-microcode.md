@@ -218,10 +218,38 @@ Not verified: tempo against an emulator recording (the decomp's renders are
 approximate and the intro section has chainsaw and voice effects on top, so
 onset-based tempo comparison was inconclusive), A/V sync against hardware,
 reverb and other effects against hardware, and anything past the title
-scene. In one of five runs (the first launch after a build, headless) the title
-scene played its clock and ambience but sequence `0034` never started; four
-later runs, including the RT64 one, played it. The cause was not found.
-`CONKER_SILENT_AUDIO=1` restores the old silent task.
+scene. `CONKER_SILENT_AUDIO=1` restores the old silent task.
+
+### Title music lost to a frame-pacing race (fixed)
+
+Before the fix, some headless runs entered the title scene with its clock and
+ambience but no sequence `0034`: 1 of 5 sequential runs, and 10 of 33 runs with
+three to seven instances in parallel, since host load makes it more likely. Rare's
+music manager (`func_8000D758`, called once per game frame) starts a sequence
+with `func_80008CE8` + `func_800084D8`. Those only queue SetSeq and Play events
+on the player. At its next tick it reads the player state through
+`func_8000853C`, and a stopped player (state 0) means "sequence finished": it
+frees the record (`func_8000D2F8`, also `func_8000DEC4`). The fade-in and the
+per-frame mixing callback of the sequence are then never run, and `0034` stays
+at its starting volume of 14, inaudible under the ambience.
+
+The audio thread (`func_80009400`, priority 12, above the game thread's 10)
+applies queued events while it renders, and it renders one 736-sample frame
+every second retrace. On hardware the frame that starts the title music takes
+the CPU long enough, and the audio thread preempts it, so the render always
+comes before the manager's next tick. Recompiled, the frame finishes in about
+1 ms. After the long loading frame before the title scene, the game's catch-up
+pacing starts the next frame on the very next retrace. When the start frame
+falls just after a render, that retrace is an odd one with no render, and the
+manager sees the new player as stopped. Traced over 12 runs, the music played
+whenever the audio thread applied Play within 19.5 ms and was lost whenever it
+took 24 ms or more.
+
+A hook on `func_8000853C` (`conker_seqp_state_hook` in `src/hooks.cpp`) reports
+a stopped player that still has a Play event queued as playing, which is the
+state hardware shows at that point. Without it 10 of 33 runs lost the music.
+With it 30 of 30 played `0034` (corr 0.89 to 0.90), and the hook fired in the
+runs that would have failed.
 
 The CPU side of MP3 decoding lives in main (`__conker_mp3_*` in the decomp's
 ELF) and recompiles normally. The large handwritten block in the game overlay
