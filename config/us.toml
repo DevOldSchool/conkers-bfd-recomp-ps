@@ -234,3 +234,13 @@ text = "{ void conker_display_option_end(uint8_t*, recomp_context*); conker_disp
 func = "func_151E3344"
 before_vram = 0x151E418C
 text = "{ void conker_display_option_sticks(uint8_t*, recomp_context*); conker_display_option_sticks(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151E3344"
+before_vram = 0x151E3940
+text = "{ void conker_display_option_row_y(uint8_t*, recomp_context*); conker_display_option_row_y(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151E3344"
+before_vram = 0x151E40C8
+text = "{ void conker_display_option_stick_y(uint8_t*, recomp_context*); conker_display_option_stick_y(rdram, ctx); }"

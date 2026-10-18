@@ -28,7 +28,8 @@
 //   mode (src/platform/display_mode.hpp).
 //
 // The two joysticks that flank the selected row are moved apart for these rows, since their
-// longer words would run under them.
+// longer words would run under them, and the rows are set closer together than the engine's 34
+// pixels so the page's six rows fit above the bottom of the picture.
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -53,6 +54,8 @@ constexpr uint32_t kTextTable = 0x800E0BD8;      // D_800E0BD8: the language's s
 constexpr uint32_t kSelected = 0x8008FE34;       // D_8008FE34: the selected option
 constexpr int8_t kNoLabel = -1;
 constexpr int kStickSpread = 18;                 // extra room on each side of the rows, in pixels
+constexpr int kEngineRowSpacing = 0x22;          // func_151E3344's row pitch on this page
+constexpr int kRowSpacing = 26;
 constexpr uint32_t kStringArea = 0x807FA000;     // free RDRAM, see pause_save.cpp
 constexpr uint32_t kStringStride = 0x20;
 constexpr int kMaxValues = 5;
@@ -243,5 +246,19 @@ extern "C" void conker_display_option_sticks(uint8_t* rdram, recomp_context* ctx
     const int selected = MEM_BU(0, kseg0(kSelected));
     if (g_active && (selected == g_mode_row.option || selected == g_scale_row.option || selected == g_fill_row.option)) {
         ctx->r16 += kStickSpread;
+    }
+}
+
+// In func_151E3344 before `addiu $s2, $s2, 0x22`, which moves $s2 to the next row's y.
+extern "C" void conker_display_option_row_y(uint8_t* /*rdram*/, recomp_context* ctx) {
+    if (g_active) {
+        ctx->r18 -= kEngineRowSpacing - kRowSpacing;
+    }
+}
+
+// In func_151E3344 before it places the joysticks at 0x46 + row * $v1 (0x22): the same pitch.
+extern "C" void conker_display_option_stick_y(uint8_t* /*rdram*/, recomp_context* ctx) {
+    if (g_active) {
+        ctx->r3 = kRowSpacing;
     }
 }
