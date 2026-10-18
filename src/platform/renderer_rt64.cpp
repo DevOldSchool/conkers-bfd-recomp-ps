@@ -3,12 +3,21 @@
 // RT64 interprets the game's display lists in HLE; Conker's F3DEX2CBFD microcode is supported
 // through tools/patches/rt64-f3dex2cbfd.patch. The context runs on ultramodern's gfx thread, the
 // window it draws into is created on the main thread (src/platform/window_sdl.cpp).
+//
+// RT64 renders at the whole multiple of the game's picture that covers the window height (its
+// WindowIntegerScale default), which follows the window when it is resized or made full screen.
+// Instead it renders at the multiple chosen in OPTIONS for the mode (src/platform/display_mode.hpp)
+// and scales it to fill the window or screen, or presents it at its own size, centered
+// (presentation.nativeSize, tools/patches/rt64-native-size.patch). A window opens at its multiple,
+// so the two differ there only once it is resized by hand.
 #include "platform/renderer_rt64.hpp"
 
 #include <cstdio>
 #include <memory>
+#include <mutex>
 
 #include "hle/rt64_application.h"
+#include "platform/display_mode.hpp"
 
 namespace conker::renderer {
 
@@ -91,6 +100,7 @@ public:
         app_->userConfig.graphicsAPI = RT64::UserConfiguration::GraphicsAPI::Metal;
 #endif
         app_->userConfig.developerMode = developer_mode;
+        app_->userConfig.resolution = RT64::UserConfiguration::Resolution::WindowIntegerScale;
 
         uint32_t thread_id = 0;
 #if defined(_WIN32)
@@ -126,7 +136,10 @@ public:
 
     void send_dummy_workload(uint32_t /*fb_address*/) override {}
 
-    void update_screen() override { app_->updateScreen(); }
+    void update_screen() override {
+        apply_display_scale();
+        app_->updateScreen();
+    }
 
     void shutdown() override {
         if (app_ != nullptr) {
@@ -138,12 +151,62 @@ public:
         return app_->presentQueue->ext.sharedResources->swapChainRate;
     }
 
+    // The scale RT64 picked for the last frame (resolutionMultiplier is only used in Manual mode).
     float get_resolution_scale() const override {
-        return static_cast<float>(app_->userConfig.resolutionMultiplier);
+        float scale;
+        uint32_t width, height;
+        {
+            RT64::SharedQueueResources* shared = app_->sharedQueueResources.get();
+            std::scoped_lock lock(shared->configurationMutex);
+            scale = shared->resolutionScale.y;
+            width = shared->swapChainWidth;
+            height = shared->swapChainHeight;
+        }
+        if (scale != reported_scale_) {
+            // A new scale resizes the framebuffers, which keep their old contents; discard them, or the
+            // two columns at each side of Conker's frame buffer that the game never draws show a stale
+            // picture.
+            if (reported_scale_ != 0.0f) {
+                app_->updateUserConfig(true);
+            }
+        }
+        // The window's size reaches RT64 a frame after a new scale, so report either change.
+        if (scale != reported_scale_ || width != reported_width_ || height != reported_height_) {
+            reported_scale_ = scale;
+            reported_width_ = width;
+            reported_height_ = height;
+            std::printf("[conker] RT64 renders at %gx for a %ux%u window\n", scale, width, height);
+        }
+        return scale;
     }
 
 private:
+    // RT64 renders at the multiple chosen for the mode and either scales it to fill the window or
+    // screen or presents it at its own size.
+    void apply_display_scale() {
+        const conker::display::Mode mode = conker::display::current();
+        const bool windowed = mode == conker::display::Mode::Windowed;
+        const int scale = windowed ? conker::display::window_scale() : conker::display::screen_scale();
+        const bool native = !conker::display::fill(mode);
+        if (scale == applied_scale_ && native == applied_native_) {
+            return;
+        }
+        applied_scale_ = scale;
+        applied_native_ = native;
+        app_->userConfig.resolution = scale > 0 ? RT64::UserConfiguration::Resolution::Manual
+                                                : RT64::UserConfiguration::Resolution::WindowIntegerScale;
+        app_->userConfig.resolutionMultiplier = scale > 0 ? scale : 2.0;
+        app_->enhancementConfig.presentation.nativeSize = native;
+        app_->updateUserConfig(true);  // see get_resolution_scale
+        app_->updateEnhancementConfig();
+    }
+
     std::unique_ptr<RT64::Application> app_;
+    mutable float reported_scale_ = 0.0f;
+    mutable uint32_t reported_width_ = 0;
+    mutable uint32_t reported_height_ = 0;
+    int applied_scale_ = 0;
+    bool applied_native_ = false;
 };
 
 } // namespace

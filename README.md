@@ -33,6 +33,7 @@ git submodule update --init --recursive
 (cd lib/N64ModernRuntime && git apply ../../tools/patches/n64modernruntime-running-thread.patch)
 (cd lib/N64ModernRuntime && git apply ../../tools/patches/n64modernruntime-pi-dma-message.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-f3dex2cbfd.patch)
+(cd lib/rt64 && git apply ../../tools/patches/rt64-native-size.patch)
 tools/regenerate.sh
 cmake -S . -B build/rt64 -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER=rt64
 cmake --build build/rt64
@@ -63,8 +64,36 @@ at boot. `CONKER_RUMBLE_TEST=1` buzzes the pad for a second when it connects.
 | C buttons | Right stick | Right stick | I J K L |
 | D-pad | D-pad | D-pad | T F G H |
 
+Keys held with Cmd or Alt are not passed to the game, so the full-screen
+shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
+
 ## Enhancements
 
+* **Display options:** the OPTIONS page of the title menu has
+  three rows under the sound setting.
+  * WINDOWED, BORDERLESS or FULL SCREEN. Full screen (the default) is macOS
+    full screen in a Space of its own; borderless covers the screen in the
+    current Space, with the menu bar and Dock hidden while the game is in
+    front.
+  * The resolution: how large the game's 292x216 picture is rendered, in
+    whole multiples from 292x216 (1x). In a window it is the window's size,
+    up to the largest that fits the display (1460x1080, 5x, on a 2560x1440
+    display with the Dock showing, which is also the default). Covering the
+    screen it goes up to the first multiple that covers the screen's height
+    (2044x1512, 7x, on 1440 lines, the default).
+  * FILL SCREEN or CENTERED: the picture is scaled to fill the window or
+    screen, or drawn at its own size in the middle with black bars, so that
+    every game pixel is an even block. Covering the screen it fills by
+    default; a lower resolution then fills it with larger pixels. A window
+    is centered by default, which only shows once it is resized by hand.
+
+  Each mode keeps its own resolution and fill. F11, Cmd+Enter, Alt+Enter or
+  Ctrl+Cmd+F switch between the window and the last screen-covering mode.
+  The choices are kept in `conker-recomp-data/display.cfg`, not in the
+  game's save, so the OPTIONS saved to EEPROM are unchanged.
+  `CONKER_DISPLAY=windowed`, `borderless` or `fullscreen` overrides the mode
+  for one run, `CONKER_DISPLAY_OPTIONS=0` hides the rows, and
+  `CONKER_ORIGINAL_SIZE=1` opens the original 960x720 window instead.
 * **Skip to the title menu:** Start at any point during the boot logos or the
   intro fades to black and then into the GAME 1 menu, skipping the title
   scene's opening (the clock and the Cock and Plucker) too. On an N64, Start only skips the intro after about five seconds and after

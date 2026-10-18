@@ -83,4 +83,11 @@ F3DEX2CBFD microcode: GBI database entries for the eight variants, a
 vertex normals, 48-byte lights, coordinate modifiers and TRI4. Details in
 [rsp-microcode.md](rsp-microcode.md).
 
+`tools/patches/rt64-native-size.patch` (apply in `lib/rt64`) adds
+`presentation.nativeSize` to RT64's enhancement configuration: the rendered
+picture is presented at its own size, centred, instead of being scaled to fill
+the window. With a manual resolution multiplier it draws an exact multiple of
+the picture in a window or on a screen whose size is not one (the OPTIONS
+CENTERED setting, `src/platform/renderer_rt64.cpp`).
+
 All of these are candidates for upstreaming.
