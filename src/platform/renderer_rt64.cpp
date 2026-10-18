@@ -6,7 +6,10 @@
 //
 // RT64 renders at the whole multiple of the game's picture that covers the window height (its
 // WindowIntegerScale default), which follows the window when it is resized or made full screen.
-// For a window sized by src/platform/window_sdl.cpp that multiple fills the window exactly.
+// For a window sized by src/platform/window_sdl.cpp that multiple fills the window exactly. When
+// the screen resolution chosen in OPTIONS (src/platform/display_mode.hpp) is an exact multiple, a
+// screen-covering mode renders at that multiple and presents it at its own size, centred
+// (presentation.nativeSize, tools/patches/rt64-native-size.patch).
 #include "platform/renderer_rt64.hpp"
 
 #include <cstdio>
@@ -14,6 +17,7 @@
 #include <mutex>
 
 #include "hle/rt64_application.h"
+#include "platform/display_mode.hpp"
 
 namespace conker::renderer {
 
@@ -132,7 +136,10 @@ public:
 
     void send_dummy_workload(uint32_t /*fb_address*/) override {}
 
-    void update_screen() override { app_->updateScreen(); }
+    void update_screen() override {
+        apply_display_scale();
+        app_->updateScreen();
+    }
 
     void shutdown() override {
         if (app_ != nullptr) {
@@ -163,8 +170,24 @@ public:
     }
 
 private:
+    // An exact multiple only covering the screen; a window is already a multiple of the picture.
+    void apply_display_scale() {
+        const int scale = conker::display::current() == conker::display::Mode::Windowed ? 0 : conker::display::screen_scale();
+        if (scale == applied_scale_) {
+            return;
+        }
+        applied_scale_ = scale;
+        app_->userConfig.resolution = scale > 0 ? RT64::UserConfiguration::Resolution::Manual
+                                                : RT64::UserConfiguration::Resolution::WindowIntegerScale;
+        app_->userConfig.resolutionMultiplier = scale > 0 ? scale : 2.0;
+        app_->enhancementConfig.presentation.nativeSize = scale > 0;
+        app_->updateUserConfig(false);
+        app_->updateEnhancementConfig();
+    }
+
     std::unique_ptr<RT64::Application> app_;
     mutable float reported_scale_ = 0.0f;
+    int applied_scale_ = 0;
 };
 
 } // namespace

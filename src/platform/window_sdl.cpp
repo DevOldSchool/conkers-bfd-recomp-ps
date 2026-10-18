@@ -40,8 +40,8 @@ SDL_Window* g_window = nullptr;
 // The picture RT64 presents. Conker's VI shows a 292-pixel-wide frame buffer (VI_WIDTH 292,
 // VI_X_SCALE 0.5 over H_START 0x8C..0x2D5) and 214 lines (V_START 0x3D..0x1E8), inside black
 // borders that RT64 crops (removeBlackBorders). RT64's VI::fbSize rounds the height up to 216.
-constexpr int kPictureWidth = 292;
-constexpr int kPictureHeight = 216;
+constexpr int kPictureWidth = conker::display::kPictureWidth;
+constexpr int kPictureHeight = conker::display::kPictureHeight;
 
 constexpr int kOriginalWidth = 960;  // the window used before it was sized to the display
 constexpr int kOriginalHeight = 720;
@@ -49,18 +49,20 @@ constexpr int kOriginalHeight = 720;
 // Room for the title bar (28 points on macOS), which is not part of the window size.
 constexpr int kTitleBarAllowance = 32;
 
-// The largest multiple of the picture that fits the usable area (without the menu bar and Dock)
-// of the primary display, where the centred window opens.
-int fit_scale() {
+// The largest multiples of the picture that fit the usable area (without the menu bar and Dock)
+// of the primary display, where the centred window opens, and the whole display.
+void find_limits() {
     SDL_Rect usable;
-    if (SDL_GetDisplayUsableBounds(0, &usable) != 0) {
-        std::fprintf(stderr, "[conker] SDL_GetDisplayUsableBounds failed: %s\n", SDL_GetError());
-        return 0;
+    SDL_Rect bounds;
+    if (SDL_GetDisplayUsableBounds(0, &usable) != 0 || SDL_GetDisplayBounds(0, &bounds) != 0) {
+        std::fprintf(stderr, "[conker] SDL_GetDisplayBounds failed: %s\n", SDL_GetError());
+        return;
     }
-    const int scale = std::min(usable.w / kPictureWidth, (usable.h - kTitleBarAllowance) / kPictureHeight);
-    std::printf("[conker] display %dx%d usable, window %dx%d (%dx the %dx%d picture)\n", usable.w, usable.h,
-                kPictureWidth * scale, kPictureHeight * scale, scale, kPictureWidth, kPictureHeight);
-    return scale;
+    const int window_max = std::min(usable.w / kPictureWidth, (usable.h - kTitleBarAllowance) / kPictureHeight);
+    const int screen_max = std::min(bounds.w / kPictureWidth, bounds.h / kPictureHeight);
+    conker::display::set_limits(window_max, screen_max);
+    std::printf("[conker] display %dx%d, %dx%d usable: up to %dx in a window, %dx on the screen\n", bounds.w,
+                bounds.h, usable.w, usable.h, window_max, screen_max);
 }
 
 bool original_size() {
@@ -71,8 +73,17 @@ bool original_size() {
 using conker::display::Mode;
 
 Mode g_screen_mode = Mode::Fullscreen;  // where the shortcuts go from the window
-int g_window_width = kOriginalWidth;    // the window's size when it is a window
-int g_window_height = kOriginalHeight;
+
+// The window's size when it is a window.
+SDL_Rect window_frame() {
+    SDL_Rect frame{static_cast<int>(SDL_WINDOWPOS_CENTERED), static_cast<int>(SDL_WINDOWPOS_CENTERED), kOriginalWidth,
+                   kOriginalHeight};
+    if (!original_size()) {
+        frame.w = kPictureWidth * conker::display::window_scale();
+        frame.h = kPictureHeight * conker::display::window_scale();
+    }
+    return frame;
+}
 
 // Leaving a full-screen Space is animated, and when it ends macOS puts the window back at the frame
 // it had before, after apply_mode has set the new one; coming back from the borderless frame, it is
@@ -129,8 +140,7 @@ void apply_mode(Mode mode) {
     }
     hide_menu_bar(false);
     SDL_SetWindowBordered(g_window, SDL_TRUE);
-    g_wanted_frame = {static_cast<int>(SDL_WINDOWPOS_CENTERED), static_cast<int>(SDL_WINDOWPOS_CENTERED), g_window_width,
-                      g_window_height};
+    g_wanted_frame = window_frame();
     set_frame(g_wanted_frame);
     if (mode == Mode::Fullscreen) {
         if (SDL_SetWindowFullscreen(g_window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0) {
@@ -185,23 +195,19 @@ ultramodern::renderer::WindowHandle create_window(void* /*gfx_data*/) {
 #elif defined(__linux__)
     flags |= SDL_WINDOW_VULKAN;
 #endif
-    int width = kOriginalWidth;
-    int height = kOriginalHeight;
+    find_limits();
+    const Mode saved = conker::display::startup_mode();
+    const Mode mode = original_size() ? Mode::Windowed : saved;
+    const SDL_Rect frame = window_frame();
     if (original_size()) {
-        std::printf("[conker] CONKER_ORIGINAL_SIZE: window %dx%d\n", width, height);
-    } else if (const int scale = fit_scale(); scale > 0) {
-        width = kPictureWidth * scale;
-        height = kPictureHeight * scale;
+        std::printf("[conker] CONKER_ORIGINAL_SIZE: window %dx%d\n", frame.w, frame.h);
     }
-    g_window_width = width;
-    g_window_height = height;
     g_window = SDL_CreateWindow("Conker's Bad Fur Day: Recompiled", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                                width, height, flags);
+                                frame.w, frame.h, flags);
     if (g_window == nullptr) {
         std::fprintf(stderr, "[conker] SDL_CreateWindow failed: %s\n", SDL_GetError());
         return {};
     }
-    const Mode mode = original_size() ? Mode::Windowed : conker::display::startup_mode();
     conker::display::started(mode);
     std::printf("[conker] display mode: %s\n", conker::display::name(mode));
     if (mode != Mode::Windowed) {
