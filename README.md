@@ -19,28 +19,58 @@ This repository contains no ROM data. You need your own US ROM
 | Piece | State |
 | --- | --- |
 | Symbol file from the decomp inventory, ELF and evidence docs | done: 5,900+ functions across main, game and debugger overlays, SDK copies in the game overlay named so the runtime replaces them |
-| Static recompilation | done: every function recompiles; 13 CP0/TLB/exception routines are stubbed; Rare's handwritten geometry code is recompiled as a shared code region |
-| Headless runtime (no graphics, audio or input) | boots: ROM load, game-archive inflation, thread creation, main init, game entry, software-geometry setup, visibility-partition build, main loop, legal and Nintendo screens, intro cutscene; stops entering the title scene (see below) |
+| Static recompilation | done: every function recompiles; 13 CP0/TLB/exception routines are stubbed; Rare's handwritten geometry code and one handwritten prefix-code tree builder are recompiled as shared code regions |
+| Headless runtime (no graphics, audio or input) | boots: ROM load, game-archive inflation, thread creation, main init, game entry, software-geometry setup, visibility-partition build, main loop, legal and Nintendo screens, intro cutscene, title scene, menus after a scripted Start press; no known crash (see below) |
 | Crash diagnostics | crash reporter with MIPS registers, per-thread call trace, `tools/symbolicate.sh`; display-list dumper and scripted Start press (see "Diagnostics") |
-| Graphics: RT64 support for Rare's F3DEX2CBFD microcode | first light: all eight variants recognised, the intro scene renders in an RT64 window (`CONKER_RENDERER=rt64`); see [docs/rsp-microcode.md](docs/rsp-microcode.md) |
+| Graphics: RT64 support for Rare's F3DEX2CBFD microcode | first light: all eight variants recognised, the intro cutscene and the title scene render in an RT64 window (`CONKER_RENDERER=rt64`), with visible geometry errors on some models; see [docs/rsp-microcode.md](docs/rsp-microcode.md) |
 | Audio: RSPRecomp of the `n_aspMain` microcode | not started |
 | Saving: EEPROM through a PIF shim | volatile in-memory image only |
 | Windows support for the memory aliasing | not started |
 
 ### Where the headless boot stops
 
-The headless run now plays the boot sequence and the intro cutscene, then
-stops around graphics task 1,270 as the game enters scene
-`0x1D`, the title scene in the Cock and Plucker bar. Creating that scene's
-trigger node `0xC8` (`func_1509B5AC` → `func_150ADAF0(node, 0)`) ends in a call
-through a null function pointer ("Failed to find function at 0x00000000"). The
-last recompiled calls on that thread are `func_150183D0`, `func_15018500`,
-`__conker_mp3_alloc` and `func_80003C6C`. That is the next thing to look at.
+It no longer stops. The headless run plays the boot sequence and the intro
+cutscene (scene `0x21`), enters the title scene `0x1D` in the Cock and Plucker
+bar around graphics task 1,270 and stays there, animated, waiting for input:
+a 4-minute run reached task 6,332 without a crash. With scripted Start
+presses (`CONKER_PRESS_START=5400,6000,6600,7200,7800,9000,10200`) it goes
+through the bar doors to the NEW GAME menu, loads scene `0x18` and plays the
+new game's opening: the credits ("Nintendo presents", "A Rareware game",
+"Starring Conker & Berri"), then the throne-room cutscene. The later presses
+pause and resume it (the PAUSED / QUIT / CONT. menu appears; its options were not tried). A 5.5-minute run
+with those presses ended on the timer, not a crash. Nothing past the opening
+cutscene has been tried yet, and there is still no audio.
 
-With `CONKER_RENDERER=rt64` (PR #3) the scene the run used to sit on renders:
-the intro scene, with Conker animated in an armchair under a hanging lamp on a
-wooden floor. That picture is the intro's opening state, before its cutscene
-script starts (explained below).
+In RT64 the title scene and the menus look right overall, but some models
+have flat grey polygons sticking out of them (the weasels at the bar in the
+picture below). That is a rendering bug, probably in the F3DEX2CBFD support,
+and has not been investigated.
+
+![RT64 window: title scene](docs/images/rt64-title.png)
+
+![RT64 window: NEW GAME menu](docs/images/rt64-new-game.png)
+
+**Why scene `0x1D` used to crash.** Creating the title scene's trigger node
+`0xC8` decodes a compressed table through `func_150183D0`, which calls
+`func_15018500` to build a prefix-code (Huffman-style) tree. `func_15018500` is handwritten
+assembly with its own calling convention: it copies its return address with
+`or $s4, $ra, $zero`, reads its caller's stack frame (`0x44($sp)`) without
+allocating one, and returns with `jr $s4`. In the recompiled code, `jal` is a
+plain host call and does not write `$ra`, so `$s4` got whatever stale value
+`$ra` held, and N64Recomp had turned `jr $s4` into a lookup of that value
+called as a tail call. A temporary trace showed `$ra = 0` on entry and
+`$s4 = 0` at the `jr`, then "Failed to find function at 0x00000000". The fix
+declares `0x15018500:0x150186D0` as a second shared code region
+(`GAME_REGIONS` in `tools/gen_syms.py`). The region wrapper seeds `$ra` with
+the sentinel, and `jr $s4` returns when it sees it. The recompiler's own report
+lists this as the only indirect tail call (`jr` through a register other than
+`$ra`, with no jump table) outside the existing regions. The decomp's
+`functions.json` names four custom-ABI routines (`func_15018500`,
+`func_150A76F0`, `func_150A7A14`, `func_150AA644`), and the other three lie
+inside the geometry region.
+
+The intro scene as PR #3 first rendered it, stuck before its cutscene script
+(fixed in PR #4, explained below):
 
 ![RT64 window at the old steady state](docs/images/rt64-intro.png)
 
@@ -227,7 +257,9 @@ These environment variables are read by the headless binary:
   the label (hardware semantics, since the callee may return through a
   continuation register), `jalr` links and dispatches, and the jump register
   of `jr`/`jalr` is read before the delay slot runs. This is how Rare's
-  handwritten geometry code (0x150A3A70:0x150AE35C) is recompiled;
+  handwritten geometry code (0x150A3A70:0x150AE35C) and the handwritten
+  prefix-code tree builder `func_15018500` (0x15018500:0x150186D0, returns
+  through `$s4`) are recompiled;
 * stack accesses with negative or unaligned offsets, tables without in-function
   entries and undecodable words no longer fail a function; writes to `$zero`
   are discarded.
