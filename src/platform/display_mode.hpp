@@ -18,7 +18,7 @@ constexpr int kPictureWidth = 292;
 constexpr int kPictureHeight = 216;
 
 // The smallest multiple of the picture offered in the menu.
-constexpr int kMinScale = 2;
+constexpr int kMinScale = 1;
 
 const char* name(Mode mode);
 

@@ -163,6 +163,12 @@ public:
             height = shared->swapChainHeight;
         }
         if (scale != reported_scale_) {
+            // A new scale resizes the framebuffers, which keep their old contents; discard them, or the
+            // two columns at each side of Conker's frame buffer that the game never draws show a stale
+            // picture.
+            if (reported_scale_ != 0.0f) {
+                app_->updateUserConfig(true);
+            }
             reported_scale_ = scale;
             std::printf("[conker] RT64 renders at %gx for a %ux%u window\n", scale, width, height);
         }
@@ -181,7 +187,7 @@ private:
                                                 : RT64::UserConfiguration::Resolution::WindowIntegerScale;
         app_->userConfig.resolutionMultiplier = scale > 0 ? scale : 2.0;
         app_->enhancementConfig.presentation.nativeSize = scale > 0;
-        app_->updateUserConfig(false);
+        app_->updateUserConfig(true);  // see get_resolution_scale
         app_->updateEnhancementConfig();
     }
 

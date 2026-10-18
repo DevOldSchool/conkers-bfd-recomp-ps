@@ -72,9 +72,10 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   its own; borderless covers the screen in the current Space, with the menu
   bar and Dock hidden while the game is in front. The second picks how large
   the game's 292x216 picture is drawn, as whole multiples so that every game
-  pixel is an even block. In a window it lists the window sizes that fit the
-  display (up to 1460x1080, 5x, on a 2560x1440 display with the Dock showing,
-  which is also the default). Covering the screen it lists FILL SCREEN (the
+  pixel is an even block, from 292x216 (1x) up to what the display can show.
+  In a window it lists the window sizes that fit the display (up to
+  1460x1080, 5x, on a 2560x1440 display with the Dock showing, which is also
+  the default). Covering the screen it lists FILL SCREEN (the
   default: RT64 renders at the multiple that covers the screen height, 7x on
   a 1440-line display, and shrinks it slightly to fit) and the exact
   multiples that fit, drawn centred with black bars (up to 1752x1296, 6x, on
