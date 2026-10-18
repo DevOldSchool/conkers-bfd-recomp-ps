@@ -77,19 +77,43 @@ func = "func_8000853C"
 before_vram = 0x10008560
 text = "{ void conker_seqp_state_hook(uint8_t*, recomp_context*); conker_seqp_state_hook(rdram, ctx); }"
 
-# The intro (scene 0x21, Conker sawing the N64 logo) can only be skipped with Start after a warm
-# reset: func_1501E05C also wants osResetType (0x8000030C) to be 1, and the runtime always cold
-# boots. The first hook can add Start to the buttons it tests (CONKER_SKIP_INTRO=1, no press
-# needed), the second reports a warm reset. See conker_intro_skip_* in src/hooks.cpp.
+# Start skips from the boot logos or the intro (scene 0x21, Conker sawing the N64 logo) straight
+# to the title menu. On hardware Start only skips the intro after a warm reset and after 301 ticks,
+# and the title scene's opening (scene 0x1D script 1) needs a press of its own. One press fades the
+# screen to black (drawn by func_1517F3A0), and behind it the logo timer in func_151DE6D4 jumps to
+# its end, the skip check func_1501E05C passes for the intro, and it sets the title scene's skip
+# flag, with func_1501E1B4's hidden 30-tick fades cut to one tick. Then it fades in on the menu.
+# See
+# conker_*_skip in src/hooks.cpp; CONKER_SKIP_INTRO=1 skips without a press, =0 turns it off.
 [[patches.hook]]
-func = "func_1501E05C"
-before_vram = 0x1501E0C8
-text = "{ void conker_intro_skip_buttons(uint8_t*, recomp_context*); conker_intro_skip_buttons(rdram, ctx); }"
+func = "func_151DE6D4"
+before_vram = 0x151DE728
+text = "{ void conker_logo_skip(uint8_t*, recomp_context*); conker_logo_skip(rdram, ctx); }"
 
 [[patches.hook]]
 func = "func_1501E05C"
-before_vram = 0x1501E0DC
-text = "{ void conker_intro_skip_reset_type(uint8_t*, recomp_context*); conker_intro_skip_reset_type(rdram, ctx); }"
+before_vram = 0x1501E080
+text = "{ void conker_title_skip(uint8_t*, recomp_context*); conker_title_skip(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1501E05C"
+before_vram = 0x1501E0C8
+text = "{ extern int conker_intro_skip_now; void conker_intro_skip(uint8_t*, recomp_context*); conker_intro_skip(rdram, ctx); if (conker_intro_skip_now) { ctx->r2 = 1; goto L_1501E1A4; } }"
+
+[[patches.hook]]
+func = "func_1501E1B4"
+before_vram = 0x1501E244
+text = "{ void conker_skip_fade_wait(uint8_t*, recomp_context*); conker_skip_fade_wait(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1517F3A0"
+before_vram = 0x1517F3C0
+text = "{ void conker_skip_fade_alpha(uint8_t*, recomp_context*); conker_skip_fade_alpha(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1517F3A0"
+before_vram = 0x1517F3F4
+text = "{ void conker_skip_fade_colour(uint8_t*, recomp_context*); conker_skip_fade_colour(rdram, ctx); }"
 
 # Rare's geometry code escapes from deep inside its work: func_150ADAF0 saves its $sp in D_800D3858,
 # and func_150AE280 restores it and returns from func_150ADAF0 to its caller, past the recompiled C
