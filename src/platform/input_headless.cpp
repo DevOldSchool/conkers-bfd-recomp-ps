@@ -9,4 +9,7 @@ void read(uint16_t* buttons, float* x, float* y) {
     *y = 0.0f;
 }
 
+bool has_rumble() { return false; }
+void set_rumble(bool /*on*/) {}
+
 } // namespace conker::input

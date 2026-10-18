@@ -35,6 +35,12 @@ ignored = [
     # out.
     "conker_osContInit",
     "conker_osContInit_game",
+    # Rare's rumble pak routines (src/main/init_5570.c, src/main/init_57E0.c): motor init, which
+    # probes the pak through __osContRamWrite/Read, and the stop and start packets it prebuilds.
+    # Native in src/runtime/ultra_extras.cpp, where the pak is the host pad's rumble.
+    "func_800057E0",
+    "func_80005570",
+    "func_800056A0",
 ]
 
 # Functions compiled to empty bodies (a `return` with no effect on state).
@@ -245,3 +251,12 @@ text = "{ void conker_display_options_row_y(uint8_t*, recomp_context*); conker_d
 func = "func_151E3344"
 before_vram = 0x151E414C
 text = "{ void conker_display_options_stick_y(uint8_t*, recomp_context*); conker_display_options_stick_y(rdram, ctx); }"
+
+# The title menu's "INSERT RUMBLE PAK" banner (message 0x8F) shows for a few seconds whenever the
+# menu comes up, pak or not, while the countdown D_8008FEFC is above 60. With a pad that can rumble
+# there is a pak, so the countdown is cleared just before func_151DE8F0 reads it. See
+# src/enhancements/rumble_banner/rumble_banner.cpp; CONKER_RUMBLE_BANNER=1 shows it anyway.
+[[patches.hook]]
+func = "func_151DE8F0"
+before_vram = 0x151DEDF8
+text = "{ void conker_rumble_banner(uint8_t*, recomp_context*); conker_rumble_banner(rdram, ctx); }"

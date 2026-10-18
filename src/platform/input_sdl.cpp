@@ -7,11 +7,17 @@
 // D-pad D-pad, left stick the analog stick, right stick the C buttons. Keyboard: see kKeys and
 // the README.
 //
+// A pad that can rumble (SDL_GameControllerHasRumble; a DualSense, DualShock 4, Xbox or Switch
+// Pro pad) counts as a rumble pak in controller 1, and the game's motor on/off drives both of its
+// motors at full strength, like the pak's single motor. Rumble on Bluetooth PlayStation pads needs
+// SDL's extended reports, which init() turns on.
+//
 // CONKER_VIRTUAL_PAD=<file> attaches an SDL virtual game controller driven by a script, so the
 // whole pad path (hot-plug, mapping, deadzone) can be exercised without hardware. Each line is
 // "<vi> <length in VIs> <control>...", where a control is an SDL button name (a, b, x, start,
 // leftshoulder, dpup, ...) or "<axis>=<value>" (leftx, lefty, rightx, righty, lefttrigger,
 // righttrigger; -1 to 1, SDL's +y is down). '#' starts a comment. Real pads are then ignored.
+// The virtual pad can rumble and logs each change.
 #include "platform/input.hpp"
 #include "platform/input_sdl.hpp"
 
@@ -33,6 +39,8 @@ namespace {
 constexpr float kStickDeadzone = 0.20f;        // radial, of full deflection
 constexpr Sint16 kCButtonThreshold = 16384;    // right stick, half deflection
 constexpr Sint16 kTriggerThreshold = 10000;    // LT/RT, about a third of the travel
+constexpr Uint16 kRumbleStrength = 0xFFFF;     // both motors; the pak's motor is on or off
+constexpr Uint32 kRumbleHoldMs = 250;          // renewed every update, so a stalled game stops it
 
 struct PadButton {
     SDL_GameControllerButton button;
@@ -84,6 +92,10 @@ std::atomic<uint16_t> g_buttons{0};
 std::atomic<float> g_stick_x{0.0f};
 std::atomic<float> g_stick_y{0.0f};
 
+std::atomic<bool> g_has_rumble{false};  // the open pad can rumble
+std::atomic<bool> g_rumble_on{false};   // the game's motor state, applied by update()
+bool g_rumble_applied = false;          // main thread only
+
 void open_pad(int device_index) {
     if (g_pad != nullptr || !SDL_IsGameController(device_index)) {
         return;
@@ -99,7 +111,16 @@ void open_pad(int device_index) {
         return;
     }
     g_pad_id = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(g_pad));
-    std::printf("[conker] controller 1: %s\n", SDL_GameControllerName(g_pad));
+    g_has_rumble.store(SDL_GameControllerHasRumble(g_pad) == SDL_TRUE);
+    g_rumble_applied = false;
+    std::printf("[conker] controller 1: %s (%s)\n", SDL_GameControllerName(g_pad),
+                g_has_rumble.load() ? "rumble pak" : "no rumble");
+    // CONKER_RUMBLE_TEST=1: one second of rumble on connecting, to check the pad without the game.
+    const char* test = std::getenv("CONKER_RUMBLE_TEST");
+    if (g_has_rumble.load() && test != nullptr && test[0] == '1') {
+        const int result = SDL_GameControllerRumble(g_pad, kRumbleStrength, kRumbleStrength, 1000);
+        std::printf("[conker] rumble test: %s\n", result == 0 ? "1 s at full strength" : SDL_GetError());
+    }
 }
 
 void open_first_pad() {
@@ -159,6 +180,16 @@ bool load_script(const char* path) {
     return true;
 }
 
+int SDLCALL virtual_pad_rumble(void* /*userdata*/, Uint16 low, Uint16 high) {
+    static bool last = false;
+    const bool on = low != 0 || high != 0;
+    if (on != last) {
+        last = on;
+        std::printf("[conker] virtual pad: VI %llu: rumble %s\n", static_cast<unsigned long long>(conker::current_vi()), on ? "on" : "off");
+    }
+    return 0;
+}
+
 void attach_virtual_pad() {
     const char* path = std::getenv("CONKER_VIRTUAL_PAD");
     if (path == nullptr || *path == '\0' || !load_script(path)) {
@@ -172,6 +203,7 @@ void attach_virtual_pad() {
     desc.button_mask = (1u << SDL_CONTROLLER_BUTTON_MAX) - 1;
     desc.axis_mask = (1u << SDL_CONTROLLER_AXIS_MAX) - 1;
     desc.name = "Conker virtual pad";
+    desc.Rumble = virtual_pad_rumble;
     const int index = SDL_JoystickAttachVirtualEx(&desc);
     g_virtual = index < 0 ? nullptr : SDL_JoystickOpen(index);
     if (g_virtual == nullptr) {
@@ -219,6 +251,9 @@ float axis(SDL_GameControllerAxis which) {
 void init() {
     // Keep reading the pad while another window (a terminal, a debugger) has focus.
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    // Extended reports: rumble on PlayStation pads over Bluetooth.
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4_RUMBLE, "1");
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0) {
         std::fprintf(stderr, "[conker] no controller support (%s); keyboard only\n", SDL_GetError());
         return;
@@ -238,6 +273,7 @@ void handle_event(const SDL_Event& event) {
                 SDL_GameControllerClose(g_pad);
                 g_pad = nullptr;
                 g_pad_id = -1;
+                g_has_rumble.store(false);
                 open_first_pad();
             }
             break;
@@ -299,6 +335,23 @@ void update() {
     g_buttons.store(buttons, std::memory_order_relaxed);
     g_stick_x.store(x, std::memory_order_relaxed);
     g_stick_y.store(y, std::memory_order_relaxed);
+
+    // SDL only renews the expiry when the strength is unchanged, so this costs nothing per frame.
+    if (g_pad != nullptr && g_has_rumble.load(std::memory_order_relaxed)) {
+        const bool on = g_rumble_on.load(std::memory_order_relaxed);
+        int result = 0;
+        if (on) {
+            result = SDL_GameControllerRumble(g_pad, kRumbleStrength, kRumbleStrength, kRumbleHoldMs);
+        } else if (g_rumble_applied) {
+            result = SDL_GameControllerRumble(g_pad, 0, 0, 0);
+        }
+        static bool reported = false;
+        if (result != 0 && !reported) {
+            reported = true;
+            std::fprintf(stderr, "[conker] controller 1 rumble failed: %s\n", SDL_GetError());
+        }
+        g_rumble_applied = on;
+    }
 }
 
 void read(uint16_t* buttons, float* x, float* y) {
@@ -306,5 +359,9 @@ void read(uint16_t* buttons, float* x, float* y) {
     *x = g_stick_x.load(std::memory_order_relaxed);
     *y = g_stick_y.load(std::memory_order_relaxed);
 }
+
+bool has_rumble() { return g_has_rumble.load(std::memory_order_relaxed); }
+
+void set_rumble(bool on) { g_rumble_on.store(on, std::memory_order_relaxed); }
 
 } // namespace conker::input

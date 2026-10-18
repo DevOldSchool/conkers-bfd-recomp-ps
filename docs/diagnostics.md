@@ -39,7 +39,14 @@ These environment variables are read by both builds:
   starts a comment. For example, `5400 10 start` then `7500 10 a` goes from the
   title scene to a new game. Real controllers are ignored while it is set:
   SDL passes pad input to every process, so a pad in use in another window
-  would otherwise steer the scripted run.
+  would otherwise steer the scripted run. The virtual pad can rumble, so it
+  counts as a Rumble Pak, and it logs each rumble change.
+* **Rumble.** The log shows the pak probe at boot (`rumble pak inserted` or
+  `not inserted`) and every change of the motor the game asks for
+  (`VI <n>: rumble on/off, port 1`); a rumble is a run of on/off lines, since
+  the game pulses the motor to set its strength. `CONKER_RUMBLE_TEST=1` (RT64
+  build) buzzes the pad for a second when it connects, to check the pad
+  without the game.
 * **Skipping the opening.** Saves persist in
   `conker-recomp-data/saves/conker_us.bin` under the working directory, so
   keep a copy of that file from a run that got past the first save (about
