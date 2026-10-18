@@ -251,6 +251,10 @@ These environment variables are read by both builds:
   raw DMA, VI/timer internals, controller-pak code, libc helpers) are
   implemented natively in `src/ultra_extras.cpp`; `tools/gen_extras_decl.py`
   keeps the list of required ones in sync.
+* `[[patches.hook]]` snippets in `config/us.toml` call helpers in
+  `src/hooks.cpp`, for example to keep the music manager from dropping a
+  sequence the audio thread has not started yet (see
+  [docs/rsp-microcode.md](docs/rsp-microcode.md)).
 
 ## Patches to the submodules
 

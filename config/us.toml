@@ -63,3 +63,12 @@ stubs = [
 func = "func_800095A0"
 before_vram = 0x100095D4
 text = "{ void osAiGetLength_recomp(uint8_t*, recomp_context*); uint64_t saved_v0 = ctx->r2; osAiGetLength_recomp(rdram, ctx); ctx->r3 = ctx->r2; ctx->r2 = saved_v0; }"
+
+# func_8000853C returns a sequence player's state to the music manager, which frees the record of
+# a player it sees stopped. A sequence that was started this frame is still stopped until the
+# audio thread's next render, which on hardware always comes first; the recompiled game can get
+# there sooner and drop the title music. See conker_seqp_state_hook in src/hooks.cpp.
+[[patches.hook]]
+func = "func_8000853C"
+before_vram = 0x10008560
+text = "{ void conker_seqp_state_hook(uint8_t*, recomp_context*); conker_seqp_state_hook(rdram, ctx); }"

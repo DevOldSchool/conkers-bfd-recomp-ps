@@ -65,6 +65,7 @@ add_executable(ConkerRecomp
     src/rsp.cpp
     src/rzip.cpp
     src/trace.cpp
+    src/hooks.cpp
     src/ultra_extras.cpp
 )
 target_include_directories(ConkerRecomp PRIVATE
