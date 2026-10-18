@@ -62,6 +62,12 @@ the keyboard at the same time. There is no remapping yet.
 
 ## Enhancements
 
+* **Window sized to the display:** the window opens at the largest whole
+  multiple of the game's 292x216 picture that fits the display (1460x1080,
+  5x, on a 2560x1440 display with the Dock showing), and RT64 renders at that
+  multiple, so every game pixel is drawn as an even block without being
+  resampled. Resizing the window or going full screen picks the multiple
+  again. `CONKER_ORIGINAL_SIZE=1` keeps the original 960x720 window.
 * **Skip to the title menu:** Start at any point during the boot logos or the
   intro fades to black and then into the GAME 1 menu, skipping the title
   scene's opening (the clock and the Cock and Plucker) too. On an N64, Start only skips the intro after about five seconds and after

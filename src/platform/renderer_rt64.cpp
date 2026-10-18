@@ -3,10 +3,15 @@
 // RT64 interprets the game's display lists in HLE; Conker's F3DEX2CBFD microcode is supported
 // through tools/patches/rt64-f3dex2cbfd.patch. The context runs on ultramodern's gfx thread, the
 // window it draws into is created on the main thread (src/platform/window_sdl.cpp).
+//
+// RT64 renders at the whole multiple of the game's picture that covers the window height (its
+// WindowIntegerScale default), which follows the window when it is resized or made full screen.
+// For a window sized by src/platform/window_sdl.cpp that multiple fills the window exactly.
 #include "platform/renderer_rt64.hpp"
 
 #include <cstdio>
 #include <memory>
+#include <mutex>
 
 #include "hle/rt64_application.h"
 
@@ -91,6 +96,7 @@ public:
         app_->userConfig.graphicsAPI = RT64::UserConfiguration::GraphicsAPI::Metal;
 #endif
         app_->userConfig.developerMode = developer_mode;
+        app_->userConfig.resolution = RT64::UserConfiguration::Resolution::WindowIntegerScale;
 
         uint32_t thread_id = 0;
 #if defined(_WIN32)
@@ -138,12 +144,27 @@ public:
         return app_->presentQueue->ext.sharedResources->swapChainRate;
     }
 
+    // The scale RT64 picked for the last frame (resolutionMultiplier is only used in Manual mode).
     float get_resolution_scale() const override {
-        return static_cast<float>(app_->userConfig.resolutionMultiplier);
+        float scale;
+        uint32_t width, height;
+        {
+            RT64::SharedQueueResources* shared = app_->sharedQueueResources.get();
+            std::scoped_lock lock(shared->configurationMutex);
+            scale = shared->resolutionScale.y;
+            width = shared->swapChainWidth;
+            height = shared->swapChainHeight;
+        }
+        if (scale != reported_scale_) {
+            reported_scale_ = scale;
+            std::printf("[conker] RT64 renders at %gx for a %ux%u window\n", scale, width, height);
+        }
+        return scale;
     }
 
 private:
     std::unique_ptr<RT64::Application> app_;
+    mutable float reported_scale_ = 0.0f;
 };
 
 } // namespace
