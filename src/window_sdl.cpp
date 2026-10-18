@@ -1,7 +1,10 @@
 // SDL2 window for the RT64 renderer. ultramodern calls create_gfx and create_window on the main
 // thread before the game starts and update_gfx from the main loop every millisecond, so this is
-// also where SDL events are pumped (macOS requires both on the main thread).
+// also where SDL events are pumped and controller 1 is sampled (macOS requires all of it on the
+// main thread).
 #include "window.hpp"
+
+#include "input_sdl.hpp"
 
 #include <cstdio>
 
@@ -25,6 +28,7 @@ void* create_gfx() {
         std::fprintf(stderr, "[conker] SDL_Init failed: %s\n", SDL_GetError());
         return nullptr;
     }
+    conker::input::init();
     return &g_window;
 }
 
@@ -66,7 +70,9 @@ void update_gfx(void* /*gfx_data*/) {
         if (event.type == SDL_QUIT) {
             ultramodern::quit();
         }
+        conker::input::handle_event(event);
     }
+    conker::input::update();
 }
 
 } // namespace conker::window

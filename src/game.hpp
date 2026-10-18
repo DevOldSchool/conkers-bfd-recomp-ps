@@ -28,9 +28,13 @@ void use_fr1_float_mode(recomp_context* ctx);
 void set_current_context(recomp_context* ctx);
 recomp_context* current_context();
 
-// Buttons held on controller 1 right now, N64 bit order (main.cpp). Nothing is pressed unless
-// CONKER_PRESS_START=<vi>[,<vi>...] asks for Start to be held for 10 VIs from each listed VI.
+// Scripted buttons on controller 1 right now, N64 bit order (main.cpp), OR-ed with real input.
+// Nothing is pressed unless CONKER_PRESS_START=<vi>[,<vi>...] asks for Start to be held for 10
+// VIs from each listed VI.
 uint16_t scripted_buttons();
+
+// VIs since boot (main.cpp).
+uint64_t current_vi();
 
 // Implemented in overlays.cpp (which includes the generated recomp_overlays.inl).
 void register_overlays();
