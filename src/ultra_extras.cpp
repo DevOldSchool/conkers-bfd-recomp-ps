@@ -17,6 +17,7 @@
 #include "ultramodern/ultramodern.hpp"
 
 #include "game.hpp"
+#include "input.hpp"
 #include "memory.hpp"
 
 namespace {
@@ -85,11 +86,17 @@ void pif_process_commands() {
             } else if (cmd[0] == 0x01) {  // read buttons
                 if (rx >= 4) {
                     report_once("PIF read buttons", "controllers read through raw SI DMA");
-                    const uint16_t buttons = channel == 0 ? conker::scripted_buttons() : 0;
+                    uint16_t buttons = 0;
+                    float x = 0.0f;
+                    float y = 0.0f;
+                    if (channel == 0) {
+                        conker::input::read(&buttons, &x, &y);
+                        buttons |= conker::scripted_buttons();
+                    }
                     resp[0] = static_cast<uint8_t>(buttons >> 8);
                     resp[1] = static_cast<uint8_t>(buttons);
-                    resp[2] = 0;
-                    resp[3] = 0;
+                    resp[2] = static_cast<uint8_t>(static_cast<int8_t>(x * 80.0f));
+                    resp[3] = static_cast<uint8_t>(static_cast<int8_t>(y * 80.0f));
                     handled = true;
                 }
             }
@@ -310,6 +317,32 @@ void func_8000480C(uint8_t* rdram, recomp_context* ctx) {
         MEM_B(i, dst) = static_cast<int8_t>(offset + i < rom.size() ? rom[offset + i] : 0);
     }
 }
+
+// libultra's osContInit (main copy 0x10025340, game-overlay copy 0x151EF090; see CONKER_RENAMES in
+// tools/gen_syms.py). Both use the same globals. The runtime's osContInit does the controller
+// part; around it go the steps it leaves out: the __osContinitialized guard and, last, creating
+// __osEepromTimerQ with __osEepromTimerMsg as its one-message buffer. Rare's paced EEPROM write
+// (func_151DCEF0, __conker_eeprom_wait) arms its 12 ms timer on that queue and waits on it.
+constexpr uint32_t kOsContInitialized = 0x8002BE10;
+constexpr uint32_t kOsEepromTimerQ = 0x80042A78;
+constexpr uint32_t kOsEepromTimerMsg = 0x80042A90;
+
+void osContInit_recomp(uint8_t* rdram, recomp_context* ctx);
+
+void conker_osContInit(uint8_t* rdram, recomp_context* ctx) {
+    const gpr initialized = static_cast<gpr>(static_cast<int32_t>(kOsContInitialized));
+    if (MEM_W(0, initialized) != 0) {
+        RET(0);
+        return;
+    }
+    MEM_W(0, initialized) = 1;
+    osContInit_recomp(rdram, ctx);
+    const gpr ret = ctx->r2;
+    osCreateMesgQueue(rdram, static_cast<int32_t>(kOsEepromTimerQ), static_cast<int32_t>(kOsEepromTimerMsg), 1);
+    ctx->r2 = ret;
+}
+
+void conker_osContInit_game(uint8_t* rdram, recomp_context* ctx) { conker_osContInit(rdram, ctx); }
 
 // --- SI / PIF ---------------------------------------------------------------------------------
 

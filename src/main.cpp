@@ -3,7 +3,8 @@
 //   ConkerRecomp <path to US ROM .z64>
 //
 // Registers the game with librecomp, wires the ultramodern callbacks and starts the game thread.
-// Input is scripted (CONKER_PRESS_START). Graphics depend on CONKER_RENDERER: the null renderer
+// Controller 1 is an SDL game controller or the keyboard in the RT64 build (src/input_sdl.cpp),
+// plus any scripted Start presses (CONKER_PRESS_START). Graphics depend on CONKER_RENDERER: the null renderer
 // (default) runs headless and only logs graphics tasks, RT64 opens a window and draws the display
 // lists through Conker's F3DEX2CBFD microcode support. Audio is rendered by the recompiled audio
 // microcode and played through SDL2 in the RT64 build (src/audio.cpp).
@@ -31,6 +32,7 @@ static long _dyld_get_image_vmaddr_slide(int) { return 0; }
 
 #include "audio.hpp"
 #include "game.hpp"
+#include "input.hpp"
 #include "rsp.hpp"
 #include "window.hpp"
 #if CONKER_RENDERER_RT64
@@ -44,7 +46,6 @@ namespace conker::trace { void dump_recent_calls(int fd); }
 namespace {
 
 // --- input ---------------------------------------------------------------------------------
-constexpr uint16_t kButtonStart = 0x1000;
 constexpr uint64_t kPressLength = 10;  // VIs
 
 std::atomic<uint64_t> vi_count{0};
@@ -69,9 +70,13 @@ bool get_input(int controller_num, uint16_t* buttons, float* x, float* y) {
         std::printf("[conker] controllers read through osContGetReadData (VI %llu)\n",
                     static_cast<unsigned long long>(vi_count.load()));
     }
-    *buttons = controller_num == 0 ? conker::scripted_buttons() : 0;
+    *buttons = 0;
     *x = 0.0f;
     *y = 0.0f;
+    if (controller_num == 0) {
+        conker::input::read(buttons, x, y);
+        *buttons |= conker::scripted_buttons();
+    }
     return true;
 }
 
@@ -167,6 +172,8 @@ const char* rom_error_name(recomp::RomValidationError err) {
 
 } // namespace
 
+uint64_t conker::current_vi() { return vi_count.load(); }
+
 uint16_t conker::scripted_buttons() {
     const uint64_t now = vi_count.load();
     for (uint64_t vi : start_presses) {
@@ -175,7 +182,7 @@ uint16_t conker::scripted_buttons() {
             if (last_reported.exchange(vi) != vi) {
                 std::printf("[conker] scripted input: Start held from VI %llu\n", static_cast<unsigned long long>(now));
             }
-            return kButtonStart;
+            return conker::input::kStart;
         }
     }
     return 0;

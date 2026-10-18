@@ -20,12 +20,63 @@ This repository contains no ROM data. You need your own US ROM
 | --- | --- |
 | Symbol file from the decomp inventory, ELF and evidence docs | done: 5,900+ functions across main, game and debugger overlays, SDK copies in the game overlay named so the runtime replaces them |
 | Static recompilation | done: every function recompiles; 13 CP0/TLB/exception routines are stubbed; Rare's handwritten geometry code and one handwritten prefix-code tree builder are recompiled as shared code regions |
-| Headless runtime (no graphics, sound output or input) | boots: ROM load, game-archive inflation, thread creation, main init, game entry, software-geometry setup, visibility-partition build, main loop, legal and Nintendo screens, intro cutscene, title scene, menus after a scripted Start press; no known crash (see below) |
+| Headless runtime (no graphics, sound output or input) | boots: ROM load, game-archive inflation, thread creation, main init, game entry, software-geometry setup, visibility-partition build, main loop, legal and Nintendo screens, intro cutscene, title scene, menus after a scripted Start press, the new game's opening, its first save and the first area; no known crash (see below) |
 | Crash diagnostics | crash reporter with MIPS registers, per-thread call trace, `tools/symbolicate.sh`; display-list dumper and scripted Start press (see "Diagnostics") |
 | Graphics: RT64 support for Rare's F3DEX2CBFD microcode | first light: all eight variants recognised, the intro cutscene, the title scene and the menus render in an RT64 window (`CONKER_RENDERER=rt64`); the title scene matches a cycle-accurate emulator render, including the weasels' tails that looked like stray polygons; see [docs/rsp-microcode.md](docs/rsp-microcode.md) |
 | Audio: RSPRecomp of the `n_aspMain` microcode | working through the intro and title scene: Rare's MP3-capable audio microcode recompiled with its overlays, SDL2 output in the RT64 build, WAV dump with `CONKER_DUMP_AUDIO`; music in tune and MP3 voice at the right pitch and speed (checked against the decomp's extracted assets); see [docs/rsp-microcode.md](docs/rsp-microcode.md#audio-n_aspmain-with-the-mp3-overlay) |
-| Saving: EEPROM through a PIF shim | volatile in-memory image only |
+| Input | RT64 build: the first SDL game controller (hot-plug) and the keyboard drive controller 1, OR-ed with scripted Start presses; analog stick with a radial deadzone; no remapping UI (see "Controls"). Title menus, NEW GAME, the pause menu, loading a saved game and walking Conker around the first area driven by a scripted virtual pad (`CONKER_VIRTUAL_PAD`); keyboard not yet tried by hand. The null build has no input device |
+| Saving: EEPROM | working: reads, single-block writes and Rare's paced long write (one 8-byte block per 12 ms timer tick) go to the runtime's save file (`conker-recomp-data/saves/conker_us.bin`); the new game's first save completes and matches its RDRAM buffer byte for byte, and the saved game loads from the title menu (see "Current state") |
 | Windows support for the memory aliasing | not started |
+
+### Current state
+
+With a controller (or the keyboard, or `CONKER_VIRTUAL_PAD`) the RT64 build
+boots, goes through the title scene and the NEW GAME menu, plays the new
+game's opening (the credits, the throne-room cutscene and Conker's scene
+outside the Cock and Plucker, "WHAT, AGAIN?" ... "SORRY ABOUT THAT, OLD
+CHAP."), saves, and reaches the first playable area. There the stick walks
+Conker around, and the camera follows (picture below). Start pauses the
+cutscenes and the stick moves between QUIT and CONT. The saved game shows up
+on the title menu's GAME 1 page (play time 0:06:03 and a picture of the first
+area) and PLAY loads it, which is the quick way back to the first area (see
+"Skipping the opening" under "Diagnostics"). The null build runs through the
+save and on into the first area too: a 13-minute run (graphics task 22,800)
+ended on the timer, not a crash.
+
+![RT64 window: Conker walking in the first area, driven by the virtual pad](docs/images/rt64-first-area.png)
+
+The first save used to hang the game. There were three causes:
+
+* `0x151DD4E0` is Rare's `osEepromWrite`, but it had no libultra name, so it
+  ran recompiled: raw SI DMA to the PIF shim, then `osRecvMesg` for an SI
+  interrupt that the shim never sends. It is now named `osEepromWrite`
+  (`CONKER_RENAMES` in `tools/gen_syms.py`), so the runtime's native version
+  writes the save file.
+* The game's save routine (`func_15006BEC`) writes one block itself and then
+  starts Rare's paced long write (`func_151DCEF0`). That arms a 12 ms timer
+  (`osSetTimer(0x80042A58, 750000 ticks, 0, 0x80042A78, 0x80042A90)`), and
+  each `__conker_eeprom_wait` (`0x151DCFD8`) takes one timer message, writes
+  the next 8-byte block and re-arms the timer. The queue at `0x80042A78` is
+  libultra's `__osEepromTimerQ`, which `osContInit` creates as its last step.
+  The runtime's `osContInit` does only the controller part, so the queue
+  stayed zeroed (`msgCount` 0, which `osSendMesg` treats as full), the timer
+  message was dropped and the game waited forever. Both copies of
+  `osContInit` (main `0x10025340`, which the game calls, and the game
+  overlay's `0x151EF090`) are now `conker_osContInit*`, implemented in
+  `src/ultra_extras.cpp` as the runtime's version plus the
+  `__osContinitialized` guard and the queue. Rare's `osEepromLongRead`
+  (`0x151DD3A0`) first drains a pending paced write; the runtime's version
+  does not, so it is no longer redirected and runs recompiled.
+* Right after the save, entering the first area crashed with "Failed to find
+  function at 0x00000002". Rare's geometry code has an escape:
+  `func_150ADAF0` keeps its `$sp` in `D_800D3858`, and `func_150AE280`,
+  called from deep inside the work it starts, restores that `$sp` and returns
+  from `func_150ADAF0` straight to its caller. In the recompiled code there
+  are C frames in between (`func_1509C7C8`, `func_1509F850`, ...), so three
+  hooks on the region body do it with `setjmp`/`longjmp`
+  (`src/region_escape.h`, `src/hooks.cpp`).
+
+![RT64 window: pause menu during the throne-room cutscene, CONT. selected with the stick](docs/images/rt64-pause-menu.png)
 
 ### Where the headless boot stops
 
@@ -38,8 +89,9 @@ through the bar doors to the NEW GAME menu, loads scene `0x18` and plays the
 new game's opening: the credits ("Nintendo presents", "A Rareware game",
 "Starring Conker & Berri"), then the throne-room cutscene. The later presses
 pause and resume it (the PAUSED / QUIT / CONT. menu appears; its options were not tried). A 5.5-minute run
-with those presses ended on the timer, not a crash. Nothing past the opening
-cutscene has been tried yet.
+with those presses ended on the timer, not a crash. With only
+`CONKER_PRESS_START=5400,7500` the opening plays to the end, the game saves
+(around graphics task 13,000) and enters the first area; see "Current state".
 
 In RT64 the title scene and the menus look right. The large grey shapes on
 the weasels at the bar (picture below) are **not a rendering bug**. They are
@@ -221,6 +273,34 @@ build/rt64/ConkerRecomp /path/to/conker-us.z64
 RT64 prints `GBI: F3DEXBG.NoN fifo 2.08 (Conker)` when it recognises the
 microcode of the first graphics task.
 
+### Controls
+
+The RT64 build reads controller 1 from the first SDL game controller and from
+the keyboard at the same time; the null build has no input device. A
+controller can be plugged in or removed while the game runs (the log prints
+`[conker] controller 1: <name>`). There is no remapping yet.
+
+| N64 | Game controller (Xbox names, PlayStation in brackets) | Keyboard |
+| --- | --- | --- |
+| Analog stick | left stick (20% radial deadzone) | W A S D or the arrow keys |
+| A | A | Space |
+| B | X or B | Left Shift |
+| Z | right trigger (R2) or left trigger (L2) | Q |
+| L | left bumper (L1) | Tab |
+| R | right bumper (R1) | E |
+| Start | Start | Enter |
+| C buttons | right stick | I J K L (up, right, down, left) |
+| D-pad | D-pad | T F G H (up, left, down, right) |
+
+C-left and C-right are swapped on the right stick and on J/L. Conker turns
+the camera the opposite way to the C button pressed, so on the N64 C-left
+swings the view to the right; with the swap, left on the stick (or J) turns
+the view left, as in most modern games.
+
+The stick reaches the N64 range of about ±80 on the axes. The keyboard stick
+is always fully tilted. In the menus, move with the stick and confirm with A
+(Start also works on the title screen and pauses during play).
+
 On a crash the binary prints the faulting N64 address, the MIPS registers,
 the last 64 recompiled function entries on that thread and the image slide;
 `tools/symbolicate.sh build/host/ConkerRecomp <log>` maps the host backtrace
@@ -258,7 +338,24 @@ These environment variables are read by both builds:
   their vertices came from. Use it to tell bad data in RDRAM apart from a
   renderer that misreads good data.
 * `CONKER_PRESS_START=<vi>[,<vi>...]` holds Start on controller 1 for 10 VIs
-  from each listed VI count.
+  from each listed VI count, on top of any real input.
+* `CONKER_VIRTUAL_PAD=<file>` (RT64 build) attaches an SDL virtual game
+  controller driven by a script, so the whole controller path can be tested
+  without hardware. Each line is `<vi> <length in VIs> <control>...`, where a
+  control is an SDL button name (`a`, `b`, `x`, `start`, `leftshoulder`,
+  `dpup`, ...) or `<axis>=<value>` (`leftx`, `lefty`, `rightx`, `righty`,
+  `lefttrigger`, `righttrigger`, from -1 to 1, with +y down as in SDL). `#`
+  starts a comment. For example, `5400 10 start` then `7500 10 a` goes from the
+  title scene to a new game.
+* **Skipping the opening.** Saves persist in
+  `conker-recomp-data/saves/conker_us.bin` under the working directory, so
+  keep a copy of that file from a run that got past the first save (about
+  7 minutes in) and put it back before later runs. With a save present,
+  `5400 10 start` opens the GAME 1 page and `6600 10 a` picks PLAY, which
+  loads the first area about 2 minutes after boot. Leave the stick alone on
+  that page: pushing it moves the lever to ERASE, and a second A erases the
+  save. An emulator-style save state is not possible here, because each N64
+  thread runs as a native host thread with its own C stack.
 * `CONKER_DUMP_AUDIO=<file.wav>` records every buffer the game queues
   (16-bit stereo at the game's 22,020 Hz) in either build. The log prints a
   line every 5 s of audio with the peak, RMS, minimum output-queue depth and
@@ -289,7 +386,11 @@ These environment variables are read by both builds:
 * `[[patches.hook]]` snippets in `config/us.toml` call helpers in
   `src/hooks.cpp`, for example to keep the music manager from dropping a
   sequence the audio thread has not started yet (see
-  [docs/rsp-microcode.md](docs/rsp-microcode.md)).
+  [docs/rsp-microcode.md](docs/rsp-microcode.md)), and to carry out the
+  geometry code's escape from `func_150AE280` back to `func_150ADAF0`'s
+  caller with `setjmp`/`longjmp` (`src/region_escape.h`). Hooks inside a
+  shared code region go on the region's first function (`func_150A3A70`),
+  because the region's single body is emitted with it.
 
 ## Patches to the submodules
 
