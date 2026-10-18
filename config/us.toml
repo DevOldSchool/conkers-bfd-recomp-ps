@@ -77,6 +77,20 @@ func = "func_8000853C"
 before_vram = 0x10008560
 text = "{ void conker_seqp_state_hook(uint8_t*, recomp_context*); conker_seqp_state_hook(rdram, ctx); }"
 
+# The intro (scene 0x21, Conker sawing the N64 logo) can only be skipped with Start after a warm
+# reset: func_1501E05C also wants osResetType (0x8000030C) to be 1, and the runtime always cold
+# boots. The first hook can add Start to the buttons it tests (CONKER_SKIP_INTRO=1, no press
+# needed), the second reports a warm reset. See conker_intro_skip_* in src/hooks.cpp.
+[[patches.hook]]
+func = "func_1501E05C"
+before_vram = 0x1501E0C8
+text = "{ void conker_intro_skip_buttons(uint8_t*, recomp_context*); conker_intro_skip_buttons(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1501E05C"
+before_vram = 0x1501E0DC
+text = "{ void conker_intro_skip_reset_type(uint8_t*, recomp_context*); conker_intro_skip_reset_type(rdram, ctx); }"
+
 # Rare's geometry code escapes from deep inside its work: func_150ADAF0 saves its $sp in D_800D3858,
 # and func_150AE280 restores it and returns from func_150ADAF0 to its caller, past the recompiled C
 # frames in between (func_1509C7C8, func_1509F850, ...). Done as setjmp/longjmp; see

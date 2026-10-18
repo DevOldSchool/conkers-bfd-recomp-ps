@@ -1,5 +1,6 @@
 // Native helpers called from the [[patches.hook]] snippets in config/us.toml.
 #include <cstdint>
+#include <cstdlib>
 
 #include "recomp.h"
 #include "region_escape.h"
@@ -39,6 +40,44 @@ extern "C" void conker_seqp_state_hook(uint8_t* rdram, recomp_context* ctx) {
             ctx->r2 = kPlaying;
             return;
         }
+    }
+}
+
+// --- skipping the intro --------------------------------------------------------------------------
+
+namespace {
+
+constexpr uint16_t kStartButton = 0x1000;
+
+// Unset: Start skips the intro. CONKER_SKIP_INTRO=1 skips it without a press. CONKER_SKIP_INTRO=0
+// keeps the hardware rule (only after a warm reset), so it always plays, as the runtime cold boots.
+enum class IntroSkip { Never, OnStart, Always };
+
+IntroSkip intro_skip_mode() {
+    static const IntroSkip mode = [] {
+        const char* value = std::getenv("CONKER_SKIP_INTRO");
+        if (value == nullptr || value[0] == '\0') {
+            return IntroSkip::OnStart;
+        }
+        return value[0] == '0' ? IntroSkip::Never : IntroSkip::Always;
+    }();
+    return mode;
+}
+
+}  // namespace
+
+// func_1501E05C decides whether the running cutscene may be skipped. For the intro, scene 0x21,
+// it wants Start held (D_800BE710 & 0x1000), osResetType == 1 and the script clock at 301 ticks or
+// more. These hooks run inside the scene 0x21 branch: $t8 holds the buttons, $t0 osResetType.
+extern "C" void conker_intro_skip_buttons(uint8_t* /*rdram*/, recomp_context* ctx) {
+    if (intro_skip_mode() == IntroSkip::Always) {
+        ctx->r24 |= kStartButton;
+    }
+}
+
+extern "C" void conker_intro_skip_reset_type(uint8_t* /*rdram*/, recomp_context* ctx) {
+    if (intro_skip_mode() != IntroSkip::Never) {
+        ctx->r8 = 1;  // warm reset (NMI)
     }
 }
 
