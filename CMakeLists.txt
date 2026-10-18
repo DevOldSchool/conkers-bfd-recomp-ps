@@ -79,6 +79,7 @@ add_executable(ConkerRecomp
     src/enhancements/pause_save/pause_save.cpp
     src/enhancements/pause_save/resume_point.cpp
     src/enhancements/rumble_banner/rumble_banner.cpp
+    src/enhancements/surround_default/surround_default.cpp
 )
 target_include_directories(ConkerRecomp PRIVATE
     "${CMAKE_SOURCE_DIR}/src"

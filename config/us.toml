@@ -213,6 +213,15 @@ func = "func_1501C57C"
 before_vram = 0x1501C57C
 text = "{ void conker_resume_tick(uint8_t*, recomp_context*); conker_resume_tick(rdram, ctx); }"
 
+# Surround as the default sound option. func_15007440 loads the options from EEPROM block 0 at boot
+# and, when there are none, func_151DD9E4 gives every field its default from D_8008FE54: stereo
+# for sound (D_800E0BE9). It becomes surround; a saved sound option is kept. See
+# src/enhancements/surround_default/surround_default.cpp; CONKER_SURROUND_DEFAULT=0 turns it off.
+[[patches.hook]]
+func = "func_151DD9E4"
+before_vram = 0x151DD9E4
+text = "{ void conker_surround_default(uint8_t*, recomp_context*); conker_surround_default(rdram, ctx); }"
+
 # The title menu's "INSERT RUMBLE PAK" banner (message 0x8F) shows for a few seconds whenever the
 # menu comes up, pak or not, while the countdown D_8008FEFC is above 60. With a pad that can rumble
 # there is a pak, so the countdown is cleared just before func_151DE8F0 reads it. See
