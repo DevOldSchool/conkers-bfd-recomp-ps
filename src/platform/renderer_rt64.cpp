@@ -6,10 +6,10 @@
 //
 // RT64 renders at the whole multiple of the game's picture that covers the window height (its
 // WindowIntegerScale default), which follows the window when it is resized or made full screen.
-// For a window sized by src/platform/window_sdl.cpp that multiple fills the window exactly. When
-// the screen resolution chosen in OPTIONS (src/platform/display_mode.hpp) is an exact multiple, a
-// screen-covering mode renders at that multiple and presents it at its own size, centred
-// (presentation.nativeSize, tools/patches/rt64-native-size.patch).
+// Instead it renders at the multiple chosen in OPTIONS for the mode (src/platform/display_mode.hpp)
+// and scales it to fill the window or screen, or presents it at its own size, centered
+// (presentation.nativeSize, tools/patches/rt64-native-size.patch). A window opens at its multiple,
+// so the two differ there only once it is resized by hand.
 #include "platform/renderer_rt64.hpp"
 
 #include <cstdio>
@@ -176,17 +176,22 @@ public:
     }
 
 private:
-    // An exact multiple only covering the screen; a window is already a multiple of the picture.
+    // RT64 renders at the multiple chosen for the mode and either scales it to fill the window or
+    // screen or presents it at its own size.
     void apply_display_scale() {
-        const int scale = conker::display::current() == conker::display::Mode::Windowed ? 0 : conker::display::screen_scale();
-        if (scale == applied_scale_) {
+        const conker::display::Mode mode = conker::display::current();
+        const bool windowed = mode == conker::display::Mode::Windowed;
+        const int scale = windowed ? conker::display::window_scale() : conker::display::screen_scale();
+        const bool native = !conker::display::fill(mode);
+        if (scale == applied_scale_ && native == applied_native_) {
             return;
         }
         applied_scale_ = scale;
+        applied_native_ = native;
         app_->userConfig.resolution = scale > 0 ? RT64::UserConfiguration::Resolution::Manual
                                                 : RT64::UserConfiguration::Resolution::WindowIntegerScale;
         app_->userConfig.resolutionMultiplier = scale > 0 ? scale : 2.0;
-        app_->enhancementConfig.presentation.nativeSize = scale > 0;
+        app_->enhancementConfig.presentation.nativeSize = native;
         app_->updateUserConfig(true);  // see get_resolution_scale
         app_->updateEnhancementConfig();
     }
@@ -194,6 +199,7 @@ private:
     std::unique_ptr<RT64::Application> app_;
     mutable float reported_scale_ = 0.0f;
     int applied_scale_ = 0;
+    bool applied_native_ = false;
 };
 
 } // namespace

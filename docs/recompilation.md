@@ -87,7 +87,7 @@ vertex normals, 48-byte lights, coordinate modifiers and TRI4. Details in
 `presentation.nativeSize` to RT64's enhancement configuration: the rendered
 picture is presented at its own size, centred, instead of being scaled to fill
 the window. With a manual resolution multiplier it draws an exact multiple of
-the picture on a screen whose height is not one (the OPTIONS resolution row,
-`src/platform/renderer_rt64.cpp`).
+the picture in a window or on a screen whose size is not one (the OPTIONS
+CENTERED setting, `src/platform/renderer_rt64.cpp`).
 
 All of these are candidates for upstreaming.

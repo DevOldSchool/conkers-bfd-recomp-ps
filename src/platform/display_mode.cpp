@@ -16,7 +16,9 @@ namespace {
 
 std::atomic<int> g_current{static_cast<int>(Mode::Fullscreen)};
 std::atomic<int> g_window_scale{0};  // 0 until set_limits: the largest that fits
-std::atomic<int> g_screen_scale{0};
+std::atomic<int> g_screen_scale{0};  // 0: the largest
+std::atomic<bool> g_window_fill{false};
+std::atomic<bool> g_screen_fill{true};
 std::atomic<int> g_window_max{kMinScale};
 std::atomic<int> g_screen_max{kMinScale};
 std::atomic<bool> g_requested{false};
@@ -37,13 +39,16 @@ bool parse_mode(const std::string& text, Mode* mode) {
     return false;
 }
 
-// display.cfg holds "mode=<name>", "window_scale=<n>" and "screen_scale=<n>" lines.
+// display.cfg holds "mode=<name>", "window_scale=<n>", "screen_scale=<n>", "window_fill=<0|1>" and
+// "screen_fill=<0|1>" lines; a scale of 0 is the largest.
 void save() {
     std::lock_guard lock(g_save_mutex);
     std::ofstream file(config_path());
     file << "mode=" << name(current()) << '\n'
          << "window_scale=" << g_window_scale.load() << '\n'
-         << "screen_scale=" << g_screen_scale.load() << '\n';
+         << "screen_scale=" << g_screen_scale.load() << '\n'
+         << "window_fill=" << (g_window_fill.load() ? 1 : 0) << '\n'
+         << "screen_fill=" << (g_screen_fill.load() ? 1 : 0) << '\n';
     if (!file) {
         std::fprintf(stderr, "[conker] could not write %s\n", config_path().string().c_str());
     }
@@ -75,6 +80,10 @@ Mode startup_mode() {
             g_window_scale.store(std::atoi(value.c_str()));
         } else if (key == "screen_scale") {
             g_screen_scale.store(std::atoi(value.c_str()));
+        } else if (key == "window_fill") {
+            g_window_fill.store(std::atoi(value.c_str()) != 0);
+        } else if (key == "screen_fill") {
+            g_screen_fill.store(std::atoi(value.c_str()) != 0);
         }
     }
     if (const char* value = std::getenv("CONKER_DISPLAY"); value != nullptr && value[0] != '\0') {
@@ -113,8 +122,10 @@ int window_scale() {
 
 int screen_scale() {
     const int scale = g_screen_scale.load();
-    return scale < kMinScale ? 0 : std::min(scale, screen_max());
+    return scale < kMinScale ? screen_max() : std::min(scale, screen_max());
 }
+
+bool fill(Mode mode) { return (mode == Mode::Windowed ? g_window_fill : g_screen_fill).load(); }
 
 void request_window_scale(int scale) {
     if (g_window_scale.exchange(scale) == scale) {
@@ -129,11 +140,15 @@ void request_screen_scale(int scale) {
     if (g_screen_scale.exchange(scale) == scale) {
         return;
     }
-    if (scale == 0) {
-        std::printf("[conker] screen scale: fill the screen\n");
-    } else {
-        std::printf("[conker] screen scale: %dx\n", scale);
+    std::printf("[conker] screen scale: %dx\n", scale);
+    save();
+}
+
+void request_fill(Mode mode, bool fill) {
+    if ((mode == Mode::Windowed ? g_window_fill : g_screen_fill).exchange(fill) == fill) {
+        return;
     }
+    std::printf("[conker] %s picture: %s\n", mode == Mode::Windowed ? "window" : "screen", fill ? "fill" : "centered");
     save();
 }
 

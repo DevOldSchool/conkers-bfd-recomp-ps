@@ -59,9 +59,12 @@ void find_limits() {
         return;
     }
     const int window_max = std::min(usable.w / kPictureWidth, (usable.h - kTitleBarAllowance) / kPictureHeight);
-    const int screen_max = std::min(bounds.w / kPictureWidth, bounds.h / kPictureHeight);
+    // The smallest multiple covering the screen height (RT64 shrinks it to fit), unless the width
+    // already limits it.
+    const int screen_max = std::min((bounds.w + kPictureWidth - 1) / kPictureWidth,
+                                    (bounds.h + kPictureHeight - 1) / kPictureHeight);
     conker::display::set_limits(window_max, screen_max);
-    std::printf("[conker] display %dx%d, %dx%d usable: up to %dx in a window, %dx on the screen\n", bounds.w,
+    std::printf("[conker] display %dx%d, %dx%d usable: up to %dx in a window, %dx covering the screen\n", bounds.w,
                 bounds.h, usable.w, usable.h, window_max, screen_max);
 }
 

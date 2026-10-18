@@ -36,21 +36,26 @@ Mode current();
 // main thread (take_request).
 void request(Mode mode);
 
-// The largest multiples of the picture that fit a window on the display (title bar and Dock
-// allowed for) and the whole screen; set by the window when it opens.
+// The largest multiple of the picture that fits a window on the display (title bar and Dock
+// allowed for), and the smallest that covers the whole screen; set by the window when it opens.
 void set_limits(int window_max, int screen_max);
 int window_max();
 int screen_max();
 
-// The window's multiple of the picture (kMinScale..window_max()), and the screen's: 0 fills the
-// screen (RT64 renders at the multiple covering its height and shrinks it to fit), n draws it at
-// exactly n times, centred.
+// The window's multiple of the picture (kMinScale..window_max(), the largest by default), and the
+// one rendered when covering the screen (kMinScale..screen_max(), the largest by default).
 int window_scale();
 int screen_scale();
 
-// Ask for another multiple and save it; safe to call from any thread.
+// Whether the picture is scaled to fill the window or screen, or drawn at its own size, centered.
+// Each mode remembers its own: a window is centered by default (it is the picture's size unless it
+// is resized by hand), covering the screen fills it by default.
+bool fill(Mode mode);
+
+// Ask for another setting and save it; safe to call from any thread.
 void request_window_scale(int scale);
 void request_screen_scale(int scale);
+void request_fill(Mode mode, bool fill);
 
 // For the window: whether the mode or the window's multiple changed since the last call, and the
 // mode to be in.

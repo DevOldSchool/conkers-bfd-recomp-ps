@@ -67,25 +67,30 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
 ## Enhancements
 
 * **Display mode and resolution:** the OPTIONS page of the title menu has
-  two rows under the sound setting. The first picks WINDOWED, BORDERLESS or
-  FULL SCREEN. Full screen (the default) is macOS full screen in a Space of
-  its own; borderless covers the screen in the current Space, with the menu
-  bar and Dock hidden while the game is in front. The second picks how large
-  the game's 292x216 picture is drawn, as whole multiples so that every game
-  pixel is an even block, from 292x216 (1x) up to what the display can show.
-  In a window it lists the window sizes that fit the display (up to
-  1460x1080, 5x, on a 2560x1440 display with the Dock showing, which is also
-  the default). Covering the screen it lists FILL SCREEN (the
-  default: RT64 renders at the multiple that covers the screen height, 7x on
-  a 1440-line display, and shrinks it slightly to fit) and the exact
-  multiples that fit, drawn centred with black bars (up to 1752x1296, 6x, on
-  1440 lines). F11, Cmd+Enter, Alt+Enter or Ctrl+Cmd+F switch between the
-  window and the last screen-covering mode. The choices are kept in
-  `conker-recomp-data/display.cfg`, not in the game's save, so the OPTIONS
-  saved to EEPROM are unchanged. `CONKER_DISPLAY=windowed`, `borderless` or
-  `fullscreen` overrides the mode for one run, `CONKER_DISPLAY_OPTION=0`
-  hides the rows, and `CONKER_ORIGINAL_SIZE=1` opens the original 960x720
-  window instead.
+  three rows under the sound setting.
+  * WINDOWED, BORDERLESS or FULL SCREEN. Full screen (the default) is macOS
+    full screen in a Space of its own; borderless covers the screen in the
+    current Space, with the menu bar and Dock hidden while the game is in
+    front.
+  * The resolution: how large the game's 292x216 picture is rendered, in
+    whole multiples from 292x216 (1x). In a window it is the window's size,
+    up to the largest that fits the display (1460x1080, 5x, on a 2560x1440
+    display with the Dock showing, which is also the default). Covering the
+    screen it goes up to the first multiple that covers the screen's height
+    (2044x1512, 7x, on 1440 lines, the default).
+  * FILL SCREEN or CENTERED: the picture is scaled to fill the window or
+    screen, or drawn at its own size in the middle with black bars, so that
+    every game pixel is an even block. Covering the screen it fills by
+    default; a lower resolution then fills it with larger pixels. A window
+    is centered by default, which only shows once it is resized by hand.
+
+  Each mode keeps its own resolution and fill. F11, Cmd+Enter, Alt+Enter or
+  Ctrl+Cmd+F switch between the window and the last screen-covering mode.
+  The choices are kept in `conker-recomp-data/display.cfg`, not in the
+  game's save, so the OPTIONS saved to EEPROM are unchanged.
+  `CONKER_DISPLAY=windowed`, `borderless` or `fullscreen` overrides the mode
+  for one run, `CONKER_DISPLAY_OPTION=0` hides the rows, and
+  `CONKER_ORIGINAL_SIZE=1` opens the original 960x720 window instead.
 * **Skip to the title menu:** Start at any point during the boot logos or the
   intro fades to black and then into the GAME 1 menu, skipping the title
   scene's opening (the clock and the Cock and Plucker) too. On an N64, Start only skips the intro after about five seconds and after
