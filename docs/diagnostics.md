@@ -50,7 +50,13 @@ These environment variables are read by both builds:
 * `CONKER_DUMP_AUDIO=<file.wav>` records every buffer the game queues
   (16-bit stereo at the game's 22,020 Hz) in either build. The log prints a
   line every 5 s of audio with the peak, RMS, minimum output-queue depth and
-  underrun count.
+  underrun count. Both builds always print those lines. If the output has been
+  exactly zero for 10 s after there was sound, they also print one
+  `audio: silent for 10 s` line with the music manager's view of the three
+  sequence players: player state (0 stopped, 1 playing, 2 stopping, 3
+  paused), the sequence, its volume and pause mode, and the music-paused flag
+  that the pause menu sets. An open pause menu is silent by design and shows
+  flag 1 with the players paused.
 * `CONKER_AUDIO=0` (RT64 build) disables the SDL device; `CONKER_AUDIO_LATENCY_MS`
   (default 60) sets the extra buffering kept on top of what the game asks for;
   `CONKER_SILENT_AUDIO=1` skips the audio microcode entirely.
