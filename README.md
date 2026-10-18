@@ -289,8 +289,13 @@ controller can be plugged in or removed while the game runs (the log prints
 | L | left bumper | Tab |
 | R | right trigger or right bumper | E |
 | Start | Start | Enter |
-| C buttons | right stick | I J K L (up, left, down, right) |
+| C buttons | right stick | I J K L (up, right, down, left) |
 | D-pad | D-pad | T F G H (up, left, down, right) |
+
+C-left and C-right are swapped on the right stick and on J/L. Conker turns
+the camera the opposite way to the C button pressed, so on the N64 C-left
+swings the view to the right; with the swap, left on the stick (or J) turns
+the view left, as in most modern games.
 
 The stick reaches the N64 range of about ±80 on the axes. The keyboard stick
 is always fully tilted. In the menus, move with the stick and confirm with A

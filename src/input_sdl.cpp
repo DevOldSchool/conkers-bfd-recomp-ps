@@ -67,8 +67,8 @@ constexpr Key kKeys[] = {
     {SDL_SCANCODE_E, kR},
     {SDL_SCANCODE_I, kCUp},
     {SDL_SCANCODE_K, kCDown},
-    {SDL_SCANCODE_J, kCLeft},
-    {SDL_SCANCODE_L, kCRight},
+    {SDL_SCANCODE_J, kCRight},  // swapped like the right stick: J turns the view left
+    {SDL_SCANCODE_L, kCLeft},
     {SDL_SCANCODE_T, kDUp},
     {SDL_SCANCODE_G, kDDown},
     {SDL_SCANCODE_F, kDLeft},
@@ -266,8 +266,10 @@ void update() {
 
         const Sint16 cx = SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_RIGHTX);
         const Sint16 cy = SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_RIGHTY);
-        if (cx > kCButtonThreshold) buttons |= kCRight;
-        if (cx < -kCButtonThreshold) buttons |= kCLeft;
+        // Conker turns the camera the opposite way to the C button pressed (C-left swings it to the
+        // right), so the horizontal axis is swapped: pushing the stick left turns the view left.
+        if (cx > kCButtonThreshold) buttons |= kCLeft;
+        if (cx < -kCButtonThreshold) buttons |= kCRight;
         if (cy > kCButtonThreshold) buttons |= kCDown;
         if (cy < -kCButtonThreshold) buttons |= kCUp;
 
