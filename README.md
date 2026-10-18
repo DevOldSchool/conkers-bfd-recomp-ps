@@ -20,153 +20,36 @@ This repository contains no ROM data. You need your own US ROM
 | --- | --- |
 | Symbol file from the decomp inventory, ELF and evidence docs | done: 5,900+ functions across main, game and debugger overlays, SDK copies in the game overlay named so the runtime replaces them |
 | Static recompilation | done: every function recompiles; 13 CP0/TLB/exception routines are stubbed; Rare's handwritten geometry code and one handwritten prefix-code tree builder are recompiled as shared code regions |
-| Headless runtime (no graphics, sound output or input) | boots: ROM load, game-archive inflation, thread creation, main init, game entry, software-geometry setup, visibility-partition build, main loop, legal and Nintendo screens, intro cutscene, title scene, menus after a scripted Start press; no known crash (see below) |
+| Runtime | boots through the legal and Nintendo screens, intro cutscene, title scene, menus and the new game's opening cutscene with scripted Start presses; no known crash (see "Current state") |
 | Crash diagnostics | crash reporter with MIPS registers, per-thread call trace, `tools/symbolicate.sh`; display-list dumper and scripted Start press (see "Diagnostics") |
-| Graphics: RT64 support for Rare's F3DEX2CBFD microcode | first light: all eight variants recognised, the intro cutscene, the title scene and the menus render in an RT64 window (`CONKER_RENDERER=rt64`); the title scene matches a cycle-accurate emulator render, including the weasels' tails that looked like stray polygons; see [docs/rsp-microcode.md](docs/rsp-microcode.md) |
-| Audio: RSPRecomp of the `n_aspMain` microcode | working through the intro and title scene: Rare's MP3-capable audio microcode recompiled with its overlays, SDL2 output in the RT64 build, WAV dump with `CONKER_DUMP_AUDIO`; music in tune and MP3 voice at the right pitch and speed (checked against the decomp's extracted assets); see [docs/rsp-microcode.md](docs/rsp-microcode.md#audio-n_aspmain-with-the-mp3-overlay) |
+| Graphics: RT64 support for Rare's F3DEX2CBFD microcode | working through the title scene and menus: all eight variants recognised, the intro cutscene, the title scene and the menus render in an RT64 window (`CONKER_RENDERER=rt64`); the title scene matches a cycle-accurate emulator render, including the weasels' tails that looked like stray polygons; see [docs/rsp-microcode.md](docs/rsp-microcode.md) |
+| Audio: RSPRecomp of the `n_aspMain` microcode | working through the intro and title scene: Rare's MP3-capable audio microcode recompiled with its overlays, SDL2 output in the RT64 build, WAV dump with `CONKER_DUMP_AUDIO`; music in tune and MP3 voice at the right pitch and speed (checked against the decomp's extracted assets); title music no longer drops out (a timing race fixed by a hook in `src/hooks.cpp`); see [docs/rsp-microcode.md](docs/rsp-microcode.md#audio-n_aspmain-with-the-mp3-overlay) |
+| Input | not started: controller 1 only sees the scripted Start presses from `CONKER_PRESS_START` |
 | Saving: EEPROM through a PIF shim | volatile in-memory image only |
 | Windows support for the memory aliasing | not started |
 
-### Where the headless boot stops
+### Current state
 
-It no longer stops. The headless run plays the boot sequence and the intro
-cutscene (scene `0x21`), enters the title scene `0x1D` in the Cock and Plucker
-bar around graphics task 1,270 and stays there, animated, waiting for input:
-a 4-minute run reached task 6,332 without a crash. With scripted Start
-presses (`CONKER_PRESS_START=5400,6000,6600,7200,7800,9000,10200`) it goes
+The headless and RT64 builds play the boot sequence, the intro cutscene
+(scene `0x21`) and the title scene `0x1D` in the Cock and Plucker bar, which
+then waits for input. With scripted Start presses
+(`CONKER_PRESS_START=5400,6000,6600,7200,7800,9000,10200`) the run goes
 through the bar doors to the NEW GAME menu, loads scene `0x18` and plays the
-new game's opening: the credits ("Nintendo presents", "A Rareware game",
-"Starring Conker & Berri"), then the throne-room cutscene. The later presses
-pause and resume it (the PAUSED / QUIT / CONT. menu appears; its options were not tried). A 5.5-minute run
-with those presses ended on the timer, not a crash. Nothing past the opening
-cutscene has been tried yet.
+new game's opening credits and throne-room cutscene; the later presses pause
+and resume it. A 5.5-minute run with those presses ends on the timer, not a
+crash, and there is no known crash.
 
-In RT64 the title scene and the menus look right. The large grey shapes on
-the weasels at the bar (picture below) are **not a rendering bug**. They are
-the weasels' bushy tails, and the original game draws them the same way (see
-"The grey shapes on the weasels" below).
+There is no real controller input yet: the only input is the scripted Start
+press, so nothing past the opening cutscene has been tried.
+
+In RT64 the title scene and the menus look right and match a cycle-accurate
+emulator render. The grey shapes on the weasels are their tails, drawn the
+same way by the original game. That analysis, and the fixes that got the boot
+this far, are written up in [docs/investigations.md](docs/investigations.md).
 
 ![RT64 window: title scene](docs/images/rt64-title.png)
 
 ![RT64 window: NEW GAME menu](docs/images/rt64-new-game.png)
-
-**The grey shapes on the weasels.** These were reported as stray polygons and
-suspected to come from the F3DEX2CBFD support. They are part of the model:
-
-* An emulator running the original ROM draws them in the same places, with
-  the same shape and shading. In the picture below, the left side is Mupen64Plus
-  with CXD4 (low-level RSP: the real microcode runs) and Angrylion RDP Plus,
-  title scene at frame 3,600, from the decomp's `./conker mupen-trace
-  --software-renderer -- --testshots`. The right side is the RT64 window
-  above. The animation phase differs, but the floor sheet under the left
-  weasel and the sheet behind the second weasel's head are present in both.
-* Replaying the display list from RDRAM without RT64 (`tools/cbfd_dl.py` on a
-  `CONKER_DUMP_RDRAM` image of task 2,000) gives the same geometry. Each weasel
-  is drawn by display list `0x22D528` with its own bone-matrix palette in
-  segment 3 (five instances: `0x12F440`, `0x12FE40`, `0x130840`, `0x131240`,
-  `0x131C40`). Its first two vertex groups, commands
-  `0x22D5E8`-`0x22D718`, are a five-bone chain (palette slots
-  `0x880`-`0x9C0`) whose matrices step away from the body by 30 to 45 units
-  each. They use the grey fur texture at `0x21A760` (palette `0x21ACE0`). That
-  chain is the tail, and its triangles (orange in the wireframe below) are
-  exactly the grey shapes.
-* RT64 therefore receives correct data and draws it correctly, so the CPU side
-  (bone matrices from `func_150A9984` in the handwritten region) and the CBFD
-  command decoding (VTX, TRI4, MTX) are not at fault here.
-
-![Mupen64Plus with CXD4 and Angrylion (left) and RT64 (right), title scene](docs/images/title-emulator-vs-rt64.png)
-
-![Offline replay of task 2,000: weasel tails in orange, bodies in blue](docs/images/title-offline-wireframe.png)
-
-**Why scene `0x1D` used to crash.** Creating the title scene's trigger node
-`0xC8` decodes a compressed table through `func_150183D0`, which calls
-`func_15018500` to build a prefix-code (Huffman-style) tree. `func_15018500` is handwritten
-assembly with its own calling convention: it copies its return address with
-`or $s4, $ra, $zero`, reads its caller's stack frame (`0x44($sp)`) without
-allocating one, and returns with `jr $s4`. In the recompiled code, `jal` is a
-plain host call and does not write `$ra`, so `$s4` got whatever stale value
-`$ra` held, and N64Recomp had turned `jr $s4` into a lookup of that value
-called as a tail call. A temporary trace showed `$ra = 0` on entry and
-`$s4 = 0` at the `jr`, then "Failed to find function at 0x00000000". The fix
-declares `0x15018500:0x150186D0` as a second shared code region
-(`GAME_REGIONS` in `tools/gen_syms.py`). The region wrapper seeds `$ra` with
-the sentinel, and `jr $s4` returns when it sees it. The recompiler's own report
-lists this as the only indirect tail call (`jr` through a register other than
-`$ra`, with no jump table) outside the existing regions. The decomp's
-`functions.json` names four custom-ABI routines (`func_15018500`,
-`func_150A76F0`, `func_150A7A14`, `func_150AA644`), and the other three lie
-inside the geometry region.
-
-The intro scene as PR #3 first rendered it, stuck before its cutscene script
-(fixed in PR #4, explained below):
-
-![RT64 window at the old steady state](docs/images/rt64-intro.png)
-
-What the display-list dumper (`CONKER_DUMP_DL`) shows, with the screens
-identified against emulator screenshots (`./conker mupen-trace
---software-renderer ... -- --testshots`):
-
-| Graphics tasks | Display list | Screen |
-| --- | --- | --- |
-| 1-110 | 440 commands, 22 texture rectangles | blank or fade |
-| 120-260 | 3,283 commands, 380 texture rectangles | legal text (Dolby, Miles, MPEG, Rare) |
-| 270-420 | 296 commands, 4 texture rectangles | Nintendo logo |
-| 422 on | ~1,900 commands, ~1,100 triangles, alternating buffers `0x10ADC0` / `0x122C20` | intro scene `0x21` (wooden floor, N64 logo, Conker) |
-
-The earlier note that every task from about the 600th on used display list
-`0x00122C20` was a sampling artefact: the log printed every 600th task, always
-an even one, and the game double-buffers its display lists.
-
-**Why the intro used to hang.** Before the fix in this section, the run never
-got past the first shot of the intro scene. It rendered the scene's starting
-state forever: Conker's textures are in the display list, but the shot never
-changed. The cause was not missing input, EEPROM data, VI messages or audio:
-
-* The intro is cutscene script 1 of scene `0x21`. It is started by a scene
-  trigger node: `func_1509BBA0` walks the node list `D_800D2F48` every frame and
-  runs each node's action through `func_150ADAF0`; action type 1 is
-  `func_1509C440`, which installs the script with `func_1501D348(0x21, 1, ...)`.
-  The emulator shows this happening (node at `0x800D5050`).
-* In the recomp the node list was empty. Scene loading (`func_15002FB4`)
-  reads the scene header's trigger count (`header[0x12]`). It also checks one
-  ROM word with `osPiReadIo(0x40F0FAAC ^ 0xF0F0F0F0 = 0xB0000A5C)` and expects
-  `0x1740FFF9 ^ 0xF0F0F0F0`. If the check fails, it **halves the trigger
-  count**, which looks like Rare's anti-tamper measure. Scene `0x21` has one
-  trigger, so halving left none.
-* `osPiRawReadIo` in `src/ultra_extras.cpp` treated its argument as a cartridge
-  physical address and returned 0 for the KSEG1 address `0xB0000A5C`.
-  libultra reads `osRomBase | devAddr`, so the shim now masks the address the
-  same way. With that fix the script clock runs from 0 to its end time (1,700
-  ticks), the shots play out and the game moves on to scene `0x1D`.
-
-The input shim had nothing to do with it. Controllers are read through
-`osContGetReadData` (the runtime's `get_input`), not raw SI DMA. Holding Start
-with `CONKER_PRESS_START=1800` at the stuck scene changed nothing, because the
-skip check in `func_1501E05C` needs a running cutscene clock of at least 301
-ticks. The game made no EEPROM access through the PIF shim before this point.
-
-Other checks of this kind may be present. Any native shim that reads ROM, PI or
-PIF state should behave like the hardware for every address form the game uses.
-
-The last crash before the main loop ran was on the audio thread: `func_8000A03C` reads the
-message the PI DMA completion puts on the queue at `0x800416F0` as the
-`OSIoMesg` it passed to `osPiStartDma` (it compares `dramAddr` against its
-sound-bank buffers). The runtime's PI code sent a null message and never
-filled in the `OSIoMesg`; `tools/patches/n64modernruntime-pi-dma-message.patch`
-makes it behave like libultra's PI manager.
-
-Three translation bugs in the handwritten geometry region were fixed to get
-here (the emulator trace of `func_15049260` entries and returns now matches
-the recomp call for call):
-
-* the runtime started every thread in the FR=0 FPU register layout, while the
-  game runs with FR=1 (IPL3 sets it) and Rare's assembly does arithmetic on
-  odd registers; `src/game.cpp` switches each thread to FR=1;
-* `jal` inside the region was a nested host call, but the routines return
-  through other registers (continuations loaded before the call), so the
-  continuation ran twice; calls inside a region now link `$ra` and jump;
-* `jr $t0` with a delay slot that writes `$t0`: the target is now read
-  before the delay slot.
 
 ## Layout
 
