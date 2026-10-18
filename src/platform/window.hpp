@@ -1,5 +1,5 @@
 // Window and event-loop callbacks for ultramodern's gfx_callbacks_t. The null renderer uses the
-// headless versions; the RT64 build opens an SDL window (src/window_sdl.cpp).
+// headless versions; the RT64 build opens an SDL window (src/platform/window_sdl.cpp).
 #pragma once
 
 #include "ultramodern/ultramodern.hpp"

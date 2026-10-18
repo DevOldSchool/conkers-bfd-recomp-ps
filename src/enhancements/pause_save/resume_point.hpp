@@ -1,5 +1,5 @@
 #pragma once
-// Exact-position saves: see src/resume_point.cpp.
+// Exact-position saves: see src/enhancements/pause_save/resume_point.cpp.
 #include <cstdint>
 
 namespace conker::resume {

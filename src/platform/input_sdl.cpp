@@ -12,8 +12,8 @@
 // "<vi> <length in VIs> <control>...", where a control is an SDL button name (a, b, x, start,
 // leftshoulder, dpup, ...) or "<axis>=<value>" (leftx, lefty, rightx, righty, lefttrigger,
 // righttrigger; -1 to 1, SDL's +y is down). '#' starts a comment. Real pads are then ignored.
-#include "input.hpp"
-#include "input_sdl.hpp"
+#include "platform/input.hpp"
+#include "platform/input_sdl.hpp"
 
 #include <atomic>
 #include <cmath>
@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-#include "game.hpp"
+#include "runtime/game.hpp"
 
 namespace conker::input {
 

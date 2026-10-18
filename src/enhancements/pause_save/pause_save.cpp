@@ -14,22 +14,23 @@
 // three-option form with SAVE in RESTART's place (selection 1). LOAD has no selection of its
 // own: it is selection 2 (QUIT) with g_load_selected set, and QUIT is drawn unlit meanwhile.
 //
-// A on SAVE queues the same save as quitting, without leaving, and src/resume_point.cpp records
-// where Conker is so the save starts there. "SAVED" then shows under the lever and fades out.
-// A on LOAD reloads the save and starts it where it was made (src/resume_point.cpp).
+// A on SAVE queues the same save as quitting, without leaving, and
+// src/enhancements/pause_save/resume_point.cpp records where Conker is so the save starts there.
+// "SAVED" then shows under the lever and fades out. A on LOAD reloads the save and starts it where
+// it was made (src/enhancements/pause_save/resume_point.cpp).
 //
 // The signs are drawn with sprite selectors that never appear in normal play: SAVE with
 // RESTART's (0x21 unlit, 0x22 lit), LOAD with the title menu's PLAY (0x16, 0x17). While they are
 // on screen, the tile lookup in func_151ED430 hands out our own tiles for those selectors'
 // resources. They are built from the CONT... and QUIT signs' tiles as the game loads them: the
-// lettering inside the frame is cleared and src/pause_sign_letters.inc
+// lettering inside the frame is cleared and src/enhancements/pause_save/pause_sign_letters.inc
 // (tools/make_pause_signs.py) is drawn instead, so no ROM art is stored in the repository.
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 
 #include "recomp.h"
-#include "resume_point.hpp"
+#include "enhancements/pause_save/resume_point.hpp"
 
 extern "C" void func_15042D94(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_1510D0EC(uint8_t* rdram, recomp_context* ctx);
@@ -87,7 +88,7 @@ constexpr double kSavedFadeSeconds = 1.0;
 using Clock = std::chrono::steady_clock;
 
 const uint8_t kLetters[2][2][32][64][4] = {  // [sign][unlit, lit]
-#include "pause_sign_letters.inc"
+#include "enhancements/pause_save/pause_sign_letters.inc"
 };
 
 bool pause_save_enabled() {

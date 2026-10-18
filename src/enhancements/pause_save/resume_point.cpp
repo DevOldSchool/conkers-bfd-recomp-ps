@@ -12,7 +12,7 @@
 // a newer sequence number, so the game then resumes from that checkpoint as usual, except for the
 // save the game makes on entering the area just after resuming, which keeps the point. The
 // cartridge save format is unchanged.
-#include "resume_point.hpp"
+#include "enhancements/pause_save/resume_point.hpp"
 
 #include <array>
 #include <chrono>

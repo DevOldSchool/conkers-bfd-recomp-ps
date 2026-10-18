@@ -14,7 +14,7 @@
 #include "librecomp/rsp.hpp"
 #include "ultramodern/ultra64.h"
 
-#include "rsp.hpp"
+#include "runtime/rsp.hpp"
 
 RspExitReason aspMain(uint8_t* rdram, uint32_t ucode_addr);
 

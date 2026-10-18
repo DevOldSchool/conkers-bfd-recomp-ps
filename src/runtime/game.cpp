@@ -1,4 +1,4 @@
-#include "game.hpp"
+#include "runtime/game.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -6,8 +6,8 @@
 
 #include "funcs.h"
 #include "ultramodern/ultramodern.hpp"
-#include "memory.hpp"
-#include "rzip.hpp"
+#include "runtime/memory.hpp"
+#include "runtime/rzip.hpp"
 
 namespace conker {
 

@@ -2,9 +2,9 @@
 // thread before the game starts and update_gfx from the main loop every millisecond, so this is
 // also where SDL events are pumped and controller 1 is sampled (macOS requires all of it on the
 // main thread).
-#include "window.hpp"
+#include "platform/window.hpp"
 
-#include "input_sdl.hpp"
+#include "platform/input_sdl.hpp"
 
 #include <cstdio>
 

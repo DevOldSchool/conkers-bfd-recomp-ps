@@ -2,8 +2,8 @@
 //
 // RT64 interprets the game's display lists in HLE; Conker's F3DEX2CBFD microcode is supported
 // through tools/patches/rt64-f3dex2cbfd.patch. The context runs on ultramodern's gfx thread, the
-// window it draws into is created on the main thread (src/window_sdl.cpp).
-#include "renderer_rt64.hpp"
+// window it draws into is created on the main thread (src/platform/window_sdl.cpp).
+#include "platform/renderer_rt64.hpp"
 
 #include <cstdio>
 #include <memory>

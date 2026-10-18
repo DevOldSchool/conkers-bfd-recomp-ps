@@ -15,16 +15,32 @@
 * The 13 stubbed functions are listed with reasons in `config/us.toml`.
 * libultra internals Rare calls directly (SI/PIF access, SP task submission by
   raw DMA, VI/timer internals, controller-pak code, libc helpers) are
-  implemented natively in `src/ultra_extras.cpp`; `tools/gen_extras_decl.py`
-  keeps the list of required ones in sync.
+  implemented natively in `src/runtime/ultra_extras.cpp`;
+  `tools/gen_extras_decl.py` keeps the list of required ones in sync.
 * `[[patches.hook]]` snippets in `config/us.toml` call helpers in
-  `src/hooks.cpp`, for example to keep the music manager from dropping a
-  sequence the audio thread has not started yet (see
-  [rsp-microcode.md](rsp-microcode.md)), and to carry out the
-  geometry code's escape from `func_150AE280` back to `func_150ADAF0`'s
-  caller with `setjmp`/`longjmp` (`src/region_escape.h`). Hooks inside a
-  shared code region go on the region's first function (`func_150A3A70`),
-  because the region's single body is emitted with it.
+  `src/fixes/` and `src/enhancements/`, for example to keep the music manager
+  from dropping a sequence the audio thread has not started yet (see
+  [rsp-microcode.md](rsp-microcode.md)), and to carry out the geometry code's
+  escape from `func_150AE280` back to `func_150ADAF0`'s caller with
+  `setjmp`/`longjmp` (`src/fixes/geometry_escape.h`). Hooks inside a shared
+  code region go on the region's first function (`func_150A3A70`), because
+  the region's single body is emitted with it.
+
+## Source layout
+
+* `src/runtime/`: boot, the address-space windows, overlay registration,
+  RZIP, RSP task dispatch, the function-entry trace and the libultra
+  internals above.
+* `src/platform/`: host backends for audio, input, the window and the
+  renderer, with a null/headless and an SDL/RT64 version of each.
+* `src/fixes/`: hooks that make the recompiled game behave as it does on
+  hardware. These have no switch.
+* `src/enhancements/<feature>/`: one folder per feature the console does not
+  have (see the README), each with its own `CONKER_*` switch. A new
+  enhancement gets a folder here, its source in `CMakeLists.txt`, and its
+  hooks in `config/us.toml` under a comment naming the folder.
+
+Includes are written from `src/`, as in `#include "runtime/memory.hpp"`.
 
 ## Patches to the submodules
 

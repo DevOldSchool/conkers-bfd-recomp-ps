@@ -1,5 +1,5 @@
-// SDL side of controller 1 (src/input_sdl.cpp). All three run on the main thread, from the
-// window's event loop in src/window_sdl.cpp.
+// SDL side of controller 1 (src/platform/input_sdl.cpp). All three run on the main thread, from the
+// window's event loop in src/platform/window_sdl.cpp.
 #pragma once
 
 #include <SDL.h>

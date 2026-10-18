@@ -3,11 +3,12 @@
 //   ConkerRecomp <path to US ROM .z64>
 //
 // Registers the game with librecomp, wires the ultramodern callbacks and starts the game thread.
-// Controller 1 is an SDL game controller or the keyboard in the RT64 build (src/input_sdl.cpp),
-// plus any scripted Start presses (CONKER_PRESS_START). Graphics depend on CONKER_RENDERER: the null renderer
-// (default) runs headless and only logs graphics tasks, RT64 opens a window and draws the display
-// lists through Conker's F3DEX2CBFD microcode support. Audio is rendered by the recompiled audio
-// microcode and played through SDL2 in the RT64 build (src/audio.cpp).
+// Controller 1 is an SDL game controller or the keyboard in the RT64 build
+// (src/platform/input_sdl.cpp), plus any scripted Start presses (CONKER_PRESS_START). Graphics
+// depend on CONKER_RENDERER: the null renderer (default) runs headless and only logs graphics
+// tasks, RT64 opens a window and draws the display lists through Conker's F3DEX2CBFD microcode
+// support. Audio is rendered by the recompiled audio microcode and played through SDL2 in the RT64
+// build (src/platform/audio.cpp).
 #include <atomic>
 #include <csignal>
 #include <cstdio>
@@ -25,20 +26,20 @@
 static long _dyld_get_image_vmaddr_slide(int) { return 0; }
 #endif
 
-#include "memory.hpp"
+#include "runtime/memory.hpp"
 
 #include "librecomp/game.hpp"
 #include "ultramodern/ultramodern.hpp"
 
-#include "audio.hpp"
-#include "game.hpp"
-#include "input.hpp"
-#include "rsp.hpp"
-#include "window.hpp"
+#include "platform/audio.hpp"
+#include "platform/input.hpp"
+#include "platform/window.hpp"
+#include "runtime/game.hpp"
+#include "runtime/rsp.hpp"
 #if CONKER_RENDERER_RT64
-#include "renderer_rt64.hpp"
+#include "platform/renderer_rt64.hpp"
 #else
-#include "renderer_null.hpp"
+#include "platform/renderer_null.hpp"
 #endif
 
 namespace conker::trace { void dump_recent_calls(int fd); }

@@ -16,21 +16,23 @@ rom_file_path = "../build/us/conker.us.recomp.bin"
 output_func_path = "../build/us/RecompiledFuncs"
 functions_per_output_file = 50
 # Declarations for the runtime-provided functions that funcs.h does not declare (see
-# tools/gen_extras_decl.py and src/ultra_extras.cpp).
-recomp_include = "#include \"recomp.h\"\n#include \"conker_extras_decl.h\"\n#include \"trace.h\"\n#include \"region_escape.h\""
-# Emit TRACE_ENTRY()/TRACE_RETURN() in every function; src/trace.h turns them into a per-thread
-# ring buffer of recent calls that the crash reporter prints (compile with -DCONKER_TRACE=1).
+# tools/gen_extras_decl.py and src/runtime/ultra_extras.cpp).
+recomp_include = "#include \"recomp.h\"\n#include \"conker_extras_decl.h\"\n#include \"fixes/geometry_escape.h\""
+# Emit TRACE_ENTRY()/TRACE_RETURN() in every function, and #include "trace.h" for them;
+# src/runtime/trace.h turns them into a per-thread ring buffer of recent calls that the crash
+# reporter prints (compile with -DCONKER_TRACE=1).
 trace_mode = true
 
 [patches]
 # Functions that must not be recompiled because they touch CP0, the TLB or the exception
 # vector. The runtime (N64ModernRuntime) provides the OS layer natively.
 ignored = [
-    # Rare's raw PI DMA for small transfers: polls PI_STATUS and programs the PI registers
-    # directly (src/main/init_4470.c). Replaced by a native ROM copy in src/ultra_extras.cpp.
+    # Rare's raw PI DMA for small transfers: polls PI_STATUS and programs the PI registers directly
+    # (src/main/init_4470.c). Replaced by a native ROM copy in src/runtime/ultra_extras.cpp.
     "func_8000480C",
     # libultra's osContInit (main and game-overlay copies, named in tools/gen_syms.py). Native in
-    # src/ultra_extras.cpp: the runtime's osContInit plus the __osEepromTimerQ it leaves out.
+    # src/runtime/ultra_extras.cpp: the runtime's osContInit plus the __osEepromTimerQ it leaves
+    # out.
     "conker_osContInit",
     "conker_osContInit_game",
 ]
@@ -71,20 +73,20 @@ text = "{ void osAiGetLength_recomp(uint8_t*, recomp_context*); uint64_t saved_v
 # func_8000853C returns a sequence player's state to the music manager, which frees the record of
 # a player it sees stopped. A sequence that was started this frame is still stopped until the
 # audio thread's next render, which on hardware always comes first; the recompiled game can get
-# there sooner and drop the title music. See conker_seqp_state_hook in src/hooks.cpp.
+# there sooner and drop the title music. See conker_seqp_state_hook in src/fixes/music_start.cpp.
 [[patches.hook]]
 func = "func_8000853C"
 before_vram = 0x10008560
 text = "{ void conker_seqp_state_hook(uint8_t*, recomp_context*); conker_seqp_state_hook(rdram, ctx); }"
 
-# Start skips from the boot logos or the intro (scene 0x21, Conker sawing the N64 logo) straight
-# to the title menu. On hardware Start only skips the intro after a warm reset and after 301 ticks,
-# and the title scene's opening (scene 0x1D script 1) needs a press of its own. One press fades the
+# Start skips from the boot logos or the intro (scene 0x21, Conker sawing the N64 logo) straight to
+# the title menu. On hardware Start only skips the intro after a warm reset and after 301 ticks, and
+# the title scene's opening (scene 0x1D script 1) needs a press of its own. One press fades the
 # screen to black (drawn by func_1517F3A0), and behind it the logo timer in func_151DE6D4 jumps to
 # its end, the skip check func_1501E05C passes for the intro, and it sets the title scene's skip
-# flag, with func_1501E1B4's hidden 30-tick fades cut to one tick. Then it fades in on the menu.
-# See
-# conker_*_skip in src/hooks.cpp; CONKER_SKIP_INTRO=1 skips without a press, =0 turns it off.
+# flag, with func_1501E1B4's hidden 30-tick fades cut to one tick. Then it fades in on the menu. See
+# conker_*_skip in src/enhancements/intro_skip/intro_skip.cpp; CONKER_SKIP_INTRO=1 skips without a
+# press, =0 turns it off.
 [[patches.hook]]
 func = "func_151DE6D4"
 before_vram = 0x151DE728
@@ -118,8 +120,9 @@ text = "{ void conker_skip_fade_colour(uint8_t*, recomp_context*); conker_skip_f
 # Rare's geometry code escapes from deep inside its work: func_150ADAF0 saves its $sp in D_800D3858,
 # and func_150AE280 restores it and returns from func_150ADAF0 to its caller, past the recompiled C
 # frames in between (func_1509C7C8, func_1509F850, ...). Done as setjmp/longjmp; see
-# src/region_escape.h. The region's body is emitted with func_150A3A70, so its hooks go there.
-# Without this the first area after the opening crashed ("Failed to find function at 0x00000002").
+# src/fixes/geometry_escape.h. The region's body is emitted with func_150A3A70, so its hooks go
+# there. Without this the first area after the opening crashed ("Failed to find function at
+# 0x00000002").
 [[patches.hook]]
 func = "func_150A3A70"
 before_vram = 0x150ADAFC
@@ -138,7 +141,8 @@ text = "conker_geometry_escape(rdram, ctx);"
 # SAVE and LOAD in the pause menu: func_151DDC20 gets two signs under its lever row (QUIT over LOAD,
 # CONT... over SAVE), built on its chapter-replay RESTART option. SAVE queues the game's own save,
 # LOAD reloads it. The signs are the RESTART and PLAY sprites with tiles made from the CONT... and
-# QUIT ones (func_151ED430, func_15043384). See src/pause_save.cpp; CONKER_PAUSE_SAVE=0 turns it off.
+# QUIT ones (func_151ED430, func_15043384). See src/enhancements/pause_save/pause_save.cpp;
+# CONKER_PAUSE_SAVE=0 turns it off.
 [[patches.hook]]
 func = "func_151DDC20"
 before_vram = 0x151DE00C
@@ -187,7 +191,7 @@ text = "{ void conker_pause_save_sprites_done(uint8_t*, recomp_context*); conker
 # Exact-position saves: a save made from the pause menu records where Conker is (func_15006BEC),
 # starting that save (func_151E327C, PLAY's handler, also used by LOAD once func_1501C57C has
 # read the slot) enters that scene, and func_1501C57C's frames then move him there. See
-# src/resume_point.cpp.
+# src/enhancements/pause_save/resume_point.cpp.
 [[patches.hook]]
 func = "func_15006BEC"
 before_vram = 0x15006CB8

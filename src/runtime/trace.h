@@ -1,7 +1,7 @@
 // Function-entry trace for the recompiled code. N64Recomp emits TRACE_ENTRY()/TRACE_RETURN()
 // at the start and every return of each function when `trace_mode` is on. With CONKER_TRACE
 // defined they record the call sequence in a per-thread ring buffer that the crash reporter
-// prints (src/trace.cpp); otherwise they compile to nothing.
+// prints (src/runtime/trace.cpp); otherwise they compile to nothing.
 #pragma once
 
 #ifdef __cplusplus

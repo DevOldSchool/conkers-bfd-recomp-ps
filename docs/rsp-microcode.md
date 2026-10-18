@@ -178,7 +178,7 @@ Conker does not call the libultra AI functions the runtime replaces by name:
   replaces the loaded value with `osAiGetLength`.
 * `osAiSetFrequency` is already replaced by name. The game asks for 22,020 Hz.
 
-`src/audio.cpp` implements ultramodern's audio callbacks. The RT64 build plays
+`src/platform/audio.cpp` implements ultramodern's audio callbacks. The RT64 build plays
 through SDL2 (an `S16` stereo device opened at the game's rate; SDL converts).
 The null build has no device and drains a virtual queue against the wall
 clock instead, so the game's `AI_LEN` feedback behaves the same. The game
@@ -245,7 +245,7 @@ manager sees the new player as stopped. Traced over 12 runs, the music played
 whenever the audio thread applied Play within 19.5 ms and was lost whenever it
 took 24 ms or more.
 
-A hook on `func_8000853C` (`conker_seqp_state_hook` in `src/hooks.cpp`) reports
+A hook on `func_8000853C` (`conker_seqp_state_hook` in `src/fixes/music_start.cpp`) reports
 a stopped player that still has a Play event queued as playing, which is the
 state hardware shows at that point. Without it 10 of 33 runs lost the music.
 With it 30 of 30 played `0034` (corr 0.89 to 0.90), and the hook fired in the
