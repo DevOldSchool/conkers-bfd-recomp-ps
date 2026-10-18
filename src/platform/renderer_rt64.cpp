@@ -10,6 +10,13 @@
 // and scales it to fill the window or screen, or presents it at its own size, centered
 // (presentation.nativeSize, tools/patches/rt64-native-size.patch). A window opens at its multiple,
 // so the two differ there only once it is resized by hand.
+//
+// In widescreen RT64 expands the picture to the window's or screen's shape (AspectRatio::Expand): it
+// widens the game's perspective projections and the frame buffer, so more of the scene shows at the
+// sides rather than the picture being stretched. 2D rectangles stay centered in the 4:3 area unless
+// they span the whole width, so the HUD and menus keep their place and full-screen fills reach the
+// edges. The game still culls to its own 4:3 view, so an object can appear late at the far sides,
+// and the pause menu draws its blurred copy of the frame over the 4:3 area only.
 #include "platform/renderer_rt64.hpp"
 
 #include <cstdio>
@@ -181,18 +188,22 @@ public:
     }
 
 private:
-    // RT64 renders at the multiple chosen for the mode and either scales it to fill the window or
-    // screen or presents it at its own size.
+    // RT64 renders at the multiple chosen for the mode, in 4:3 or widened to the window's shape, and
+    // either scales it to fill the window or screen or presents it at its own size.
     void apply_display_scale() {
         const conker::display::Mode mode = conker::display::current();
         const bool windowed = mode == conker::display::Mode::Windowed;
         const int scale = windowed ? conker::display::window_scale() : conker::display::screen_scale();
         const bool native = !conker::display::fill(mode);
-        if (scale == applied_scale_ && native == applied_native_) {
+        const bool wide = conker::display::widescreen();
+        if (scale == applied_scale_ && native == applied_native_ && wide == applied_wide_) {
             return;
         }
         applied_scale_ = scale;
         applied_native_ = native;
+        applied_wide_ = wide;
+        app_->userConfig.aspectRatio = wide ? RT64::UserConfiguration::AspectRatio::Expand
+                                            : RT64::UserConfiguration::AspectRatio::Original;
         app_->userConfig.resolution = scale > 0 ? RT64::UserConfiguration::Resolution::Manual
                                                 : RT64::UserConfiguration::Resolution::WindowIntegerScale;
         app_->userConfig.resolutionMultiplier = scale > 0 ? scale : 2.0;
@@ -207,6 +218,7 @@ private:
     mutable uint32_t reported_height_ = 0;
     int applied_scale_ = 0;
     bool applied_native_ = false;
+    bool applied_wide_ = false;
 };
 
 } // namespace

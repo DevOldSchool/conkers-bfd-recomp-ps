@@ -13,7 +13,8 @@
 // covering the screen in the current Space, or the window above. F11, Cmd+Enter, Alt+Enter or
 // Ctrl+Cmd+F switch between the window and the last screen-covering mode. Covering the screen,
 // RT64 renders at the multiple that covers the screen height and shrinks it slightly to fit (7x on
-// a 1440-line display).
+// a 1440-line display). In widescreen the window is 16:9 (kWidePictureWidth wide for each multiple)
+// and RT64 widens the picture to the window's or screen's shape (src/platform/renderer_rt64.cpp).
 #include "platform/window.hpp"
 
 #include "platform/display_mode.hpp"
@@ -42,8 +43,10 @@ SDL_Window* g_window = nullptr;
 // borders that RT64 crops (removeBlackBorders). RT64's VI::fbSize rounds the height up to 216.
 constexpr int kPictureWidth = conker::display::kPictureWidth;
 constexpr int kPictureHeight = conker::display::kPictureHeight;
+constexpr int kWidePictureWidth = conker::display::kWidePictureWidth;
 
 constexpr int kOriginalWidth = 960;  // the window used before it was sized to the display
+constexpr int kOriginalWideWidth = 1280;  // and its 16:9 counterpart
 constexpr int kOriginalHeight = 720;
 
 // Room for the title bar (28 points on macOS), which is not part of the window size.
@@ -58,14 +61,21 @@ void find_limits() {
         std::fprintf(stderr, "[conker] SDL_GetDisplayBounds failed: %s\n", SDL_GetError());
         return;
     }
-    const int window_max = std::min(usable.w / kPictureWidth, (usable.h - kTitleBarAllowance) / kPictureHeight);
+    conker::display::Limits limits;
+    limits.window_max = std::min(usable.w / kPictureWidth, (usable.h - kTitleBarAllowance) / kPictureHeight);
+    limits.wide_window_max = std::min(usable.w / kWidePictureWidth, (usable.h - kTitleBarAllowance) / kPictureHeight);
     // The smallest multiple covering the screen height (RT64 shrinks it to fit), unless the width
-    // already limits it.
-    const int screen_max = std::min((bounds.w + kPictureWidth - 1) / kPictureWidth,
-                                    (bounds.h + kPictureHeight - 1) / kPictureHeight);
-    conker::display::set_limits(window_max, screen_max);
-    std::printf("[conker] display %dx%d, %dx%d usable: up to %dx in a window, %dx covering the screen\n", bounds.w,
-                bounds.h, usable.w, usable.h, window_max, screen_max);
+    // already limits it. A widescreen picture takes the screen's shape, so only its height counts.
+    const int cover_height = (bounds.h + kPictureHeight - 1) / kPictureHeight;
+    limits.screen_max = std::min((bounds.w + kPictureWidth - 1) / kPictureWidth, cover_height);
+    limits.wide_screen_max = cover_height;
+    limits.screen_width = bounds.w;
+    limits.screen_height = bounds.h;
+    conker::display::set_limits(limits);
+    std::printf("[conker] display %dx%d, %dx%d usable: up to %dx in a window (%dx in widescreen), %dx covering the "
+                "screen (%dx)\n",
+                bounds.w, bounds.h, usable.w, usable.h, limits.window_max, limits.wide_window_max, limits.screen_max,
+                limits.wide_screen_max);
 }
 
 bool original_size() {
@@ -79,10 +89,10 @@ Mode g_screen_mode = Mode::Fullscreen;  // where the shortcuts go from the windo
 
 // The window's size when it is a window.
 SDL_Rect window_frame() {
-    SDL_Rect frame{static_cast<int>(SDL_WINDOWPOS_CENTERED), static_cast<int>(SDL_WINDOWPOS_CENTERED), kOriginalWidth,
-                   kOriginalHeight};
+    SDL_Rect frame{static_cast<int>(SDL_WINDOWPOS_CENTERED), static_cast<int>(SDL_WINDOWPOS_CENTERED),
+                   conker::display::widescreen() ? kOriginalWideWidth : kOriginalWidth, kOriginalHeight};
     if (!original_size()) {
-        frame.w = kPictureWidth * conker::display::window_scale();
+        frame.w = conker::display::window_picture_width(conker::display::window_scale());
         frame.h = kPictureHeight * conker::display::window_scale();
     }
     return frame;

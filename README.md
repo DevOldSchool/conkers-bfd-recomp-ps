@@ -70,24 +70,34 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
 ## Enhancements
 
 * **Display options:** the OPTIONS page of the title menu has
-  three rows under the sound setting.
+  four rows under the sound setting.
   * WINDOWED, BORDERLESS or FULL SCREEN. Full screen (the default) is macOS
     full screen in a Space of its own; borderless covers the screen in the
     current Space, with the menu bar and Dock hidden while the game is in
     front.
+  * 4:3 or WIDESCREEN. Widescreen widens the view to the shape of the
+    window or screen instead of stretching the picture: the window becomes
+    16:9 (384x216 for each multiple), and covering the screen the picture
+    takes the display's own shape (16:9, 16:10 or ultrawide). The HUD and
+    menus stay in the middle. It is 4:3 by default, as on an N64. The game
+    still decides what to draw for its own 4:3 view, so objects at the far
+    sides can appear late, and the blurred background of the pause menu
+    only covers the middle 4:3 area.
   * The resolution: how large the game's 292x216 picture is rendered, in
     whole multiples from 292x216 (1x). In a window it is the window's size,
     up to the largest that fits the display (1460x1080, 5x, on a 2560x1440
     display with the Dock showing, which is also the default). Covering the
     screen it goes up to the first multiple that covers the screen's height
-    (2044x1512, 7x, on 1440 lines, the default).
+    (2044x1512, 7x, on 1440 lines, the default). Widescreen widths are
+    shown in widescreen.
   * FILL SCREEN or CENTERED: the picture is scaled to fill the window or
     screen, or drawn at its own size in the middle with black bars, so that
     every game pixel is an even block. Covering the screen it fills by
     default; a lower resolution then fills it with larger pixels. A window
     is centered by default, which only shows once it is resized by hand.
 
-  Each mode keeps its own resolution and fill. F11, Cmd+Enter, Alt+Enter or
+  Each mode keeps its own resolution and fill; the picture's shape applies
+  to all of them. F11, Cmd+Enter, Alt+Enter or
   Ctrl+Cmd+F switch between the window and the last screen-covering mode.
   The choices are kept in `conker-recomp-data/display.cfg`, not in the
   game's save, so the OPTIONS saved to EEPROM are unchanged.

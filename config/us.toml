@@ -222,9 +222,9 @@ func = "func_151DD9E4"
 before_vram = 0x151DD9E4
 text = "{ void conker_surround_default(uint8_t*, recomp_context*); conker_surround_default(rdram, ctx); }"
 
-# Display options on the title menu's OPTIONS page: rows for the display mode, the resolution and
-# FILL SCREEN/CENTERED. Around the page's call to the menu engine func_151E3344, multiplayer
-# options 12, 16 and 19 are lent to the rows and given back; hooks inside the engine space the
+# Display options on the title menu's OPTIONS page: rows for the display mode, 4:3/WIDESCREEN, the
+# resolution and FILL SCREEN/CENTERED. Around the page's call to the menu engine func_151E3344,
+# multiplayer options 12, 15, 16 and 19 are lent to the rows and given back; hooks inside the engine space the
 # rows and the joysticks that flank the selected one. See
 # src/enhancements/display_options/display_options.cpp; CONKER_DISPLAY_OPTIONS=0 turns them off.
 [[patches.hook]]
