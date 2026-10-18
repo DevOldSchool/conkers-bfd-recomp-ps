@@ -5714,7 +5714,7 @@ functions = [
     { name = "__osPackEepReadData", vram = 0x151dd304, size = 0x94 },
     { name = "osEepromLongRead", vram = 0x151dd3a0, size = 0xb4 },
     { name = "osEepromProbe", vram = 0x151dd460, size = 0x70 },
-    { name = "func_151DD4E0", vram = 0x151dd4e0, size = 0x17c },
+    { name = "osEepromWrite", vram = 0x151dd4e0, size = 0x17c },
     { name = "func_151DD65C", vram = 0x151dd65c, size = 0xb4 },
     { name = "__osEepStatus", vram = 0x151dd710, size = 0x1b0 },
     { name = "func_151DD8C0", vram = 0x151dd8c0, size = 0xb0 },

@@ -94,6 +94,14 @@ CONKER_RENAMES = {
     # src/done/main/init_2DB0.c: libultra's osAiSetNextBuffer (8 KiB hardware-bug flag, writes
     # AI_DRAM_ADDR and AI_LEN directly). The runtime's version queues the samples for playback.
     0x10002DB0: "osAiSetNextBuffer",
+    # Rare's EEPROM write, next to the read/long-read/probe objects the decomp reconstructs in
+    # libultrare/io (docs/evidence/libraries/game_libultrare_eeprom_variant_boundaries.md):
+    # SI access, __osEepStatus, write-command packing (func_151DD65C), two raw SI DMAs each
+    # followed by osRecvMesg, SI release. __conker_eeprom_wait calls it as (mq, block, buffer)
+    # for each 8-byte block. Recompiled, it waits for an SI interrupt the PIF shim never sends,
+    # which hung the game at the first save (end of the new game's opening cutscene); the
+    # runtime's version writes the save file that the native osEepromRead already reads.
+    0x151DD4E0: "osEepromWrite",
 }
 
 GENERIC_NAME = re.compile(r"^(func|D)_[0-9A-Fa-f]{8}$")

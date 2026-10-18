@@ -24,8 +24,45 @@ This repository contains no ROM data. You need your own US ROM
 | Crash diagnostics | crash reporter with MIPS registers, per-thread call trace, `tools/symbolicate.sh`; display-list dumper and scripted Start press (see "Diagnostics") |
 | Graphics: RT64 support for Rare's F3DEX2CBFD microcode | first light: all eight variants recognised, the intro cutscene, the title scene and the menus render in an RT64 window (`CONKER_RENDERER=rt64`); the title scene matches a cycle-accurate emulator render, including the weasels' tails that looked like stray polygons; see [docs/rsp-microcode.md](docs/rsp-microcode.md) |
 | Audio: RSPRecomp of the `n_aspMain` microcode | working through the intro and title scene: Rare's MP3-capable audio microcode recompiled with its overlays, SDL2 output in the RT64 build, WAV dump with `CONKER_DUMP_AUDIO`; music in tune and MP3 voice at the right pitch and speed (checked against the decomp's extracted assets); see [docs/rsp-microcode.md](docs/rsp-microcode.md#audio-n_aspmain-with-the-mp3-overlay) |
-| Saving: EEPROM through a PIF shim | volatile in-memory image only |
+| Input | RT64 build: the first SDL game controller (hot-plug) and the keyboard drive controller 1, OR-ed with scripted Start presses; analog stick with a radial deadzone; no remapping UI (see "Controls"). Title menus, NEW GAME and the pause menu navigated with a scripted virtual pad (`CONKER_VIRTUAL_PAD`); keyboard not yet tried by hand. The null build has no input device |
+| Saving: EEPROM | reads and single-block writes go to the runtime's save file (`conker-recomp-data/saves/conker_us.bin`); Rare's paced long write hangs at the first save (see "Current state") |
 | Windows support for the memory aliasing | not started |
+
+### Current state
+
+With a controller (or the keyboard, or `CONKER_VIRTUAL_PAD`) the RT64 build
+boots, goes through the title scene and the NEW GAME menu, and plays the new
+game's opening: the credits, the throne-room cutscene and Conker's scene
+outside the Cock and Plucker ("WHAT, AGAIN?" ... "SORRY ABOUT THAT, OLD
+CHAP."). Start pauses the cutscene and the stick moves between QUIT and
+CONT. (picture below). **The game then hangs at its first save**, so Conker has not been moved
+in the first playable area yet. The window stays black, no more graphics tasks
+arrive, and the audio thread keeps rendering near-silence. The null build
+stops at the same point.
+
+What is known about the hang:
+
+* The game's save routine (`func_15006BEC`) writes one EEPROM block itself and
+  then starts Rare's paced long write (`func_151DCEF0`). That routine records
+  the request, then arms a 12 ms timer (`osSetTimer(0x80042A58, 750000 ticks,
+  0, 0x80042A78, 0x80042A90)`). Each call to `__conker_eeprom_wait`
+  (`0x151DCFD8`) takes one timer message from the queue at `0x80042A78`,
+  writes the next 8-byte block and re-arms the timer.
+* Before this branch, the write itself hung. `0x151DD4E0` is Rare's
+  `osEepromWrite`, but it had no libultra name, so it ran recompiled: raw SI
+  DMA to the PIF shim, then `osRecvMesg` for an SI interrupt that the shim
+  never sends. It is now named `osEepromWrite` (`CONKER_RENAMES` in
+  `tools/gen_syms.py`), so the runtime's native version writes the save file.
+* The game now gets one block further (block 67 lands in the save file) and
+  then blocks in `__conker_eeprom_wait(1)` → `osRecvMesg(0x80042A78)`. An
+  RDRAM dump taken a little earlier (graphics task 12,000) shows the
+  `OSMesgQueue` at `0x80042A78` as all zeros (`msgCount` 0, no buffer), so
+  the runtime treats it as full and drops the timer's message. No code in the
+  recompiled output forms that address except the two timer calls and the
+  receive, so the queue is probably created by a routine the runtime
+  reimplements, or through a pointer computed elsewhere. This is still open.
+
+![RT64 window: pause menu during the throne-room cutscene, CONT. selected with the stick](docs/images/rt64-pause-menu.png)
 
 ### Where the headless boot stops
 
@@ -221,6 +258,29 @@ build/rt64/ConkerRecomp /path/to/conker-us.z64
 RT64 prints `GBI: F3DEXBG.NoN fifo 2.08 (Conker)` when it recognises the
 microcode of the first graphics task.
 
+### Controls
+
+The RT64 build reads controller 1 from the first SDL game controller and from
+the keyboard at the same time; the null build has no input device. A
+controller can be plugged in or removed while the game runs (the log prints
+`[conker] controller 1: <name>`). There is no remapping yet.
+
+| N64 | Game controller (Xbox names) | Keyboard |
+| --- | --- | --- |
+| Analog stick | left stick (20% radial deadzone) | W A S D or the arrow keys |
+| A | A | Space |
+| B | X or B | Left Shift |
+| Z | left trigger | Q |
+| L | left bumper | Tab |
+| R | right trigger or right bumper | E |
+| Start | Start | Enter |
+| C buttons | right stick | I J K L (up, left, down, right) |
+| D-pad | D-pad | T F G H (up, left, down, right) |
+
+The stick reaches the N64 range of about ±80 on the axes. The keyboard stick
+is always fully tilted. In the menus, move with the stick and confirm with A
+(Start also works on the title screen and pauses during play).
+
 On a crash the binary prints the faulting N64 address, the MIPS registers,
 the last 64 recompiled function entries on that thread and the image slide;
 `tools/symbolicate.sh build/host/ConkerRecomp <log>` maps the host backtrace
@@ -258,7 +318,15 @@ These environment variables are read by both builds:
   their vertices came from. Use it to tell bad data in RDRAM apart from a
   renderer that misreads good data.
 * `CONKER_PRESS_START=<vi>[,<vi>...]` holds Start on controller 1 for 10 VIs
-  from each listed VI count.
+  from each listed VI count, on top of any real input.
+* `CONKER_VIRTUAL_PAD=<file>` (RT64 build) attaches an SDL virtual game
+  controller driven by a script, so the whole controller path can be tested
+  without hardware. Each line is `<vi> <length in VIs> <control>...`, where a
+  control is an SDL button name (`a`, `b`, `x`, `start`, `leftshoulder`,
+  `dpup`, ...) or `<axis>=<value>` (`leftx`, `lefty`, `rightx`, `righty`,
+  `lefttrigger`, `righttrigger`, from -1 to 1, with +y down as in SDL). `#`
+  starts a comment. For example, `5400 10 start` then `7500 10 a` goes from the
+  title scene to a new game.
 * `CONKER_DUMP_AUDIO=<file.wav>` records every buffer the game queues
   (16-bit stereo at the game's 22,020 Hz) in either build. The log prints a
   line every 5 s of audio with the peak, RMS, minimum output-queue depth and

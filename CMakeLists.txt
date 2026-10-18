@@ -83,7 +83,7 @@ set_source_files_properties("${CONKER_RSP_DIR}/aspMain.cpp" PROPERTIES COMPILE_O
 if(CONKER_RENDERER STREQUAL "rt64")
     set(RT64_STATIC ON CACHE BOOL "" FORCE)
     add_subdirectory(lib/rt64 EXCLUDE_FROM_ALL)
-    target_sources(ConkerRecomp PRIVATE src/renderer_rt64.cpp src/window_sdl.cpp)
+    target_sources(ConkerRecomp PRIVATE src/renderer_rt64.cpp src/window_sdl.cpp src/input_sdl.cpp)
     target_include_directories(ConkerRecomp PRIVATE
         ${SDL2_INCLUDE_DIRS}
         "${CMAKE_SOURCE_DIR}/lib/rt64/src"
@@ -95,7 +95,7 @@ if(CONKER_RENDERER STREQUAL "rt64")
     target_compile_definitions(ConkerRecomp PRIVATE CONKER_RENDERER_RT64=1 CONKER_AUDIO_SDL=1 HLSL_CPU FFX_GCC)
     target_link_libraries(ConkerRecomp PRIVATE rt64 ${SDL2_LIBRARIES})
 else()
-    target_sources(ConkerRecomp PRIVATE src/renderer_null.cpp src/window_headless.cpp)
+    target_sources(ConkerRecomp PRIVATE src/renderer_null.cpp src/window_headless.cpp src/input_headless.cpp)
 endif()
 
 if(APPLE)

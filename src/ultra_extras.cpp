@@ -17,6 +17,7 @@
 #include "ultramodern/ultramodern.hpp"
 
 #include "game.hpp"
+#include "input.hpp"
 #include "memory.hpp"
 
 namespace {
@@ -85,11 +86,17 @@ void pif_process_commands() {
             } else if (cmd[0] == 0x01) {  // read buttons
                 if (rx >= 4) {
                     report_once("PIF read buttons", "controllers read through raw SI DMA");
-                    const uint16_t buttons = channel == 0 ? conker::scripted_buttons() : 0;
+                    uint16_t buttons = 0;
+                    float x = 0.0f;
+                    float y = 0.0f;
+                    if (channel == 0) {
+                        conker::input::read(&buttons, &x, &y);
+                        buttons |= conker::scripted_buttons();
+                    }
                     resp[0] = static_cast<uint8_t>(buttons >> 8);
                     resp[1] = static_cast<uint8_t>(buttons);
-                    resp[2] = 0;
-                    resp[3] = 0;
+                    resp[2] = static_cast<uint8_t>(static_cast<int8_t>(x * 80.0f));
+                    resp[3] = static_cast<uint8_t>(static_cast<int8_t>(y * 80.0f));
                     handled = true;
                 }
             }
