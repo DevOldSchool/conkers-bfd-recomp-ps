@@ -22,7 +22,7 @@ This repository contains no ROM data. You need your own US ROM
 | Static recompilation | done: every function recompiles; 13 CP0/TLB/exception routines are stubbed; Rare's handwritten geometry code and one handwritten prefix-code tree builder are recompiled as shared code regions |
 | Headless runtime (no graphics, audio or input) | boots: ROM load, game-archive inflation, thread creation, main init, game entry, software-geometry setup, visibility-partition build, main loop, legal and Nintendo screens, intro cutscene, title scene, menus after a scripted Start press; no known crash (see below) |
 | Crash diagnostics | crash reporter with MIPS registers, per-thread call trace, `tools/symbolicate.sh`; display-list dumper and scripted Start press (see "Diagnostics") |
-| Graphics: RT64 support for Rare's F3DEX2CBFD microcode | first light: all eight variants recognised, the intro cutscene and the title scene render in an RT64 window (`CONKER_RENDERER=rt64`), with visible geometry errors on some models; see [docs/rsp-microcode.md](docs/rsp-microcode.md) |
+| Graphics: RT64 support for Rare's F3DEX2CBFD microcode | first light: all eight variants recognised, the intro cutscene, the title scene and the menus render in an RT64 window (`CONKER_RENDERER=rt64`); the title scene matches a cycle-accurate emulator render, including the weasels' tails that looked like stray polygons; see [docs/rsp-microcode.md](docs/rsp-microcode.md) |
 | Audio: RSPRecomp of the `n_aspMain` microcode | not started |
 | Saving: EEPROM through a PIF shim | volatile in-memory image only |
 | Windows support for the memory aliasing | not started |
@@ -41,14 +41,42 @@ pause and resume it (the PAUSED / QUIT / CONT. menu appears; its options were no
 with those presses ended on the timer, not a crash. Nothing past the opening
 cutscene has been tried yet, and there is still no audio.
 
-In RT64 the title scene and the menus look right overall, but some models
-have flat grey polygons sticking out of them (the weasels at the bar in the
-picture below). That is a rendering bug, probably in the F3DEX2CBFD support,
-and has not been investigated.
+In RT64 the title scene and the menus look right. The large grey shapes on
+the weasels at the bar (picture below) are **not a rendering bug**. They are
+the weasels' bushy tails, and the original game draws them the same way (see
+"The grey shapes on the weasels" below).
 
 ![RT64 window: title scene](docs/images/rt64-title.png)
 
 ![RT64 window: NEW GAME menu](docs/images/rt64-new-game.png)
+
+**The grey shapes on the weasels.** These were reported as stray polygons and
+suspected to come from the F3DEX2CBFD support. They are part of the model:
+
+* An emulator running the original ROM draws them in the same places, with
+  the same shape and shading. In the picture below, the left side is Mupen64Plus
+  with CXD4 (low-level RSP: the real microcode runs) and Angrylion RDP Plus,
+  title scene at frame 3,600, from the decomp's `./conker mupen-trace
+  --software-renderer -- --testshots`. The right side is the RT64 window
+  above. The animation phase differs, but the floor sheet under the left
+  weasel and the sheet behind the second weasel's head are present in both.
+* Replaying the display list from RDRAM without RT64 (`tools/cbfd_dl.py` on a
+  `CONKER_DUMP_RDRAM` image of task 2,000) gives the same geometry. Each weasel
+  is drawn by display list `0x22D528` with its own bone-matrix palette in
+  segment 3 (five instances: `0x12F440`, `0x12FE40`, `0x130840`, `0x131240`,
+  `0x131C40`). Its first two vertex groups, commands
+  `0x22D5E8`-`0x22D718`, are a five-bone chain (palette slots
+  `0x880`-`0x9C0`) whose matrices step away from the body by 30 to 45 units
+  each. They use the grey fur texture at `0x21A760` (palette `0x21ACE0`). That
+  chain is the tail, and its triangles (orange in the wireframe below) are
+  exactly the grey shapes.
+* RT64 therefore receives correct data and draws it correctly, so the CPU side
+  (bone matrices from `func_150A9984` in the handwritten region) and the CBFD
+  command decoding (VTX, TRI4, MTX) are not at fault here.
+
+![Mupen64Plus with CXD4 and Angrylion (left) and RT64 (right), title scene](docs/images/title-emulator-vs-rt64.png)
+
+![Offline replay of task 2,000: weasel tails in orange, bodies in blue](docs/images/title-offline-wireframe.png)
 
 **Why scene `0x1D` used to crash.** Creating the title scene's trigger node
 `0xC8` decodes a compressed table through `func_150183D0`, which calls
@@ -147,6 +175,7 @@ config/us.toml          N64Recomp configuration (stub list lives here)
 config/us.syms.toml     generated: sections and functions at runtime addresses
 tools/gen_syms.py       builds us.syms.toml and the virtual ROM from the decomp
 tools/regenerate.sh     extraction + generation + recompilation in one go
+tools/cbfd_dl.py        offline display-list replay from a CONKER_DUMP_RDRAM image
 tools/patches/          patches applied to the N64Recomp, N64ModernRuntime and RT64 submodules
 src/                    runtime glue: entry, memory windows, RZIP, overlays, renderers, window
 docs/memory-layout.md   why main runs at 0x10001000 and the game at 0x15000000
@@ -216,6 +245,12 @@ These environment variables are read by the headless binary:
 * `CONKER_DUMP_RDRAM=1` also writes `conker-task-<n>.rdram` (8 MiB,
   big-endian) for each fully dumped task, so its textures can be decoded
   offline.
+* `tools/cbfd_dl.py <rdram> <dl>` replays one of those RDRAM images offline
+  without RT64. It tracks segments, matrices, the viewport and the vertex
+  buffer, prints each model instance's screen-space bounding box, and with
+  `--largest N [--instance <seg3>]` prints the largest triangles and where
+  their vertices came from. Use it to tell bad data in RDRAM apart from a
+  renderer that misreads good data.
 * `CONKER_PRESS_START=<vi>[,<vi>...]` holds Start on controller 1 for 10 VIs
   from each listed VI count.
 
