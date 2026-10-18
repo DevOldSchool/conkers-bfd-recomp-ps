@@ -17,7 +17,7 @@ output_func_path = "../build/us/RecompiledFuncs"
 functions_per_output_file = 50
 # Declarations for the runtime-provided functions that funcs.h does not declare (see
 # tools/gen_extras_decl.py and src/ultra_extras.cpp).
-recomp_include = "#include \"recomp.h\"\n#include \"conker_extras_decl.h\"\n#include \"trace.h\""
+recomp_include = "#include \"recomp.h\"\n#include \"conker_extras_decl.h\"\n#include \"trace.h\"\n#include \"region_escape.h\""
 # Emit TRACE_ENTRY()/TRACE_RETURN() in every function; src/trace.h turns them into a per-thread
 # ring buffer of recent calls that the crash reporter prints (compile with -DCONKER_TRACE=1).
 trace_mode = true
@@ -29,6 +29,10 @@ ignored = [
     # Rare's raw PI DMA for small transfers: polls PI_STATUS and programs the PI registers
     # directly (src/main/init_4470.c). Replaced by a native ROM copy in src/ultra_extras.cpp.
     "func_8000480C",
+    # libultra's osContInit (main and game-overlay copies, named in tools/gen_syms.py). Native in
+    # src/ultra_extras.cpp: the runtime's osContInit plus the __osEepromTimerQ it leaves out.
+    "conker_osContInit",
+    "conker_osContInit_game",
 ]
 
 # Functions compiled to empty bodies (a `return` with no effect on state).
@@ -72,3 +76,23 @@ text = "{ void osAiGetLength_recomp(uint8_t*, recomp_context*); uint64_t saved_v
 func = "func_8000853C"
 before_vram = 0x10008560
 text = "{ void conker_seqp_state_hook(uint8_t*, recomp_context*); conker_seqp_state_hook(rdram, ctx); }"
+
+# Rare's geometry code escapes from deep inside its work: func_150ADAF0 saves its $sp in D_800D3858,
+# and func_150AE280 restores it and returns from func_150ADAF0 to its caller, past the recompiled C
+# frames in between (func_1509C7C8, func_1509F850, ...). Done as setjmp/longjmp; see
+# src/region_escape.h. The region's body is emitted with func_150A3A70, so its hooks go there.
+# Without this the first area after the opening crashed ("Failed to find function at 0x00000002").
+[[patches.hook]]
+func = "func_150A3A70"
+before_vram = 0x150ADAFC
+text = "if (CONKER_SETJMP(*conker_geometry_escape_arm(ctx)) != 0) { goto L_150AE0AC; }"
+
+[[patches.hook]]
+func = "func_150A3A70"
+before_vram = 0x150AE0AC
+text = "conker_geometry_escape_disarm(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_150A3A70"
+before_vram = 0x150AE280
+text = "conker_geometry_escape(rdram, ctx);"

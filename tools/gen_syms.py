@@ -102,6 +102,21 @@ CONKER_RENAMES = {
     # which hung the game at the first save (end of the new game's opening cutscene); the
     # runtime's version writes the save file that the native osEepromRead already reads.
     0x151DD4E0: "osEepromWrite",
+    # libultra's osContInit, in main (0x10025340, the copy the game calls) and in the game overlay
+    # tail (0x151EF090). Both share one set of globals, and the last thing they do is
+    # osCreateMesgQueue(&__osEepromTimerQ = 0x80042A78, &__osEepromTimerMsg = 0x80042A90, 1),
+    # the queue Rare's paced EEPROM write (func_151DCEF0 / __conker_eeprom_wait) waits on. The
+    # runtime's osContInit only does the controller part, so the queue stayed zeroed (count 0,
+    # treated as full), the timer message was dropped and the game hung at its first save. These
+    # names are `ignored` in config/us.toml; src/ultra_extras.cpp wraps the runtime's version.
+    0x10025340: "conker_osContInit",
+    0x151EF090: "conker_osContInit_game",
+    # Rare's osEepromLongRead (libultrare/io/conteeplongread.c) first drains a pending paced write
+    # (`while (__conker_eeprom_wait(1) != 0)`) and then reads block by block with osEepromRead.
+    # The runtime's osEepromLongRead skips the drain, so a read that follows a save could see the
+    # blocks the timer has not written yet. Without the libultra name it is recompiled, and its
+    # osEepromRead calls still go to the runtime.
+    0x151DD3A0: "conker_osEepromLongRead",
 }
 
 GENERIC_NAME = re.compile(r"^(func|D)_[0-9A-Fa-f]{8}$")

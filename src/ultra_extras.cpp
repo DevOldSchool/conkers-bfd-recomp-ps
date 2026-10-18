@@ -318,6 +318,32 @@ void func_8000480C(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
+// libultra's osContInit (main copy 0x10025340, game-overlay copy 0x151EF090; see CONKER_RENAMES in
+// tools/gen_syms.py). Both use the same globals. The runtime's osContInit does the controller
+// part; around it go the steps it leaves out: the __osContinitialized guard and, last, creating
+// __osEepromTimerQ with __osEepromTimerMsg as its one-message buffer. Rare's paced EEPROM write
+// (func_151DCEF0, __conker_eeprom_wait) arms its 12 ms timer on that queue and waits on it.
+constexpr uint32_t kOsContInitialized = 0x8002BE10;
+constexpr uint32_t kOsEepromTimerQ = 0x80042A78;
+constexpr uint32_t kOsEepromTimerMsg = 0x80042A90;
+
+void osContInit_recomp(uint8_t* rdram, recomp_context* ctx);
+
+void conker_osContInit(uint8_t* rdram, recomp_context* ctx) {
+    const gpr initialized = static_cast<gpr>(static_cast<int32_t>(kOsContInitialized));
+    if (MEM_W(0, initialized) != 0) {
+        RET(0);
+        return;
+    }
+    MEM_W(0, initialized) = 1;
+    osContInit_recomp(rdram, ctx);
+    const gpr ret = ctx->r2;
+    osCreateMesgQueue(rdram, static_cast<int32_t>(kOsEepromTimerQ), static_cast<int32_t>(kOsEepromTimerMsg), 1);
+    ctx->r2 = ret;
+}
+
+void conker_osContInit_game(uint8_t* rdram, recomp_context* ctx) { conker_osContInit(rdram, ctx); }
+
 // --- SI / PIF ---------------------------------------------------------------------------------
 
 void __osSiCreateAccessQueue_recomp(uint8_t* /*rdram*/, recomp_context* /*ctx*/) {}
