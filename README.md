@@ -65,15 +65,22 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
 
 ## Enhancements
 
-* **Full screen, and a window sized to the display:** the game starts in
-  full screen, where RT64 renders at the multiple of the game's 292x216
-  picture that covers the screen height (7x on a 1440-line display) and
-  fits it to the screen. F11, Cmd+Enter, Alt+Enter or Ctrl+Cmd+F switch to a
-  window at the largest whole multiple of the picture that fits the display
-  (1460x1080, 5x, on a 2560x1440 display with the Dock showing), where every
-  game pixel is drawn as an even block without being resampled.
-  `CONKER_FULLSCREEN=0` starts in the window; `CONKER_ORIGINAL_SIZE=1` opens
-  the original 960x720 window instead.
+* **Display modes, and a window sized to the display:** the OPTIONS page of
+  the title menu has a row under the sound setting for WINDOWED, BORDERLESS
+  and FULL SCREEN. Full screen (the default) is macOS full screen in a Space
+  of its own; borderless covers the screen in the current Space, with the
+  menu bar and Dock hidden while the game is in front. Either way RT64
+  renders at the multiple of the game's 292x216 picture that covers the
+  screen height (7x on a 1440-line display) and fits it to the screen. The
+  window opens at the largest whole multiple of the picture that fits the
+  display (1460x1080, 5x, on a 2560x1440 display with the Dock showing), where
+  every game pixel is drawn as an even block without being resampled. F11,
+  Cmd+Enter, Alt+Enter or Ctrl+Cmd+F switch between the window and the last
+  screen-covering mode. The choice is kept in
+  `conker-recomp-data/display.cfg`, not in the game's save, so the OPTIONS
+  saved to EEPROM are unchanged. `CONKER_DISPLAY=windowed`, `borderless` or
+  `fullscreen` overrides it for one run, `CONKER_DISPLAY_OPTION=0` hides the
+  row, and `CONKER_ORIGINAL_SIZE=1` opens the original 960x720 window instead.
 * **Skip to the title menu:** Start at any point during the boot logos or the
   intro fades to black and then into the GAME 1 menu, skipping the title
   scene's opening (the clock and the Cock and Plucker) too. On an N64, Start only skips the intro after about five seconds and after

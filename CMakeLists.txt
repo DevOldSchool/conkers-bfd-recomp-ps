@@ -73,8 +73,10 @@ add_executable(ConkerRecomp
     src/runtime/ultra_extras.cpp
     "${CONKER_RSP_DIR}/aspMain.cpp"
     src/platform/audio.cpp
+    src/platform/display_mode.cpp
     src/fixes/geometry_escape.cpp
     src/fixes/music_start.cpp
+    src/enhancements/display_option/display_option.cpp
     src/enhancements/intro_skip/intro_skip.cpp
     src/enhancements/pause_save/pause_save.cpp
     src/enhancements/pause_save/resume_point.cpp

@@ -215,3 +215,22 @@ text = "{ void conker_resume_tick(uint8_t*, recomp_context*); conker_resume_tick
 func = "func_151DD9E4"
 before_vram = 0x151DD9E4
 text = "{ void conker_surround_default(uint8_t*, recomp_context*); conker_surround_default(rdram, ctx); }"
+
+# A display mode row (WINDOWED, BORDERLESS, FULL SCREEN) on the title menu's OPTIONS page: around
+# its call to the menu engine func_151E3344, multiplayer option 12 is lent to the row and given
+# back. See src/enhancements/display_option/display_option.cpp; CONKER_DISPLAY_OPTION=0 turns it
+# off.
+[[patches.hook]]
+func = "func_151DF1BC"
+before_vram = 0x151DF384
+text = "{ void conker_display_option_begin(uint8_t*, recomp_context*); conker_display_option_begin(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151DF1BC"
+before_vram = 0x151DF38C
+text = "{ void conker_display_option_end(uint8_t*, recomp_context*); conker_display_option_end(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151E3344"
+before_vram = 0x151E418C
+text = "{ void conker_display_option_sticks(uint8_t*, recomp_context*); conker_display_option_sticks(rdram, ctx); }"

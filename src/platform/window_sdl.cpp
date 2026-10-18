@@ -8,11 +8,15 @@
 // multiple and draws every game pixel as an n x n block, without resampling. CONKER_ORIGINAL_SIZE=1
 // keeps the original 960x720 window instead, which is quicker for test runs.
 //
-// The game starts in full screen (CONKER_FULLSCREEN=0 starts in the window); F11, Cmd+Enter,
-// Alt+Enter or Ctrl+Cmd+F switch between the two. In full screen RT64 renders at the multiple that
-// covers the screen height and shrinks it slightly to fit (7x on a 1440-line display).
+// The display mode (src/platform/display_mode.hpp) is full screen unless the OPTIONS menu or
+// CONKER_DISPLAY says otherwise: macOS full screen in a Space of its own, a borderless window
+// covering the screen in the current Space, or the window above. F11, Cmd+Enter, Alt+Enter or
+// Ctrl+Cmd+F switch between the window and the last screen-covering mode. Covering the screen,
+// RT64 renders at the multiple that covers the screen height and shrinks it slightly to fit (7x on
+// a 1440-line display).
 #include "platform/window.hpp"
 
+#include "platform/display_mode.hpp"
 #include "platform/input_sdl.hpp"
 
 #include <algorithm>
@@ -21,6 +25,11 @@
 
 #include <SDL.h>
 #include <SDL_syswm.h>
+
+#if defined(__APPLE__)
+#include <objc/message.h>
+#include <objc/runtime.h>
+#endif
 
 namespace conker::window {
 
@@ -59,20 +68,57 @@ bool original_size() {
     return value != nullptr && value[0] != '\0' && value[0] != '0';
 }
 
-bool start_fullscreen() {
-    if (original_size()) {
-        return false;
-    }
-    const char* value = std::getenv("CONKER_FULLSCREEN");
-    return value == nullptr || value[0] != '0';
+using conker::display::Mode;
+
+Mode g_screen_mode = Mode::Fullscreen;  // where the shortcuts go from the window
+int g_window_width = kOriginalWidth;    // the window's size when it is a window
+int g_window_height = kOriginalHeight;
+
+// A borderless window can only cover the menu bar while the app hides it and the Dock
+// (NSApplication.presentationOptions); macOS shows them again whenever another app is in front.
+void hide_menu_bar(bool hide) {
+#if defined(__APPLE__)
+    constexpr unsigned long kHideDock = 1ul << 1;
+    constexpr unsigned long kHideMenuBar = 1ul << 3;
+    id app = reinterpret_cast<id (*)(Class, SEL)>(objc_msgSend)(objc_getClass("NSApplication"),
+                                                                 sel_registerName("sharedApplication"));
+    reinterpret_cast<void (*)(id, SEL, unsigned long)>(objc_msgSend)(app, sel_registerName("setPresentationOptions:"),
+                                                                    hide ? kHideDock | kHideMenuBar : 0);
+#else
+    (void)hide;
+#endif
 }
 
-void set_fullscreen(bool fullscreen) {
-    if (SDL_SetWindowFullscreen(g_window, fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0) != 0) {
+// Every change goes back to the plain window first, so SDL keeps the window's own size to return
+// to. Full screen is then SDL's desktop full screen, a Space of its own on macOS. Borderless is a
+// window without a frame laid over the whole display in the current Space; SDL's exclusive full
+// screen would do that too, but it may change the display mode.
+void apply_mode(Mode mode) {
+    if (SDL_SetWindowFullscreen(g_window, 0) != 0) {
         std::fprintf(stderr, "[conker] SDL_SetWindowFullscreen failed: %s\n", SDL_GetError());
         return;
     }
-    SDL_ShowCursor(fullscreen ? SDL_DISABLE : SDL_ENABLE);
+    hide_menu_bar(false);
+    SDL_SetWindowBordered(g_window, SDL_TRUE);
+    SDL_SetWindowSize(g_window, g_window_width, g_window_height);
+    SDL_SetWindowPosition(g_window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+    if (mode == Mode::Fullscreen) {
+        if (SDL_SetWindowFullscreen(g_window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0) {
+            std::fprintf(stderr, "[conker] SDL_SetWindowFullscreen failed: %s\n", SDL_GetError());
+        }
+    } else if (mode == Mode::Borderless) {
+        SDL_Rect bounds;
+        if (SDL_GetDisplayBounds(std::max(SDL_GetWindowDisplayIndex(g_window), 0), &bounds) == 0) {
+            hide_menu_bar(true);
+            SDL_SetWindowBordered(g_window, SDL_FALSE);
+            SDL_SetWindowPosition(g_window, bounds.x, bounds.y);
+            SDL_SetWindowSize(g_window, bounds.w, bounds.h);
+        }
+    }
+    SDL_ShowCursor(mode == Mode::Windowed ? SDL_ENABLE : SDL_DISABLE);
+    if (mode != Mode::Windowed) {
+        g_screen_mode = mode;
+    }
 }
 
 bool is_fullscreen_toggle(const SDL_KeyboardEvent& key) {
@@ -90,6 +136,9 @@ bool is_fullscreen_toggle(const SDL_KeyboardEvent& key) {
 
 void* create_gfx() {
     SDL_SetHint(SDL_HINT_VIDEO_HIGHDPI_DISABLED, "1");
+    // SDL 3's SDL_HINT_VIDEO_SYNC_WINDOW_OPERATIONS (through sdl2-compat): leaving full screen
+    // finishes before the next window change, so a borderless window is not resized mid-animation.
+    SDL_SetHint("SDL_VIDEO_SYNC_WINDOW_OPERATIONS", "1");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
         std::fprintf(stderr, "[conker] SDL_Init failed: %s\n", SDL_GetError());
         return nullptr;
@@ -113,14 +162,19 @@ ultramodern::renderer::WindowHandle create_window(void* /*gfx_data*/) {
         width = kPictureWidth * scale;
         height = kPictureHeight * scale;
     }
+    g_window_width = width;
+    g_window_height = height;
     g_window = SDL_CreateWindow("Conker's Bad Fur Day: Recompiled", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                 width, height, flags);
     if (g_window == nullptr) {
         std::fprintf(stderr, "[conker] SDL_CreateWindow failed: %s\n", SDL_GetError());
         return {};
     }
-    if (start_fullscreen()) {
-        set_fullscreen(true);
+    const Mode mode = original_size() ? Mode::Windowed : conker::display::startup_mode();
+    conker::display::started(mode);
+    std::printf("[conker] display mode: %s\n", conker::display::name(mode));
+    if (mode != Mode::Windowed) {
+        apply_mode(mode);
     }
 
     SDL_SysWMinfo wm_info;
@@ -148,9 +202,12 @@ void update_gfx(void* /*gfx_data*/) {
             ultramodern::quit();
         }
         if (event.type == SDL_KEYDOWN && is_fullscreen_toggle(event.key)) {
-            set_fullscreen((SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) == 0);
+            conker::display::request(conker::display::current() == Mode::Windowed ? g_screen_mode : Mode::Windowed);
         }
         conker::input::handle_event(event);
+    }
+    if (Mode mode; conker::display::take_request(&mode)) {
+        apply_mode(mode);
     }
     conker::input::update();
 }
