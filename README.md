@@ -46,7 +46,10 @@ the decomp with `CONKER_DECOMP=/path/to/conkers-bfd-decomp`.
 ## Controls
 
 Controller 1 is read from the first SDL game controller (hot-pluggable) and
-the keyboard at the same time. There is no remapping yet.
+the keyboard at the same time. There is no remapping yet. A pad that can
+rumble (DualSense, DualShock 4, Xbox, Switch Pro) counts as a Rumble Pak in
+controller 1, so connect it before starting the game, which looks for the pak
+at boot. `CONKER_RUMBLE_TEST=1` buzzes the pad for a second when it connects.
 
 | N64 | Xbox | PlayStation | Keyboard |
 | --- | --- | --- | --- |
@@ -78,6 +81,9 @@ the keyboard at the same time. There is no remapping yet.
   the save does not record are reset, as at a checkpoint. Neither sign is
   offered when replaying a chapter, where the game does not save.
   `CONKER_PAUSE_SAVE=0` turns them off.
+* **No Rumble Pak banner with a rumbling pad:** the title menu's "INSERT
+  RUMBLE PAK" banner shows on an N64 even with the pak inserted. It is left
+  out when controller 1's pad can rumble; `CONKER_RUMBLE_BANNER=1` shows it.
 * **Camera on the right stick:** C-left and C-right are swapped (also on J/L),
   so pushing left turns the view left.
 

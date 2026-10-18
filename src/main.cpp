@@ -81,12 +81,19 @@ bool get_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     return true;
 }
 
-void set_rumble(int /*controller_num*/, bool /*rumble*/) {}
+void set_rumble(int controller_num, bool rumble) {
+    if (controller_num == 0) {
+        conker::input::set_rumble(rumble);
+    }
+}
 
 ultramodern::input::connected_device_info_t get_connected_device_info(int controller_num) {
+    if (controller_num != 0) {
+        return {ultramodern::input::Device::None, ultramodern::input::Pak::None};
+    }
     return {
-        controller_num == 0 ? ultramodern::input::Device::Controller : ultramodern::input::Device::None,
-        ultramodern::input::Pak::None,
+        ultramodern::input::Device::Controller,
+        conker::input::has_rumble() ? ultramodern::input::Pak::RumblePak : ultramodern::input::Pak::None,
     };
 }
 

@@ -4,6 +4,7 @@
 //
 // Conventions (o32 ABI): arguments in r4..r7 then the stack at 0x10(sp); 64-bit arguments in
 // even/odd register pairs (high word first); return in r2 (r2:r3 for 64-bit); floats in f12/f0.
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -82,7 +83,12 @@ void pif_process_commands() {
         bool handled = false;
         if (channel < 4) {
             if (cmd[0] == 0x00 || cmd[0] == 0xFF) {  // status / reset
-                if (rx >= 3) { resp[0] = 0x05; resp[1] = 0x00; resp[2] = 0x00; handled = true; }  // controller, no pak
+                if (rx >= 3) {  // controller; a pak when the host pad can rumble
+                    resp[0] = 0x05;
+                    resp[1] = 0x00;
+                    resp[2] = (channel == 0 && conker::input::has_rumble()) ? 0x01 : 0x00;
+                    handled = true;
+                }
             } else if (cmd[0] == 0x01) {  // read buttons
                 if (rx >= 4) {
                     report_once("PIF read buttons", "controllers read through raw SI DMA");
@@ -100,7 +106,8 @@ void pif_process_commands() {
                     handled = true;
                 }
             }
-            // 0x02/0x03 pak read/write: no pak present -> error below
+            // 0x02/0x03 pak read/write: unanswered -> error below. The game reaches the rumble pak
+            // through func_800057E0 and friends instead, which are native.
         } else if (channel == 4) {
             if (cmd[0] == 0x00 || cmd[0] == 0xFF) {
                 if (rx >= 3) { resp[0] = 0x00; resp[1] = 0xC0; resp[2] = 0x00; handled = true; }  // 16 kbit EEPROM
@@ -378,12 +385,13 @@ void __osEepStatus_recomp(uint8_t* rdram, recomp_context* ctx) {
 }
 
 void __osContGetInitData_recomp(uint8_t* rdram, recomp_context* ctx) {
-    // (u8* pattern, OSContStatus* data[4]): one standard controller in port 1.
+    // (u8* pattern, OSContStatus* data[4]): one standard controller in port 1, with a pak
+    // (status CONT_CARD_ON) when the host pad can rumble.
     gpr pattern = ARG0, data = ARG1;
     MEM_B(0, pattern) = 1;
     for (int i = 0; i < 4; i++) {
         MEM_H(i * 4 + 0, data) = static_cast<int16_t>(i == 0 ? 0x0500 : 0);
-        MEM_B(i * 4 + 2, data) = 0;
+        MEM_B(i * 4 + 2, data) = static_cast<int8_t>(i == 0 && conker::input::has_rumble() ? 1 : 0);
         MEM_B(i * 4 + 3, data) = static_cast<int8_t>(i == 0 ? 0 : 0x80);
     }
 }
@@ -421,11 +429,72 @@ void __osContDataCrc_recomp(uint8_t* rdram, recomp_context* ctx) {
     RET(crc & 0xFF);
 }
 
-// --- Controller pak: report "no pak" everywhere ------------------------------------------------
+// --- Rumble pak -----------------------------------------------------------------------------
+// Rare's motor routines (src/main/init_57E0.c, src/main/init_5570.c) work on a 0x68-byte device
+// record: status at 0x0, message queue at 0x4, channel at 0x8, active bank at 0x65. Controller 1
+// has a rumble pak whenever the host pad can rumble (conker::input::has_rumble); the game probes
+// for it at boot (func_15006234: pak status bit, then osPfsInit, then func_800057E0) and again
+// from func_1501C1B0, and keeps the result per port at 0x800BE944.
 
 constexpr int32_t PFS_ERR_NOPACK = 1;
+constexpr int32_t PFS_ERR_CONTRFAIL = 4;
+constexpr int32_t PFS_ERR_DEVICE = 11;
 
-void osPfsInit_recomp(uint8_t* /*rdram*/, recomp_context* ctx) { report_once("osPfsInit", "no controller pak"); RET(PFS_ERR_NOPACK); }
+static int32_t rumble_pak_status(int32_t channel) {
+    if (channel != 0) {
+        return PFS_ERR_CONTRFAIL;  // no controller in ports 2-4
+    }
+    return conker::input::has_rumble() ? 0 : PFS_ERR_NOPACK;
+}
+
+// Motor init: (OSMesgQueue* queue, device*, int channel). On hardware it selects bank 0x80, reads
+// it back to tell a rumble pak from a controller pak, then prebuilds the stop and start packets.
+void func_800057E0(uint8_t* rdram, recomp_context* ctx) {
+    const gpr device = ARG1;
+    const int32_t channel = static_cast<int32_t>(ARG2);
+    MEM_W(0x4, device) = static_cast<int32_t>(ARG0);
+    MEM_W(0x8, device) = channel;
+    MEM_W(0x0, device) = 0;
+    MEM_B(0x65, device) = static_cast<int8_t>(0x80);
+    const int32_t status = rumble_pak_status(channel);
+    if (channel == 0) {
+        static std::atomic<int32_t> reported{-1};
+        if (reported.exchange(status) != status) {
+            std::printf("[conker] rumble pak %s\n", status == 0 ? "inserted (host pad rumble)" : "not inserted (no pad that can rumble)");
+        }
+    }
+    RET(status);
+}
+
+// Logs each change of the motor the game asks for. The game pulses the motor on and off to set
+// its strength, so a rumble shows up as a run of on/off lines.
+static void motor_access(uint8_t* rdram, recomp_context* ctx, bool on) {
+    const int32_t channel = MEM_W(0x8, ARG0);
+    const int32_t status = rumble_pak_status(channel);
+    static std::atomic<int> last{-1};
+    const int state = (channel << 2) | (on ? 1 : 0) | (status == 0 ? 0 : 2);
+    if (last.exchange(state) != state) {
+        std::printf("[conker] VI %llu: rumble %s, port %d%s\n", static_cast<unsigned long long>(conker::current_vi()),
+                    on ? "on" : "off", channel + 1, status == 0 ? "" : " (no pak, ignored)");
+    }
+    if (status == 0) {
+        conker::input::set_rumble(on);
+    }
+    RET(status);
+}
+
+void func_80005570(uint8_t* rdram, recomp_context* ctx) { motor_access(rdram, ctx, false); }  // motor stop
+void func_800056A0(uint8_t* rdram, recomp_context* ctx) { motor_access(rdram, ctx, true); }   // motor start
+
+// --- Controller pak: report "no pak" everywhere ------------------------------------------------
+
+// (OSMesgQueue* queue, OSPfs* pfs, int channel). With a rumble pak inserted, libultra fails to read
+// a controller pak ID and returns PFS_ERR_DEVICE; the game's boot probe (func_15006234) only tries
+// the motor after that answer, from a port whose status says a pak is inserted.
+void osPfsInit_recomp(uint8_t* /*rdram*/, recomp_context* ctx) {
+    report_once("osPfsInit", "no controller pak");
+    RET(rumble_pak_status(static_cast<int32_t>(ARG2)) == 0 ? PFS_ERR_DEVICE : PFS_ERR_NOPACK);
+}
 void osPfsIsPlug_recomp(uint8_t* rdram, recomp_context* ctx) { MEM_B(0, ARG1) = 0; RET(0); }
 void osPfsChecker_recomp(uint8_t* /*rdram*/, recomp_context* ctx) { RET(PFS_ERR_NOPACK); }
 void __osContRamRead_recomp(uint8_t* /*rdram*/, recomp_context* ctx) { RET(PFS_ERR_NOPACK); }
