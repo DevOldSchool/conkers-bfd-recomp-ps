@@ -58,6 +58,15 @@ code's escape), are written up in [docs/investigations.md](docs/investigations.m
 
 ![RT64 window: NEW GAME menu](docs/images/rt64-new-game.png)
 
+## Enhancements
+
+Changes from how the game behaves on an N64:
+
+| Enhancement | Details |
+| --- | --- |
+| Skippable intro | Start skips the intro (Conker sawing the N64 logo) once it has run for about five seconds; earlier presses are ignored, as in the original game. On an N64, Start only skips it after the reset button was pressed, so the recomp reports a warm reset to that check. `CONKER_SKIP_INTRO=1` skips the intro without a press; `CONKER_SKIP_INTRO=0` makes it unskippable, as on a cold boot. |
+| Camera on the right stick | C-left and C-right are swapped on the right stick and on J/L, so pushing left turns the view left (see "Controls"). |
+
 ## Layout
 
 ```
@@ -175,6 +184,10 @@ These environment variables are read by both builds:
   `--largest N [--instance <seg3>]` prints the largest triangles and where
   their vertices came from. Use it to tell bad data in RDRAM apart from a
   renderer that misreads good data.
+* `CONKER_SKIP_INTRO=1` skips the intro cutscene by itself, about five
+  seconds in, so the title scene starts around VI 1,180 instead of 2,550. VI
+  numbers in input scripts written for a full intro (such as the ones below)
+  are then about 1,370 too late.
 * `CONKER_PRESS_START=<vi>[,<vi>...]` holds Start on controller 1 for 10 VIs
   from each listed VI count, on top of any real input.
 * `CONKER_VIRTUAL_PAD=<file>` (RT64 build) attaches an SDL virtual game
