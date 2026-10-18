@@ -134,3 +134,71 @@ text = "conker_geometry_escape_disarm(rdram, ctx);"
 func = "func_150A3A70"
 before_vram = 0x150AE280
 text = "conker_geometry_escape(rdram, ctx);"
+
+# SAVE and LOAD in the pause menu: func_151DDC20 gets two signs under its lever row (QUIT over LOAD,
+# CONT... over SAVE), built on its chapter-replay RESTART option. SAVE queues the game's own save,
+# LOAD reloads it. The signs are the RESTART and PLAY sprites with tiles made from the CONT... and
+# QUIT ones (func_151ED430, func_15043384). See src/pause_save.cpp; CONKER_PAUSE_SAVE=0 turns it off.
+[[patches.hook]]
+func = "func_151DDC20"
+before_vram = 0x151DE00C
+text = "{ void conker_pause_save_layout(uint8_t*, recomp_context*); conker_pause_save_layout(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151DDC20"
+before_vram = 0x151DE05C
+text = "{ extern int conker_pause_save_skip_input; void conker_pause_save_input(uint8_t*, recomp_context*); conker_pause_save_input(rdram, ctx); if (conker_pause_save_skip_input) { goto L_151DE16C; } }"
+
+[[patches.hook]]
+func = "func_151DDC20"
+before_vram = 0x151DE314
+text = "{ void conker_pause_save_sign(uint8_t*, recomp_context*); conker_pause_save_sign(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151DDC20"
+before_vram = 0x151DE334
+text = "{ void conker_pause_save_quit_position(uint8_t*, recomp_context*); conker_pause_save_quit_position(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151DDC20"
+before_vram = 0x151DE35C
+text = "{ void conker_pause_save_quit_sign(uint8_t*, recomp_context*); conker_pause_save_quit_sign(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151DDC20"
+before_vram = 0x151DE3DC
+text = "{ void conker_pause_save_select(uint8_t*, recomp_context*); conker_pause_save_select(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151DDC20"
+before_vram = 0x151DE518
+text = "{ void conker_pause_save_quit_confirmed(uint8_t*, recomp_context*); conker_pause_save_quit_confirmed(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151ED430"
+before_vram = 0x151ED5E8
+text = "{ void conker_pause_save_tile(uint8_t*, recomp_context*); conker_pause_save_tile(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_15043384"
+before_vram = 0x1504393C
+text = "{ void conker_pause_save_sprites_done(uint8_t*, recomp_context*); conker_pause_save_sprites_done(rdram, ctx); }"
+
+# Exact-position saves: a save made from the pause menu records where Conker is (func_15006BEC),
+# starting that save (func_151E327C, PLAY's handler, also used by LOAD once func_1501C57C has
+# read the slot) enters that scene, and func_1501C57C's frames then move him there. See
+# src/resume_point.cpp.
+[[patches.hook]]
+func = "func_15006BEC"
+before_vram = 0x15006CB8
+text = "{ void conker_resume_saved(uint8_t*, recomp_context*); conker_resume_saved(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151E327C"
+before_vram = 0x151E3310
+text = "{ void conker_resume_start(uint8_t*, recomp_context*); conker_resume_start(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1501C57C"
+before_vram = 0x1501C57C
+text = "{ void conker_resume_tick(uint8_t*, recomp_context*); conker_resume_tick(rdram, ctx); }"

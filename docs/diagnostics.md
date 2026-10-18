@@ -37,7 +37,9 @@ These environment variables are read by both builds:
   `dpup`, ...) or `<axis>=<value>` (`leftx`, `lefty`, `rightx`, `righty`,
   `lefttrigger`, `righttrigger`, from -1 to 1, with +y down as in SDL). `#`
   starts a comment. For example, `5400 10 start` then `7500 10 a` goes from the
-  title scene to a new game.
+  title scene to a new game. Real controllers are ignored while it is set:
+  SDL passes pad input to every process, so a pad in use in another window
+  would otherwise steer the scripted run.
 * **Skipping the opening.** Saves persist in
   `conker-recomp-data/saves/conker_us.bin` under the working directory, so
   keep a copy of that file from a run that got past the first save (about
