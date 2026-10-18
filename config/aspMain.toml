@@ -1,0 +1,48 @@
+# RSPRecomp configuration for Conker's audio microcode (Rare's n_aspMain with the MP3 overlay).
+#
+# Run from the repository root (tools/regenerate.sh does this):
+#   build/N64Recomp/RSPRecomp config/aspMain.toml
+#
+# ROM layout (US), see docs/rsp-microcode.md:
+#   text 0x291A0:0x2AAD0 = overlay 0 (0x000:0xF70, IMEM 0x1080) + overlay 1 (0xF70:0x1930, IMEM 0x1238)
+#   data 0x2C960:0x2D4B0
+# The task's ucode pointer is the start of overlay 0, so the overlay offsets below are relative to
+# text_offset and match `dma_dram_address - ucode_addr` in the generated swap function.
+
+text_offset = 0x291A0
+# Overlay 0 is what rspboot loads; overlay 1 only ever lives in the slot below.
+text_size = 0xF70
+text_address = 0x04001080
+rom_file_path = "../build/us/conker.us.recomp.bin"
+output_file_path = "../build/us/rsp/aspMain.cpp"
+output_function_name = "aspMain"
+
+# Command handlers, reached through `jr $at` from the dispatch table at data +0x10 (16 halfwords).
+extra_indirect_branch_targets = [
+    0x1AB0,  # 0x00 cmd_DISABLE
+    0x140C,  # 0x01 cmd_ADPCM
+    0x1240,  # 0x02 cmd_CLEARBUFF
+    0x1D40,  # 0x03 cmd_ENVMIXER
+    0x1268,  # 0x04 cmd_LOADBUFF
+    0x1AE8,  # 0x05 cmd_RESAMPLE
+    0x129C,  # 0x06 cmd_SAVEBUFF
+    0x1214,  # 0x07 cmd_MP3 (loads overlay 1)
+    0x13FC,  # 0x08 cmd_MP3ADDY
+    0x12FC,  # 0x09 cmd_SETVOL
+    0x13B4,  # 0x0A cmd_DMEMMOVE
+    0x12D0,  # 0x0B cmd_LOADADPCM
+    0x1FA4,  # 0x0C cmd_MIXER
+    0x1340,  # 0x0D cmd_INTERLEAVE
+    0x16B8,  # 0x0E cmd_16EC
+    0x13EC,  # 0x0F cmd_SETLOOP
+]
+
+# IMEM 0x1238 holds either the rest of overlay 0 or the MP3 overlay. cmd_MP3 DMAs overlay 1
+# (offset 0xF70, 0x9C0 bytes) there; reload_overlay_0 DMAs overlay 0 from offset 0x1B8
+# (0x1238 - 0x1080) to its end. IMEM 0x1BF8:0x1FF0 keeps overlay 0 while the MP3 overlay is in.
+[[overlay_slots]]
+text_address = 0x04001238
+overlays = [
+    { offset = 0x1B8, size = 0xDB8 },
+    { offset = 0xF70, size = 0x9C0 },
+]

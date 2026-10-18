@@ -23,16 +23,20 @@ python3 "$here/tools/gen_syms.py" --decomp "$decomp" --rom "$rom" \
     --out-syms "$here/config/us.syms.toml" --out-rom "$here/build/us/conker.us.recomp.bin" \
     --report "$here/build/us/syms-report.json"
 
-if [ ! -x "$here/build/N64Recomp/N64Recomp" ]; then
-    echo "==> building N64Recomp"
+if [ ! -x "$here/build/N64Recomp/N64Recomp" ] || [ ! -x "$here/build/N64Recomp/RSPRecomp" ]; then
+    echo "==> building N64Recomp and RSPRecomp"
     cmake -S "$here/lib/N64Recomp" -B "$here/build/N64Recomp" -G Ninja -DCMAKE_BUILD_TYPE=Release
-    cmake --build "$here/build/N64Recomp"
+    cmake --build "$here/build/N64Recomp" --target N64Recomp RSPRecomp
 fi
 
 echo "==> recompiling"
 rm -rf "$here/build/us/RecompiledFuncs"
 mkdir -p "$here/build/us/RecompiledFuncs"
 (cd "$here" && build/N64Recomp/N64Recomp config/us.toml 2> build/us/recomp-run.log)
+
+echo "==> recompiling the audio microcode (RSPRecomp)"
+mkdir -p "$here/build/us/rsp"
+(cd "$here" && build/N64Recomp/RSPRecomp config/aspMain.toml)
 
 echo "==> declaring runtime-provided functions"
 python3 "$here/tools/gen_extras_decl.py" "$here/build/us/RecompiledFuncs"

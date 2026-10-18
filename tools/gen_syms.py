@@ -91,6 +91,9 @@ GAME_REGIONS = [(0x15018500, 0x150186D0), (0x150A3A70, 0x150AE35C)]
 
 CONKER_RENAMES = {
     0x100037F0: "osCreateThread",  # src/done/main/init_37F0.c: identical field setup, sp - 16
+    # src/done/main/init_2DB0.c: libultra's osAiSetNextBuffer (8 KiB hardware-bug flag, writes
+    # AI_DRAM_ADDR and AI_LEN directly). The runtime's version queues the samples for playback.
+    0x10002DB0: "osAiSetNextBuffer",
 }
 
 GENERIC_NAME = re.compile(r"^(func|D)_[0-9A-Fa-f]{8}$")
