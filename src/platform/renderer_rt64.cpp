@@ -15,7 +15,9 @@
 // widens the game's perspective projections and the frame buffer, so more of the scene shows at the
 // sides rather than the picture being stretched. 2D rectangles stay centered in the 4:3 area unless
 // they span the whole width, so the HUD and menus keep their place and full-screen fills reach the
-// edges. The game still culls to its own 4:3 view, so an object can appear late at the far sides,
+// edges. An untextured rectangle that reaches only one side, like the black around the circle wipe
+// that opens and closes a scene, is stretched to that side of the screen (rect.extendEdgeRects,
+// tools/patches/rt64-edge-rects.patch). The game still culls to its own 4:3 view, so an object can appear late at the far sides,
 // and the pause menu draws its blurred copy of the frame over the 4:3 area only.
 #include "platform/renderer_rt64.hpp"
 
@@ -195,7 +197,7 @@ private:
         const bool windowed = mode == conker::display::Mode::Windowed;
         const int scale = windowed ? conker::display::window_scale() : conker::display::screen_scale();
         const bool native = !conker::display::fill(mode);
-        const bool wide = conker::display::widescreen();
+        const bool wide = conker::display::widescreen(mode);
         if (scale == applied_scale_ && native == applied_native_ && wide == applied_wide_) {
             return;
         }
@@ -208,6 +210,7 @@ private:
                                                 : RT64::UserConfiguration::Resolution::WindowIntegerScale;
         app_->userConfig.resolutionMultiplier = scale > 0 ? scale : 2.0;
         app_->enhancementConfig.presentation.nativeSize = native;
+        app_->enhancementConfig.rect.extendEdgeRects = true;  // only acts on a widened picture
         app_->updateUserConfig(true);  // see get_resolution_scale
         app_->updateEnhancementConfig();
     }

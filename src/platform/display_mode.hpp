@@ -57,8 +57,9 @@ int screen_max();
 
 // Whether the picture is widened from Conker's 4:3 to the shape of the window or screen (RT64's
 // Expand aspect ratio): 16:9 for a window opened at its multiple, the display's own shape covering
-// the screen. Off by default, as on an N64.
-bool widescreen();
+// the screen. Like the fill, a window and the screen-covering modes each keep their own: covering
+// the screen is widescreen by default, a window is 4:3 as on an N64.
+bool widescreen(Mode mode);
 
 // The width of the picture at a multiple in a window (kPictureWidth or kWidePictureWidth times the
 // multiple) or covering the screen (widened to the screen's shape in widescreen).
@@ -79,7 +80,7 @@ bool fill(Mode mode);
 void request_window_scale(int scale);
 void request_screen_scale(int scale);
 void request_fill(Mode mode, bool fill);
-void request_widescreen(bool widescreen);
+void request_widescreen(Mode mode, bool widescreen);
 
 // For the window: whether the mode, the window's multiple or the picture's shape changed since the
 // last call, and the mode to be in.

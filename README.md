@@ -34,6 +34,7 @@ git submodule update --init --recursive
 (cd lib/N64ModernRuntime && git apply ../../tools/patches/n64modernruntime-pi-dma-message.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-f3dex2cbfd.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-native-size.patch)
+(cd lib/rt64 && git apply ../../tools/patches/rt64-edge-rects.patch)
 tools/regenerate.sh
 cmake -S . -B build/rt64 -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER=rt64
 cmake --build build/rt64
@@ -79,10 +80,13 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
     window or screen instead of stretching the picture: the window becomes
     16:9 (384x216 for each multiple), and covering the screen the picture
     takes the display's own shape (16:9, 16:10 or ultrawide). The HUD and
-    menus stay in the middle. It is 4:3 by default, as on an N64. The game
+    menus stay in the middle, and the circle wipe that opens and closes a
+    scene covers the whole width. Covering the screen is widescreen by
+    default; a window is 4:3 by default, as on an N64. The game
     still decides what to draw for its own 4:3 view, so objects at the far
-    sides can appear late, and the blurred background of the pause menu
-    only covers the middle 4:3 area.
+    sides can appear late, the blurred background of the pause menu only
+    covers the middle 4:3 area, and the circle wipe's last frame shows its
+    corners inside the wider picture.
   * The resolution: how large the game's 292x216 picture is rendered, in
     whole multiples from 292x216 (1x). In a window it is the window's size,
     up to the largest that fits the display (1460x1080, 5x, on a 2560x1440
@@ -96,8 +100,8 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
     default; a lower resolution then fills it with larger pixels. A window
     is centered by default, which only shows once it is resized by hand.
 
-  Each mode keeps its own resolution and fill; the picture's shape applies
-  to all of them. F11, Cmd+Enter, Alt+Enter or
+  The window and the screen-covering modes each keep their own resolution,
+  shape and fill. F11, Cmd+Enter, Alt+Enter or
   Ctrl+Cmd+F switch between the window and the last screen-covering mode.
   The choices are kept in `conker-recomp-data/display.cfg`, not in the
   game's save, so the OPTIONS saved to EEPROM are unchanged.

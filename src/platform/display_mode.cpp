@@ -20,7 +20,8 @@ std::atomic<int> g_window_scale{0};  // 0 until set_limits: the largest that fit
 std::atomic<int> g_screen_scale{0};  // 0: the largest
 std::atomic<bool> g_window_fill{false};
 std::atomic<bool> g_screen_fill{true};
-std::atomic<bool> g_widescreen{false};
+std::atomic<bool> g_window_wide{false};
+std::atomic<bool> g_screen_wide{true};
 std::atomic<int> g_window_max{kMinScale};
 std::atomic<int> g_wide_window_max{kMinScale};
 std::atomic<int> g_screen_max{kMinScale};
@@ -46,7 +47,8 @@ bool parse_mode(const std::string& text, Mode* mode) {
 }
 
 // display.cfg holds "mode=<name>", "window_scale=<n>", "screen_scale=<n>", "window_fill=<0|1>",
-// "screen_fill=<0|1>" and "widescreen=<0|1>" lines; a scale of 0 is the largest.
+// "screen_fill=<0|1>", "window_widescreen=<0|1>" and "screen_widescreen=<0|1>" lines; a scale of 0
+// is the largest.
 void save() {
     std::lock_guard lock(g_save_mutex);
     std::ofstream file(config_path());
@@ -55,7 +57,8 @@ void save() {
          << "screen_scale=" << g_screen_scale.load() << '\n'
          << "window_fill=" << (g_window_fill.load() ? 1 : 0) << '\n'
          << "screen_fill=" << (g_screen_fill.load() ? 1 : 0) << '\n'
-         << "widescreen=" << (g_widescreen.load() ? 1 : 0) << '\n';
+         << "window_widescreen=" << (g_window_wide.load() ? 1 : 0) << '\n'
+         << "screen_widescreen=" << (g_screen_wide.load() ? 1 : 0) << '\n';
     if (!file) {
         std::fprintf(stderr, "[conker] could not write %s\n", config_path().string().c_str());
     }
@@ -91,8 +94,10 @@ Mode startup_mode() {
             g_window_fill.store(std::atoi(value.c_str()) != 0);
         } else if (key == "screen_fill") {
             g_screen_fill.store(std::atoi(value.c_str()) != 0);
-        } else if (key == "widescreen") {
-            g_widescreen.store(std::atoi(value.c_str()) != 0);
+        } else if (key == "window_widescreen") {
+            g_window_wide.store(std::atoi(value.c_str()) != 0);
+        } else if (key == "screen_widescreen") {
+            g_screen_wide.store(std::atoi(value.c_str()) != 0);
         }
     }
     if (const char* value = std::getenv("CONKER_DISPLAY"); value != nullptr && value[0] != '\0') {
@@ -125,17 +130,19 @@ void set_limits(const Limits& limits) {
     g_screen_height.store(limits.screen_height);
 }
 
-int window_max() { return (widescreen() ? g_wide_window_max : g_window_max).load(); }
-int screen_max() { return (widescreen() ? g_wide_screen_max : g_screen_max).load(); }
+int window_max() { return (widescreen(Mode::Windowed) ? g_wide_window_max : g_window_max).load(); }
+int screen_max() { return (widescreen(Mode::Fullscreen) ? g_wide_screen_max : g_screen_max).load(); }
 
-bool widescreen() { return g_widescreen.load(); }
+bool widescreen(Mode mode) { return (mode == Mode::Windowed ? g_window_wide : g_screen_wide).load(); }
 
-int window_picture_width(int scale) { return (widescreen() ? kWidePictureWidth : kPictureWidth) * scale; }
+int window_picture_width(int scale) {
+    return (widescreen(Mode::Windowed) ? kWidePictureWidth : kPictureWidth) * scale;
+}
 
 int screen_picture_width(int scale) {
     const int width = g_screen_width.load();
     const int height = g_screen_height.load();
-    if (!widescreen() || width <= 0 || height <= 0) {
+    if (!widescreen(Mode::Fullscreen) || width <= 0 || height <= 0) {
         return kPictureWidth * scale;
     }
     // RT64 widens the picture to the screen's shape, never narrower than 4:3.
@@ -180,13 +187,14 @@ void request_fill(Mode mode, bool fill) {
     save();
 }
 
-void request_widescreen(bool widescreen) {
-    if (g_widescreen.exchange(widescreen) == widescreen) {
+void request_widescreen(Mode mode, bool widescreen) {
+    if ((mode == Mode::Windowed ? g_window_wide : g_screen_wide).exchange(widescreen) == widescreen) {
         return;
     }
-    std::printf("[conker] picture: %s\n", widescreen ? "widescreen" : "4:3");
+    std::printf("[conker] %s picture: %s\n", mode == Mode::Windowed ? "window" : "screen",
+                widescreen ? "widescreen" : "4:3");
     save();
-    if (current() == Mode::Windowed) {
+    if (mode == Mode::Windowed && current() == Mode::Windowed) {
         g_requested.store(true);  // the window takes the new shape; covering the screen, only RT64 changes
     }
 }

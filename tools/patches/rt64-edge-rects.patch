@@ -1,0 +1,124 @@
+diff --git a/src/common/rt64_enhancement_configuration.cpp b/src/common/rt64_enhancement_configuration.cpp
+index 3bebdca..97ba9ee 100644
+--- a/src/common/rt64_enhancement_configuration.cpp
++++ b/src/common/rt64_enhancement_configuration.cpp
+@@ -13,6 +13,7 @@ namespace RT64 {
+         presentation.removeBlackBorders = true;
+         presentation.nativeSize = false;
+         rect.fixRectLR = true;
++        rect.extendEdgeRects = false;
+         f3dex.forceBranch = false;
+         s2dex.fixBilerpMismatch = true;
+         s2dex.framebufferFastPath = true;
+diff --git a/src/common/rt64_enhancement_configuration.h b/src/common/rt64_enhancement_configuration.h
+index 51d2c80..50e4d48 100644
+--- a/src/common/rt64_enhancement_configuration.h
++++ b/src/common/rt64_enhancement_configuration.h
+@@ -29,6 +29,11 @@ namespace RT64 {
+         
+         struct Rect {
+             bool fixRectLR;
++
++            // With a wider aspect ratio, an untextured rectangle that reaches one side of the scissor
++            // but not the other (a mask around a hole, like a circle wipe) is stretched to that side
++            // of the screen instead of staying in the original aspect ratio's area.
++            bool extendEdgeRects;
+         };
+ 
+         struct F3DEX {
+diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
+index 5a331aa..17c0835 100644
+--- a/src/hle/rt64_workload_queue.cpp
++++ b/src/hle/rt64_workload_queue.cpp
+@@ -182,6 +182,8 @@ namespace RT64 {
+             break;
+         }
+ 
++        workloadConfig.extendEdgeRects = ext.sharedResources->enhancementConfig.rect.extendEdgeRects;
++
+         // Compute the resolution scaling to be used for the frame.
+         float resolutionMultiplier;
+         const auto resolutionMode = ext.sharedResources->userConfig.resolution;
+@@ -630,6 +632,7 @@ namespace RT64 {
+                     drawParams.aspectRatioSource = workloadConfig.aspectRatioSource;
+                     drawParams.aspectRatioTarget = workloadConfig.aspectRatioTarget;
+                     drawParams.extAspectPercentage = workloadConfig.extAspectPercentage;
++                    drawParams.extendEdgeRects = workloadConfig.extendEdgeRects;
+                     drawParams.horizontalMisalignment = (colorTarget != nullptr) ? float(colorTarget->misalignX) : float(depthTarget->misalignX);
+                     drawParams.presetScene = curFrame.presetScene;
+                     drawParams.rtEnabled = workloadConfig.raytracingEnabled;
+diff --git a/src/hle/rt64_workload_queue.h b/src/hle/rt64_workload_queue.h
+index bde2f03..2945b69 100644
+--- a/src/hle/rt64_workload_queue.h
++++ b/src/hle/rt64_workload_queue.h
+@@ -55,6 +55,7 @@ namespace RT64 {
+             float aspectRatioTarget = 1.0f;
+             float aspectRatioScale = 1.0f;
+             float extAspectPercentage = 1.0f;
++            bool extendEdgeRects = false;
+             uint32_t targetRate = 0;
+             bool postBlendNoise = false;
+             bool postBlendNoiseNegative = false;
+diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
+index 133c039..3177fc9 100644
+--- a/src/render/rt64_framebuffer_renderer.cpp
++++ b/src/render/rt64_framebuffer_renderer.cpp
+@@ -1625,6 +1625,7 @@ namespace RT64 {
+ 
+                         float invRatioScale = 1.0f / aspectRatioScale;
+                         float horizontalMisalignment = 0.0f;
++                        bool edgeRect = false;
+                         switch (proj.type) {
+                         case Projection::Type::Perspective:
+                         case Projection::Type::Orthographic: {
+@@ -1652,7 +1653,28 @@ namespace RT64 {
+                                 horizontalMisalignment = p.horizontalMisalignment;
+                             }
+ 
+-                            RenderViewport viewportRect = convertViewportRect(call.callDesc.rect, p.resolutionScale, p.fbWidth, invRatioScale, extOriginPercentage, horizontalMisalignment, call.callDesc.rectLeftOrigin, call.callDesc.rectRightOrigin);
++                            // An untextured rect reaching one side of the scissor: that edge goes to the same side of
++                            // the screen, the other stays where the original aspect ratio puts it.
++                            uint16_t leftOrigin = call.callDesc.rectLeftOrigin;
++                            uint16_t rightOrigin = call.callDesc.rectRightOrigin;
++                            float rectOriginPercentage = extOriginPercentage;
++                            if (p.extendEdgeRects && (aspectRatioScale > 1.0f) && regularOrigins && !coversScissorWidth && (call.callDesc.tileCount == 0) && (call.callDesc.rectAspect == G_EX_ASPECT_AUTO)) {
++                                if (call.callDesc.rect.ulx <= fbPair.scissorRect.ulx) {
++                                    leftOrigin = G_EX_ORIGIN_LEFT;
++                                    edgeRect = true;
++                                }
++                                else if (call.callDesc.rect.lrx >= fbPair.scissorRect.lrx) {
++                                    rightOrigin = G_EX_ORIGIN_RIGHT;
++                                    edgeRect = true;
++                                }
++
++                                if (edgeRect) {
++                                    rectOriginPercentage = 1.0f;
++                                    horizontalMisalignment = 0.0f;
++                                }
++                            }
++
++                            RenderViewport viewportRect = convertViewportRect(call.callDesc.rect, p.resolutionScale, p.fbWidth, invRatioScale, rectOriginPercentage, horizontalMisalignment, leftOrigin, rightOrigin);
+                             triangles.screenScale = { viewportRect.width / framebuffer.viewport.width, viewportRect.height / framebuffer.viewport.height };
+                             triangles.screenOffset.x = halfPixelOffset.x + ((viewportRect.x + viewportRect.width / 2.0f) - halfViewportSize.x) / halfViewportSize.x;
+                             triangles.screenOffset.y = halfPixelOffset.y + (halfViewportSize.y - (viewportRect.y + viewportRect.height / 2.0f)) / halfViewportSize.y;
+@@ -1679,7 +1701,7 @@ namespace RT64 {
+                         // Scissor aspect can override the scaling determined by the draw call.
+                         float scissorInvRatioScale = invRatioScale;
+                         float scissorHorizontalMisalignment = horizontalMisalignment;
+-                        if (call.callDesc.scissorAspect == G_EX_ASPECT_STRETCH) {
++                        if ((call.callDesc.scissorAspect == G_EX_ASPECT_STRETCH) || edgeRect) {
+                             scissorInvRatioScale = 1.0f;
+                             scissorHorizontalMisalignment = 0.0f;
+                         }
+diff --git a/src/render/rt64_framebuffer_renderer.h b/src/render/rt64_framebuffer_renderer.h
+index 3add9c3..cc55348 100644
+--- a/src/render/rt64_framebuffer_renderer.h
++++ b/src/render/rt64_framebuffer_renderer.h
+@@ -138,6 +138,7 @@ namespace RT64 {
+             float aspectRatioSource;
+             float aspectRatioTarget;
+             float extAspectPercentage;
++            bool extendEdgeRects;
+             float horizontalMisalignment;
+             PresetScene presetScene;
+             bool rtEnabled;

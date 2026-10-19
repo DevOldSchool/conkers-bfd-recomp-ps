@@ -90,4 +90,15 @@ the window. With a manual resolution multiplier it draws an exact multiple of
 the picture in a window or on a screen whose size is not one (the OPTIONS
 CENTERED setting, `src/platform/renderer_rt64.cpp`).
 
+`tools/patches/rt64-edge-rects.patch` (apply in `lib/rt64` after
+`rt64-native-size.patch`) adds `rect.extendEdgeRects`. With a widened aspect
+ratio (the OPTIONS WIDESCREEN setting), RT64 keeps 2D rectangles in the
+original 4:3 area unless one spans the whole scissor. Conker's circle wipe
+masks the picture with black fill rectangles on each side of four textured
+quarter-circle tiles, so the side rectangles stayed in the middle and the
+scene showed at both edges. With the option, an untextured rectangle that
+reaches one side of the scissor but not the other has that edge placed at the
+same side of the screen (an extended-GBI left or right origin) and its scissor
+stretched.
+
 All of these are candidates for upstreaming.
