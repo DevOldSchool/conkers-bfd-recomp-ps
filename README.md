@@ -84,7 +84,8 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
     scene covers the whole width. Covering the screen is widescreen by
     default; a window is 4:3 by default, as on an N64. The game
     still decides what to draw for its own 4:3 view, so objects at the far
-    sides can appear late. Behind the pause menu the paused scene stays
+    sides can appear late. In the intro, Conker is not drawn while he
+    waits for his cue just past the edge of the 4:3 view. Behind the pause menu the paused scene stays
     widescreen, but sharp: the game blurs only the 4:3 middle of the frame,
     so that blur is skipped in widescreen. Switching between the window and
     full screen while paused keeps the paused picture as it was, fitted to
