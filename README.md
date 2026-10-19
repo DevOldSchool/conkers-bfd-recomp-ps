@@ -80,7 +80,10 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
     up to the largest that fits the display (1460x1080, 5x, on a 2560x1440
     display with the Dock showing, which is also the default). Covering the
     screen it goes up to the first multiple that covers the screen's height
-    (2044x1512, 7x, on 1440 lines, the default).
+    (2044x1512, 7x, on 1440 lines, the default). Sizes are in pixels, also
+    on a Retina screen, where the game draws at the screen's full pixel
+    density: on a 3024x1964 screen a window goes up to 2044x1512 (7x, half
+    that in points), and covering the screen up to 2920x2160 (10x).
   * FILL SCREEN or CENTERED: the picture is scaled to fill the window or
     screen, or drawn at its own size in the middle with black bars, so that
     every game pixel is an even block. Covering the screen it fills by
@@ -93,7 +96,8 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   game's save, so the OPTIONS saved to EEPROM are unchanged.
   `CONKER_DISPLAY=windowed`, `borderless` or `fullscreen` overrides the mode
   for one run, `CONKER_DISPLAY_OPTIONS=0` hides the rows, and
-  `CONKER_ORIGINAL_SIZE=1` opens the original 960x720 window instead.
+  `CONKER_ORIGINAL_SIZE=1` opens the original 960x720 window (in points)
+  instead.
 * **Skip to the title menu:** Start at any point during the boot logos or the
   intro fades to black and then into the GAME 1 menu, skipping the title
   scene's opening (the clock and the Cock and Plucker) too. On an N64, Start only skips the intro after about five seconds and after
