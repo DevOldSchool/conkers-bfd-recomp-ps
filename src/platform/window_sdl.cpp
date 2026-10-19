@@ -90,7 +90,7 @@ Mode g_screen_mode = Mode::Fullscreen;  // where the shortcuts go from the windo
 // The window's size when it is a window.
 SDL_Rect window_frame() {
     SDL_Rect frame{static_cast<int>(SDL_WINDOWPOS_CENTERED), static_cast<int>(SDL_WINDOWPOS_CENTERED),
-                   conker::display::widescreen() ? kOriginalWideWidth : kOriginalWidth, kOriginalHeight};
+                   conker::display::widescreen(Mode::Windowed) ? kOriginalWideWidth : kOriginalWidth, kOriginalHeight};
     if (!original_size()) {
         frame.w = conker::display::window_picture_width(conker::display::window_scale());
         frame.h = kPictureHeight * conker::display::window_scale();

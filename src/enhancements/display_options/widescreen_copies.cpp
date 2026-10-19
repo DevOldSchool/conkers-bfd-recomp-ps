@@ -46,7 +46,7 @@ bool g_stretching = false;  // the commands before the call were written, so the
 
 // At func_151D5E90's entry: $a0 is the display list pointer it writes from.
 extern "C" void conker_widescreen_copy_begin(uint8_t* rdram, recomp_context* ctx) {
-    g_stretching = conker::display::widescreen();
+    g_stretching = conker::display::widescreen(conker::display::current());
     if (g_stretching) {
         emit(rdram, ctx, kHook, kHookEnable, kSetRectAspect, kAspectStretch);
     }

@@ -21,7 +21,7 @@
 //
 // * The mode row borrows option 12 (GOAL: three values), one value per mode.
 // * The shape row borrows option 15 (two values): 4:3, or WIDESCREEN, where RT64 widens the view
-//   to the window's or screen's shape. The game has a PICTURE 4:3/16:9 setting of its own (option
+//   to the window's or screen's shape, kept for each mode like the fill. The game has a PICTURE 4:3/16:9 setting of its own (option
 //   8), hidden on the US OPTIONS page, but nothing in the US game reads it.
 // * The resolution row borrows option 16 (AI LEVEL: five values) as a carousel, because how many
 //   sizes there are depends on the display: before each call its value is put in the middle with
@@ -244,7 +244,7 @@ extern "C" void conker_display_options_begin(uint8_t* rdram, recomp_context* ctx
     g_shown_mode = static_cast<int8_t>(mode);
     borrow(rdram, g_mode_row, g_shown_mode, {"WINDOWED", "BORDERLESS", "FULL SCREEN"});
 
-    g_shown_shape = conker::display::widescreen() ? 1 : 0;
+    g_shown_shape = conker::display::widescreen(mode) ? 1 : 0;
     borrow(rdram, g_shape_row, g_shown_shape, {"4:3", "WIDESCREEN"});
 
     list_scales(mode);
@@ -276,7 +276,7 @@ extern "C" void conker_display_options_end(uint8_t* rdram, recomp_context* /*ctx
     if (mode != g_shown_mode && mode >= 0 && mode < conker::display::kModeCount) {
         conker::display::request(static_cast<Mode>(mode));
     } else if (shape != g_shown_shape) {
-        conker::display::request_widescreen(shape == 1);
+        conker::display::request_widescreen(static_cast<Mode>(g_shown_mode), shape == 1);
     } else if (step != 0 && g_scales.size() > 1) {
         const int scale = g_scales[static_cast<size_t>(wrap(g_scale_index + (step > 0 ? 1 : -1)))];
         if (static_cast<Mode>(g_shown_mode) == Mode::Windowed) {
