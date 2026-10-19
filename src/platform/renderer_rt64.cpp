@@ -217,6 +217,8 @@ private:
                                      : 16.0f / 9.0f;
                     }
                     const float picture = float(conker::display::kPictureWidth) / conker::display::kPictureHeight;
+                    // As Expand does, make up for the columns left out at the sides.
+                    target *= float(conker::display::kPictureWidth) / (conker::display::kPictureWidth - 2.0f * kUndrawnColumns);
                     app_->userConfig.aspectRatio = RT64::UserConfiguration::AspectRatio::Manual;
                     app_->userConfig.aspectTarget = target > picture ? target : picture;
                     app_->updateUserConfig(false);
@@ -247,6 +249,10 @@ private:
         app_->userConfig.resolutionMultiplier = scale > 0 ? scale : 2.0;
         app_->enhancementConfig.presentation.nativeSize = native;
         app_->enhancementConfig.rect.extendEdgeRects = true;  // only acts on a widened picture
+        // The game never draws the two frame-buffer columns at each side (in 4:3 they are the picture's
+        // black edges). Widened, nothing draws there either, so they are left out of the picture
+        // (tools/patches/rt64-edge-rects.patch) instead of showing as thin bars of black or stale pixels.
+        app_->enhancementConfig.presentation.expandCropSides = kUndrawnColumns;
         app_->updateUserConfig(true);  // see get_resolution_scale
         app_->updateEnhancementConfig();
     }
@@ -258,6 +264,7 @@ private:
     int applied_scale_ = 0;
     bool applied_native_ = false;
     bool applied_wide_ = false;
+    static constexpr float kUndrawnColumns = 2.0f;
     bool holding_ = false;  // settings held while the pause menu draws its frame copy
     uint32_t seen_copies_ = 0;
     int tasks_without_copy_ = 1 << 20;  // graphics tasks since the last frame copy

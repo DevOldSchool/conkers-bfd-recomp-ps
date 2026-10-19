@@ -1,20 +1,30 @@
 diff --git a/src/common/rt64_enhancement_configuration.cpp b/src/common/rt64_enhancement_configuration.cpp
-index 3bebdca..97ba9ee 100644
+index 3bebdca..d11b2f5 100644
 --- a/src/common/rt64_enhancement_configuration.cpp
 +++ b/src/common/rt64_enhancement_configuration.cpp
-@@ -13,6 +13,7 @@ namespace RT64 {
+@@ -12,7 +12,9 @@ namespace RT64 {
+         presentation.mode = Presentation::Mode::SkipBuffering;
          presentation.removeBlackBorders = true;
          presentation.nativeSize = false;
++        presentation.expandCropSides = 0.0f;
          rect.fixRectLR = true;
 +        rect.extendEdgeRects = false;
          f3dex.forceBranch = false;
          s2dex.fixBilerpMismatch = true;
          s2dex.framebufferFastPath = true;
 diff --git a/src/common/rt64_enhancement_configuration.h b/src/common/rt64_enhancement_configuration.h
-index 51d2c80..0b4aab8 100644
+index 51d2c80..b878ddc 100644
 --- a/src/common/rt64_enhancement_configuration.h
 +++ b/src/common/rt64_enhancement_configuration.h
-@@ -29,6 +29,12 @@ namespace RT64 {
+@@ -25,10 +25,20 @@ namespace RT64 {
+             // Present the rendered picture at its own size, centred, instead of scaling it to fill the
+             // window (it is still scaled down when it does not fit).
+             bool nativeSize;
++
++            // Columns of the frame buffer left out at each side when it is presented with a wider aspect ratio (Expand or
++            // Manual), for games that never draw the columns at the edges; Expand widens the aspect ratio to make up for them.
++            float expandCropSides;
+         };
          
          struct Rect {
              bool fixRectLR;
@@ -28,7 +38,7 @@ index 51d2c80..0b4aab8 100644
  
          struct F3DEX {
 diff --git a/src/hle/rt64_draw_call.h b/src/hle/rt64_draw_call.h
-index 681ad1a..f580cca 100644
+index 681ad1a..593994d 100644
 --- a/src/hle/rt64_draw_call.h
 +++ b/src/hle/rt64_draw_call.h
 @@ -93,6 +93,9 @@ namespace RT64 {
@@ -36,16 +46,134 @@ index 681ad1a..f580cca 100644
          uint8_t scissorAspect;
          uint8_t scissorMode;
 +
-+        // A textured rect drawn past one side of the scissor by rect.extendEdgeRects (RectEdge).
++        // The sides of the scissor a textured rect reaches past (rect.extendEdgeRects): bit 0 left, bit 1 right.
 +        uint8_t rectEdgeExtend;
          uint8_t textureOn;
          uint8_t textureTile;
          uint8_t textureLevels;
+diff --git a/src/hle/rt64_present_queue.cpp b/src/hle/rt64_present_queue.cpp
+index 70de928..6a04a7a 100644
+--- a/src/hle/rt64_present_queue.cpp
++++ b/src/hle/rt64_present_queue.cpp
+@@ -100,6 +100,7 @@ namespace RT64 {
+         EnhancementConfiguration::Presentation::Mode presentationMode;
+         bool removeBlackBorders;
+         bool nativeSize;
++        float cropSides;
+         UserConfiguration::RefreshRate refreshRate;
+         UserConfiguration::Filtering filtering;
+         uint32_t viOriginalRate;
+@@ -110,6 +111,7 @@ namespace RT64 {
+             presentationMode = ext.sharedResources->enhancementConfig.presentation.mode;
+             removeBlackBorders = ext.sharedResources->enhancementConfig.presentation.removeBlackBorders;
+             nativeSize = ext.sharedResources->enhancementConfig.presentation.nativeSize;
++            cropSides = (ext.sharedResources->userConfig.aspectRatio != UserConfiguration::AspectRatio::Original) ? ext.sharedResources->enhancementConfig.presentation.expandCropSides : 0.0f;
+             refreshRate = ext.sharedResources->userConfig.refreshRate;
+             filtering = ext.sharedResources->userConfig.filtering;
+             viOriginalRate = ext.sharedResources->viOriginalRate;
+@@ -327,6 +329,7 @@ namespace RT64 {
+                     renderParams.vi = &present.screenVI;
+                     renderParams.removeBlackBorders = removeBlackBorders;
+                     renderParams.nativeSize = nativeSize;
++                    renderParams.cropSides = cropSides;
+ 
+                     const bool useDownsampling = (colorTarget->downsampleMultiplier > 1);
+                     if (useDownsampling) {
 diff --git a/src/hle/rt64_rdp.cpp b/src/hle/rt64_rdp.cpp
-index 9a33a2d..05f927f 100644
+index 9a33a2d..d85cef1 100644
 --- a/src/hle/rt64_rdp.cpp
 +++ b/src/hle/rt64_rdp.cpp
-@@ -1241,6 +1241,8 @@ namespace RT64 {
+@@ -247,6 +247,89 @@ namespace RT64 {
+         }
+     }
+ 
++    // Whether a column of a tile is mostly opaque, read from the RDRAM it is loaded from: clamping to it past the
++    // tile's edge then carries on a solid edge (used by rect.extendEdgeRects). False if it cannot tell.
++    bool RDP::tileColumnOpaque(uint8_t tile, int32_t column) {
++        // Loads are carried out later, so find the latest one queued for this tile's TMEM address.
++        const LoadTile &renderTile = tiles[tile];
++        const Workload &workload = state->ext.workloadQueue->workloads[state->ext.workloadQueue->writeCursor];
++        const auto &loadOps = workload.drawData.loadOperations;
++        const LoadOperation *found = nullptr;
++        for (size_t i = loadOps.size(); (i > 0) && (found == nullptr); i--) {
++            if ((loadOps[i - 1].tile.tmem == renderTile.tmem) && (loadOps[i - 1].type != LoadOperation::Type::TLUT)) {
++                found = &loadOps[i - 1];
++            }
++        }
++
++        if (found == nullptr) {
++            return false;
++        }
++
++        const LoadOperation &loadOp = *found;
++        const uint32_t bitsPerTexel = 4u << renderTile.siz;
++        uint32_t rdramStart, rowBytes;
++        if (loadOp.type == LoadOperation::Type::Block) {
++            rdramStart = loadOp.texture.address + ((loadOp.tile.uls >> 2) << loadOp.texture.siz >> 1) + (loadOp.texture.width << loadOp.texture.siz >> 1) * loadOp.tile.ult;
++            rowBytes = uint32_t(renderTile.line) << 3;
++        }
++        else if (loadOp.type == LoadOperation::Type::Tile) {
++            rowBytes = loadOp.texture.width << loadOp.texture.siz >> 1;
++            rdramStart = loadOp.texture.address + ((loadOp.tile.uls >> 2) << loadOp.texture.siz >> 1) + rowBytes * (loadOp.tile.ult >> 2);
++        }
++        else {
++            return false;
++        }
++
++        if ((rowBytes == 0) || (bitsPerTexel > 32) || (column < 0)) {
++            return false;
++        }
++
++        const int32_t firstRow = renderTile.ult >> 2;
++        const int32_t lastRow = std::min(int32_t(renderTile.lrt >> 2), firstRow + 255);
++        const uint32_t columnBits = uint32_t(column - (renderTile.uls >> 2)) * bitsPerTexel;
++        auto texel = [&](int32_t row) {
++            const uint32_t bitAddress = (rdramStart + uint32_t(row - firstRow) * rowBytes) * 8 + columnBits;
++            uint32_t value = 0;
++            for (uint32_t b = 0; b < std::max(bitsPerTexel / 8, 1u); b++) {
++                value = (value << 8) | state->RDRAM[maskAddress((bitAddress >> 3) + b) ^ 3];
++            }
++
++            if (bitsPerTexel == 4) {
++                value = (bitAddress & 4) ? (value & 0xF) : (value >> 4);
++            }
++
++            return value;
++        };
++
++        // Opaque by the tile's format; colour-indexed tiles are not decoded.
++        auto opaque = [&](uint32_t value) {
++            switch (renderTile.fmt) {
++            case G_IM_FMT_I:
++                return value >= ((bitsPerTexel == 4) ? 0x8u : 0x80u);
++            case G_IM_FMT_IA:
++                if (bitsPerTexel == 4) return (value & 0x1) != 0;
++                if (bitsPerTexel == 8) return (value & 0xF) >= 0x8;
++                return (value & 0xFF) >= 0x80;
++            case G_IM_FMT_RGBA:
++                return (bitsPerTexel == 16) ? ((value & 0x1) != 0) : ((value & 0xFF) >= 0x80);
++            default:
++                return false;
++            }
++        };
++
++        // Mostly opaque (two thirds or more): clamping to it carries on a solid edge, like the black outside a wipe's
++        // circle (whose edge column is clear only where the circle meets it). A mostly transparent edge would only
++        // smear its few visible texels.
++        uint32_t rows = 0;
++        uint32_t opaqueRows = 0;
++        for (int32_t row = firstRow; row <= lastRow; row++) {
++            rows++;
++            opaqueRows += opaque(texel(row)) ? 1 : 0;
++        }
++
++        return (rows > 0) && (opaqueRows * 3 >= rows * 2);
++    }
++
+     void RDP::setColorImage(uint8_t fmt, uint8_t siz, uint16_t width, uint32_t address) {
+         // Make sure the new color image is actually different. Some games will set the color image
+         // multiple times despite setting the exact same parameters.
+@@ -1241,6 +1324,8 @@ namespace RT64 {
          drawCall.rectRightOrigin = extAlignment.rightOrigin;
          drawCall.rectAspect = extended.global.rectAspect;
          drawCall.scissorAspect = extended.global.scissorAspect;
@@ -54,7 +182,7 @@ index 9a33a2d..05f927f 100644
  
          if (flushedState) {
              state->loadDrawState();
-@@ -1345,6 +1347,37 @@ namespace RT64 {
+@@ -1345,6 +1430,47 @@ namespace RT64 {
              lry |= 3;
          }
  
@@ -65,27 +193,37 @@ index 9a33a2d..05f927f 100644
 +        const FixedRect &edgeScissor = scissorRectStack[scissorStackSize - 1];
 +        const bool regularAlignment = (extAlignment.leftOrigin == G_EX_ORIGIN_NONE) && (extAlignment.rightOrigin == G_EX_ORIGIN_NONE);
 +        if (state->ext.enhancementConfig->rect.extendEdgeRects && !usesCopyMode && !flip && regularAlignment && !edgeScissor.isNull() && ((tiles[tile].cms & G_TX_CLAMP) || (tiles[tile].masks == 0))) {
-+            // Only a rect the game cut off at that side carries on: its texture coordinate there is inside the tile,
-+            // not at the tile's edge (a sprite that merely touches the side, like a speech bubble, would smear).
-+            const float tileLow = tiles[tile].uls / 4.0f;
-+            const float tileHigh = tiles[tile].lrs / 4.0f + 1.0f;
-+            auto insideTile = [&](float s) { return (s > tileLow + 0.5f) && (s < tileHigh - 0.5f); };
-+            const float leftS = uls / 32.0f;
-+            const float rightS = (uls + (int32_t(dsdx) * ((lrx - ulx) >> 2)) / 32.0f) / 32.0f;
++            // A rect reaching one side of the scissor is drawn on past it when the tile's column on that side is opaque,
++            // so clamping to it carries on a solid edge, like the black around a wipe's circle. Otherwise it stays as the
++            // game drew it: what lies past a sprite's visible part, such as the tip of a speech bubble the game cut off
++            // at the screen's edge, would show as a streak.
++            const float texelsPerPixel = float(dsdx) / 1024.0f;
 +            const int32_t ExtendPixels = 512;
-+            const bool reachesLeft = (ulx <= edgeScissor.ulx) && insideTile(leftS);
-+            const bool reachesRight = (lrx >= edgeScissor.lrx) && insideTile(rightS);
-+            if (reachesLeft && !reachesRight) {
++            // Going left, S falls to the tile's first column, or rises to its last when the rect is mirrored.
++            const int32_t firstColumn = tiles[tile].uls >> 2;
++            const int32_t lastColumn = tiles[tile].lrs >> 2;
++            const bool mirrored = (texelsPerPixel < 0.0f);
++            const bool cutLeft = (ulx <= edgeScissor.ulx) && (texelsPerPixel != 0.0f) && tileColumnOpaque(tile, mirrored ? lastColumn : firstColumn);
++            const bool cutRight = (lrx >= edgeScissor.lrx) && (texelsPerPixel != 0.0f) && tileColumnOpaque(tile, mirrored ? firstColumn : lastColumn);
++            if (cutLeft) {
 +                const int32_t extendedUls = int32_t(uls) - ((int32_t(dsdx) * ExtendPixels) >> 5);
 +                if ((extendedUls >= INT16_MIN) && (extendedUls <= INT16_MAX)) {
 +                    ulx -= ExtendPixels << 2;
 +                    uls = int16_t(extendedUls);
-+                    pendingRectEdgeExtend = 1;
 +                }
 +            }
-+            else if (reachesRight && !reachesLeft) {
++
++            if (cutRight) {
 +                lrx += ExtendPixels << 2;
-+                pendingRectEdgeExtend = 2;
++            }
++
++            // Whatever reaches past a side of the scissor (the game's own sprites included) gets that side opened.
++            if (ulx < edgeScissor.ulx) {
++                pendingRectEdgeExtend |= 1;
++            }
++
++            if (lrx > edgeScissor.lrx) {
++                pendingRectEdgeExtend |= 2;
 +            }
 +        }
 +
@@ -93,7 +231,7 @@ index 9a33a2d..05f927f 100644
      }
  
 diff --git a/src/hle/rt64_rdp.h b/src/hle/rt64_rdp.h
-index 5ecaf70..e22123e 100644
+index 5ecaf70..1dbfbcc 100644
 --- a/src/hle/rt64_rdp.h
 +++ b/src/hle/rt64_rdp.h
 @@ -72,6 +72,9 @@ namespace RT64 {
@@ -101,11 +239,19 @@ index 5ecaf70..e22123e 100644
          LoadTexture texture = {};
          LoadTile tiles[RDP_TILES] = {};
 +
-+        // Which side of the scissor the next rect was extended past (rect.extendEdgeRects): 0, 1 left, 2 right.
++        // Which sides of the scissor the next rect reaches past (rect.extendEdgeRects): bit 0 left, bit 1 right.
 +        uint8_t pendingRectEdgeExtend = 0;
          uint64_t tileReplacementHashes[RDP_TILES] = {};
  
          struct {
+@@ -150,6 +153,7 @@ namespace RT64 {
+         void checkImageOverlap(uint32_t addressStart, uint32_t addressEnd);
+         int32_t movedFromOrigin(int32_t x, uint16_t ori);
+         uint32_t maskAddress(uint32_t address);
++        bool tileColumnOpaque(uint8_t tile, int32_t column);
+         void setColorImage(uint8_t fmt, uint8_t siz, uint16_t width, uint32_t address);
+         void setDepthImage(uint32_t address);
+         void setTextureImage(uint8_t fmt, uint8_t siz, uint16_t width, uint32_t address);
 diff --git a/src/hle/rt64_state.cpp b/src/hle/rt64_state.cpp
 index 96a174b..cf4c80a 100644
 --- a/src/hle/rt64_state.cpp
@@ -119,10 +265,26 @@ index 96a174b..cf4c80a 100644
          drawCall.scissorMode = 0;
          drawCall.scissorLeftOrigin = G_EX_ORIGIN_NONE;
 diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
-index 5a331aa..c464ab8 100644
+index 5a331aa..bed7be2 100644
 --- a/src/hle/rt64_workload_queue.cpp
 +++ b/src/hle/rt64_workload_queue.cpp
-@@ -182,6 +182,8 @@ namespace RT64 {
+@@ -137,7 +137,14 @@ namespace RT64 {
+         switch (ratioMode) {
+         case UserConfiguration::AspectRatio::Expand:
+             if ((ext.sharedResources->swapChainWidth > 0) && (ext.sharedResources->swapChainHeight > 0)) {
+-                const float derivedRatioTarget = float(ext.sharedResources->swapChainWidth) / float(ext.sharedResources->swapChainHeight);
++                float derivedRatioTarget = float(ext.sharedResources->swapChainWidth) / float(ext.sharedResources->swapChainHeight);
++                const float cropSides = ext.sharedResources->enhancementConfig.presentation.expandCropSides;
++                if ((cropSides > 0.0f) && (viFbSize[0] > 0)) {
++                    // Make up for the columns left out at each side when presenting (see VIRenderer).
++                    const float sourceWidth = float(viFbSize[0]);
++                    derivedRatioTarget *= sourceWidth / std::max(sourceWidth - 2.0f * cropSides, 1.0f);
++                }
++
+                 workloadConfig.aspectRatioTarget = std::max(derivedRatioTarget, workloadConfig.aspectRatioSource);
+             }
+             else {
+@@ -182,6 +189,8 @@ namespace RT64 {
              break;
          }
  
@@ -131,7 +293,7 @@ index 5a331aa..c464ab8 100644
          // Compute the resolution scaling to be used for the frame.
          float resolutionMultiplier;
          const auto resolutionMode = ext.sharedResources->userConfig.resolution;
-@@ -253,7 +255,10 @@ namespace RT64 {
+@@ -253,7 +262,10 @@ namespace RT64 {
          workloadConfig.postBlendNoise = ext.sharedResources->emulatorConfig.dither.postBlendNoise;
          workloadConfig.postBlendNoiseNegative = ext.sharedResources->emulatorConfig.dither.postBlendNoiseNegative;
          
@@ -143,7 +305,7 @@ index 5a331aa..c464ab8 100644
              {
                  // Wait until the other queue has stopped using the interpolated color targets.
                  std::unique_lock<std::mutex> interpolatedLock(ext.sharedResources->interpolatedMutex);
-@@ -630,6 +635,7 @@ namespace RT64 {
+@@ -630,6 +642,7 @@ namespace RT64 {
                      drawParams.aspectRatioSource = workloadConfig.aspectRatioSource;
                      drawParams.aspectRatioTarget = workloadConfig.aspectRatioTarget;
                      drawParams.extAspectPercentage = workloadConfig.extAspectPercentage;
@@ -164,7 +326,7 @@ index bde2f03..2945b69 100644
              bool postBlendNoise = false;
              bool postBlendNoiseNegative = false;
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
-index 133c039..52b94a3 100644
+index 133c039..53cfb69 100644
 --- a/src/render/rt64_framebuffer_renderer.cpp
 +++ b/src/render/rt64_framebuffer_renderer.cpp
 @@ -1625,6 +1625,8 @@ namespace RT64 {
@@ -193,8 +355,8 @@ index 133c039..52b94a3 100644
 +                                // A textured rect already drawn past the side (RDP::drawTexRect) only needs the scissor
 +                                // opened on that side; its texture keeps its place and scale.
 +                                else if (!coversScissorWidth && !tileCopiesUsed) {
-+                                    extendLeft = (call.callDesc.rectEdgeExtend == 1);
-+                                    extendRight = (call.callDesc.rectEdgeExtend == 2);
++                                    extendLeft = (call.callDesc.rectEdgeExtend & 1) != 0;
++                                    extendRight = (call.callDesc.rectEdgeExtend & 2) != 0;
 +                                }
 +                            }
 +
@@ -237,3 +399,72 @@ index 3add9c3..cc55348 100644
              float horizontalMisalignment;
              PresetScene presetScene;
              bool rtEnabled;
+diff --git a/src/render/rt64_vi_renderer.cpp b/src/render/rt64_vi_renderer.cpp
+index 4bded05..c9602f6 100644
+--- a/src/render/rt64_vi_renderer.cpp
++++ b/src/render/rt64_vi_renderer.cpp
+@@ -74,7 +74,7 @@ namespace RT64 {
+ 
+         RenderViewport viewport;
+         RenderRect scissor;
+-        getViewportAndScissor(p.swapChain, *p.vi, p.resolutionScale, p.downsamplingScale, p.removeBlackBorders, p.nativeSize, viewport, scissor);
++        getViewportAndScissor(p.swapChain, *p.vi, p.resolutionScale, p.downsamplingScale, p.removeBlackBorders, p.nativeSize, viewport, scissor, p.cropSides);
+         p.commandList->setViewports(viewport);
+         p.commandList->setScissors(scissor);
+ 
+@@ -91,7 +91,7 @@ namespace RT64 {
+         p.commandList->drawInstanced(3, 1, 0, 0);
+     }
+ 
+-    void VIRenderer::getViewportAndScissor(const RenderSwapChain *swapChain, const VI &vi, hlslpp::float2 resolutionScale, uint32_t downsamplingScale, bool removeBlackBorders, bool nativeSize, RenderViewport &viewport, RenderRect &scissor) {
++    void VIRenderer::getViewportAndScissor(const RenderSwapChain *swapChain, const VI &vi, hlslpp::float2 resolutionScale, uint32_t downsamplingScale, bool removeBlackBorders, bool nativeSize, RenderViewport &viewport, RenderRect &scissor, float cropSides) {
+         // We define three different coordinate spaces to work with to translate the VI parameters into the Window.
+         //
+         // VideoSD: This corresponds to the SD TV Scanline space, which is what the VI natively works on.
+@@ -105,13 +105,24 @@ namespace RT64 {
+         // on the screen. To work around that, the viewport the buffer will be drawn in will be expanded so only
+         // the region of interest is rendered. A scissor will cut it off correctly according to the coordinates
+         // specified by the VI.
+-        const hlslpp::float2 sdSize = removeBlackBorders ? hlslpp::float2(vi.fbSize()) : hlslpp::float2(320.0f, 240.0f);
++        const hlslpp::float2 fullSdSize = removeBlackBorders ? hlslpp::float2(vi.fbSize()) : hlslpp::float2(320.0f, 240.0f);
++
++        // Leave out columns at each side: the picture is that much narrower and starts that much further in.
++        const float crop = removeBlackBorders ? std::clamp(cropSides, 0.0f, float(fullSdSize.x) / 4.0f) : 0.0f;
++        const hlslpp::float2 sdSize = { float(fullSdSize.x) - 2.0f * crop, float(fullSdSize.y) };
+         const hlslpp::float2 hdSize = computeHDSize(sdSize, resolutionScale, downsamplingScale);
+         const hlslpp::float2 windowSize = { float(swapChain->getWidth()), float(swapChain->getHeight()) };
+ 
+         // Query the VI for the current rendering area.
+-        hlslpp::float4 viViewRect = vi.viewRectangle() * sdSize.xyxy;
+-        hlslpp::float4 viCropRect = vi.cropRectangle() * sdSize.xyxy;
++        hlslpp::float4 viViewRect = vi.viewRectangle() * fullSdSize.xyxy;
++        hlslpp::float4 viCropRect = vi.cropRectangle() * fullSdSize.xyxy;
++        if (crop > 0.0f) {
++            viViewRect.x -= crop;
++            const float cropLeft = std::max(float(viCropRect.x), crop);
++            const float cropRight = std::min(float(viCropRect.x + viCropRect.z), float(fullSdSize.x) - crop);
++            viCropRect.x = cropLeft - crop;
++            viCropRect.z = std::max(cropRight - cropLeft, 0.0f);
++        }
+ 
+         // Scale all the rectangles to the space of the Window.
+         hlslpp::float2 topLeftViewport = fromSDtoHD({ float(viViewRect.x), float(viViewRect.y) }, sdSize, hdSize);
+diff --git a/src/render/rt64_vi_renderer.h b/src/render/rt64_vi_renderer.h
+index c29c294..6977bfe 100644
+--- a/src/render/rt64_vi_renderer.h
++++ b/src/render/rt64_vi_renderer.h
+@@ -30,11 +30,12 @@ namespace RT64 {
+             const VI *vi = nullptr;
+             bool removeBlackBorders = false;
+             bool nativeSize = false;
++            float cropSides = 0.0f;
+         };
+ 
+         VIRenderer();
+         ~VIRenderer();
+         void render(const RenderParams &p);
+-        static void getViewportAndScissor(const RenderSwapChain *swapChain, const VI &vi, hlslpp::float2 resolutionScale, uint32_t downsamplingScale, bool removeBlackBorders, bool nativeSize, RenderViewport &viewport, RenderRect &scissor);
++        static void getViewportAndScissor(const RenderSwapChain *swapChain, const VI &vi, hlslpp::float2 resolutionScale, uint32_t downsamplingScale, bool removeBlackBorders, bool nativeSize, RenderViewport &viewport, RenderRect &scissor, float cropSides = 0.0f);
+     };
+ };
+\ No newline at end of file

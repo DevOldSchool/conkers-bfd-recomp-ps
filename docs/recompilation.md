@@ -102,16 +102,25 @@ but not the other carries on to that side of the frame buffer:
 * An untextured one has that edge, and its scissor's, moved to the frame
   buffer's edge, so it meets it exactly rather than leaving a sliver where
   RT64's rounding of the 3D scissor differs.
-* A textured one with a clamped texture, or one without a mask (not copy
-  mode or a frame buffer copy), is built 512 pixels past that side in `RDP::drawTexRect`, with its
-  texture coordinates carried on at the same rate, and the renderer opens
-  only that side of its scissor. Once the circle is wider than 4:3 and the
+* A textured one (not copy mode or a frame buffer copy) is built 512 pixels
+  past that side in `RDP::drawTexRect`, with its texture coordinates carried
+  on at the same rate, when the tile's column on that side is at least two
+  thirds opaque (read from the RDRAM its load comes from), and the renderer
+  opens that side of its scissor. Once the circle is wider than 4:3 and the
   game stops drawing the side rectangles, the quarter circles go on past the
   4:3 edge at their true shape, and past their texture's edge they clamp to
-  its black outer texels. In 4:3 the scissor clips them as before. Only a
-  rectangle whose texture coordinate at that side lies inside its tile (one
-  the game cut off there) carries on; a sprite that merely touches the side,
-  such as a speech bubble, would smear its edge texels.
+  its black outer texels. A mostly transparent edge, such as a speech
+  bubble's, is left as the game drew it: carrying it on only smeared the few
+  visible texels into a streak. In 4:3 the scissor clips them as before.
+* Any textured rectangle that reaches past a side of the scissor, like a
+  speech bubble near the edge of the screen, gets that side of its scissor
+  opened, so it is not cut off at the edge of the 4:3 area.
+
+`presentation.expandCropSides` leaves columns out at each side of the frame
+buffer when it is presented with a widened aspect ratio, and Expand widens the
+aspect ratio to make up for them. Conker never draws the two columns at each
+side (in 4:3 they are the picture's black edges); widened, nothing draws there
+either, so they showed as thin bars, black or holding stale pixels.
 
 The patch also keeps RT64's render targets and frame copies when the window
 changes size while the resolution is manual and the aspect ratio does not
