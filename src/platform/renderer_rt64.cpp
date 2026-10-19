@@ -15,8 +15,9 @@
 // widens the game's perspective projections and the frame buffer, so more of the scene shows at the
 // sides rather than the picture being stretched. 2D rectangles stay centered in the 4:3 area unless
 // they span the whole width, so the HUD and menus keep their place and full-screen fills reach the
-// edges. The game still culls to its own 4:3 view, so an object can appear late at the far sides,
-// and the pause menu draws its blurred copy of the frame over the 4:3 area only.
+// edges. The game still culls to its own 4:3 view, so an object can appear late at the far sides.
+// Whole-frame copies such as the pause menu's blurred background are stretched to the full width
+// with RT64's extended GBI (src/enhancements/display_options/widescreen_copies.cpp).
 #include "platform/renderer_rt64.hpp"
 
 #include <cstdio>

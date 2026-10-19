@@ -81,8 +81,8 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
     takes the display's own shape (16:9, 16:10 or ultrawide). The HUD and
     menus stay in the middle. It is 4:3 by default, as on an N64. The game
     still decides what to draw for its own 4:3 view, so objects at the far
-    sides can appear late, and the blurred background of the pause menu
-    only covers the middle 4:3 area.
+    sides can appear late. The blurred background of the pause menu is the
+    4:3 frame stretched to the full width.
   * The resolution: how large the game's 292x216 picture is rendered, in
     whole multiples from 292x216 (1x). In a window it is the window's size,
     up to the largest that fits the display (1460x1080, 5x, on a 2560x1440
