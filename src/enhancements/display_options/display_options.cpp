@@ -1,6 +1,7 @@
 // Display rows on the title menu's OPTIONS page, between the sound row and CHEATS: the display mode
-// (WINDOWED, BORDERLESS, FULL SCREEN), the resolution the picture is drawn at in that mode, and
-// whether it is scaled to fill the window or screen or drawn at its own size.
+// (WINDOWED, BORDERLESS, FULL SCREEN), the picture's shape (4:3 or WIDESCREEN), the resolution the
+// picture is drawn at in that mode, and whether it is scaled to fill the window or screen or drawn
+// at its own size.
 // Native helpers called from the [[patches.hook]] snippets in config/us.toml (func_151DF1BC,
 // func_151E3344); CONKER_DISPLAY_OPTIONS=0 leaves the page as it was.
 //
@@ -19,11 +20,15 @@
 // (src/platform/display_mode.cpp).
 //
 // * The mode row borrows option 12 (GOAL: three values), one value per mode.
+// * The shape row borrows option 15 (two values): 4:3, or WIDESCREEN, where RT64 widens the view
+//   to the window's or screen's shape, kept for each mode like the fill. The game has a PICTURE 4:3/16:9 setting of its own (option
+//   8), hidden on the US OPTIONS page, but nothing in the US game reads it.
 // * The resolution row borrows option 16 (AI LEVEL: five values) as a carousel, because how many
 //   sizes there are depends on the display: before each call its value is put in the middle with
 //   the neighbouring sizes on either side, and a step left or right afterwards moves along the
-//   list. A window offers the multiples of the 292x216 picture that fit the display; covering the
-//   screen it offers the multiples up to the first that covers the screen's height.
+//   list. A window offers the multiples of the 292x216 picture (384x216 in widescreen) that fit
+//   the display; covering the screen it offers the multiples up to the first that covers the
+//   screen's height, as wide as the screen in widescreen.
 // * The fill row borrows option 19 (DIRECTION: two values): FILL SCREEN or CENTERED, kept for each
 //   mode (src/platform/display_mode.hpp).
 //
@@ -83,6 +88,7 @@ struct Borrowed {
 Borrowed g_mode_row{12, 31, 3, {2, 28, 4, 29}, kStringArea};
 Borrowed g_scale_row{16, 42, 5, {-6, 35, 36, 37, 38, 39}, kStringArea + 3 * kStringStride};
 Borrowed g_fill_row{19, 52, 2, {-62, 43, 44}, kStringArea + 8 * kStringStride};
+Borrowed g_shape_row{15, 39, 2, {31, 32, 33}, kStringArea + 10 * kStringStride};
 constexpr int8_t kCarouselMiddle = 2;
 
 bool g_active = false;
@@ -92,9 +98,10 @@ int g_row_count = 0;
 // The gap below a row, by the option it shows.
 int gap_after(int option) {
     switch (option) {
-        case 9: return 28;    // the sound icon, then the display rows
+        case 9: return 26;    // the sound icon, then the display rows
         case 12:
-        case 16: return 20;   // between the display rows
+        case 15:
+        case 16: return 18;   // between the display rows
         case 19: return 32;   // the display rows, then CHEATS
         default: return kEngineRowSpacing;
     }
@@ -113,6 +120,7 @@ void lay_out(uint32_t mask) {
 
 int row_y(int row) { return g_row_y[row < 0 ? 0 : row >= g_row_count ? g_row_count - 1 : row]; }
 int8_t g_shown_mode = 0;
+int8_t g_shown_shape = 0;
 int8_t g_shown_fill = 0;
 std::vector<int> g_scales;  // the resolution row's choices in this mode
 int g_scale_index = 0;      // the one shown
@@ -187,10 +195,11 @@ int8_t give_back(uint8_t* rdram, Borrowed& row) {
     return value;
 }
 
-std::string scale_words(int scale) {
+std::string scale_words(Mode mode, int scale) {
+    const int width = mode == Mode::Windowed ? conker::display::window_picture_width(scale)
+                                             : conker::display::screen_picture_width(scale);
     char text[32];
-    std::snprintf(text, sizeof(text), "%d X %d", conker::display::kPictureWidth * scale,
-                  conker::display::kPictureHeight * scale);
+    std::snprintf(text, sizeof(text), "%d X %d", width, conker::display::kPictureHeight * scale);
     return text;
 }
 
@@ -228,21 +237,24 @@ int wrap(int index) {
 extern "C" void conker_display_options_begin(uint8_t* rdram, recomp_context* ctx) {
     if (!display_options_enabled() || static_cast<uint32_t>(ctx->r4) != kOptionsPageMask ||
         !record_matches(rdram, g_mode_row) || !record_matches(rdram, g_scale_row) ||
-        !record_matches(rdram, g_fill_row)) {
+        !record_matches(rdram, g_fill_row) || !record_matches(rdram, g_shape_row)) {
         return;
     }
     const Mode mode = conker::display::current();
     g_shown_mode = static_cast<int8_t>(mode);
     borrow(rdram, g_mode_row, g_shown_mode, {"WINDOWED", "BORDERLESS", "FULL SCREEN"});
 
+    g_shown_shape = conker::display::widescreen(mode) ? 1 : 0;
+    borrow(rdram, g_shape_row, g_shown_shape, {"4:3", "WIDESCREEN"});
+
     list_scales(mode);
     std::vector<std::string> words;
     for (int i = -kCarouselMiddle; i < g_scale_row.value_count - kCarouselMiddle; i++) {
-        words.push_back(scale_words(g_scales[static_cast<size_t>(wrap(g_scale_index + i))]));
+        words.push_back(scale_words(mode, g_scales[static_cast<size_t>(wrap(g_scale_index + i))]));
     }
     borrow(rdram, g_scale_row, kCarouselMiddle, words);
 
-    ctx->r4 |= (1u << g_mode_row.option) | (1u << g_scale_row.option);
+    ctx->r4 |= (1u << g_mode_row.option) | (1u << g_shape_row.option) | (1u << g_scale_row.option);
 
     g_shown_fill = conker::display::fill(mode) ? 0 : 1;
     borrow(rdram, g_fill_row, g_shown_fill, {"FILL SCREEN", "CENTERED"});
@@ -258,10 +270,13 @@ extern "C" void conker_display_options_end(uint8_t* rdram, recomp_context* /*ctx
     }
     g_active = false;
     const int8_t mode = give_back(rdram, g_mode_row);
+    const int8_t shape = give_back(rdram, g_shape_row);
     const int8_t step = static_cast<int8_t>(give_back(rdram, g_scale_row) - kCarouselMiddle);
     const int8_t fill = give_back(rdram, g_fill_row);
     if (mode != g_shown_mode && mode >= 0 && mode < conker::display::kModeCount) {
         conker::display::request(static_cast<Mode>(mode));
+    } else if (shape != g_shown_shape) {
+        conker::display::request_widescreen(static_cast<Mode>(g_shown_mode), shape == 1);
     } else if (step != 0 && g_scales.size() > 1) {
         const int scale = g_scales[static_cast<size_t>(wrap(g_scale_index + (step > 0 ? 1 : -1)))];
         if (static_cast<Mode>(g_shown_mode) == Mode::Windowed) {
@@ -277,7 +292,8 @@ extern "C" void conker_display_options_end(uint8_t* rdram, recomp_context* /*ctx
 // In func_151E3344 before it draws the joysticks at 0x94 +- $s0: further apart for these rows.
 extern "C" void conker_display_options_sticks(uint8_t* rdram, recomp_context* ctx) {
     const int selected = MEM_BU(0, kseg0(kSelected));
-    if (g_active && (selected == g_mode_row.option || selected == g_scale_row.option || selected == g_fill_row.option)) {
+    if (g_active && (selected == g_mode_row.option || selected == g_shape_row.option ||
+                     selected == g_scale_row.option || selected == g_fill_row.option)) {
         ctx->r16 += kStickSpread;
     }
 }

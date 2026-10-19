@@ -90,6 +90,45 @@ the window. With a manual resolution multiplier it draws an exact multiple of
 the picture in a window or on a screen whose size is not one (the OPTIONS
 CENTERED setting, `src/platform/renderer_rt64.cpp`).
 
+`tools/patches/rt64-edge-rects.patch` (apply in `lib/rt64` after
+`rt64-native-size.patch`) adds `rect.extendEdgeRects`. With a widened aspect
+ratio (the OPTIONS WIDESCREEN setting), RT64 keeps 2D rectangles in the
+original 4:3 area unless one spans the whole scissor. Conker's circle wipe
+masks the picture with black fill rectangles on each side of four textured
+quarter-circle tiles, all clipped to the 4:3 screen, so the scene showed at
+both edges. With the option, a rectangle that reaches one side of the scissor
+but not the other carries on to that side of the frame buffer:
+
+* An untextured one has that edge, and its scissor's, moved to the frame
+  buffer's edge, so it meets it exactly rather than leaving a sliver where
+  RT64's rounding of the 3D scissor differs.
+* A textured one (not copy mode or a frame buffer copy) that the game cut off
+  at the screen's edge (its texture coordinate there is not at the tile's
+  edge), such as a speech bubble or a cloud partly off screen, is drawn on in
+  `RDP::drawTexRect` to the tile's edge, with its texture coordinates carried
+  on at the same rate, so the rest of it shows. It carries on further, up to
+  512 pixels, only when the tile's column on that side is at least two thirds
+  opaque (read from the RDRAM its queued load comes from): clamping to it then
+  continues a solid edge, like the black outside the wipe's quarter circles
+  once the circle is wider than 4:3 and the game stops drawing the side
+  rectangles. Clamping a sprite's edge would smear it into a streak. In 4:3
+  the scissor clips them as before.
+* Any textured rectangle that reaches past a side of the scissor, like a
+  speech bubble near the edge of the screen, gets that side of its scissor
+  opened, so it is not cut off at the edge of the 4:3 area.
+
+`presentation.expandCropSides` leaves columns out at each side of the frame
+buffer when it is presented with a widened aspect ratio, and Expand widens the
+aspect ratio to make up for them. Conker never draws the two columns at each
+side (in 4:3 they are the picture's black edges); widened, nothing draws there
+either, so they showed as thin bars, black or holding stale pixels.
+
+The patch also keeps RT64's render targets and frame copies when the window
+changes size while the resolution is manual and the aspect ratio does not
+follow the window. RT64 dropped them on every resize, which lost the pause
+menu's copy of the last frame; the renderer holds a manual resolution and a
+fixed aspect ratio while that menu is open (`src/platform/renderer_rt64.cpp`).
+
 All of these are candidates for upstreaming.
 
 RT64's CMake turns plume's Retina support off, which would size the Metal

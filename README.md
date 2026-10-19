@@ -34,6 +34,7 @@ git submodule update --init --recursive
 (cd lib/N64ModernRuntime && git apply ../../tools/patches/n64modernruntime-pi-dma-message.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-f3dex2cbfd.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-native-size.patch)
+(cd lib/rt64 && git apply ../../tools/patches/rt64-edge-rects.patch)
 tools/regenerate.sh
 cmake -S . -B build/rt64 -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER=rt64
 cmake --build build/rt64
@@ -70,27 +71,42 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
 ## Enhancements
 
 * **Display options:** the OPTIONS page of the title menu has
-  three rows under the sound setting.
+  four rows under the sound setting.
   * WINDOWED, BORDERLESS or FULL SCREEN. Full screen (the default) is macOS
     full screen in a Space of its own; borderless covers the screen in the
     current Space, with the menu bar and Dock hidden while the game is in
     front.
+  * 4:3 or WIDESCREEN. Widescreen widens the view to the shape of the
+    window or screen instead of stretching the picture: the window becomes
+    16:9 (384x216 for each multiple), and covering the screen the picture
+    takes the display's own shape (16:9, 16:10 or ultrawide). The HUD and
+    menus stay in the middle, and the circle wipe that opens and closes a
+    scene covers the whole width. Covering the screen is widescreen by
+    default; a window is 4:3 by default, as on an N64. The game
+    still decides what to draw for its own 4:3 view, so objects at the far
+    sides can appear late. Behind the pause menu the paused scene stays
+    widescreen, but sharp: the game blurs only the 4:3 middle of the frame,
+    so that blur is skipped in widescreen. Switching between the window and
+    full screen while paused keeps the paused picture as it was, fitted to
+    the new size; the new resolution and shape apply once you carry on.
   * The resolution: how large the game's 292x216 picture is rendered, in
     whole multiples from 292x216 (1x). In a window it is the window's size,
     up to the largest that fits the display (1460x1080, 5x, on a 2560x1440
     display with the Dock showing, which is also the default). Covering the
     screen it goes up to the first multiple that covers the screen's height
-    (2044x1512, 7x, on 1440 lines, the default). Sizes are in pixels, also
-    on a Retina screen, where the game draws at the screen's full pixel
-    density: on a 3024x1964 screen a window goes up to 2044x1512 (7x, half
-    that in points), and covering the screen up to 2920x2160 (10x).
+    (2044x1512, 7x, on 1440 lines, the default). Widescreen widths are
+    shown in widescreen. Sizes are in pixels, also on a Retina screen,
+    where the game draws at the screen's full pixel density: on a 3024x1964
+    screen a window goes up to 2044x1512 (7x, half that in points),
+    and covering the screen up to 2920x2160 (10x).
   * FILL SCREEN or CENTERED: the picture is scaled to fill the window or
     screen, or drawn at its own size in the middle with black bars, so that
     every game pixel is an even block. Covering the screen it fills by
     default; a lower resolution then fills it with larger pixels. A window
     is centered by default, which only shows once it is resized by hand.
 
-  Each mode keeps its own resolution and fill. F11, Cmd+Enter, Alt+Enter or
+  The window and the screen-covering modes each keep their own resolution,
+  shape and fill. F11, Cmd+Enter, Alt+Enter or
   Ctrl+Cmd+F switch between the window and the last screen-covering mode.
   The choices are kept in `conker-recomp-data/display.cfg`, not in the
   game's save, so the OPTIONS saved to EEPROM are unchanged.

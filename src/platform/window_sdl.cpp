@@ -18,7 +18,8 @@
 // covering the screen in the current Space, or the window above. F11, Cmd+Enter, Alt+Enter or
 // Ctrl+Cmd+F switch between the window and the last screen-covering mode. Covering the screen,
 // RT64 renders at the multiple that covers the screen height and shrinks it slightly to fit (7x on
-// a 1440-line display).
+// a 1440-line display). In widescreen the window is 16:9 (kWidePictureWidth wide for each multiple)
+// and RT64 widens the picture to the window's or screen's shape (src/platform/renderer_rt64.cpp).
 #include "platform/window.hpp"
 
 #include "platform/display_mode.hpp"
@@ -28,6 +29,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <vector>
 
 #include <SDL.h>
 #include <SDL_syswm.h>
@@ -46,8 +49,10 @@ namespace {
 // borders that RT64 crops (removeBlackBorders). RT64's VI::fbSize rounds the height up to 216.
 constexpr int kPictureWidth = conker::display::kPictureWidth;
 constexpr int kPictureHeight = conker::display::kPictureHeight;
+constexpr int kWidePictureWidth = conker::display::kWidePictureWidth;
 
 constexpr int kOriginalWidth = 960;  // the window used before it was sized to the display
+constexpr int kOriginalWideWidth = 1280;  // and its 16:9 counterpart
 constexpr int kOriginalHeight = 720;
 
 // Room for the title bar (28 points on macOS), which is not part of the window size.
@@ -81,15 +86,21 @@ void find_limits() {
     const int usable_h = to_pixels(usable.h - kTitleBarAllowance);
     const int screen_w = to_pixels(bounds.w);
     const int screen_h = to_pixels(bounds.h);
-    const int window_max = std::min(usable_w / kPictureWidth, usable_h / kPictureHeight);
+    conker::display::Limits limits;
+    limits.window_max = std::min(usable_w / kPictureWidth, usable_h / kPictureHeight);
+    limits.wide_window_max = std::min(usable_w / kWidePictureWidth, usable_h / kPictureHeight);
     // The smallest multiple covering the screen height (RT64 shrinks it to fit), unless the width
-    // already limits it.
-    const int screen_max = std::min((screen_w + kPictureWidth - 1) / kPictureWidth,
-                                    (screen_h + kPictureHeight - 1) / kPictureHeight);
-    conker::display::set_limits(window_max, screen_max);
-    std::printf("[conker] display %dx%d pixels (%g per point), %dx%d usable: up to %dx in a window, %dx covering "
-                "the screen\n",
-                screen_w, screen_h, g_density, to_pixels(usable.w), to_pixels(usable.h), window_max, screen_max);
+    // already limits it. A widescreen picture takes the screen's shape, so only its height counts.
+    const int cover_height = (screen_h + kPictureHeight - 1) / kPictureHeight;
+    limits.screen_max = std::min((screen_w + kPictureWidth - 1) / kPictureWidth, cover_height);
+    limits.wide_screen_max = cover_height;
+    limits.screen_width = screen_w;
+    limits.screen_height = screen_h;
+    conker::display::set_limits(limits);
+    std::printf("[conker] display %dx%d pixels (%g per point), %dx%d usable: up to %dx in a window (%dx in "
+                "widescreen), %dx covering the screen (%dx)\n",
+                screen_w, screen_h, g_density, to_pixels(usable.w), to_pixels(usable.h), limits.window_max,
+                limits.wide_window_max, limits.screen_max, limits.wide_screen_max);
 }
 
 bool original_size() {
@@ -104,9 +115,10 @@ Mode g_screen_mode = Mode::Fullscreen;  // where the shortcuts go from the windo
 // The window's frame in points when it is a window, centred on its display.
 SDL_Rect window_frame() {
     const int centered = static_cast<int>(SDL_WINDOWPOS_CENTERED_DISPLAY(g_display));
-    SDL_Rect frame{centered, centered, kOriginalWidth, kOriginalHeight};
+    SDL_Rect frame{centered, centered,
+                   conker::display::widescreen(Mode::Windowed) ? kOriginalWideWidth : kOriginalWidth, kOriginalHeight};
     if (!original_size()) {
-        frame.w = to_points(kPictureWidth * conker::display::window_scale());
+        frame.w = to_points(conker::display::window_picture_width(conker::display::window_scale()));
         frame.h = to_points(kPictureHeight * conker::display::window_scale());
     }
     return frame;
@@ -231,6 +243,47 @@ bool is_fullscreen_toggle(const SDL_KeyboardEvent& key) {
            (code == SDL_SCANCODE_F && (mod & KMOD_GUI) && (mod & KMOD_CTRL));
 }
 
+// CONKER_DISPLAY_SWITCH=<ms>:<mode>[,...] asks for a display mode (windowed, borderless or
+// fullscreen) that many milliseconds after start, as the shortcuts would, so mode changes can be
+// tested by script (docs/diagnostics.md).
+struct ScheduledSwitch {
+    Uint64 at_ms;
+    Mode mode;
+};
+
+std::vector<ScheduledSwitch> scheduled_switches() {
+    std::vector<ScheduledSwitch> switches;
+    const char* value = std::getenv("CONKER_DISPLAY_SWITCH");
+    for (const char* p = value; p != nullptr && *p != '\0';) {
+        char* end = nullptr;
+        const unsigned long long ms = std::strtoull(p, &end, 10);
+        if (end == p || *end != ':') {
+            break;
+        }
+        const char* name = end + 1;
+        const char* comma = std::strchr(name, ',');
+        const size_t length = comma != nullptr ? static_cast<size_t>(comma - name) : std::strlen(name);
+        for (int i = 0; i < conker::display::kModeCount; i++) {
+            const char* mode_name = conker::display::name(static_cast<Mode>(i));
+            if (std::strlen(mode_name) == length && std::strncmp(mode_name, name, length) == 0) {
+                switches.push_back({ms, static_cast<Mode>(i)});
+            }
+        }
+        p = comma != nullptr ? comma + 1 : name + length;
+    }
+    return switches;
+}
+
+void run_scheduled_switches() {
+    static std::vector<ScheduledSwitch> switches = scheduled_switches();
+    static size_t next = 0;
+    if (next < switches.size() && SDL_GetTicks64() >= switches[next].at_ms) {
+        std::printf("[conker] CONKER_DISPLAY_SWITCH: %s\n", conker::display::name(switches[next].mode));
+        conker::display::request(switches[next].mode);
+        next++;
+    }
+}
+
 } // namespace
 
 void* create_gfx() {
@@ -308,6 +361,7 @@ void update_gfx(void* /*gfx_data*/) {
         }
         conker::input::handle_event(event);
     }
+    run_scheduled_switches();
     if (Mode mode; conker::display::take_request(&mode)) {
         apply_mode(mode);
     }

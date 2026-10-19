@@ -10,6 +10,16 @@
 // and scales it to fill the window or screen, or presents it at its own size, centered
 // (presentation.nativeSize, tools/patches/rt64-native-size.patch). A window opens at its multiple,
 // so the two differ there only once it is resized by hand.
+//
+// In widescreen RT64 expands the picture to the window's or screen's shape (AspectRatio::Expand): it
+// widens the game's perspective projections and the frame buffer, so more of the scene shows at the
+// sides rather than the picture being stretched. 2D rectangles stay centered in the 4:3 area unless
+// they span the whole width, so the HUD and menus keep their place and full-screen fills reach the
+// edges. An untextured rectangle that reaches only one side, like the black around the circle wipe
+// that opens and closes a scene, is stretched to that side of the screen (rect.extendEdgeRects,
+// tools/patches/rt64-edge-rects.patch). The pause menu shows the paused scene at its full width,
+// without the game's blur (src/enhancements/display_options/widescreen_copies.cpp). The game still culls to its own 4:3
+// view, so an object can appear late at the far sides.
 #include "platform/renderer_rt64.hpp"
 
 #include <cstdio>
@@ -129,6 +139,10 @@ public:
     }
 
     void send_dl(const OSTask* task) override {
+        // Whether the game drew a frame copy for this task (see apply_display_scale).
+        const uint32_t copies = conker::display::frame_copy_count();
+        tasks_without_copy_ = copies != seen_copies_ ? 0 : tasks_without_copy_ + 1;
+        seen_copies_ = copies;
         app_->state->rsp->reset();
         app_->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
         app_->processDisplayLists(app_->core.RDRAM, task->t.data_ptr & 0x3FFFFFF, 0, true);
@@ -181,22 +195,64 @@ public:
     }
 
 private:
-    // RT64 renders at the multiple chosen for the mode and either scales it to fill the window or
-    // screen or presents it at its own size.
+    // RT64 renders at the multiple chosen for the mode, in 4:3 or widened to the window's shape, and
+    // either scales it to fill the window or screen or presents it at its own size.
     void apply_display_scale() {
+        // While the pause menu draws its copy of the last frame, keep the frame buffers as they are,
+        // or the copy is lost (see conker::display::note_frame_copy). Expand follows the swap chain's
+        // shape, so a widened picture is pinned to the shape it has for the time being. The hold
+        // lasts until the game's frames go by without a copy (send_dl counts them); counting the
+        // game's frames rather than time or screen refreshes keeps it through the stall of leaving
+        // or entering full screen.
+        if (tasks_without_copy_ < kHoldTasks) {
+            if (!holding_) {
+                holding_ = true;
+                if (applied_wide_) {
+                    float target;
+                    {
+                        RT64::SharedQueueResources* shared = app_->sharedQueueResources.get();
+                        std::scoped_lock lock(shared->configurationMutex);
+                        target = shared->swapChainHeight > 0
+                                     ? float(shared->swapChainWidth) / float(shared->swapChainHeight)
+                                     : 16.0f / 9.0f;
+                    }
+                    const float picture = float(conker::display::kPictureWidth) / conker::display::kPictureHeight;
+                    // As Expand does, make up for the columns left out at the sides.
+                    target *= float(conker::display::kPictureWidth) / (conker::display::kPictureWidth - 2.0f * kUndrawnColumns);
+                    app_->userConfig.aspectRatio = RT64::UserConfiguration::AspectRatio::Manual;
+                    app_->userConfig.aspectTarget = target > picture ? target : picture;
+                    app_->updateUserConfig(false);
+                }
+            }
+            return;
+        }
+        if (holding_) {
+            holding_ = false;
+            applied_scale_ = -1;  // apply whatever is asked for now
+        }
         const conker::display::Mode mode = conker::display::current();
         const bool windowed = mode == conker::display::Mode::Windowed;
         const int scale = windowed ? conker::display::window_scale() : conker::display::screen_scale();
         const bool native = !conker::display::fill(mode);
-        if (scale == applied_scale_ && native == applied_native_) {
+        const bool wide = conker::display::widescreen(mode);
+        if (scale == applied_scale_ && native == applied_native_ && wide == applied_wide_) {
             return;
         }
         applied_scale_ = scale;
         applied_native_ = native;
+        applied_wide_ = wide;
+        conker::display::set_rendered_widescreen(wide);
+        app_->userConfig.aspectRatio = wide ? RT64::UserConfiguration::AspectRatio::Expand
+                                            : RT64::UserConfiguration::AspectRatio::Original;
         app_->userConfig.resolution = scale > 0 ? RT64::UserConfiguration::Resolution::Manual
                                                 : RT64::UserConfiguration::Resolution::WindowIntegerScale;
         app_->userConfig.resolutionMultiplier = scale > 0 ? scale : 2.0;
         app_->enhancementConfig.presentation.nativeSize = native;
+        app_->enhancementConfig.rect.extendEdgeRects = true;  // only acts on a widened picture
+        // The game never draws the two frame-buffer columns at each side (in 4:3 they are the picture's
+        // black edges). Widened, nothing draws there either, so they are left out of the picture
+        // (tools/patches/rt64-edge-rects.patch) instead of showing as thin bars of black or stale pixels.
+        app_->enhancementConfig.presentation.expandCropSides = kUndrawnColumns;
         app_->updateUserConfig(true);  // see get_resolution_scale
         app_->updateEnhancementConfig();
     }
@@ -207,6 +263,12 @@ private:
     mutable uint32_t reported_height_ = 0;
     int applied_scale_ = 0;
     bool applied_native_ = false;
+    bool applied_wide_ = false;
+    static constexpr float kUndrawnColumns = 2.0f;
+    bool holding_ = false;  // settings held while the pause menu draws its frame copy
+    uint32_t seen_copies_ = 0;
+    int tasks_without_copy_ = 1 << 20;  // graphics tasks since the last frame copy
+    static constexpr int kHoldTasks = 4;
 };
 
 } // namespace
