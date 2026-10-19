@@ -222,6 +222,28 @@ func = "func_151DD9E4"
 before_vram = 0x151DD9E4
 text = "{ void conker_surround_default(uint8_t*, recomp_context*); conker_surround_default(rdram, ctx); }"
 
+# Any cutscene can be skipped with L: ones not watched yet, and ones the game never lets you skip.
+# The skip check func_1501E05C sends every title scene (0x1D) script but 5 away before the L test,
+# though scripts 2 to 4 are part of the new game's opening: the script in $t7 at 0x1501E0A4
+# becomes 5. D_800C3C9C, set for scripts with an "unskippable" event (all of the opening), is
+# read into $t4 at 0x1501E128: it becomes 0. func_1501D2C4 says whether the script has been
+# watched (its bit in the scene's mask at D_800C3A60), in $v0 at 0x1501E158: it becomes 1. See
+# src/enhancements/cutscene_skip/cutscene_skip.cpp; CONKER_SKIP_CUTSCENES=0 turns it off.
+[[patches.hook]]
+func = "func_1501E05C"
+before_vram = 0x1501E0A4
+text = "{ void conker_skip_title_scripts(uint8_t*, recomp_context*); conker_skip_title_scripts(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1501E05C"
+before_vram = 0x1501E128
+text = "{ void conker_skip_unskippable(uint8_t*, recomp_context*); conker_skip_unskippable(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1501E05C"
+before_vram = 0x1501E158
+text = "{ void conker_skip_unwatched(uint8_t*, recomp_context*); conker_skip_unwatched(rdram, ctx); }"
+
 # Characters at their most detailed at any distance. func_1502C6E8 chooses an actor's model from
 # its distance to the camera (500, 730, 1500 and 2000 units for ordinals 0 to 4) and has the
 # ordinal in $v1 at 0x1502C8C4, before the game's own adjustments; it becomes 0. See
