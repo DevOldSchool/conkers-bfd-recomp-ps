@@ -29,7 +29,11 @@ These environment variables are read by both builds:
   around VI 65 instead of 3,670. VI numbers in input scripts written for a full
   intro (such as the ones below) are then about 3,600 too late.
 * `CONKER_PRESS_START=<vi>[,<vi>...]` holds Start on controller 1 for 10 VIs
-  from each listed VI count, on top of any real input.
+  from each listed VI count, on top of any real input. `CONKER_PRESS_A` does
+  the same for A, which the null build needs to get into a new game:
+  `CONKER_SKIP_INTRO=1 CONKER_PRESS_A=300,600,900,1200,1500` with no save
+  reaches the opening cutscene, whose first speech bubbles are up about
+  165 s in.
 * `CONKER_VIRTUAL_PAD=<file>` (RT64 build) attaches an SDL virtual game
   controller driven by a script, so the whole controller path can be tested
   without hardware. Each line is `<vi> <length in VIs> <control>...`, where a
@@ -90,3 +94,23 @@ These environment variables are read by both builds:
 * `CONKER_AUDIO=0` (RT64 build) disables the SDL device; `CONKER_AUDIO_LATENCY_MS`
   (default 60) sets the extra buffering kept on top of what the game asks for;
   `CONKER_SILENT_AUDIO=1` skips the audio microcode entirely.
+
+## Emulator ground truth
+
+`tools/emulator_frames.py` takes screenshots from the decomp's
+software-rendered Mupen64Plus (Angrylion RDP, CXD4 RSP, the
+`./conker mupen-trace --software-renderer` container), with controller
+presses injected through its debugger, so a scene can be compared with RT64.
+Its docstring has a new-game script that reaches the opening's speech bubbles.
+The emulator runs at about 20 VIs a second, so that run takes about 18
+minutes. Compare pictures in N64 pixels: the emulator's 640x480 screenshot
+shows the 285x214 picture at x 40-609, y 25-452; an RT64 capture shows it
+across the whole window.
+
+Checked this way: speech-bubble shadows. Each bubble is drawn twice from the
+same 64x64 IA8 texture, first black at alpha 0x40 about 5 pixels right of and
+4 pixels above the bubble, then white on top. RT64 matches the emulator:
+the shadow shows only as a thin crescent along the top-right edge, darkening
+what is under it to 0.75. The soft fade around the rest of a bubble is
+its own edge under bilinear filtering (the texture is stretched about 3x
+across), not the shadow.
