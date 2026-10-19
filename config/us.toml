@@ -222,6 +222,15 @@ func = "func_151DD9E4"
 before_vram = 0x151DD9E4
 text = "{ void conker_surround_default(uint8_t*, recomp_context*); conker_surround_default(rdram, ctx); }"
 
+# Characters at their most detailed at any distance. func_1502C6E8 chooses an actor's model from
+# its distance to the camera (500, 730, 1500 and 2000 units for ordinals 0 to 4) and has the
+# ordinal in $v1 at 0x1502C8C4, before the game's own adjustments; it becomes 0. See
+# src/enhancements/max_detail/max_detail.cpp; CONKER_MAX_DETAIL=0 turns it off.
+[[patches.hook]]
+func = "func_1502C6E8"
+before_vram = 0x1502C8C4
+text = "{ void conker_max_detail(uint8_t*, recomp_context*); conker_max_detail(rdram, ctx); }"
+
 # Display options on the title menu's OPTIONS page: rows for the display mode, 4:3/WIDESCREEN, the
 # resolution and FILL SCREEN/CENTERED. Around the page's call to the menu engine func_151E3344,
 # multiplayer options 12, 15, 16 and 19 are lent to the rows and given back; hooks inside the engine space the
