@@ -254,11 +254,23 @@ text = "{ void conker_display_options_stick_y(uint8_t*, recomp_context*); conker
 
 # The pause menu's background in widescreen: func_151D61B0, the CPU blur of the frame the pause
 # menu copies for its background, is skipped, so RT64 keeps drawing the background from its own
-# full-width copy of the paused scene. See src/enhancements/display_options/widescreen_copies.cpp.
+# full-width copy of the paused scene; func_151D5E90, the whole-frame copy, draws full-width strips
+# instead of 128-pixel pieces, so RT64's copies have no joins across a row. See
+# src/enhancements/display_options/widescreen_copies.cpp.
 [[patches.hook]]
 func = "func_151D61B0"
 before_vram = 0x151D61B0
 text = "{ int conker_widescreen_skip_blur(void); if (conker_widescreen_skip_blur()) { return; } }"
+
+[[patches.hook]]
+func = "func_151D5E90"
+before_vram = 0x151D5E90
+text = "{ void conker_widescreen_copy_begin(uint8_t*, recomp_context*); conker_widescreen_copy_begin(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151D5E90"
+before_vram = 0x151D6180
+text = "{ void conker_widescreen_copy_end(uint8_t*, recomp_context*); conker_widescreen_copy_end(rdram, ctx); }"
 
 # The title menu's "INSERT RUMBLE PAK" banner (message 0x8F) shows for a few seconds whenever the
 # menu comes up, pak or not, while the countdown D_8008FEFC is above 60. With a pad that can rumble
