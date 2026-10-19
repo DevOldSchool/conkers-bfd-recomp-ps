@@ -135,6 +135,12 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   game keeps its options in EEPROM next to the saved games, so a sound
   setting chosen and saved from that menu stays as it was.
   `CONKER_SURROUND_DEFAULT=0` keeps the stereo default.
+* **Characters at full detail:** the game swaps Conker for a lower-detail
+  model once the camera is more than 500 units away, which in play is often
+  its usual distance (the blockier tail is the easiest place to see it), and
+  for cruder ones further out. He, and the few other characters with more
+  than one model, keep their most detailed model at any distance.
+  `CONKER_MAX_DETAIL=0` keeps the game's choice.
 * **No Rumble Pak banner with a rumbling pad:** the title menu's "INSERT
   RUMBLE PAK" banner shows on an N64 even with the pak inserted. It is left
   out when controller 1's pad can rumble; `CONKER_RUMBLE_BANNER=1` shows it.
