@@ -102,8 +102,8 @@ but not the other carries on to that side of the frame buffer:
 * An untextured one has that edge, and its scissor's, moved to the frame
   buffer's edge, so it meets it exactly rather than leaving a sliver where
   RT64's rounding of the 3D scissor differs.
-* A textured one with a clamped texture (not copy mode or a frame buffer
-  copy) is built 512 pixels past that side in `RDP::drawTexRect`, with its
+* A textured one with a clamped texture, or one without a mask (not copy
+  mode or a frame buffer copy), is built 512 pixels past that side in `RDP::drawTexRect`, with its
   texture coordinates carried on at the same rate, and the renderer opens
   only that side of its scissor. Once the circle is wider than 4:3 and the
   game stops drawing the side rectangles, the quarter circles go on past the

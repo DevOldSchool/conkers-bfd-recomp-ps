@@ -328,7 +328,11 @@ extern "C" void conker_pause_save_layout(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     MEM_W(kOptionCountSlot, ctx->r29) = 3;
-    MEM_W(kLayoutYSlot, ctx->r29) = MEM_W(kLayoutYSlot, ctx->r29) - kLift;
+    // The Y/N page (a selection past the options) keeps the two-option layout, so QUIT sits
+    // between PAUSED and the Y/N lever as it does without SAVE and LOAD.
+    if (MEM_B(0, kseg0(kPauseSelection)) < 3) {
+        MEM_W(kLayoutYSlot, ctx->r29) = MEM_W(kLayoutYSlot, ctx->r29) - kLift;
+    }
     // A pause that starts afresh carries over neither "SAVED" nor LOAD.
     const Clock::time_point now = Clock::now();
     if (now - g_last_frame > std::chrono::milliseconds(250)) {

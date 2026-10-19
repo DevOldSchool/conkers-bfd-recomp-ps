@@ -17,9 +17,8 @@
 // they span the whole width, so the HUD and menus keep their place and full-screen fills reach the
 // edges. An untextured rectangle that reaches only one side, like the black around the circle wipe
 // that opens and closes a scene, is stretched to that side of the screen (rect.extendEdgeRects,
-// tools/patches/rt64-edge-rects.patch). Whole-frame copies such as the pause menu's blurred
-// background are stretched to the full width with RT64's extended GBI
-// (src/enhancements/display_options/widescreen_copies.cpp). The game still culls to its own 4:3
+// tools/patches/rt64-edge-rects.patch). The pause menu shows the paused scene at its full width,
+// without the game's blur (src/enhancements/display_options/widescreen_copies.cpp). The game still culls to its own 4:3
 // view, so an object can appear late at the far sides.
 #include "platform/renderer_rt64.hpp"
 

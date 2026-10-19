@@ -252,19 +252,13 @@ func = "func_151E3344"
 before_vram = 0x151E414C
 text = "{ void conker_display_options_stick_y(uint8_t*, recomp_context*); conker_display_options_stick_y(rdram, ctx); }"
 
-# Whole-frame copies in widescreen: func_151D5E90 draws a frame-sized image over the picture (the
-# pause menu's blurred background, among others). In widescreen its rectangles get RT64's extended
-# GBI rect aspect STRETCH, so they cover the widened picture instead of only its 4:3 middle. See
-# src/enhancements/display_options/widescreen_copies.cpp.
+# The pause menu's background in widescreen: func_151D61B0, the CPU blur of the frame the pause
+# menu copies for its background, is skipped, so RT64 keeps drawing the background from its own
+# full-width copy of the paused scene. See src/enhancements/display_options/widescreen_copies.cpp.
 [[patches.hook]]
-func = "func_151D5E90"
-before_vram = 0x151D5E90
-text = "{ void conker_widescreen_copy_begin(uint8_t*, recomp_context*); conker_widescreen_copy_begin(rdram, ctx); }"
-
-[[patches.hook]]
-func = "func_151D5E90"
-before_vram = 0x151D6180
-text = "{ void conker_widescreen_copy_end(uint8_t*, recomp_context*); conker_widescreen_copy_end(rdram, ctx); }"
+func = "func_151D61B0"
+before_vram = 0x151D61B0
+text = "{ int conker_widescreen_skip_blur(void); if (conker_widescreen_skip_blur()) { return; } }"
 
 # The title menu's "INSERT RUMBLE PAK" banner (message 0x8F) shows for a few seconds whenever the
 # menu comes up, pak or not, while the countdown D_8008FEFC is above 60. With a pad that can rumble

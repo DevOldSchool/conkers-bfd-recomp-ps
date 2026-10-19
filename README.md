@@ -84,8 +84,9 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
     scene covers the whole width. Covering the screen is widescreen by
     default; a window is 4:3 by default, as on an N64. The game
     still decides what to draw for its own 4:3 view, so objects at the far
-    sides can appear late. The blurred background of the pause menu is the
-    4:3 frame stretched to the full width.
+    sides can appear late. Behind the pause menu the paused scene stays
+    widescreen, but sharp: the game blurs only the 4:3 middle of the frame,
+    so that blur is skipped in widescreen.
   * The resolution: how large the game's 292x216 picture is rendered, in
     whole multiples from 292x216 (1x). In a window it is the window's size,
     up to the largest that fits the display (1460x1080, 5x, on a 2560x1440
