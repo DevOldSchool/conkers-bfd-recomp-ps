@@ -29,6 +29,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <vector>
 
 #include <SDL.h>
 #include <SDL_syswm.h>
@@ -241,6 +243,47 @@ bool is_fullscreen_toggle(const SDL_KeyboardEvent& key) {
            (code == SDL_SCANCODE_F && (mod & KMOD_GUI) && (mod & KMOD_CTRL));
 }
 
+// CONKER_DISPLAY_SWITCH=<ms>:<mode>[,...] asks for a display mode (windowed, borderless or
+// fullscreen) that many milliseconds after start, as the shortcuts would, so mode changes can be
+// tested by script (docs/diagnostics.md).
+struct ScheduledSwitch {
+    Uint64 at_ms;
+    Mode mode;
+};
+
+std::vector<ScheduledSwitch> scheduled_switches() {
+    std::vector<ScheduledSwitch> switches;
+    const char* value = std::getenv("CONKER_DISPLAY_SWITCH");
+    for (const char* p = value; p != nullptr && *p != '\0';) {
+        char* end = nullptr;
+        const unsigned long long ms = std::strtoull(p, &end, 10);
+        if (end == p || *end != ':') {
+            break;
+        }
+        const char* name = end + 1;
+        const char* comma = std::strchr(name, ',');
+        const size_t length = comma != nullptr ? static_cast<size_t>(comma - name) : std::strlen(name);
+        for (int i = 0; i < conker::display::kModeCount; i++) {
+            const char* mode_name = conker::display::name(static_cast<Mode>(i));
+            if (std::strlen(mode_name) == length && std::strncmp(mode_name, name, length) == 0) {
+                switches.push_back({ms, static_cast<Mode>(i)});
+            }
+        }
+        p = comma != nullptr ? comma + 1 : name + length;
+    }
+    return switches;
+}
+
+void run_scheduled_switches() {
+    static std::vector<ScheduledSwitch> switches = scheduled_switches();
+    static size_t next = 0;
+    if (next < switches.size() && SDL_GetTicks64() >= switches[next].at_ms) {
+        std::printf("[conker] CONKER_DISPLAY_SWITCH: %s\n", conker::display::name(switches[next].mode));
+        conker::display::request(switches[next].mode);
+        next++;
+    }
+}
+
 } // namespace
 
 void* create_gfx() {
@@ -318,6 +361,7 @@ void update_gfx(void* /*gfx_data*/) {
         }
         conker::input::handle_event(event);
     }
+    run_scheduled_switches();
     if (Mode mode; conker::display::take_request(&mode)) {
         apply_mode(mode);
     }

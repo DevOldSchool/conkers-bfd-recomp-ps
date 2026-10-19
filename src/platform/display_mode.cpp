@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <atomic>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -29,6 +30,8 @@ std::atomic<int> g_wide_screen_max{kMinScale};
 std::atomic<int> g_screen_width{0};  // 0 until set_limits
 std::atomic<int> g_screen_height{0};
 std::atomic<bool> g_requested{false};
+std::atomic<uint32_t> g_frame_copies{0};
+std::atomic<bool> g_rendered_widescreen{false};
 std::mutex g_save_mutex;
 
 // Next to the saves, under the working directory (see main.cpp).
@@ -162,20 +165,24 @@ int screen_scale() {
 
 bool fill(Mode mode) { return (mode == Mode::Windowed ? g_window_fill : g_screen_fill).load(); }
 
+// The largest multiple is kept as 0, "the largest", so it follows the display: another display, a
+// Retina one, or widescreen, which has its own limits.
 void request_window_scale(int scale) {
-    if (g_window_scale.exchange(scale) == scale) {
+    const int stored = scale >= window_max() ? 0 : scale;
+    if (g_window_scale.exchange(stored) == stored) {
         return;
     }
-    std::printf("[conker] window scale: %dx\n", scale);
+    std::printf("[conker] window scale: %dx%s\n", scale, stored == 0 ? " (the largest)" : "");
     save();
     g_requested.store(true);
 }
 
 void request_screen_scale(int scale) {
-    if (g_screen_scale.exchange(scale) == scale) {
+    const int stored = scale >= screen_max() ? 0 : scale;
+    if (g_screen_scale.exchange(stored) == stored) {
         return;
     }
-    std::printf("[conker] screen scale: %dx\n", scale);
+    std::printf("[conker] screen scale: %dx%s\n", scale, stored == 0 ? " (the largest)" : "");
     save();
 }
 
@@ -198,6 +205,14 @@ void request_widescreen(Mode mode, bool widescreen) {
         g_requested.store(true);  // the window takes the new shape; covering the screen, only RT64 changes
     }
 }
+
+void note_frame_copy() { g_frame_copies.fetch_add(1); }
+
+uint32_t frame_copy_count() { return g_frame_copies.load(); }
+
+void set_rendered_widescreen(bool widescreen) { g_rendered_widescreen.store(widescreen); }
+
+bool rendered_widescreen() { return g_rendered_widescreen.load(); }
 
 bool take_request(Mode* mode) {
     if (!g_requested.exchange(false)) {

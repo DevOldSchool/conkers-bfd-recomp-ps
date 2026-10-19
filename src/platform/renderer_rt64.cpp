@@ -139,6 +139,10 @@ public:
     }
 
     void send_dl(const OSTask* task) override {
+        // Whether the game drew a frame copy for this task (see apply_display_scale).
+        const uint32_t copies = conker::display::frame_copy_count();
+        tasks_without_copy_ = copies != seen_copies_ ? 0 : tasks_without_copy_ + 1;
+        seen_copies_ = copies;
         app_->state->rsp->reset();
         app_->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
         app_->processDisplayLists(app_->core.RDRAM, task->t.data_ptr & 0x3FFFFFF, 0, true);
@@ -194,6 +198,36 @@ private:
     // RT64 renders at the multiple chosen for the mode, in 4:3 or widened to the window's shape, and
     // either scales it to fill the window or screen or presents it at its own size.
     void apply_display_scale() {
+        // While the pause menu draws its copy of the last frame, keep the frame buffers as they are,
+        // or the copy is lost (see conker::display::note_frame_copy). Expand follows the swap chain's
+        // shape, so a widened picture is pinned to the shape it has for the time being. The hold
+        // lasts until the game's frames go by without a copy (send_dl counts them); counting the
+        // game's frames rather than time or screen refreshes keeps it through the stall of leaving
+        // or entering full screen.
+        if (tasks_without_copy_ < kHoldTasks) {
+            if (!holding_) {
+                holding_ = true;
+                if (applied_wide_) {
+                    float target;
+                    {
+                        RT64::SharedQueueResources* shared = app_->sharedQueueResources.get();
+                        std::scoped_lock lock(shared->configurationMutex);
+                        target = shared->swapChainHeight > 0
+                                     ? float(shared->swapChainWidth) / float(shared->swapChainHeight)
+                                     : 16.0f / 9.0f;
+                    }
+                    const float picture = float(conker::display::kPictureWidth) / conker::display::kPictureHeight;
+                    app_->userConfig.aspectRatio = RT64::UserConfiguration::AspectRatio::Manual;
+                    app_->userConfig.aspectTarget = target > picture ? target : picture;
+                    app_->updateUserConfig(false);
+                }
+            }
+            return;
+        }
+        if (holding_) {
+            holding_ = false;
+            applied_scale_ = -1;  // apply whatever is asked for now
+        }
         const conker::display::Mode mode = conker::display::current();
         const bool windowed = mode == conker::display::Mode::Windowed;
         const int scale = windowed ? conker::display::window_scale() : conker::display::screen_scale();
@@ -205,6 +239,7 @@ private:
         applied_scale_ = scale;
         applied_native_ = native;
         applied_wide_ = wide;
+        conker::display::set_rendered_widescreen(wide);
         app_->userConfig.aspectRatio = wide ? RT64::UserConfiguration::AspectRatio::Expand
                                             : RT64::UserConfiguration::AspectRatio::Original;
         app_->userConfig.resolution = scale > 0 ? RT64::UserConfiguration::Resolution::Manual
@@ -223,6 +258,10 @@ private:
     int applied_scale_ = 0;
     bool applied_native_ = false;
     bool applied_wide_ = false;
+    bool holding_ = false;  // settings held while the pause menu draws its frame copy
+    uint32_t seen_copies_ = 0;
+    int tasks_without_copy_ = 1 << 20;  // graphics tasks since the last frame copy
+    static constexpr int kHoldTasks = 4;
 };
 
 } // namespace

@@ -42,7 +42,7 @@ index 681ad1a..f580cca 100644
          uint8_t textureTile;
          uint8_t textureLevels;
 diff --git a/src/hle/rt64_rdp.cpp b/src/hle/rt64_rdp.cpp
-index 9a33a2d..0cd94ba 100644
+index 9a33a2d..05f927f 100644
 --- a/src/hle/rt64_rdp.cpp
 +++ b/src/hle/rt64_rdp.cpp
 @@ -1241,6 +1241,8 @@ namespace RT64 {
@@ -54,7 +54,7 @@ index 9a33a2d..0cd94ba 100644
  
          if (flushedState) {
              state->loadDrawState();
-@@ -1345,6 +1347,30 @@ namespace RT64 {
+@@ -1345,6 +1347,37 @@ namespace RT64 {
              lry |= 3;
          }
  
@@ -65,9 +65,16 @@ index 9a33a2d..0cd94ba 100644
 +        const FixedRect &edgeScissor = scissorRectStack[scissorStackSize - 1];
 +        const bool regularAlignment = (extAlignment.leftOrigin == G_EX_ORIGIN_NONE) && (extAlignment.rightOrigin == G_EX_ORIGIN_NONE);
 +        if (state->ext.enhancementConfig->rect.extendEdgeRects && !usesCopyMode && !flip && regularAlignment && !edgeScissor.isNull() && ((tiles[tile].cms & G_TX_CLAMP) || (tiles[tile].masks == 0))) {
++            // Only a rect the game cut off at that side carries on: its texture coordinate there is inside the tile,
++            // not at the tile's edge (a sprite that merely touches the side, like a speech bubble, would smear).
++            const float tileLow = tiles[tile].uls / 4.0f;
++            const float tileHigh = tiles[tile].lrs / 4.0f + 1.0f;
++            auto insideTile = [&](float s) { return (s > tileLow + 0.5f) && (s < tileHigh - 0.5f); };
++            const float leftS = uls / 32.0f;
++            const float rightS = (uls + (int32_t(dsdx) * ((lrx - ulx) >> 2)) / 32.0f) / 32.0f;
 +            const int32_t ExtendPixels = 512;
-+            const bool reachesLeft = (ulx <= edgeScissor.ulx);
-+            const bool reachesRight = (lrx >= edgeScissor.lrx);
++            const bool reachesLeft = (ulx <= edgeScissor.ulx) && insideTile(leftS);
++            const bool reachesRight = (lrx >= edgeScissor.lrx) && insideTile(rightS);
 +            if (reachesLeft && !reachesRight) {
 +                const int32_t extendedUls = int32_t(uls) - ((int32_t(dsdx) * ExtendPixels) >> 5);
 +                if ((extendedUls >= INT16_MIN) && (extendedUls <= INT16_MAX)) {
@@ -112,7 +119,7 @@ index 96a174b..cf4c80a 100644
          drawCall.scissorMode = 0;
          drawCall.scissorLeftOrigin = G_EX_ORIGIN_NONE;
 diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
-index 5a331aa..17c0835 100644
+index 5a331aa..c464ab8 100644
 --- a/src/hle/rt64_workload_queue.cpp
 +++ b/src/hle/rt64_workload_queue.cpp
 @@ -182,6 +182,8 @@ namespace RT64 {
@@ -124,7 +131,19 @@ index 5a331aa..17c0835 100644
          // Compute the resolution scaling to be used for the frame.
          float resolutionMultiplier;
          const auto resolutionMode = ext.sharedResources->userConfig.resolution;
-@@ -630,6 +632,7 @@ namespace RT64 {
+@@ -253,7 +255,10 @@ namespace RT64 {
+         workloadConfig.postBlendNoise = ext.sharedResources->emulatorConfig.dither.postBlendNoise;
+         workloadConfig.postBlendNoiseNegative = ext.sharedResources->emulatorConfig.dither.postBlendNoiseNegative;
+         
+-        if (ext.sharedResources->fbConfigChanged || sizeChanged) {
++        // A new window size only changes the targets when the resolution or the aspect ratio follows the window.
++        const UserConfiguration &sizeConfig = ext.sharedResources->userConfig;
++        const bool sizeDependentTargets = (sizeConfig.resolution != UserConfiguration::Resolution::Manual) || (sizeConfig.aspectRatio == UserConfiguration::AspectRatio::Expand);
++        if (ext.sharedResources->fbConfigChanged || (sizeChanged && sizeDependentTargets)) {
+             {
+                 // Wait until the other queue has stopped using the interpolated color targets.
+                 std::unique_lock<std::mutex> interpolatedLock(ext.sharedResources->interpolatedMutex);
+@@ -630,6 +635,7 @@ namespace RT64 {
                      drawParams.aspectRatioSource = workloadConfig.aspectRatioSource;
                      drawParams.aspectRatioTarget = workloadConfig.aspectRatioTarget;
                      drawParams.extAspectPercentage = workloadConfig.extAspectPercentage;

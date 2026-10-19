@@ -108,7 +108,16 @@ but not the other carries on to that side of the frame buffer:
   only that side of its scissor. Once the circle is wider than 4:3 and the
   game stops drawing the side rectangles, the quarter circles go on past the
   4:3 edge at their true shape, and past their texture's edge they clamp to
-  its black outer texels. In 4:3 the scissor clips them as before.
+  its black outer texels. In 4:3 the scissor clips them as before. Only a
+  rectangle whose texture coordinate at that side lies inside its tile (one
+  the game cut off there) carries on; a sprite that merely touches the side,
+  such as a speech bubble, would smear its edge texels.
+
+The patch also keeps RT64's render targets and frame copies when the window
+changes size while the resolution is manual and the aspect ratio does not
+follow the window. RT64 dropped them on every resize, which lost the pause
+menu's copy of the last frame; the renderer holds a manual resolution and a
+fixed aspect ratio while that menu is open (`src/platform/renderer_rt64.cpp`).
 
 All of these are candidates for upstreaming.
 

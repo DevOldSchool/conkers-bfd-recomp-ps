@@ -78,6 +78,10 @@ These environment variables are read by both builds:
   (the C buttons), not the left stick pushed right. When several copies of
   the game are open, capture a window by its process ID: the first window
   named "Conker" may belong to another run.
+* `CONKER_DISPLAY_SWITCH=<ms>:<mode>[,<ms>:<mode>...]` (RT64 build) asks for
+  a display mode (`windowed`, `borderless` or `fullscreen`) that many
+  milliseconds after start, as the full-screen shortcuts would, so mode
+  changes can be tested by script, for example while the pause menu is open.
 * `CONKER_DUMP_AUDIO=<file.wav>` records every buffer the game queues
   (16-bit stereo at the game's 22,020 Hz) in either build. The log prints a
   line every 5 s of audio with the peak, RMS, minimum output-queue depth and

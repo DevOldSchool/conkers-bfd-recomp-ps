@@ -86,7 +86,9 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
     still decides what to draw for its own 4:3 view, so objects at the far
     sides can appear late. Behind the pause menu the paused scene stays
     widescreen, but sharp: the game blurs only the 4:3 middle of the frame,
-    so that blur is skipped in widescreen.
+    so that blur is skipped in widescreen. Switching between the window and
+    full screen while paused keeps the paused picture as it was, fitted to
+    the new size; the new resolution and shape apply once you carry on.
   * The resolution: how large the game's 292x216 picture is rendered, in
     whole multiples from 292x216 (1x). In a window it is the window's size,
     up to the largest that fits the display (1460x1080, 5x, on a 2560x1440

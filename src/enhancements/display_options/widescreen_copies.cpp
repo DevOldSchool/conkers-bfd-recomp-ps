@@ -14,6 +14,11 @@
 // so the background is the paused scene itself, sharp, at its full width and its own shape. In 4:3
 // the game blurs it as on an N64.
 //
+// A new resolution or shape while the menu is open would rebuild RT64's frame buffers and lose its
+// copy, and the game copies only once, so while it draws these copies the renderer holds its
+// settings and applies new ones when the menu closes (conker::display::note_frame_copy,
+// src/platform/renderer_rt64.cpp). The hooks follow the shape RT64 renders, not the one asked for.
+//
 // func_151D5E90 draws in 128x16 pieces, three to a row (128, 128 and the last 36 pixels). RT64
 // copies each piece from its own frame at a horizontal scale that is not a whole number in
 // widescreen, and the middle piece came out a fraction of a pixel to the side of the others, which
@@ -72,12 +77,13 @@ void add_strips(std::vector<Command>& out, const Command& image, uint32_t width,
 
 // At func_151D61B0's entry: nonzero to return without blurring.
 extern "C" int conker_widescreen_skip_blur() {
-    return conker::display::widescreen(conker::display::current()) ? 1 : 0;
+    return conker::display::rendered_widescreen() ? 1 : 0;
 }
 
 // At func_151D5E90's entry: $a0 is the display list pointer it writes from.
 extern "C" void conker_widescreen_copy_begin(uint8_t* /*rdram*/, recomp_context* ctx) {
-    g_rewriting = conker::display::widescreen(conker::display::current());
+    conker::display::note_frame_copy();
+    g_rewriting = conker::display::rendered_widescreen();
     g_start = ctx->r4;
 }
 

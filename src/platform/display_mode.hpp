@@ -7,6 +7,8 @@
 // the settings but has no window to apply them to.
 #pragma once
 
+#include <cstdint>
+
 namespace conker::display {
 
 // The values are the OPTIONS menu row's values, left to right.
@@ -76,11 +78,25 @@ int screen_scale();
 // is resized by hand), covering the screen fills it by default.
 bool fill(Mode mode);
 
-// Ask for another setting and save it; safe to call from any thread.
+// Ask for another setting and save it; safe to call from any thread. Asking for the largest
+// multiple saves "the largest", which follows the display's limits.
 void request_window_scale(int scale);
 void request_screen_scale(int scale);
 void request_fill(Mode mode, bool fill);
 void request_widescreen(Mode mode, bool widescreen);
+
+// The pause menu's background is a copy of the last frame that RT64 keeps at its rendered size and
+// shape, made once when the menu opens (src/enhancements/display_options/widescreen_copies.cpp). A
+// new resolution or shape would rebuild RT64's frame buffers and lose it, so while such copies are
+// being drawn the renderer holds its settings and applies new ones afterwards. note_frame_copy is
+// called for each copy the game draws; frame_copy_count is how many there have been.
+void note_frame_copy();
+uint32_t frame_copy_count();
+
+// Whether RT64 is rendering a widened picture right now (set by the renderer), which can lag the
+// setting while the renderer holds it.
+void set_rendered_widescreen(bool widescreen);
+bool rendered_widescreen();
 
 // For the window: whether the mode, the window's multiple or the picture's shape changed since the
 // last call, and the mode to be in.
