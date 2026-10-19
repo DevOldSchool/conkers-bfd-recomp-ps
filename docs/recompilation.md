@@ -95,11 +95,19 @@ CENTERED setting, `src/platform/renderer_rt64.cpp`).
 ratio (the OPTIONS WIDESCREEN setting), RT64 keeps 2D rectangles in the
 original 4:3 area unless one spans the whole scissor. Conker's circle wipe
 masks the picture with black fill rectangles on each side of four textured
-quarter-circle tiles, so the side rectangles stayed in the middle and the
-scene showed at both edges. With the option, an untextured rectangle that
-reaches one side of the scissor but not the other has that edge, and its
-scissor's, moved to the same edge of the frame buffer, so it meets the edge
-exactly instead of leaving a sliver where RT64's rounding of the 3D scissor
-differs.
+quarter-circle tiles, all clipped to the 4:3 screen, so the scene showed at
+both edges. With the option, a rectangle that reaches one side of the scissor
+but not the other carries on to that side of the frame buffer:
+
+* An untextured one has that edge, and its scissor's, moved to the frame
+  buffer's edge, so it meets it exactly rather than leaving a sliver where
+  RT64's rounding of the 3D scissor differs.
+* A textured one with a clamped texture (not copy mode or a frame buffer
+  copy) is built 512 pixels past that side in `RDP::drawTexRect`, with its
+  texture coordinates carried on at the same rate, and the renderer opens
+  only that side of its scissor. Once the circle is wider than 4:3 and the
+  game stops drawing the side rectangles, the quarter circles go on past the
+  4:3 edge at their true shape, and past their texture's edge they clamp to
+  its black outer texels. In 4:3 the scissor clips them as before.
 
 All of these are candidates for upstreaming.

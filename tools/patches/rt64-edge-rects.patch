@@ -11,21 +11,106 @@ index 3bebdca..97ba9ee 100644
          s2dex.fixBilerpMismatch = true;
          s2dex.framebufferFastPath = true;
 diff --git a/src/common/rt64_enhancement_configuration.h b/src/common/rt64_enhancement_configuration.h
-index 51d2c80..50e4d48 100644
+index 51d2c80..0b4aab8 100644
 --- a/src/common/rt64_enhancement_configuration.h
 +++ b/src/common/rt64_enhancement_configuration.h
-@@ -29,6 +29,11 @@ namespace RT64 {
+@@ -29,6 +29,12 @@ namespace RT64 {
          
          struct Rect {
              bool fixRectLR;
 +
-+            // With a wider aspect ratio, an untextured rectangle that reaches one side of the scissor
-+            // but not the other (a mask around a hole, like a circle wipe) is stretched to that side
-+            // of the screen instead of staying in the original aspect ratio's area.
++            // With a wider aspect ratio, a rectangle that reaches one side of the scissor but not the
++            // other carries on to that side of the screen instead of stopping at the original aspect
++            // ratio's area: an untextured one (a mask around a hole, like a circle wipe) is stretched,
++            // a textured one with a clamped texture is drawn on with the same texture scale.
 +            bool extendEdgeRects;
          };
  
          struct F3DEX {
+diff --git a/src/hle/rt64_draw_call.h b/src/hle/rt64_draw_call.h
+index 681ad1a..f580cca 100644
+--- a/src/hle/rt64_draw_call.h
++++ b/src/hle/rt64_draw_call.h
+@@ -93,6 +93,9 @@ namespace RT64 {
+         uint8_t rectAspect;
+         uint8_t scissorAspect;
+         uint8_t scissorMode;
++
++        // A textured rect drawn past one side of the scissor by rect.extendEdgeRects (RectEdge).
++        uint8_t rectEdgeExtend;
+         uint8_t textureOn;
+         uint8_t textureTile;
+         uint8_t textureLevels;
+diff --git a/src/hle/rt64_rdp.cpp b/src/hle/rt64_rdp.cpp
+index 9a33a2d..16a5ff3 100644
+--- a/src/hle/rt64_rdp.cpp
++++ b/src/hle/rt64_rdp.cpp
+@@ -1241,6 +1241,8 @@ namespace RT64 {
+         drawCall.rectRightOrigin = extAlignment.rightOrigin;
+         drawCall.rectAspect = extended.global.rectAspect;
+         drawCall.scissorAspect = extended.global.scissorAspect;
++        drawCall.rectEdgeExtend = pendingRectEdgeExtend;
++        pendingRectEdgeExtend = 0;
+ 
+         if (flushedState) {
+             state->loadDrawState();
+@@ -1345,6 +1347,30 @@ namespace RT64 {
+             lry |= 3;
+         }
+ 
++        // A clamped texture rect that reaches one side of the scissor but not the other is drawn far past that side,
++        // continuing its texture coordinates, so a wider aspect ratio can show it beyond the original area (like the
++        // quarter circles of a circle wipe); the scissor still clips it unless the renderer widens it on that side.
++        pendingRectEdgeExtend = 0;
++        const FixedRect &edgeScissor = scissorRectStack[scissorStackSize - 1];
++        const bool regularAlignment = (extAlignment.leftOrigin == G_EX_ORIGIN_NONE) && (extAlignment.rightOrigin == G_EX_ORIGIN_NONE);
++        if (state->ext.enhancementConfig->rect.extendEdgeRects && !usesCopyMode && !flip && regularAlignment && !edgeScissor.isNull() && (tiles[tile].cms & G_TX_CLAMP)) {
++            const int32_t ExtendPixels = 512;
++            const bool reachesLeft = (ulx <= edgeScissor.ulx);
++            const bool reachesRight = (lrx >= edgeScissor.lrx);
++            if (reachesLeft && !reachesRight) {
++                const int32_t extendedUls = int32_t(uls) - ((int32_t(dsdx) * ExtendPixels) >> 5);
++                if ((extendedUls >= INT16_MIN) && (extendedUls <= INT16_MAX)) {
++                    ulx -= ExtendPixels << 2;
++                    uls = int16_t(extendedUls);
++                    pendingRectEdgeExtend = 1;
++                }
++            }
++            else if (reachesRight && !reachesLeft) {
++                lrx += ExtendPixels << 2;
++                pendingRectEdgeExtend = 2;
++            }
++        }
++
+         drawRect(ulx, uly, lrx, lry, uls, ult, dsdx, dtdy, flip, extAlignment);
+     }
+ 
+diff --git a/src/hle/rt64_rdp.h b/src/hle/rt64_rdp.h
+index 5ecaf70..e22123e 100644
+--- a/src/hle/rt64_rdp.h
++++ b/src/hle/rt64_rdp.h
+@@ -72,6 +72,9 @@ namespace RT64 {
+         uint64_t TMEM[RDP_TMEM_WORDS] = {};
+         LoadTexture texture = {};
+         LoadTile tiles[RDP_TILES] = {};
++
++        // Which side of the scissor the next rect was extended past (rect.extendEdgeRects): 0, 1 left, 2 right.
++        uint8_t pendingRectEdgeExtend = 0;
+         uint64_t tileReplacementHashes[RDP_TILES] = {};
+ 
+         struct {
+diff --git a/src/hle/rt64_state.cpp b/src/hle/rt64_state.cpp
+index 96a174b..cf4c80a 100644
+--- a/src/hle/rt64_state.cpp
++++ b/src/hle/rt64_state.cpp
+@@ -108,6 +108,7 @@ namespace RT64 {
+         drawCall.rectLeftOrigin = G_EX_ORIGIN_NONE;
+         drawCall.rectRightOrigin = G_EX_ORIGIN_NONE;
+         drawCall.rectAspect = G_EX_ASPECT_AUTO;
++        drawCall.rectEdgeExtend = 0;
+         drawCall.scissorRect.reset();
+         drawCall.scissorMode = 0;
+         drawCall.scissorLeftOrigin = G_EX_ORIGIN_NONE;
 diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
 index 5a331aa..17c0835 100644
 --- a/src/hle/rt64_workload_queue.cpp
@@ -60,7 +145,7 @@ index bde2f03..2945b69 100644
              bool postBlendNoise = false;
              bool postBlendNoiseNegative = false;
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
-index 133c039..8662d35 100644
+index 133c039..f6a704c 100644
 --- a/src/render/rt64_framebuffer_renderer.cpp
 +++ b/src/render/rt64_framebuffer_renderer.cpp
 @@ -1625,6 +1625,8 @@ namespace RT64 {
@@ -72,30 +157,40 @@ index 133c039..8662d35 100644
                          switch (proj.type) {
                          case Projection::Type::Perspective:
                          case Projection::Type::Orthographic: {
-@@ -1652,7 +1654,22 @@ namespace RT64 {
+@@ -1652,7 +1654,32 @@ namespace RT64 {
                                  horizontalMisalignment = p.horizontalMisalignment;
                              }
  
 +                            // An untextured rect reaching one side of the scissor but not the other: that edge goes to
 +                            // the same edge of the framebuffer, the other stays where the original aspect ratio puts it.
-+                            if (p.extendEdgeRects && (aspectRatioScale > 1.0f) && regularOrigins && !coversScissorWidth && (call.callDesc.tileCount == 0) && (call.callDesc.rectAspect == G_EX_ASPECT_AUTO)) {
-+                                extendLeft = (call.callDesc.rect.ulx <= fbPair.scissorRect.ulx);
-+                                extendRight = !extendLeft && (call.callDesc.rect.lrx >= fbPair.scissorRect.lrx);
++                            bool extendViewport = false;
++                            if (p.extendEdgeRects && (aspectRatioScale > 1.0f) && regularOrigins && !coversScissorWidth && (call.callDesc.rectAspect == G_EX_ASPECT_AUTO)) {
++                                if (call.callDesc.tileCount == 0) {
++                                    extendLeft = (call.callDesc.rect.ulx <= fbPair.scissorRect.ulx);
++                                    extendRight = !extendLeft && (call.callDesc.rect.lrx >= fbPair.scissorRect.lrx);
++                                    extendViewport = true;
++                                }
++                                // A textured rect already drawn past the side (RDP::drawTexRect) only needs the scissor
++                                // opened on that side; its texture keeps its place and scale.
++                                else if (!tileCopiesUsed) {
++                                    extendLeft = (call.callDesc.rectEdgeExtend == 1);
++                                    extendRight = (call.callDesc.rectEdgeExtend == 2);
++                                }
 +                            }
 +
                              RenderViewport viewportRect = convertViewportRect(call.callDesc.rect, p.resolutionScale, p.fbWidth, invRatioScale, extOriginPercentage, horizontalMisalignment, call.callDesc.rectLeftOrigin, call.callDesc.rectRightOrigin);
-+                            if (extendLeft) {
++                            if (extendViewport && extendLeft) {
 +                                viewportRect.width += viewportRect.x;
 +                                viewportRect.x = 0.0f;
 +                            }
-+                            else if (extendRight) {
++                            else if (extendViewport && extendRight) {
 +                                viewportRect.width = framebuffer.viewport.width - viewportRect.x;
 +                            }
 +
                              triangles.screenScale = { viewportRect.width / framebuffer.viewport.width, viewportRect.height / framebuffer.viewport.height };
                              triangles.screenOffset.x = halfPixelOffset.x + ((viewportRect.x + viewportRect.width / 2.0f) - halfViewportSize.x) / halfViewportSize.x;
                              triangles.screenOffset.y = halfPixelOffset.y + (halfViewportSize.y - (viewportRect.y + viewportRect.height / 2.0f)) / halfViewportSize.y;
-@@ -1689,6 +1706,12 @@ namespace RT64 {
+@@ -1689,6 +1716,12 @@ namespace RT64 {
                          }
  
                          triangles.scissor = convertFixedRect(call.callDesc.scissorRect, p.resolutionScale, p.fbWidth, scissorInvRatioScale, extOriginPercentage, int32_t(scissorHorizontalMisalignment), call.callDesc.scissorLeftOrigin, call.callDesc.scissorRightOrigin);
