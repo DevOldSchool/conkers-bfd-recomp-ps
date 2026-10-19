@@ -122,9 +122,11 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   original behaviour, where the intro cannot be skipped after a cold boot.
 * **Skip any cutscene:** on an N64, L only skips a cutscene already
   watched, and some, such as the whole opening of a new game, not at all.
-  Here L skips every cutscene, the first time too. Skipping any part of the
-  opening goes on to where Conker wakes up, its own skip target in the
-  game's data (about 45 seconds into a new game instead of 7 minutes).
+  Here L or Start skips every cutscene, the first time too. Start skips
+  instead of pausing while a cutscene can be skipped, and pauses as usual
+  everywhere else. Skipping any part of the opening goes on to where
+  Conker wakes up, its own skip target in the game's data (about 45
+  seconds into a new game instead of 7 minutes).
   `CONKER_SKIP_CUTSCENES=0` keeps the original rules.
 * **SAVE and LOAD in the pause menu:** two signs sit under the lever, LOAD
   below QUIT and SAVE below CONT.... Push down from the sign above, or use
