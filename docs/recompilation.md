@@ -111,3 +111,9 @@ but not the other carries on to that side of the frame buffer:
   its black outer texels. In 4:3 the scissor clips them as before.
 
 All of these are candidates for upstreaming.
+
+RT64's CMake turns plume's Retina support off, which would size the Metal
+swap chain in points and leave macOS to upscale it 2x on a Retina screen. Our
+`CMakeLists.txt` defines `PLUME_APPLE_RETINA_ENABLED` for the `plume` target
+again, so the swap chain is in pixels; the SDL window is sized in pixels to
+match (`src/platform/window_sdl.cpp`).

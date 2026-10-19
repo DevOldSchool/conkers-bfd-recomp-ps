@@ -57,11 +57,17 @@ These environment variables are read by both builds:
   save. An emulator-style save state is not possible here, because each N64
   thread runs as a native host thread with its own C stack.
 * `CONKER_ORIGINAL_SIZE=1` (RT64 build) opens the original 960x720 window
-  instead of the display mode chosen in OPTIONS, which renders faster and
-  gives smaller window captures. Changing the mode in OPTIONS during such a
-  run still applies and saves it. The log shows the window size chosen and, in
-  `RT64 renders at <n>x`, the scale RT64 picked (4x for the 960x720 window,
-  then shrunk to fit).
+  (in points: 1920x1440 pixels on a Retina screen) instead of the display mode
+  chosen in OPTIONS, which gives smaller window captures. Changing the mode in
+  OPTIONS during such a run still applies and saves it. The log shows the
+  window size chosen and, in `RT64 renders at <n>x for a <w>x<h> window`, the
+  window's resolution from OPTIONS, shrunk to fit, and the swap chain's size
+  in pixels. The `display` line gives the display's size in pixels and its
+  pixels per point (2 on a Retina screen); a full-screen Space on a MacBook
+  with a notch is below it (3024x1890 on a 3024x1964 screen), a
+  borderless window covers it (3024x1964).
+* **Window captures on a Retina screen** (`screencapture -o -l <window id>`)
+  are in pixels, with a 56-pixel title bar on top of a window's picture.
 * **Reaching OPTIONS by script.** With `CONKER_SKIP_INTRO=1`, the pad lines
   `400 8 leftx=1`, `640 8 leftx=1` and `900 8 a` go from GAME 1 past MULTI to
   OPTIONS and open it; `1300 8 lefty=1` then selects the display mode row
