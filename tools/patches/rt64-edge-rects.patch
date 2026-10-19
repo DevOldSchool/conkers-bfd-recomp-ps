@@ -80,7 +80,7 @@ index 70de928..6a04a7a 100644
                      const bool useDownsampling = (colorTarget->downsampleMultiplier > 1);
                      if (useDownsampling) {
 diff --git a/src/hle/rt64_rdp.cpp b/src/hle/rt64_rdp.cpp
-index 9a33a2d..d85cef1 100644
+index 9a33a2d..200aaa3 100644
 --- a/src/hle/rt64_rdp.cpp
 +++ b/src/hle/rt64_rdp.cpp
 @@ -247,6 +247,89 @@ namespace RT64 {
@@ -182,7 +182,7 @@ index 9a33a2d..d85cef1 100644
  
          if (flushedState) {
              state->loadDrawState();
-@@ -1345,6 +1430,47 @@ namespace RT64 {
+@@ -1345,6 +1430,63 @@ namespace RT64 {
              lry |= 3;
          }
  
@@ -193,28 +193,44 @@ index 9a33a2d..d85cef1 100644
 +        const FixedRect &edgeScissor = scissorRectStack[scissorStackSize - 1];
 +        const bool regularAlignment = (extAlignment.leftOrigin == G_EX_ORIGIN_NONE) && (extAlignment.rightOrigin == G_EX_ORIGIN_NONE);
 +        if (state->ext.enhancementConfig->rect.extendEdgeRects && !usesCopyMode && !flip && regularAlignment && !edgeScissor.isNull() && ((tiles[tile].cms & G_TX_CLAMP) || (tiles[tile].masks == 0))) {
-+            // A rect reaching one side of the scissor is drawn on past it when the tile's column on that side is opaque,
-+            // so clamping to it carries on a solid edge, like the black around a wipe's circle. Otherwise it stays as the
-+            // game drew it: what lies past a sprite's visible part, such as the tip of a speech bubble the game cut off
-+            // at the screen's edge, would show as a streak.
++            // A rect reaching one side of the scissor, whose texture there is not at the tile's edge, was cut off by the game
++            // at the screen's edge (a speech bubble or a cloud partly off screen): it is drawn on to the tile's edge, so the
++            // rest of it shows in the wider picture. Past the tile's edge it carries on only when the tile's column there is
++            // mostly opaque, so clamping to it continues a solid edge, like the black around a wipe's circle; clamping a
++            // sprite's edge would smear it.
 +            const float texelsPerPixel = float(dsdx) / 1024.0f;
-+            const int32_t ExtendPixels = 512;
-+            // Going left, S falls to the tile's first column, or rises to its last when the rect is mirrored.
-+            const int32_t firstColumn = tiles[tile].uls >> 2;
-+            const int32_t lastColumn = tiles[tile].lrs >> 2;
-+            const bool mirrored = (texelsPerPixel < 0.0f);
-+            const bool cutLeft = (ulx <= edgeScissor.ulx) && (texelsPerPixel != 0.0f) && tileColumnOpaque(tile, mirrored ? lastColumn : firstColumn);
-+            const bool cutRight = (lrx >= edgeScissor.lrx) && (texelsPerPixel != 0.0f) && tileColumnOpaque(tile, mirrored ? firstColumn : lastColumn);
-+            if (cutLeft) {
-+                const int32_t extendedUls = int32_t(uls) - ((int32_t(dsdx) * ExtendPixels) >> 5);
-+                if ((extendedUls >= INT16_MIN) && (extendedUls <= INT16_MAX)) {
-+                    ulx -= ExtendPixels << 2;
-+                    uls = int16_t(extendedUls);
-+                }
-+            }
++            const int32_t MaxExtendPixels = 512;
++            if (texelsPerPixel != 0.0f) {
++                // Going left, S falls to the tile's first column, or rises to its last when the rect is mirrored.
++                const bool mirrored = (texelsPerPixel < 0.0f);
++                const float tileLow = float(tiles[tile].uls) / 4.0f;
++                const float tileHigh = float(tiles[tile].lrs) / 4.0f + 1.0f;
++                const int32_t firstColumn = tiles[tile].uls >> 2;
++                const int32_t lastColumn = tiles[tile].lrs >> 2;
++                const float leftS = float(uls) / 32.0f;
++                const float rightS = leftS + texelsPerPixel * float((lrx - ulx) >> 2);
++                const float pixelsPerTexel = 1.0f / std::fabs(texelsPerPixel);
++                auto extendPixels = [&](float texelsToEdge, int32_t edgeColumn) {
++                    if (tileColumnOpaque(tile, edgeColumn)) {
++                        return MaxExtendPixels;
++                    }
 +
-+            if (cutRight) {
-+                lrx += ExtendPixels << 2;
++                    return std::clamp(int32_t(std::floor(std::max(texelsToEdge, 0.0f) * pixelsPerTexel)), 0, MaxExtendPixels);
++                };
++
++                if (ulx <= edgeScissor.ulx) {
++                    const int32_t pixels = mirrored ? extendPixels(tileHigh - leftS, lastColumn) : extendPixels(leftS - tileLow, firstColumn);
++                    const int32_t extendedUls = int32_t(uls) - ((int32_t(dsdx) * pixels) >> 5);
++                    if ((pixels > 0) && (extendedUls >= INT16_MIN) && (extendedUls <= INT16_MAX)) {
++                        ulx -= pixels << 2;
++                        uls = int16_t(extendedUls);
++                    }
++                }
++
++                if (lrx >= edgeScissor.lrx) {
++                    const int32_t pixels = mirrored ? extendPixels(rightS - tileLow, firstColumn) : extendPixels(tileHigh - rightS, lastColumn);
++                    lrx += pixels << 2;
++                }
 +            }
 +
 +            // Whatever reaches past a side of the scissor (the game's own sprites included) gets that side opened.

@@ -102,16 +102,17 @@ but not the other carries on to that side of the frame buffer:
 * An untextured one has that edge, and its scissor's, moved to the frame
   buffer's edge, so it meets it exactly rather than leaving a sliver where
   RT64's rounding of the 3D scissor differs.
-* A textured one (not copy mode or a frame buffer copy) is built 512 pixels
-  past that side in `RDP::drawTexRect`, with its texture coordinates carried
-  on at the same rate, when the tile's column on that side is at least two
-  thirds opaque (read from the RDRAM its load comes from), and the renderer
-  opens that side of its scissor. Once the circle is wider than 4:3 and the
-  game stops drawing the side rectangles, the quarter circles go on past the
-  4:3 edge at their true shape, and past their texture's edge they clamp to
-  its black outer texels. A mostly transparent edge, such as a speech
-  bubble's, is left as the game drew it: carrying it on only smeared the few
-  visible texels into a streak. In 4:3 the scissor clips them as before.
+* A textured one (not copy mode or a frame buffer copy) that the game cut off
+  at the screen's edge (its texture coordinate there is not at the tile's
+  edge), such as a speech bubble or a cloud partly off screen, is drawn on in
+  `RDP::drawTexRect` to the tile's edge, with its texture coordinates carried
+  on at the same rate, so the rest of it shows. It carries on further, up to
+  512 pixels, only when the tile's column on that side is at least two thirds
+  opaque (read from the RDRAM its queued load comes from): clamping to it then
+  continues a solid edge, like the black outside the wipe's quarter circles
+  once the circle is wider than 4:3 and the game stops drawing the side
+  rectangles. Clamping a sprite's edge would smear it into a streak. In 4:3
+  the scissor clips them as before.
 * Any textured rectangle that reaches past a side of the scissor, like a
   speech bubble near the edge of the screen, gets that side of its scissor
   opened, so it is not cut off at the edge of the 4:3 area.
