@@ -97,8 +97,9 @@ original 4:3 area unless one spans the whole scissor. Conker's circle wipe
 masks the picture with black fill rectangles on each side of four textured
 quarter-circle tiles, so the side rectangles stayed in the middle and the
 scene showed at both edges. With the option, an untextured rectangle that
-reaches one side of the scissor but not the other has that edge placed at the
-same side of the screen (an extended-GBI left or right origin) and its scissor
-stretched.
+reaches one side of the scissor but not the other has that edge, and its
+scissor's, moved to the same edge of the frame buffer, so it meets the edge
+exactly instead of leaving a sliver where RT64's rounding of the 3D scissor
+differs.
 
 All of these are candidates for upstreaming.
