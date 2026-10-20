@@ -101,7 +101,8 @@ These environment variables are read by both builds:
 * `CONKER_DUMP_SHARP_FONT=<dir>` (RT64 build) writes the built-in sharper
   text, made from the ROM at the first graphics task, to `<dir>` as an RT64
   pack (`rt64.json` and `font/glyph_NN.png`), to edit and load from
-  `conker-recomp-data/texture_packs`.
+  `conker-recomp-data/texture_packs`. `CONKER_DUMP_SHARP_MENUS=<dir>` does the
+  same for the built-in sharper menus (`menus/<name>_N.png`, one per tile).
 * `CONKER_AUDIO=0` (RT64 build) disables the SDL device; `CONKER_AUDIO_LATENCY_MS`
   (default 60) sets the extra buffering kept on top of what the game asks for;
   `CONKER_SILENT_AUDIO=1` skips the audio microcode entirely.

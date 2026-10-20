@@ -87,6 +87,8 @@ add_executable(ConkerRecomp
     src/enhancements/pause_save/pause_save.cpp
     src/enhancements/pause_save/resume_point.cpp
     src/enhancements/rumble_banner/rumble_banner.cpp
+    src/enhancements/sharp_menus/menu_art.cpp
+    src/enhancements/sharp_menus/pause_signs.cpp
     src/enhancements/surround_default/surround_default.cpp
 )
 target_include_directories(ConkerRecomp PRIVATE
@@ -122,7 +124,7 @@ if(CONKER_RENDERER STREQUAL "rt64")
         target_compile_definitions(plume PRIVATE PLUME_APPLE_RETINA_ENABLED)
     endif()
     target_sources(ConkerRecomp PRIVATE
-        src/platform/renderer_rt64.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/platform/window_sdl.cpp src/platform/input_sdl.cpp)
+        src/platform/renderer_rt64.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/enhancements/sharp_menus/sharp_menus.cpp src/platform/window_sdl.cpp src/platform/input_sdl.cpp)
     target_include_directories(ConkerRecomp PRIVATE
         ${SDL2_INCLUDE_DIRS}
         "${CMAKE_SOURCE_DIR}/lib/rt64/src"

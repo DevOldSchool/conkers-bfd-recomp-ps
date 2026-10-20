@@ -25,6 +25,7 @@ namespace conker::status {
 namespace {
 
 constexpr const char* kSharpFont = "built-in sharp font";
+constexpr const char* kSharpMenus = "built-in sharp menus";
 
 #if defined(__APPLE__)
 std::string sysctl_string(const char* name) {
@@ -54,6 +55,9 @@ nlohmann::json enhancement(const char* id, const char* name, bool on, const char
 nlohmann::json enhancements(uint8_t* rdram) {
     const std::vector<std::string> packs = conker::renderer::texture_packs();
     const bool sharp_font = std::find(packs.begin(), packs.end(), kSharpFont) != packs.end();
+    const bool sharp_menus = std::find(packs.begin(), packs.end(), kSharpMenus) != packs.end();
+    // The OPTIONS menu's SHARP TEXT / ORIGINAL TEXT row switches both.
+    const nlohmann::json sharp_options = {{"options_row", conker::display::sharp() ? "sharp" : "original"}};
     return nlohmann::json::array({
         display_options(),
         intro_skip(),
@@ -63,7 +67,8 @@ nlohmann::json enhancements(uint8_t* rdram) {
         surround_default(rdram),
         max_detail(),
         rumble_banner(),
-        enhancement("sharp_font", "Sharper text", sharp_font, "CONKER_SHARP_FONT"),
+        enhancement("sharp_font", "Sharper text", sharp_font, "CONKER_SHARP_FONT", sharp_options),
+        enhancement("sharp_menus", "Sharper menus", sharp_menus, "CONKER_SHARP_MENUS", sharp_options),
         enhancement("camera_stick", "Camera on the right stick", true, nullptr),
         debug_menu(),
     });
@@ -86,7 +91,8 @@ nlohmann::json settings() {
           {"scale", scale},
           {"width", width},
           {"height", conker::display::kPictureHeight * scale},
-          {"fill", conker::display::fill(mode)}}},
+          {"fill", conker::display::fill(mode)},
+          {"sharp", conker::display::sharp()}}},
         {"texture_packs", packs},
         {"controller", {{"name", pad.empty() ? nlohmann::json(nullptr) : nlohmann::json(pad)},
                         {"rumble", conker::input::has_rumble()}}},

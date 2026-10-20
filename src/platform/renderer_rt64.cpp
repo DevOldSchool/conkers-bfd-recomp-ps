@@ -24,11 +24,11 @@
 // Texture packs in RT64's replacement format (a folder, .rtz or .zip with an rt64.json that maps
 // texture hashes to images) are loaded from conker-recomp-data/texture_packs under the working
 // directory, in name order; where two packs replace the same texture the later name wins.
-// CONKER_TEXTURE_PACKS=0 loads none. Before them comes the built-in sharper font, made from the ROM
-// (src/enhancements/sharp_font/sharp_font.cpp), so a pack can replace it. They load with the first
-// graphics task, once the game has loaded the ROM. CONKER_DUMP_TEXTURES=<dir> writes each texture
-// the game loads to <dir> once, as RT64's <hash>.v5.png, .tmem and .tile.json files, to start a
-// pack from. With any of them loaded, the rectangles the game draws text glyphs with are widened
+// CONKER_TEXTURE_PACKS=0 loads none. Before them come the built-in sharper font and menus, made from
+// the ROM (src/enhancements/sharp_font/sharp_font.cpp, src/enhancements/sharp_menus/sharp_menus.cpp),
+// so a pack can replace them. They load with the first graphics task, once the game has loaded the
+// ROM. CONKER_DUMP_TEXTURES=<dir> writes each texture the game loads to <dir> once, as RT64's
+// <hash>.v5.png, .tmem and .tile.json files, to start a pack from. With any of them loaded, the rectangles the game draws text glyphs with are widened
 // so a replaced glyph is not cut off (src/platform/font_rects.cpp).
 #include "platform/renderer_rt64.hpp"
 #include "platform/render_debug.hpp"
@@ -43,6 +43,7 @@
 #include <vector>
 
 #include "enhancements/sharp_font/sharp_font.hpp"
+#include "enhancements/sharp_menus/sharp_menus.hpp"
 #include "hle/rt64_application.h"
 #include "hle/rt64_state.h"
 #include "librecomp/game.hpp"
@@ -71,25 +72,30 @@ unsigned char dummy_rom_header[0x40];
 void dummy_check_interrupts() {}
 
 std::mutex g_texture_packs_mutex;
-std::vector<std::string> g_texture_packs;  // as loaded, for texture_packs()
+std::vector<std::string> g_texture_packs;  // in use, for texture_packs()
 std::string g_gpu_name;                    // after setup, for gpu_name() and graphics_api()
 std::string g_graphics_api;
 
-// Loads the built-in font and the texture packs; returns whether any was loaded.
-bool load_texture_packs(RT64::Application& app) {
-    std::vector<RT64::ReplacementDirectory> directories;
-    std::vector<std::string> names;
+// The built-in packs, made once from the ROM, and the user's packs.
+struct Packs {
+    std::shared_ptr<RT64::FileSystem> font;
+    std::shared_ptr<RT64::FileSystem> menus;
+    std::vector<std::filesystem::path> user;
+};
+
+Packs find_packs() {
+    Packs packs;
     if (conker::sharp_font::enabled()) {
-        if (auto pack = conker::sharp_font::make_pack(recomp::get_rom())) {
-            conker::sharp_font::dump_pack(*pack);
-            directories.emplace_back(std::move(pack), "built-in sharp font");
-            names.push_back("built-in sharp font");
-        }
+        packs.font = conker::sharp_font::make_pack(recomp::get_rom());
+        if (packs.font) conker::sharp_font::dump_pack(*packs.font);
+    }
+    if (conker::sharp_menus::enabled()) {
+        packs.menus = conker::sharp_menus::make_pack();
+        if (packs.menus) conker::sharp_menus::dump_pack(*packs.menus);
     }
     const char* setting = std::getenv("CONKER_TEXTURE_PACKS");
     if (setting == nullptr || std::string(setting) != "0") {
         const std::filesystem::path dir = std::filesystem::current_path() / "conker-recomp-data" / "texture_packs";
-        std::vector<std::filesystem::path> packs;
         std::error_code error;
         for (const auto& entry : std::filesystem::directory_iterator(dir, error)) {
             const std::string name = entry.path().filename().string();
@@ -97,27 +103,48 @@ bool load_texture_packs(RT64::Application& app) {
             std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
             if (!name.starts_with(".") &&
                 (entry.is_directory() || extension == ".rtz" || extension == ".zip")) {
-                packs.push_back(entry.path());
+                packs.user.push_back(entry.path());
             }
         }
-        std::sort(packs.begin(), packs.end());
-        for (const std::filesystem::path& pack : packs) {
-            directories.emplace_back(pack);
-            names.push_back("texture pack " + pack.filename().string());
-        }
+        std::sort(packs.user.begin(), packs.user.end());
+    }
+    return packs;
+}
+
+// Hands RT64 the packs to use, the built-in ones only if `sharp` (the OPTIONS menu's choice), and
+// returns whether the font's glyphs may be replaced: the built-in font or any user pack is in.
+bool use_packs(RT64::Application& app, const Packs& packs, bool sharp, bool report) {
+    std::vector<RT64::ReplacementDirectory> directories;
+    std::vector<std::string> names;
+    if (sharp && packs.font) {
+        directories.emplace_back(packs.font, "built-in sharp font");
+        names.push_back("built-in sharp font");
+    }
+    if (sharp && packs.menus) {
+        directories.emplace_back(packs.menus, "built-in sharp menus");
+        names.push_back("built-in sharp menus");
+    }
+    for (const std::filesystem::path& pack : packs.user) {
+        directories.emplace_back(pack);
+        names.push_back("texture pack " + pack.filename().string());
     }
     if (directories.empty()) {
+        app.textureCache->clearReplacementDirectories();
+        std::lock_guard lock(g_texture_packs_mutex);
+        g_texture_packs.clear();
         return false;
     }
     const bool loaded = app.textureCache->loadReplacementDirectories(directories);
-    for (const std::string& name : names) {
-        std::printf("[conker] %s%s\n", name.c_str(), loaded ? "" : " (not loaded)");
+    if (report) {
+        for (const std::string& name : names) {
+            std::printf("[conker] %s%s\n", name.c_str(), loaded ? "" : " (not loaded)");
+        }
     }
-    if (loaded) {
+    {
         std::lock_guard lock(g_texture_packs_mutex);
-        g_texture_packs = names;
+        g_texture_packs = loaded ? names : std::vector<std::string>();
     }
-    return loaded;
+    return loaded && ((sharp && packs.font) || !packs.user.empty());
 }
 
 void start_texture_dump(RT64::Application& app) {
@@ -238,7 +265,12 @@ public:
         seen_copies_ = copies;
         if (!packs_loaded_) {
             packs_loaded_ = true;
-            widen_font_rects_ = load_texture_packs(*app_);
+            packs_ = find_packs();
+            used_sharp_ = conker::display::sharp();
+            widen_font_rects_ = use_packs(*app_, packs_, used_sharp_, true);
+        } else if (conker::display::sharp() != used_sharp_ && (packs_.font || packs_.menus)) {
+            used_sharp_ = conker::display::sharp();
+            widen_font_rects_ = use_packs(*app_, packs_, used_sharp_, false);
         }
         if (widen_font_rects_) {
             widen_font_rects(app_->core.RDRAM, task->t.data_ptr);
@@ -358,8 +390,10 @@ private:
     }
 
     std::unique_ptr<RT64::Application> app_;
-    bool packs_loaded_ = false;      // load_texture_packs has run (with the first graphics task)
-    bool widen_font_rects_ = false;  // it loaded the built-in font or a texture pack
+    bool packs_loaded_ = false;      // the packs were found (with the first graphics task)
+    Packs packs_;
+    bool used_sharp_ = true;         // the built-in packs are in use
+    bool widen_font_rects_ = false;  // the built-in font or a texture pack is in use
     mutable float reported_scale_ = 0.0f;
     mutable uint32_t reported_width_ = 0;
     mutable uint32_t reported_height_ = 0;

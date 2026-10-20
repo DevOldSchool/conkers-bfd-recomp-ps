@@ -32,6 +32,7 @@ std::atomic<int> g_screen_height{0};
 std::atomic<bool> g_requested{false};
 std::atomic<uint32_t> g_frame_copies{0};
 std::atomic<bool> g_rendered_widescreen{false};
+std::atomic<bool> g_sharp{true};
 std::mutex g_save_mutex;
 
 // Next to the saves, under the working directory (see main.cpp).
@@ -50,8 +51,8 @@ bool parse_mode(const std::string& text, Mode* mode) {
 }
 
 // display.cfg holds "mode=<name>", "window_scale=<n>", "screen_scale=<n>", "window_fill=<0|1>",
-// "screen_fill=<0|1>", "window_widescreen=<0|1>" and "screen_widescreen=<0|1>" lines; a scale of 0
-// is the largest.
+// "screen_fill=<0|1>", "window_widescreen=<0|1>", "screen_widescreen=<0|1>" and "sharp=<0|1>"
+// lines; a scale of 0 is the largest.
 void save() {
     std::lock_guard lock(g_save_mutex);
     std::ofstream file(config_path());
@@ -61,7 +62,8 @@ void save() {
          << "window_fill=" << (g_window_fill.load() ? 1 : 0) << '\n'
          << "screen_fill=" << (g_screen_fill.load() ? 1 : 0) << '\n'
          << "window_widescreen=" << (g_window_wide.load() ? 1 : 0) << '\n'
-         << "screen_widescreen=" << (g_screen_wide.load() ? 1 : 0) << '\n';
+         << "screen_widescreen=" << (g_screen_wide.load() ? 1 : 0) << '\n'
+         << "sharp=" << (g_sharp.load() ? 1 : 0) << '\n';
     if (!file) {
         std::fprintf(stderr, "[conker] could not write %s\n", config_path().string().c_str());
     }
@@ -101,6 +103,8 @@ Mode startup_mode() {
             g_window_wide.store(std::atoi(value.c_str()) != 0);
         } else if (key == "screen_widescreen") {
             g_screen_wide.store(std::atoi(value.c_str()) != 0);
+        } else if (key == "sharp") {
+            g_sharp.store(std::atoi(value.c_str()) != 0);
         }
     }
     if (const char* value = std::getenv("CONKER_DISPLAY"); value != nullptr && value[0] != '\0') {
@@ -207,6 +211,16 @@ void request_widescreen(Mode mode, bool widescreen) {
     if (mode == Mode::Windowed && current() == Mode::Windowed) {
         g_requested.store(true);  // the window takes the new shape; covering the screen, only RT64 changes
     }
+}
+
+bool sharp() { return g_sharp.load(); }
+
+void request_sharp(bool sharp) {
+    if (g_sharp.exchange(sharp) == sharp) {
+        return;
+    }
+    std::printf("[conker] sharper text and menus: %s\n", sharp ? "on" : "off");
+    save();
 }
 
 void note_frame_copy() { g_frame_copies.fetch_add(1); }

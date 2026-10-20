@@ -1,7 +1,7 @@
 // The display mode and resolution: a window, a borderless window covering the screen, or full
 // screen, how large the game's 292x216 picture is drawn in each, and whether it is widened to the
-// window's or screen's shape. They are chosen in the
-// OPTIONS menu (src/enhancements/display_options/display_options.cpp) or, for the mode, with the
+// window's or screen's shape, and whether the sharper text and menus are drawn. They are chosen in
+// the OPTIONS menu (src/enhancements/display_options/display_options.cpp) or, for the mode, with the
 // full-screen shortcuts, kept in conker-recomp-data/display.cfg, and applied by the SDL window
 // (src/platform/window_sdl.cpp) and RT64 (src/platform/renderer_rt64.cpp). The null build keeps
 // the settings but has no window to apply them to.
@@ -101,6 +101,12 @@ uint32_t frame_copy_count();
 // setting while the renderer holds it.
 void set_rendered_widescreen(bool widescreen);
 bool rendered_widescreen();
+
+// Whether the built-in sharper text and menus are drawn (src/enhancements/sharp_font,
+// src/enhancements/sharp_menus), chosen in the OPTIONS menu; on by default. The renderer loads or
+// drops them when it changes.
+bool sharp();
+void request_sharp(bool sharp);
 
 // For the window: whether the mode, the window's multiple or the picture's shape changed since the
 // last call, and the mode to be in.

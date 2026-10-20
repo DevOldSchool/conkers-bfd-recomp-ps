@@ -11,8 +11,9 @@ namespace conker::renderer {
 // Safe to call from any thread.
 void set_wireframe(bool on);
 
-// What was loaded over the game's textures: the built-in sharp font and the packs in
-// conker-recomp-data/texture_packs, by name (none in the null build, or before the first frame).
+// What is loaded over the game's textures: the built-in sharp font and menus (while the OPTIONS
+// menu's SHARP TEXT is chosen) and the packs in conker-recomp-data/texture_packs, by name (none in
+// the null build, or before the first frame).
 std::vector<std::string> texture_packs();
 
 // The GPU drawing the game and the graphics API used ("" in the null build, or before setup).
