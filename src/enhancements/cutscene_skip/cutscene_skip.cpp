@@ -105,6 +105,6 @@ extern "C" void conker_skip_unwatched(uint8_t* /*rdram*/, recomp_context* ctx) {
     }
 }
 
-conker::status::Line conker::status::cutscene_skip() {
-    return {"Skip any cutscene", skip_cutscenes_enabled(), "CONKER_SKIP_CUTSCENES; L or Start skips every cutscene"};
+nlohmann::json conker::status::cutscene_skip() {
+    return enhancement("cutscene_skip", "Skip any cutscene", skip_cutscenes_enabled(), "CONKER_SKIP_CUTSCENES");
 }

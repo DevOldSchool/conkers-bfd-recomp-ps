@@ -32,6 +32,6 @@ extern "C" void conker_max_detail(uint8_t* /*rdram*/, recomp_context* ctx) {
     }
 }
 
-conker::status::Line conker::status::max_detail() {
-    return {"Characters at full detail", max_detail_enabled(), "CONKER_MAX_DETAIL; the most detailed model at any distance"};
+nlohmann::json conker::status::max_detail() {
+    return enhancement("max_detail", "Characters at full detail", max_detail_enabled(), "CONKER_MAX_DETAIL");
 }

@@ -189,10 +189,12 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
     (`save.bin`, `save.resume`). The JSON has the build (`git describe` of
     the commit it was built from), the scene and entrance, Conker's position
     and facing, the camera (position, look-at point, forward vector, yaw,
-    pitch), every enhancement with whether it is on and its switch, the
-    settings that go with them (display, texture packs, controller, frame
-    rate, `display.cfg`), the `CONKER_*` variables set, and what save is in
-    the folder. The save is made by the game's own save routine into a copy:
+    pitch), every enhancement (`id`, `name`, `on`, its `CONKER_*` `variable`
+    and its `options` as values), the settings that go with them (display,
+    texture packs, controller, frame rate, `display.cfg`), the computer
+    (operating system, CPU, memory, GPU and graphics API, display size;
+    nothing that names the computer or its user), the `CONKER_*` variables
+    set (a path keeps only its file name), and what save is in the folder. The save is made by the game's own save routine into a copy:
     the player's save is not changed, and no snapshot is made. Where the game
     does not save (a chapter replayed from CHAPTERS), there is no save.
   * LOAD REPORT: the reports, newest first; A starts a report's save where

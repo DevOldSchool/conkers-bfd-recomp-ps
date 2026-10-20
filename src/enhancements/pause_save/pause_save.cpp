@@ -475,6 +475,6 @@ extern "C" void conker_pause_save_sprites_done(uint8_t* /*rdram*/, recomp_contex
     g_signs_drawn = false;
 }
 
-conker::status::Line conker::status::pause_save() {
-    return {"SAVE and LOAD in the pause menu", pause_save_enabled(), "CONKER_PAUSE_SAVE"};
+nlohmann::json conker::status::pause_save() {
+    return enhancement("pause_save", "SAVE and LOAD in the pause menu", pause_save_enabled(), "CONKER_PAUSE_SAVE");
 }

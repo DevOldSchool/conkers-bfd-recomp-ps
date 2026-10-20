@@ -1,35 +1,37 @@
-// What each enhancement is set to, and the settings that go with them, for the debug menu's report
-// (src/enhancements/debug_menu). Each enhancement answers for itself, from the switch it acts on.
+// What each enhancement is set to, the settings that go with them, and the computer the game runs
+// on, as JSON for the debug menu's report (src/enhancements/debug_menu). Each enhancement answers for
+// itself, from the switch it acts on.
 #pragma once
 
 #include <cstdint>
-#include <string>
-#include <utility>
-#include <vector>
+
+#include "json/json.hpp"
 
 namespace conker::status {
 
-struct Line {
-    std::string name;    // as the README calls it
-    bool on = false;
-    std::string detail;  // the switch, and what it does now
-};
+// One enhancement: {"id", "name" (as the README calls it), "on", "variable" (the CONKER_* variable
+// that switches it, or null), "options" (what it is set to, as values)}.
+nlohmann::json enhancement(const char* id, const char* name, bool on, const char* variable,
+                           nlohmann::json options = nlohmann::json::object());
 
-// One line per enhancement.
-std::vector<Line> enhancements(uint8_t* rdram);
+// Every enhancement, in the README's order.
+nlohmann::json enhancements(uint8_t* rdram);
 
-// The settings that go with them, as name and value: the display, texture packs, the controller.
-std::vector<std::pair<std::string, std::string>> settings(uint8_t* rdram);
+// {"display", "texture_packs", "controller"}.
+nlohmann::json settings();
 
-// Each enhancement's own line (defined in its file).
-Line cutscene_skip();
-Line intro_skip();
-Line max_detail();
-Line rumble_banner();
-Line surround_default(uint8_t* rdram);
-Line display_options();
-Line pause_save();
-Line save_snapshots();
-Line debug_menu();
+// {"os", "cpu", "memory_bytes", "gpu", "display"}: nothing that names the computer or its user.
+nlohmann::json system();
+
+// Each enhancement's own entry (defined in its file).
+nlohmann::json cutscene_skip();
+nlohmann::json intro_skip();
+nlohmann::json max_detail();
+nlohmann::json rumble_banner();
+nlohmann::json surround_default(uint8_t* rdram);
+nlohmann::json display_options();
+nlohmann::json pause_save();
+nlohmann::json save_snapshots();
+nlohmann::json debug_menu();
 
 }  // namespace conker::status

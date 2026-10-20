@@ -15,4 +15,8 @@ void set_wireframe(bool on);
 // conker-recomp-data/texture_packs, by name (none in the null build, or before the first frame).
 std::vector<std::string> texture_packs();
 
+// The GPU drawing the game and the graphics API used ("" in the null build, or before setup).
+std::string gpu_name();
+std::string graphics_api();
+
 } // namespace conker::renderer

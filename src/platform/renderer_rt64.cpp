@@ -72,6 +72,8 @@ void dummy_check_interrupts() {}
 
 std::mutex g_texture_packs_mutex;
 std::vector<std::string> g_texture_packs;  // as loaded, for texture_packs()
+std::string g_gpu_name;                    // after setup, for gpu_name() and graphics_api()
+std::string g_graphics_api;
 
 // Loads the built-in font and the texture packs; returns whether any was loaded.
 bool load_texture_packs(RT64::Application& app) {
@@ -203,6 +205,16 @@ public:
             return;
         }
         start_texture_dump(*app_);
+        {
+            std::lock_guard lock(g_texture_packs_mutex);
+            g_gpu_name = app_->device->getDescription().name;
+            switch (app_->chosenGraphicsAPI) {
+                case RT64::UserConfiguration::GraphicsAPI::D3D12: g_graphics_api = "D3D12"; break;
+                case RT64::UserConfiguration::GraphicsAPI::Vulkan: g_graphics_api = "Vulkan"; break;
+                case RT64::UserConfiguration::GraphicsAPI::Metal: g_graphics_api = "Metal"; break;
+                default: g_graphics_api = "unknown"; break;
+            }
+        }
     }
 
     ~Rt64Renderer() override = default;
@@ -368,6 +380,16 @@ void set_wireframe(bool on) { RT64::SetRenderWireframe(on); }
 std::vector<std::string> texture_packs() {
     std::lock_guard lock(g_texture_packs_mutex);
     return g_texture_packs;
+}
+
+std::string gpu_name() {
+    std::lock_guard lock(g_texture_packs_mutex);
+    return g_gpu_name;
+}
+
+std::string graphics_api() {
+    std::lock_guard lock(g_texture_packs_mutex);
+    return g_graphics_api;
 }
 
 std::unique_ptr<ultramodern::renderer::RendererContext> create_rt64_render_context(

@@ -1,7 +1,20 @@
-// What each enhancement is set to, for the debug menu's report: see src/enhancements/status.hpp.
+// What each enhancement is set to, its settings, and the computer: see src/enhancements/status.hpp.
 #include "enhancements/status.hpp"
 
 #include <algorithm>
+#include <cstring>
+#include <fstream>
+#include <string>
+#include <thread>
+#include <vector>
+
+#if defined(__APPLE__) || defined(__linux__)
+#include <sys/utsname.h>
+#include <unistd.h>
+#endif
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
 
 #include "platform/display_mode.hpp"
 #include "platform/input.hpp"
@@ -13,12 +26,35 @@ namespace {
 
 constexpr const char* kSharpFont = "built-in sharp font";
 
+#if defined(__APPLE__)
+std::string sysctl_string(const char* name) {
+    size_t size = 0;
+    if (sysctlbyname(name, nullptr, &size, nullptr, 0) != 0 || size == 0) {
+        return "";
+    }
+    std::string value(size, '\0');
+    if (sysctlbyname(name, value.data(), &size, nullptr, 0) != 0) {
+        return "";
+    }
+    value.resize(std::strlen(value.c_str()));
+    return value;
+}
+#endif
+
 }  // namespace
 
-std::vector<Line> enhancements(uint8_t* rdram) {
+nlohmann::json enhancement(const char* id, const char* name, bool on, const char* variable, nlohmann::json options) {
+    return {{"id", id},
+            {"name", name},
+            {"on", on},
+            {"variable", variable != nullptr ? nlohmann::json(variable) : nlohmann::json(nullptr)},
+            {"options", std::move(options)}};
+}
+
+nlohmann::json enhancements(uint8_t* rdram) {
     const std::vector<std::string> packs = conker::renderer::texture_packs();
     const bool sharp_font = std::find(packs.begin(), packs.end(), kSharpFont) != packs.end();
-    return {
+    return nlohmann::json::array({
         display_options(),
         intro_skip(),
         cutscene_skip(),
@@ -27,32 +63,87 @@ std::vector<Line> enhancements(uint8_t* rdram) {
         surround_default(rdram),
         max_detail(),
         rumble_banner(),
-        {"Sharper text", sharp_font, "CONKER_SHARP_FONT; the font enlarged with Super-xBR"},
-        {"Camera on the right stick", true, "always on; C-left and C-right swapped, so left turns the view left"},
+        enhancement("sharp_font", "Sharper text", sharp_font, "CONKER_SHARP_FONT"),
+        enhancement("camera_stick", "Camera on the right stick", true, nullptr),
         debug_menu(),
-    };
+    });
 }
 
-std::vector<std::pair<std::string, std::string>> settings(uint8_t* /*rdram*/) {
-    std::vector<std::pair<std::string, std::string>> out;
+nlohmann::json settings() {
     const conker::display::Mode mode = conker::display::current();
     const bool windowed = mode == conker::display::Mode::Windowed;
     const int scale = windowed ? conker::display::window_scale() : conker::display::screen_scale();
-    const bool wide = conker::display::widescreen(mode);
     const int width = windowed ? conker::display::window_picture_width(scale) : conker::display::screen_picture_width(scale);
-    out.emplace_back("display", std::string(conker::display::name(mode)) + ", " + (wide ? "widescreen" : "4:3") + ", " +
-                                    std::to_string(scale) + "x (" + std::to_string(width) + "x" +
-                                    std::to_string(conker::display::kPictureHeight * scale) + "), " +
-                                    (conker::display::fill(mode) ? "fill screen" : "centered"));
-    std::string loaded;
+    nlohmann::json packs = nlohmann::json::array();
     for (const std::string& pack : conker::renderer::texture_packs()) {
-        loaded += (loaded.empty() ? "" : ", ") + pack;
+        packs.push_back(pack);
     }
-    out.emplace_back("texture_packs", loaded.empty() ? "none" : loaded);
     const std::string pad = conker::input::controller_name();
-    out.emplace_back("controller", (pad.empty() ? std::string("keyboard only") : pad) +
-                                       (conker::input::has_rumble() ? ", can rumble" : ", no rumble"));
-    return out;
+    return {
+        {"display",
+         {{"mode", conker::display::name(mode)},
+          {"widescreen", conker::display::widescreen(mode)},
+          {"scale", scale},
+          {"width", width},
+          {"height", conker::display::kPictureHeight * scale},
+          {"fill", conker::display::fill(mode)}}},
+        {"texture_packs", packs},
+        {"controller", {{"name", pad.empty() ? nlohmann::json(nullptr) : nlohmann::json(pad)},
+                        {"rumble", conker::input::has_rumble()}}},
+    };
+}
+
+nlohmann::json system() {
+    nlohmann::json os = nlohmann::json::object();
+    nlohmann::json cpu = {{"threads", std::thread::hardware_concurrency()}};
+    nlohmann::json memory = nullptr;
+#if defined(__APPLE__) || defined(__linux__)
+    utsname names{};
+    if (uname(&names) == 0) {
+        os["kernel"] = std::string(names.sysname) + " " + names.release;
+        os["architecture"] = names.machine;
+    }
+#endif
+#if defined(__APPLE__)
+    os["name"] = "macOS";
+    os["version"] = sysctl_string("kern.osproductversion");
+    cpu["model"] = sysctl_string("machdep.cpu.brand_string");
+    uint64_t bytes = 0;
+    size_t size = sizeof(bytes);
+    if (sysctlbyname("hw.memsize", &bytes, &size, nullptr, 0) == 0) {
+        memory = bytes;
+    }
+#elif defined(__linux__)
+    os["name"] = "Linux";
+    std::ifstream release("/etc/os-release");
+    for (std::string line; std::getline(release, line);) {
+        if (line.rfind("PRETTY_NAME=", 0) == 0) {
+            std::string value = line.substr(12);
+            value.erase(std::remove(value.begin(), value.end(), '"'), value.end());
+            os["version"] = value;
+        }
+    }
+    std::ifstream info("/proc/cpuinfo");
+    for (std::string line; std::getline(info, line);) {
+        if (line.rfind("model name", 0) == 0 && line.find(':') != std::string::npos) {
+            cpu["model"] = line.substr(line.find(':') + 2);
+            break;
+        }
+    }
+    memory = static_cast<uint64_t>(sysconf(_SC_PHYS_PAGES)) * static_cast<uint64_t>(sysconf(_SC_PAGESIZE));
+#elif defined(_WIN32)
+    os["name"] = "Windows";
+#endif
+    const std::string gpu = conker::renderer::gpu_name();
+    const std::string api = conker::renderer::graphics_api();
+    return {
+        {"os", os},
+        {"cpu", cpu},
+        {"memory_bytes", memory},
+        {"gpu", {{"name", gpu.empty() ? nlohmann::json(nullptr) : nlohmann::json(gpu)},
+                 {"api", api.empty() ? nlohmann::json(nullptr) : nlohmann::json(api)}}},
+        {"display", {{"width", conker::display::display_width()}, {"height", conker::display::display_height()}}},
+    };
 }
 
 }  // namespace conker::status

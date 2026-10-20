@@ -7,6 +7,10 @@
 
 namespace conker::resume {
 
+// conker-recomp-data: where the reports, spots and display settings are, wherever the save file is
+// (a loaded report's save is in saves/debug/).
+std::filesystem::path data_folder();
+
 // Remember where Conker is now; it is stored with the next save the game writes for `slot`.
 void remember_position(uint8_t* rdram, int slot);
 

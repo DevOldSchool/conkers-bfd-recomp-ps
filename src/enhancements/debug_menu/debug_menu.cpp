@@ -153,7 +153,7 @@ void show_message(const std::string& message, const std::string& detail = "") {
 // followed by "<facing> <camera yaw> <camera pitch>" (see conker::resume::Position; the pitch is
 // only recorded).
 std::filesystem::path spots_path() {
-    return ultramodern::get_save_file_path().parent_path().parent_path() / "debug_spots.txt";
+    return conker::resume::data_folder() / "debug_spots.txt";
 }
 
 std::vector<Position> read_spots() {
@@ -440,18 +440,11 @@ std::string report_json(uint8_t* rdram) {
             {"pitch", rounded(c.pitch())},
         };
     }
-    nlohmann::json enhancements = nlohmann::json::array();
-    for (const conker::status::Line& line : conker::status::enhancements(rdram)) {
-        enhancements.push_back({{"name", line.name}, {"on", line.on}, {"detail", line.detail}});
-    }
-    report["enhancements"] = enhancements;
-    nlohmann::json settings = nlohmann::json::object();
-    for (const auto& [name, value] : conker::status::settings(rdram)) {
-        settings[name] = value;
-    }
+    report["enhancements"] = conker::status::enhancements(rdram);
+    nlohmann::json settings = conker::status::settings();
     settings["frame_rate"] = g_fps;
     nlohmann::json display = nlohmann::json::object();
-    std::ifstream display_file(ultramodern::get_save_file_path().parent_path().parent_path() / "display.cfg");
+    std::ifstream display_file(conker::resume::data_folder() / "display.cfg");
     for (std::string setting; std::getline(display_file, setting);) {
         const size_t equals = setting.find('=');
         if (equals != std::string::npos) {
@@ -460,12 +453,19 @@ std::string report_json(uint8_t* rdram) {
     }
     settings["display_cfg"] = display;
     report["settings"] = settings;
+    report["system"] = conker::status::system();
+    // The CONKER_* variables set. A path names its file only: the folders could name the user.
     nlohmann::json environment = nlohmann::json::object();
     for (char** variable = environ; *variable != nullptr; variable++) {
         const std::string entry = *variable;
         if (entry.rfind("CONKER_", 0) == 0) {
             const size_t equals = entry.find('=');
-            environment[entry.substr(0, equals)] = equals == std::string::npos ? "" : entry.substr(equals + 1);
+            std::string value = equals == std::string::npos ? "" : entry.substr(equals + 1);
+            const size_t slash = value.find_last_of("/\\");
+            if (slash != std::string::npos) {
+                value = "\u2026/" + value.substr(slash + 1);
+            }
+            environment[entry.substr(0, equals)] = value;
         }
     }
     report["environment"] = environment;
@@ -762,8 +762,7 @@ extern "C" void conker_debug_menu_frame(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
-conker::status::Line conker::status::debug_menu() {
-    return {"Debug menu", debug_menu_enabled(),
-            std::string("CONKER_DEBUG_MENU; wireframe ") + (g_wireframe ? "on" : "off") + ", show FPS " +
-                (g_show_fps ? "on" : "off") + ", show position " + (g_show_position ? "on" : "off")};
+nlohmann::json conker::status::debug_menu() {
+    return enhancement("debug_menu", "Debug menu", debug_menu_enabled(), "CONKER_DEBUG_MENU",
+                       {{"wireframe", g_wireframe}, {"show_fps", g_show_fps}, {"show_position", g_show_position}});
 }

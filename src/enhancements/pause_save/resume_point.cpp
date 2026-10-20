@@ -321,7 +321,7 @@ uint32_t save_counter(uint8_t* rdram, int slot) {
 std::filesystem::path snapshots_folder() { return ultramodern::get_save_file_path().parent_path() / "snapshots"; }
 
 std::filesystem::path reports_folder() {
-    return ultramodern::get_save_file_path().parent_path().parent_path() / "debug_reports";
+    return data_folder() / "debug_reports";
 }
 
 std::filesystem::path snapshot_path(int scene, std::time_t time) {
@@ -578,6 +578,13 @@ void newest_first(std::vector<Snapshot>* list) {
 }
 
 }  // namespace
+
+std::filesystem::path data_folder() {
+    // The save file's folder's folder, taken before a report's save can move the save file
+    // (conker_resume_tick asks once a frame from the start).
+    static const std::filesystem::path folder = ultramodern::get_save_file_path().parent_path().parent_path();
+    return folder;
+}
 
 std::vector<Snapshot> list_snapshots() {
     std::vector<Snapshot> snapshots;
@@ -842,7 +849,7 @@ bool load_report(uint8_t* rdram, const std::filesystem::path& path, std::string*
                     build.c_str(), CONKER_BUILD_VERSION);
     }
     // The player's saves folder, as it was before any report was loaded.
-    static const std::filesystem::path saves = ultramodern::get_save_file_path().parent_path();
+    const std::filesystem::path saves = data_folder() / "saves";
     const std::string name = folder.filename().string();
     const std::filesystem::path copy = saves / "debug" / (name + ".bin");
     std::filesystem::path copy_points = copy;
@@ -979,6 +986,7 @@ extern "C" void conker_resume_start(uint8_t* rdram, recomp_context* ctx) {
 // Also keeps the snapshot of a save once it is written, and moves Conker to the point being
 // resumed once its scene is running.
 extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
+    data_folder();  // fixed from the first frame, before any report is loaded
     if (g_snapshot_pending && MEM_B(0, kseg0(kEepromAction)) == 0 && MEM_W(0, kseg0(kEepromWriting)) == 0) {
         g_snapshot_pending = false;
         write_snapshot(rdram);
@@ -1057,6 +1065,6 @@ extern "C" void conker_report_marker_write(uint8_t* rdram, recomp_context* ctx) 
     ctx->r6 = kseg0(kReportBlockScratch);
 }
 
-conker::status::Line conker::status::save_snapshots() {
-    return {"Save snapshots", conker::resume::snapshots_enabled(), "CONKER_SAVE_SNAPSHOTS; saves/snapshots/ for each pause-menu save"};
+nlohmann::json conker::status::save_snapshots() {
+    return enhancement("save_snapshots", "Save snapshots", conker::resume::snapshots_enabled(), "CONKER_SAVE_SNAPSHOTS");
 }
