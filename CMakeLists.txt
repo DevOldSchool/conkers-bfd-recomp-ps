@@ -77,6 +77,7 @@ add_executable(ConkerRecomp
     src/fixes/geometry_escape.cpp
     src/fixes/music_start.cpp
     src/enhancements/display_options/display_options.cpp
+    src/enhancements/display_options/widescreen_intro.cpp
     src/enhancements/display_options/widescreen_copies.cpp
     src/enhancements/intro_skip/intro_skip.cpp
     src/enhancements/max_detail/max_detail.cpp

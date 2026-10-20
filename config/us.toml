@@ -281,6 +281,20 @@ func = "func_151D5E90"
 before_vram = 0x151D6180
 text = "{ void conker_widescreen_copy_end(uint8_t*, recomp_context*); conker_widescreen_copy_end(rdram, ctx); }"
 
+# In widescreen the intro (scene 0x21) does not draw Conker while he waits for his cue just past
+# the right edge of the 4:3 view, nor what he holds: func_1502C974, which draws an actor, and
+# func_150311C4, which draws an attachment (the chainsaw, a glove) on its parent actor, return
+# their display list pointer unchanged. See src/enhancements/display_options/widescreen_intro.cpp.
+[[patches.hook]]
+func = "func_1502C974"
+before_vram = 0x1502C974
+text = "{ int conker_widescreen_hide_actor(uint8_t*, gpr); if (conker_widescreen_hide_actor(rdram, ctx->r5)) { ctx->r2 = ctx->r4; return; } }"
+
+[[patches.hook]]
+func = "func_150311C4"
+before_vram = 0x150311C4
+text = "{ int conker_widescreen_hide_attachment(uint8_t*, gpr); if (conker_widescreen_hide_attachment(rdram, ctx->r6)) { ctx->r2 = ctx->r4; return; } }"
+
 # The title menu's "INSERT RUMBLE PAK" banner (message 0x8F) shows for a few seconds whenever the
 # menu comes up, pak or not, while the countdown D_8008FEFC is above 60. With a pad that can rumble
 # there is a pak, so the countdown is cleared just before func_151DE8F0 reads it. See
