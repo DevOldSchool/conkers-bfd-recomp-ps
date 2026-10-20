@@ -20,13 +20,33 @@
 // tools/patches/rt64-edge-rects.patch). The pause menu shows the paused scene at its full width,
 // without the game's blur (src/enhancements/display_options/widescreen_copies.cpp). The game still culls to its own 4:3
 // view, so an object can appear late at the far sides.
+//
+// Texture packs in RT64's replacement format (a folder, .rtz or .zip with an rt64.json that maps
+// texture hashes to images) are loaded from conker-recomp-data/texture_packs under the working
+// directory, in name order; where two packs replace the same texture the later name wins.
+// CONKER_TEXTURE_PACKS=0 loads none. Before them comes the built-in sharper font, made from the ROM
+// (src/enhancements/sharp_font/sharp_font.cpp), so a pack can replace it. They load with the first
+// graphics task, once the game has loaded the ROM. CONKER_DUMP_TEXTURES=<dir> writes each texture
+// the game loads to <dir> once, as RT64's <hash>.v5.png, .tmem and .tile.json files, to start a
+// pack from. With any of them loaded, the rectangles the game draws text glyphs with are widened
+// so a replaced glyph is not cut off (src/platform/font_rects.cpp).
 #include "platform/renderer_rt64.hpp"
 
+#include <algorithm>
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <vector>
 
+#include "enhancements/sharp_font/sharp_font.hpp"
 #include "hle/rt64_application.h"
+#include "hle/rt64_state.h"
+#include "librecomp/game.hpp"
+#include "platform/font_rects.hpp"
+#include "render/rt64_texture_cache.h"
 #include "platform/display_mode.hpp"
 
 namespace conker::renderer {
@@ -47,6 +67,56 @@ uint32_t dpc_tmem_reg = 0;
 unsigned char dummy_rom_header[0x40];
 
 void dummy_check_interrupts() {}
+
+// Loads the built-in font and the texture packs; returns whether any was loaded.
+bool load_texture_packs(RT64::Application& app) {
+    std::vector<RT64::ReplacementDirectory> directories;
+    std::vector<std::string> names;
+    if (conker::sharp_font::enabled()) {
+        if (auto pack = conker::sharp_font::make_pack(recomp::get_rom())) {
+            conker::sharp_font::dump_pack(*pack);
+            directories.emplace_back(std::move(pack), "built-in sharp font");
+            names.push_back("built-in sharp font");
+        }
+    }
+    const char* setting = std::getenv("CONKER_TEXTURE_PACKS");
+    if (setting == nullptr || std::string(setting) != "0") {
+        const std::filesystem::path dir = std::filesystem::current_path() / "conker-recomp-data" / "texture_packs";
+        std::vector<std::filesystem::path> packs;
+        std::error_code error;
+        for (const auto& entry : std::filesystem::directory_iterator(dir, error)) {
+            const std::string name = entry.path().filename().string();
+            std::string extension = entry.path().extension().string();
+            std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+            if (!name.starts_with(".") &&
+                (entry.is_directory() || extension == ".rtz" || extension == ".zip")) {
+                packs.push_back(entry.path());
+            }
+        }
+        std::sort(packs.begin(), packs.end());
+        for (const std::filesystem::path& pack : packs) {
+            directories.emplace_back(pack);
+            names.push_back("texture pack " + pack.filename().string());
+        }
+    }
+    if (directories.empty()) {
+        return false;
+    }
+    const bool loaded = app.textureCache->loadReplacementDirectories(directories);
+    for (const std::string& name : names) {
+        std::printf("[conker] %s%s\n", name.c_str(), loaded ? "" : " (not loaded)");
+    }
+    return loaded;
+}
+
+void start_texture_dump(RT64::Application& app) {
+    if (const char* path = std::getenv("CONKER_DUMP_TEXTURES"); path != nullptr && path[0] != '\0') {
+        std::error_code error;
+        std::filesystem::create_directories(path, error);
+        app.state->dumpingTexturesDirectory = path;
+        std::printf("[conker] dumping textures to %s\n", path);
+    }
+}
 
 ultramodern::renderer::SetupResult map_setup_result(RT64::Application::SetupResult result) {
     switch (result) {
@@ -121,7 +191,9 @@ public:
         if (setup_result != ultramodern::renderer::SetupResult::Success) {
             std::fprintf(stderr, "[conker] RT64 setup failed (%d)\n", static_cast<int>(setup_result));
             app_ = nullptr;
+            return;
         }
+        start_texture_dump(*app_);
     }
 
     ~Rt64Renderer() override = default;
@@ -143,6 +215,13 @@ public:
         const uint32_t copies = conker::display::frame_copy_count();
         tasks_without_copy_ = copies != seen_copies_ ? 0 : tasks_without_copy_ + 1;
         seen_copies_ = copies;
+        if (!packs_loaded_) {
+            packs_loaded_ = true;
+            widen_font_rects_ = load_texture_packs(*app_);
+        }
+        if (widen_font_rects_) {
+            widen_font_rects(app_->core.RDRAM, task->t.data_ptr);
+        }
         app_->state->rsp->reset();
         app_->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
         app_->processDisplayLists(app_->core.RDRAM, task->t.data_ptr & 0x3FFFFFF, 0, true);
@@ -258,6 +337,8 @@ private:
     }
 
     std::unique_ptr<RT64::Application> app_;
+    bool packs_loaded_ = false;      // load_texture_packs has run (with the first graphics task)
+    bool widen_font_rects_ = false;  // it loaded the built-in font or a texture pack
     mutable float reported_scale_ = 0.0f;
     mutable uint32_t reported_width_ = 0;
     mutable uint32_t reported_height_ = 0;
