@@ -222,6 +222,40 @@ func = "func_151DD9E4"
 before_vram = 0x151DD9E4
 text = "{ void conker_surround_default(uint8_t*, recomp_context*); conker_surround_default(rdram, ctx); }"
 
+# Any cutscene can be skipped with L or Start: ones not watched yet, and ones the game never lets
+# you skip. The skip check func_1501E05C sends every title scene (0x1D) script but 5 away before
+# the L test, though scripts 2 to 4 are part of the new game's opening: the script in $t7 at
+# 0x1501E0A4 becomes 5. At the L test, 0x1501E118, the hook notes that a skip is possible; while
+# it is, func_1501BBB8 passes a Start press on as L (after reading the pads, 0x1501BC18), so Start
+# skips instead of pausing. D_800C3C9C, set for scripts with an "unskippable" event (all of the opening), is
+# read into $t4 at 0x1501E128: it becomes 0. func_1501D2C4 says whether the script has been
+# watched (its bit in the scene's mask at D_800C3A60), in $v0 at 0x1501E158: it becomes 1. See
+# src/enhancements/cutscene_skip/cutscene_skip.cpp; CONKER_SKIP_CUTSCENES=0 turns it off.
+[[patches.hook]]
+func = "func_1501E05C"
+before_vram = 0x1501E0A4
+text = "{ void conker_skip_title_scripts(uint8_t*, recomp_context*); conker_skip_title_scripts(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1501E05C"
+before_vram = 0x1501E118
+text = "{ void conker_skip_note_window(uint8_t*, recomp_context*); conker_skip_note_window(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1501BBB8"
+before_vram = 0x1501BC18
+text = "{ void conker_skip_start_as_l(uint8_t*, recomp_context*); conker_skip_start_as_l(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1501E05C"
+before_vram = 0x1501E128
+text = "{ void conker_skip_unskippable(uint8_t*, recomp_context*); conker_skip_unskippable(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1501E05C"
+before_vram = 0x1501E158
+text = "{ void conker_skip_unwatched(uint8_t*, recomp_context*); conker_skip_unwatched(rdram, ctx); }"
+
 # Characters at their most detailed at any distance. func_1502C6E8 chooses an actor's model from
 # its distance to the camera (500, 730, 1500 and 2000 units for ordinals 0 to 4) and has the
 # ordinal in $v1 at 0x1502C8C4, before the game's own adjustments; it becomes 0. See
@@ -280,6 +314,20 @@ text = "{ void conker_widescreen_copy_begin(uint8_t*, recomp_context*); conker_w
 func = "func_151D5E90"
 before_vram = 0x151D6180
 text = "{ void conker_widescreen_copy_end(uint8_t*, recomp_context*); conker_widescreen_copy_end(rdram, ctx); }"
+
+# In widescreen the intro (scene 0x21) does not draw Conker while he waits for his cue just past
+# the right edge of the 4:3 view, nor what he holds: func_1502C974, which draws an actor, and
+# func_150311C4, which draws an attachment (the chainsaw, a glove) on its parent actor, return
+# their display list pointer unchanged. See src/enhancements/display_options/widescreen_intro.cpp.
+[[patches.hook]]
+func = "func_1502C974"
+before_vram = 0x1502C974
+text = "{ int conker_widescreen_hide_actor(uint8_t*, gpr); if (conker_widescreen_hide_actor(rdram, ctx->r5)) { ctx->r2 = ctx->r4; return; } }"
+
+[[patches.hook]]
+func = "func_150311C4"
+before_vram = 0x150311C4
+text = "{ int conker_widescreen_hide_attachment(uint8_t*, gpr); if (conker_widescreen_hide_attachment(rdram, ctx->r6)) { ctx->r2 = ctx->r4; return; } }"
 
 # The title menu's "INSERT RUMBLE PAK" banner (message 0x8F) shows for a few seconds whenever the
 # menu comes up, pak or not, while the countdown D_8008FEFC is above 60. With a pad that can rumble

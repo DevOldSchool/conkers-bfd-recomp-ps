@@ -85,7 +85,8 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
     scene covers the whole width. Covering the screen is widescreen by
     default; a window is 4:3 by default, as on an N64. The game
     still decides what to draw for its own 4:3 view, so objects at the far
-    sides can appear late. Behind the pause menu the paused scene stays
+    sides can appear late. In the intro, Conker is not drawn while he
+    waits for his cue just past the edge of the 4:3 view. Behind the pause menu the paused scene stays
     widescreen, but sharp: the game blurs only the 4:3 middle of the frame,
     so that blur is skipped in widescreen. Switching between the window and
     full screen while paused keeps the paused picture as it was, fitted to
@@ -121,6 +122,14 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   the reset button, and the title scene needs another press.
   `CONKER_SKIP_INTRO=1` skips without a press; `CONKER_SKIP_INTRO=0` keeps the
   original behaviour, where the intro cannot be skipped after a cold boot.
+* **Skip any cutscene:** on an N64, L only skips a cutscene already
+  watched, and some, such as the whole opening of a new game, not at all.
+  Here L or Start skips every cutscene, the first time too. Start skips
+  instead of pausing while a cutscene can be skipped, and pauses as usual
+  everywhere else. Skipping any part of the opening goes on to where
+  Conker wakes up, its own skip target in the game's data (about 45
+  seconds into a new game instead of 7 minutes).
+  `CONKER_SKIP_CUTSCENES=0` keeps the original rules.
 * **SAVE and LOAD in the pause menu:** two signs sit under the lever, LOAD
   below QUIT and SAVE below CONT.... Push down from the sign above, or use
   the stick's down-left and down-right diagonals, and press A. SAVE saves
