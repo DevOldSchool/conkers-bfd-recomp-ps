@@ -128,7 +128,8 @@ void show_message(const std::string& message) {
 // --- spots ---------------------------------------------------------------------------------------
 
 // conker-recomp-data/debug_spots.txt: one spot a line, "<scene> <x> <y> <z> <yaw>", optionally
-// followed by "<facing> <camera yaw>" (see conker::resume::Position).
+// followed by "<facing> <camera yaw> <camera pitch>" (see conker::resume::Position; the pitch is
+// only recorded).
 std::filesystem::path spots_path() {
     return ultramodern::get_save_file_path().parent_path().parent_path() / "debug_spots.txt";
 }
@@ -138,10 +139,13 @@ std::vector<Position> read_spots() {
     std::ifstream file(spots_path());
     for (std::string line; std::getline(file, line);) {
         Position spot;
-        const int fields = std::sscanf(line.c_str(), "%d %f %f %f %f %f %f", &spot.scene, &spot.x, &spot.y, &spot.z,
-                                       &spot.yaw, &spot.facing, &spot.camera_yaw);
+        const int fields = std::sscanf(line.c_str(), "%d %f %f %f %f %f %f %f", &spot.scene, &spot.x, &spot.y, &spot.z,
+                                       &spot.yaw, &spot.facing, &spot.camera_yaw, &spot.camera_pitch);
         if (fields >= 5) {
-            spot.has_view = fields == 7;
+            spot.has_view = fields >= 7;
+            if (fields < 8) {
+                spot.camera_pitch = NAN;  // not recorded
+            }
             spots.push_back(spot);
         }
     }
@@ -162,18 +166,26 @@ void remember_spot(const Position& spot) {
     std::ofstream file(spots_path(), std::ios::app);
     char line[128];
     if (spot.has_view) {
-        std::snprintf(line, sizeof(line), "%d %.2f %.2f %.2f %.2f %.2f %.2f\n", spot.scene, spot.x, spot.y, spot.z, spot.yaw,
-                      spot.facing, spot.camera_yaw);
+        std::snprintf(line, sizeof(line), "%d %.2f %.2f %.2f %.2f %.2f %.2f %.2f\n", spot.scene, spot.x, spot.y, spot.z,
+                      spot.yaw, spot.facing, spot.camera_yaw, spot.camera_pitch);
     } else {
         std::snprintf(line, sizeof(line), "%d %.2f %.2f %.2f %.2f\n", spot.scene, spot.x, spot.y, spot.z, spot.yaw);
     }
     file << line;
-    std::printf("[conker] debug menu: spot kept, scene %d (%.0f, %.0f, %.0f)\n", spot.scene, spot.x, spot.y, spot.z);
+    std::printf("[conker] debug menu: spot kept: %s", line);
 }
 
+// "X Y Z  F<facing> Y<camera yaw> P<camera pitch>", as a spot is listed.
 std::string describe(const Position& p) {
     char text[kTextSize];
-    std::snprintf(text, sizeof(text), "%.0f  %.0f  %.0f", p.x, p.y, p.z);
+    if (p.has_view && std::isfinite(p.camera_pitch)) {
+        std::snprintf(text, sizeof(text), "%.0f %.0f %.0f  F%.0f Y%.0f P%.0f", p.x, p.y, p.z, p.facing, p.camera_yaw,
+                      p.camera_pitch);
+    } else if (p.has_view) {
+        std::snprintf(text, sizeof(text), "%.0f %.0f %.0f  F%.0f Y%.0f", p.x, p.y, p.z, p.facing, p.camera_yaw);
+    } else {
+        std::snprintf(text, sizeof(text), "%.0f %.0f %.0f", p.x, p.y, p.z);
+    }
     return text;
 }
 
@@ -228,9 +240,11 @@ void draw_title(uint8_t* rdram, recomp_context* ctx, const std::string& title) {
     draw_text(rdram, ctx, kCenterX, kTitleY, kCentered, kTitleColor, message ? g_message : title);
 }
 
-void draw_rows(uint8_t* rdram, recomp_context* ctx, const std::vector<std::string>& rows, int chosen, int first = 0) {
+// The rows from `first` on, as many as a list shows (all of them on the first and teleport pages).
+void draw_rows(uint8_t* rdram, recomp_context* ctx, const std::vector<std::string>& rows, int chosen, int first = 0,
+               int shown = kListRows) {
     const int count = static_cast<int>(rows.size());
-    for (int i = first; i < std::min(count, first + kListRows); i++) {
+    for (int i = first; i < std::min(count, first + shown); i++) {
         draw_text(rdram, ctx, kCenterX, kFirstRowY + (i - first) * kRowHeight, kCentered,
                   i == chosen ? kChosenColor : kOtherColor, rows[i]);
     }
@@ -256,7 +270,7 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
                        "FACING  " + std::to_string(static_cast<int>(std::lround(g_target.facing))),
                        "CAMERA YAW  " + std::to_string(static_cast<int>(std::lround(g_target.camera_yaw))),
                        std::string("STEP  ") + text, "GO", "HERE", "REMEMBER", "SPOTS  " + std::to_string(g_spots.size())},
-                      g_teleport_row);
+                      g_teleport_row, 0, kTeleportRows);
             break;
         case Page::Spots: {
             const int count = static_cast<int>(g_spots.size());
@@ -437,7 +451,14 @@ int32_t teleport_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_h
         case kRemember:
             remember_spot(g_target);
             g_spots = scene_spots(g_target.scene);
-            show_message("SPOT KEPT");
+            if (g_target.has_view) {
+                char kept[kTextSize];
+                std::snprintf(kept, sizeof(kept), "KEPT  F%.0f Y%.0f P%.0f", g_target.facing, g_target.camera_yaw,
+                              g_target.camera_pitch);
+                show_message(kept);
+            } else {
+                show_message("SPOT KEPT");
+            }
             break;
         case kSpotList:
             open_list(Page::Spots);

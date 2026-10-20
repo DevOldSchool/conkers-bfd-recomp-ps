@@ -93,7 +93,6 @@ bool g_scripted = false;  // CONKER_VIRTUAL_PAD: only the virtual pad counts
 std::atomic<uint16_t> g_buttons{0};
 std::atomic<float> g_stick_x{0.0f};
 std::atomic<float> g_stick_y{0.0f};
-std::atomic<uint16_t> g_forced_buttons{0};
 std::atomic<int> g_debug_menu_presses{0};
 bool g_debug_menu_held = false;          // main thread only
 
@@ -371,12 +370,10 @@ void update() {
 }
 
 void read(uint16_t* buttons, float* x, float* y) {
-    *buttons = g_buttons.load(std::memory_order_relaxed) | g_forced_buttons.load(std::memory_order_relaxed);
+    *buttons = g_buttons.load(std::memory_order_relaxed);
     *x = g_stick_x.load(std::memory_order_relaxed);
     *y = g_stick_y.load(std::memory_order_relaxed);
 }
-
-void set_forced_buttons(uint16_t buttons) { g_forced_buttons.store(buttons, std::memory_order_relaxed); }
 
 bool take_debug_menu_press() { return g_debug_menu_presses.exchange(0, std::memory_order_relaxed) > 0; }
 

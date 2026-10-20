@@ -166,12 +166,16 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
     position, the point it looks at and its forward vector.
   * TELEPORT: X, Y, Z, FACING and CAMERA YAW, set to where Conker is and
     changed with left and right by STEP (1, 10, 100 or 1000; held, they keep
-    changing). GO puts him there, facing that way, and turns the camera with
-    the C buttons until it looks along CAMERA YAW (the game sets the camera's
-    own angles again every frame). HERE goes back to where he is, REMEMBER keeps
-    the spot in `conker-recomp-data/debug_spots.txt` (one line each:
-    `scene x y z angle facing camera-yaw`) and SPOTS lists those of the scene
-    being played; A on one puts him there. Teleports stay within the scene.
+    changing). GO puts him there facing that way, and the camera where it
+    looks along CAMERA YAW at him, as far away as it was: the same view as the
+    numbers on screen, to the hundredth of a degree, for repeating what someone
+    saw. The camera's pitch is the game's own for that spot (it keeps the
+    camera at the height it wants), so it is shown and recorded but not set.
+    HERE goes back to where he is, REMEMBER keeps the spot in
+    `conker-recomp-data/debug_spots.txt` (one line each: `scene x y z angle
+    facing camera-yaw camera-pitch`) and shows what it kept, and SPOTS lists
+    those of the scene being played with their facing, yaw and pitch; A on one
+    puts him there. Teleports stay within the scene.
   * LOAD SNAPSHOT: the snapshots in `saves/snapshots/`, newest first. A makes
     the chosen one the save, as copying its files over `conker_us.bin` and
     `conker_us.resume` would, and starts it where it was saved, as LOAD does.
