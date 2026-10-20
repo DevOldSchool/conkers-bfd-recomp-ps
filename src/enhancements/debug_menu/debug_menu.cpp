@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -56,6 +57,7 @@ constexpr uint32_t kPauseOpen = 0x800BEAC1;     // D_800BEAC1: set when Start op
 constexpr uint32_t kPauseClosing = 0x8008FEEC;  // D_8008FEEC/F0: set to 10 and 5 to close it,
 constexpr uint32_t kPauseClose = 0x8008FEF0;    // as A or B on CONT... does
 constexpr uint32_t kTextColor = 0x800CBD60;     // D_800CBD60: RGBA given to the next text record
+constexpr uint32_t kTextScale = 0x800CBD80;     // D_800CBD80: its scale (func_150432BC)
 constexpr uint32_t kText = 0x807FB000;          // free RDRAM (see pause_save.cpp): the format string
 constexpr int kTextSize = 0x40;                 // a text record holds 63 characters
 constexpr int kOutgoingArg = 0x10;              // the caller's frame: first stack argument
@@ -70,11 +72,13 @@ constexpr int32_t kSelectSound = 0x500;
 constexpr uint32_t kTitleColor = 0xCEC461FF;    // the game's gold
 constexpr uint32_t kChosenColor = 0xFFFFFFFF;
 constexpr uint32_t kOtherColor = 0x9A9A9AFF;
+constexpr float kSmall = 0.8f;                  // rows, lines and the overlay: the title stays full size
 constexpr int kTitleY = 40;
 constexpr int kFirstRowY = 56;
-constexpr int kRowHeight = 12;
+constexpr int kRowHeight = 10;
+constexpr int kLineHeight = 9;                  // the small lines under the rows and in the overlay
 constexpr int kListRows = 9;
-constexpr int kInfoY = 182;                     // the position and camera lines under the rows
+constexpr int kInfoY = 176;                     // the position and camera lines under the rows
 constexpr int kOverlayX = 16;                   // FPS and position in play, top left
 constexpr int kOverlayY = 12;
 constexpr int kSteps[] = {1, 10, 100, 1000};
@@ -192,7 +196,8 @@ std::string describe(const Position& p) {
 // --- drawing -------------------------------------------------------------------------------------
 
 // func_15042D94(x, y, flags, format), as the game queues its HUD text.
-void draw_text(uint8_t* rdram, recomp_context* ctx, int x, int y, uint8_t flags, uint32_t color, const std::string& text) {
+void draw_text(uint8_t* rdram, recomp_context* ctx, int x, int y, uint8_t flags, uint32_t color, const std::string& text,
+               float scale = kSmall) {
     const size_t length = std::min<size_t>(text.size(), kTextSize - 1);
     for (size_t i = 0; i < length; i++) {
         const char c = text[i] == '%' || text[i] == '#' ? ' ' : text[i];  // format characters
@@ -200,7 +205,11 @@ void draw_text(uint8_t* rdram, recomp_context* ctx, int x, int y, uint8_t flags,
     }
     MEM_B(static_cast<int>(length), kseg0(kText)) = 0;
     const int32_t previous_color = MEM_W(0, kseg0(kTextColor));
+    const int32_t previous_scale = MEM_W(0, kseg0(kTextScale));
     MEM_W(0, kseg0(kTextColor)) = static_cast<int32_t>(color);
+    uint32_t scale_bits;
+    std::memcpy(&scale_bits, &scale, sizeof(scale_bits));
+    MEM_W(0, kseg0(kTextScale)) = static_cast<int32_t>(scale_bits);
     recomp_context saved = *ctx;
     ctx->r4 = x;
     ctx->r5 = y;
@@ -210,6 +219,7 @@ void draw_text(uint8_t* rdram, recomp_context* ctx, int x, int y, uint8_t flags,
     func_15042D94(rdram, ctx);
     *ctx = saved;
     MEM_W(0, kseg0(kTextColor)) = previous_color;
+    MEM_W(0, kseg0(kTextScale)) = previous_scale;
 }
 
 const char* on_off(bool on) { return on ? "ON" : "OFF"; }
@@ -237,7 +247,7 @@ std::string camera_line(uint8_t* rdram) {
 // The title, or for two seconds the last message in its place.
 void draw_title(uint8_t* rdram, recomp_context* ctx, const std::string& title) {
     const bool message = !g_message.empty() && Clock::now() < g_message_until;
-    draw_text(rdram, ctx, kCenterX, kTitleY, kCentered, kTitleColor, message ? g_message : title);
+    draw_text(rdram, ctx, kCenterX, kTitleY, kCentered, kTitleColor, message ? g_message : title, 1.0f);
 }
 
 // The rows from `first` on, as many as a list shows (all of them on the first and teleport pages).
@@ -304,7 +314,7 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
     }
     if (g_page == Page::Main || g_page == Page::Teleport) {
         draw_text(rdram, ctx, kCenterX, kInfoY, kCentered, kOtherColor, position_line(rdram));
-        draw_text(rdram, ctx, kCenterX, kInfoY + 11, kCentered, kOtherColor, camera_line(rdram));
+        draw_text(rdram, ctx, kCenterX, kInfoY + kLineHeight, kCentered, kOtherColor, camera_line(rdram));
     }
 }
 
@@ -513,11 +523,11 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
     int y = kOverlayY;
     if (g_show_fps) {
         draw_text(rdram, ctx, kOverlayX, y, kLeft, 0xFFFFFFFF, std::to_string(g_fps) + " FPS");
-        y += 11;
+        y += kLineHeight;
     }
     if (g_show_position && !g_active) {
         draw_text(rdram, ctx, kOverlayX, y, kLeft, 0xFFFFFFFF, position_line(rdram));
-        draw_text(rdram, ctx, kOverlayX, y + 11, kLeft, 0xFFFFFFFF, camera_line(rdram));
+        draw_text(rdram, ctx, kOverlayX, y + kLineHeight, kLeft, 0xFFFFFFFF, camera_line(rdram));
     }
 
     if (g_active && MEM_BU(0, kseg0(kPauseOpen)) == 0) {
