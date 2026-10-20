@@ -12,13 +12,22 @@
 // a newer sequence number, so the game then resumes from that checkpoint as usual, except for the
 // save the game makes on entering the area just after resuming, which keeps the point. The
 // cartridge save format is unchanged.
+//
+// Each of those saves is also kept as a snapshot in saves/snapshots/, named
+// scene<scene>-<YYYYMMDD>-<HHMMSS>: a .bin with the whole EEPROM, as conker_us.bin holds it, and a
+// .resume with the points, as conker_us.resume holds them, so copying both over those two files
+// restores it. Rare writes the EEPROM 8 bytes per 12 ms timer tick (func_151DCEF0, drained by
+// func_151DCFD8 at the start of func_1501C57C), so the copy is taken once that write is done.
+// CONKER_SAVE_SNAPSHOTS=0 turns the snapshots off.
 #include "enhancements/pause_save/resume_point.hpp"
 
 #include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -28,6 +37,8 @@
 #include "ultramodern/ultramodern.hpp"
 
 extern "C" void func_151E327C(uint8_t* rdram, recomp_context* ctx);
+// librecomp's copy of the save (lib/N64ModernRuntime/librecomp/src/pi.cpp), read into RDRAM.
+void save_read(uint8_t* rdram, int32_t rdram_address, uint32_t offset, uint32_t count);
 
 namespace conker::resume {
 
@@ -51,6 +62,9 @@ constexpr uint32_t kSaveSlot = 0x8008FDA8;       // D_8008FDA8: the game slot in
 constexpr uint32_t kEepromAction = 0x80082BB4;   // D_80082BB4: request for func_1501C57C
 constexpr uint32_t kEepromSlot = 0x800BE3EC;     // D_800BE3EC: its slot argument
 constexpr int8_t kEepromLoad = 1;
+constexpr uint32_t kEepromWriting = 0x800E0A20;  // D_800E0A20: paced EEPROM write under way, 0 when none
+constexpr uint32_t kEepromSize = 0x800;          // 16 kbit
+constexpr uint32_t kSnapshotScratch = 0x807F9000;  // free RDRAM, see pause_save.cpp
 constexpr int kSlots = 3;
 // A save the game makes this soon after resuming (it saves on entering some areas) is still the
 // resumed one: the point carries over to it.
@@ -71,6 +85,17 @@ Point g_resuming;          // being started, waiting for Conker to be placed
 int g_resume_frames = 0;
 int g_resumed_slot = -1;   // the slot last started at its point, and when
 std::chrono::steady_clock::time_point g_resumed_at;
+bool g_snapshot_pending = false;  // a save to keep once the EEPROM write is done
+int g_snapshot_scene = 0;
+std::time_t g_snapshot_time = 0;
+
+bool snapshots_enabled() {
+    static const bool enabled = [] {
+        const char* value = std::getenv("CONKER_SAVE_SNAPSHOTS");
+        return value == nullptr || value[0] != '0';
+    }();
+    return enabled;
+}
 
 std::filesystem::path points_path() {
     std::filesystem::path path = ultramodern::get_save_file_path();
@@ -125,6 +150,45 @@ uint32_t save_counter(uint8_t* rdram, int slot) {
     return static_cast<uint32_t>(MEM_W(0, kseg0(kSaveCounters + static_cast<uint32_t>(slot) * 16)));
 }
 
+// saves/snapshots/scene<scene>-<YYYYMMDD>-<HHMMSS>, with -2, -3... for more in the same second.
+std::filesystem::path snapshot_path(int scene, std::time_t time) {
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &time);
+#else
+    localtime_r(&time, &local);
+#endif
+    char stamp[32];
+    std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local);
+    const std::filesystem::path folder = ultramodern::get_save_file_path().parent_path() / "snapshots";
+    const std::string name = "scene" + std::to_string(scene) + "-" + stamp;
+    std::filesystem::path path = folder / (name + ".bin");
+    for (int n = 2; std::filesystem::exists(path); n++) {
+        path = folder / (name + "-" + std::to_string(n) + ".bin");
+    }
+    return path;
+}
+
+void write_snapshot(uint8_t* rdram) {
+    save_read(rdram, static_cast<int32_t>(kSnapshotScratch), 0, kEepromSize);
+    std::array<char, kEepromSize> image;
+    for (uint32_t i = 0; i < kEepromSize; i++) {
+        image[i] = static_cast<char>(MEM_BU(i, kseg0(kSnapshotScratch)));
+    }
+    const std::filesystem::path path = snapshot_path(g_snapshot_scene, g_snapshot_time);
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    if (!file.write(image.data(), image.size())) {
+        std::printf("[conker] could not write save snapshot %s\n", path.string().c_str());
+        return;
+    }
+    std::filesystem::path points = path;
+    points.replace_extension(".resume");
+    std::filesystem::copy_file(points_path(), points, std::filesystem::copy_options::overwrite_existing, error);
+    std::printf("[conker] save snapshot: %s\n", path.string().c_str());
+}
+
 }  // namespace
 
 void remember_position(uint8_t* rdram, int slot) {
@@ -174,6 +238,11 @@ extern "C" void conker_resume_saved(uint8_t* /*rdram*/, recomp_context* ctx) {
     points[slot] = g_pending;
     points[slot].counter = counter;
     write_points(points);
+    if (snapshots_enabled()) {
+        g_snapshot_pending = true;
+        g_snapshot_scene = g_pending.scene;
+        g_snapshot_time = std::time(nullptr);
+    }
     std::printf("[conker] resume point: slot %d, save %u, scene %d entrance %d at (%.0f, %.0f, %.0f) facing %.0f\n",
                 slot, points[slot].counter, g_pending.scene, g_pending.entrance, g_pending.x, g_pending.y, g_pending.z,
                 g_pending.yaw);
@@ -204,8 +273,13 @@ extern "C" void conker_resume_start(uint8_t* rdram, recomp_context* ctx) {
 
 // At the start of func_1501C57C, the EEPROM manager, once a frame: when a LOAD's slot read has
 // been done, start the game as PLAY does.
-// Also moves Conker to the point being resumed once its scene is running.
+// Also keeps the snapshot of a save once it is written, and moves Conker to the point being
+// resumed once its scene is running.
 extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
+    if (g_snapshot_pending && MEM_B(0, kseg0(kEepromAction)) == 0 && MEM_W(0, kseg0(kEepromWriting)) == 0) {
+        g_snapshot_pending = false;
+        write_snapshot(rdram);
+    }
     if (g_load_requested && MEM_B(0, kseg0(kEepromAction)) == 0) {
         g_load_requested = false;
         recomp_context saved = *ctx;

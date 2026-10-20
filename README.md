@@ -140,6 +140,12 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   the save does not record are reset, as at a checkpoint. Neither sign is
   offered when replaying a chapter, where the game does not save.
   `CONKER_PAUSE_SAVE=0` turns them off.
+  Every save made this way is also kept as its own snapshot in
+  `saves/snapshots/`, named after the scene number and when it was made
+  (`scene12-20261020-143205.bin` with a matching `.resume`). LOAD still
+  starts the latest save; to go back to an earlier one, copy its two files
+  over `conker_us.bin` and `conker_us.resume` while the game is closed.
+  `CONKER_SAVE_SNAPSHOTS=0` stops keeping them.
 * **Surround by default:** with no saved options (a new save file), the
   OPTIONS menu's sound setting is surround instead of stereo. The
   game keeps its options in EEPROM next to the saved games, so a sound
