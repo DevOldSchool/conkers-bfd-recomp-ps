@@ -58,6 +58,22 @@ struct Snapshot {
 // The snapshots, newest first.
 std::vector<Snapshot> list_snapshots();
 
+// The debug reports in conker-recomp-data/debug_reports/, newest first: `path` is the report's
+// save.bin (missing when the report has none).
+std::vector<Snapshot> list_reports();
+
+// Starts a debug report's save (`path`, its save.bin) where and as it was made, without touching
+// the player's save: the game plays on a copy, saves/debug/<report>.bin, until it is closed. False
+// while a save is being written, or when it cannot be copied.
+bool load_report(uint8_t* rdram, const std::filesystem::path& path);
+
+// Makes a debug report: a folder in debug_reports/ with report.txt (`text`, then the save's
+// details) and a save of the game as it is now (save.bin, save.resume), made by the game's own save
+// routine, as SAVE in the pause menu makes it, into a copy: the player's save is not touched. Where
+// the game does not save, report.txt only. Returns the folder's name, or "" while a save is still
+// being written.
+std::string request_report(uint8_t* rdram, const std::string& text);
+
 // Makes `path` the save (conker_us.bin and conker_us.resume) and starts its slot where it was
 // saved, as LOAD does. False while a save is being written, or when the file cannot be read.
 bool load_snapshot(uint8_t* rdram, const std::filesystem::path& path);

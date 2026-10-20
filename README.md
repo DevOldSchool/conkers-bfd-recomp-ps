@@ -183,6 +183,20 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
     the chosen one the save, as copying its files over `conker_us.bin` and
     `conker_us.resume` would, and starts it where it was saved, as LOAD does.
     Progress since the last snapshot is not kept.
+  * SAVE DEBUG REPORT: for reporting an issue. Makes a folder in
+    `conker-recomp-data/debug_reports/`, named after the scene and the time,
+    with `report.txt` (the build, scene and entrance, Conker's position and
+    facing, the camera's position, look-at point, yaw and pitch, a
+    `debug_spots.txt` line, the display settings, the debug views and the
+    `CONKER_*` variables set) and a save of the game as it is at that moment
+    (`save.bin`, `save.resume`). The save is made by the game's own save
+    routine into a copy: the player's save is not changed, and no snapshot is
+    made. Where the game does not save (a chapter replayed from CHAPTERS),
+    the report has `report.txt` only.
+  * LOAD REPORT: the reports, newest first; A starts a report's save where
+    and as it was made, Conker's facing and the camera included. It plays on
+    a copy, `saves/debug/<report>.bin`, until the game is closed, so the
+    player's own save is not touched (saves made meanwhile go to the copy).
 
   It opens wherever Start would open the pause menu. The settings last until
   the game is closed. `CONKER_DEBUG_MENU=0` turns it off.

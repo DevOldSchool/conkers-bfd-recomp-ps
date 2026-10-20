@@ -150,7 +150,20 @@ text = "conker_geometry_escape(rdram, ctx);"
 # and at 0x151DDDE0, after the handler has looked for it, taken out again; if the pause opened,
 # the pause page at 0x151DE00C (the SAVE/LOAD hook below) draws the debug menu and skips to the
 # end of the frame. func_151EB06C, which draws PAUSED and the HUD while paused, is told at
-# 0x151EB128 ($v0, D_800BEAC0) that the game is not. See src/enhancements/debug_menu/debug_menu.cpp.
+# 0x151EB128 ($v0, D_800BEAC0) that the game is not. A debug report's save is caught into a copy, so
+# the player's save is not touched: at the start of func_151DCEF0, the paced EEPROM write, and at
+# func_15006BEC's one direct write (osEepromWrite at 0x15006D1C, the slot's marker block). See
+# src/enhancements/debug_menu/debug_menu.cpp and src/enhancements/pause_save/resume_point.cpp.
+[[patches.hook]]
+func = "func_15006BEC"
+before_vram = 0x15006D1C
+text = "{ void conker_report_marker_write(uint8_t*, recomp_context*); conker_report_marker_write(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151DCEF0"
+before_vram = 0x151DCEF0
+text = "{ extern int conker_report_skip_write; void conker_report_eeprom_write(uint8_t*, recomp_context*); conker_report_eeprom_write(rdram, ctx); if (conker_report_skip_write) { return; } }"
+
 [[patches.hook]]
 func = "func_151E51EC"
 before_vram = 0x151E5220

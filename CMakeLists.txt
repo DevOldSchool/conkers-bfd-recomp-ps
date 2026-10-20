@@ -94,6 +94,14 @@ target_include_directories(ConkerRecomp PRIVATE
     "${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/thirdparty/miniz"
 )
 target_link_libraries(ConkerRecomp PRIVATE ConkerRecompiled librecomp ultramodern miniz)
+# The build a debug report names (src/enhancements/debug_menu): the commit when CMake last ran.
+execute_process(COMMAND git describe --always WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    OUTPUT_VARIABLE CONKER_BUILD_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+if(NOT CONKER_BUILD_VERSION)
+    set(CONKER_BUILD_VERSION "unknown")
+endif()
+set_source_files_properties(src/enhancements/debug_menu/debug_menu.cpp PROPERTIES
+    COMPILE_DEFINITIONS "CONKER_BUILD_VERSION=\"${CONKER_BUILD_VERSION}\"")
 # The microcode runs once per audio frame on the audio thread; keep it optimised in Debug builds.
 set_source_files_properties("${CONKER_RSP_DIR}/aspMain.cpp" PROPERTIES COMPILE_OPTIONS "-O2;-w")
 

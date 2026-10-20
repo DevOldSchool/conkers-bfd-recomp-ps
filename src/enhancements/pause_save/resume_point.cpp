@@ -87,9 +87,13 @@ constexpr uint32_t kSaveSlot = 0x8008FDA8;       // D_8008FDA8: the game slot in
 constexpr uint32_t kEepromAction = 0x80082BB4;   // D_80082BB4: request for func_1501C57C
 constexpr uint32_t kEepromSlot = 0x800BE3EC;     // D_800BE3EC: its slot argument
 constexpr int8_t kEepromLoad = 1;
+constexpr int8_t kEepromSave = 2;
+constexpr uint32_t kChapterReplay = 0x800BE616;  // D_800BE616: playing from CHAPTERS, saves off
+constexpr std::chrono::seconds kReportSaveWait{5};  // a report's save not written by then: none
 constexpr uint32_t kEepromWriting = 0x800E0A20;  // D_800E0A20: paced EEPROM write under way, 0 when none
 constexpr uint32_t kEepromSize = 0x800;          // 16 kbit
 constexpr uint32_t kSnapshotScratch = 0x807F9000;  // free RDRAM, see pause_save.cpp
+constexpr uint32_t kReportBlockScratch = 0x807F9800;  // 8 bytes after it
 constexpr int kSlots = 3;
 // A save the game makes this soon after resuming (it saves on entering some areas) is still the
 // resumed one: the point carries over to it.
@@ -125,6 +129,22 @@ constexpr int kCameraStillFrames = 10;
 constexpr int kCameraWaitFrames = 150;  // about 5 s
 int g_resumed_slot = -1;   // the slot last started at its point, and when
 std::chrono::steady_clock::time_point g_resumed_at;
+// A debug report being made (request_report). Its save is the game's own, run as SAVE runs it, but
+// the EEPROM writes are caught (conker_report_eeprom_write) into a copy of the save instead, so the
+// player's save is not touched.
+struct PendingReport {
+    bool active = false;
+    std::filesystem::path folder;
+    std::string text;
+    std::chrono::steady_clock::time_point requested;
+    bool capturing = false;  // the save's EEPROM writes go to `image`
+    bool saved = false;      // the game has made the save (conker_resume_saved)
+    int slot = 0;
+    int32_t counter_before = 0;  // the slot's sequence number in RAM, put back afterwards
+    std::array<char, kEepromSize> image{};
+    std::array<Point, kSlots> points{};
+};
+PendingReport g_report;
 bool g_snapshot_pending = false;  // a save to keep once the EEPROM write is done
 int g_snapshot_scene = 0;
 int g_snapshot_slot = 0;
@@ -296,6 +316,10 @@ uint32_t save_counter(uint8_t* rdram, int slot) {
 // saves/snapshots/scene<scene>-<YYYYMMDD>-<HHMMSS>, with -2, -3... for more in the same second.
 std::filesystem::path snapshots_folder() { return ultramodern::get_save_file_path().parent_path() / "snapshots"; }
 
+std::filesystem::path reports_folder() {
+    return ultramodern::get_save_file_path().parent_path().parent_path() / "debug_reports";
+}
+
 std::filesystem::path snapshot_path(int scene, std::time_t time) {
     std::tm local{};
 #ifdef _WIN32
@@ -314,24 +338,65 @@ std::filesystem::path snapshot_path(int scene, std::time_t time) {
     return path;
 }
 
+// The save as it is now, as conker_us.bin and conker_us.resume hold it: `path` and the .resume next
+// to it (the saved slot's line first).
+bool write_save_copy(const std::array<char, kEepromSize>& image, const std::filesystem::path& path) {
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    if (!file.write(image.data(), image.size())) {
+        std::printf("[conker] could not write %s\n", path.string().c_str());
+        return false;
+    }
+    std::filesystem::path points = path;
+    points.replace_extension(".resume");
+    write_points(read_points(), points, g_snapshot_slot);
+    return true;
+}
+
+// report.txt: the report's text, then what the save in it is and how to start it.
+void finish_report(const std::string& save_line) {
+    std::error_code error;
+    std::filesystem::create_directories(g_report.folder, error);
+    std::ofstream file(g_report.folder / "report.txt", std::ios::trunc);
+    file << g_report.text << save_line;
+    std::printf("[conker] debug report: %s\n", g_report.folder.string().c_str());
+    g_report.active = false;
+}
+
 void write_snapshot(uint8_t* rdram) {
     save_read(rdram, static_cast<int32_t>(kSnapshotScratch), 0, kEepromSize);
     std::array<char, kEepromSize> image;
     for (uint32_t i = 0; i < kEepromSize; i++) {
         image[i] = static_cast<char>(MEM_BU(i, kseg0(kSnapshotScratch)));
     }
-    const std::filesystem::path path = snapshot_path(g_snapshot_scene, g_snapshot_time);
-    std::error_code error;
-    std::filesystem::create_directories(path.parent_path(), error);
-    std::ofstream file(path, std::ios::binary | std::ios::trunc);
-    if (!file.write(image.data(), image.size())) {
-        std::printf("[conker] could not write save snapshot %s\n", path.string().c_str());
-        return;
+    if (snapshots_enabled()) {
+        const std::filesystem::path path = snapshot_path(g_snapshot_scene, g_snapshot_time);
+        if (write_save_copy(image, path)) {
+            std::printf("[conker] save snapshot: %s\n", path.string().c_str());
+        }
     }
-    std::filesystem::path points = path;
-    points.replace_extension(".resume");
-    write_points(read_points(), points, g_snapshot_slot);
-    std::printf("[conker] save snapshot: %s\n", path.string().c_str());
+}
+
+// The report's save, once the game has made it: save.bin, save.resume and report.txt.
+void write_report_save() {
+    std::error_code error;
+    std::filesystem::create_directories(g_report.folder, error);
+    const std::filesystem::path path = g_report.folder / "save.bin";
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    char line[320];
+    if (file.write(g_report.image.data(), g_report.image.size())) {
+        write_points(g_report.points, g_report.folder / "save.resume", g_report.slot);
+        std::snprintf(line, sizeof(line),
+                      "\nSave: slot %d, save %u, made for this report (save.bin and save.resume, as conker_us.bin and\n"
+                      "conker_us.resume hold a save; the player's own save was not changed)\n"
+                      "To replay: debug menu, LOAD REPORT; or copy save.bin and save.resume over\n"
+                      "conker-recomp-data/saves/conker_us.bin and conker_us.resume and start slot %d.\n",
+                      g_report.slot, g_report.points[g_report.slot].counter, g_report.slot);
+    } else {
+        std::snprintf(line, sizeof(line), "\nSave: could not be written\n");
+    }
+    finish_report(line);
 }
 
 // After a resumed save has placed Conker: once the camera has stopped moving, puts it where it looked
@@ -485,31 +550,105 @@ bool teleport(uint8_t* rdram, const Position& to) {
     return true;
 }
 
+namespace {
+
+// Reads "scene<scene>-<YYYYMMDD>-<HHMMSS>[-<n>]" into a Snapshot's scene, when and order.
+bool parse_name(const std::string& name, Snapshot* out) {
+    int scene, n = 1;
+    char date[9] = {}, time[7] = {};
+    if (std::sscanf(name.c_str(), "scene%d-%8[0-9]-%6[0-9]-%d", &scene, date, time, &n) < 3 || std::strlen(date) != 8 ||
+        std::strlen(time) != 6) {
+        return false;
+    }
+    out->scene = scene;
+    out->when = std::string(date, 4) + "-" + std::string(date + 4, 2) + "-" + std::string(date + 6, 2) + " " +
+                std::string(time, 2) + ":" + std::string(time + 2, 2) + ":" + std::string(time + 4, 2);
+    out->order = std::string(date) + time + (n < 10 ? "0" : "") + std::to_string(n);
+    return true;
+}
+
+void newest_first(std::vector<Snapshot>* list) {
+    std::sort(list->begin(), list->end(), [](const Snapshot& a, const Snapshot& b) { return a.order > b.order; });
+}
+
+}  // namespace
+
 std::vector<Snapshot> list_snapshots() {
     std::vector<Snapshot> snapshots;
     std::error_code error;
     for (const auto& entry : std::filesystem::directory_iterator(snapshots_folder(), error)) {
-        const std::filesystem::path& path = entry.path();
-        // scene<scene>-<YYYYMMDD>-<HHMMSS>[-<n>].bin
-        int scene, n = 1;
-        char date[9] = {}, time[7] = {};
-        const std::string name = path.stem().string();
-        if (path.extension() != ".bin" ||
-            std::sscanf(name.c_str(), "scene%d-%8[0-9]-%6[0-9]-%d", &scene, date, time, &n) < 3 ||
-            std::strlen(date) != 8 || std::strlen(time) != 6) {
-            continue;
-        }
         Snapshot snapshot;
-        snapshot.path = path;
-        snapshot.scene = scene;
-        snapshot.when = std::string(date, 4) + "-" + std::string(date + 4, 2) + "-" + std::string(date + 6, 2) + " " +
-                        std::string(time, 2) + ":" + std::string(time + 2, 2) + ":" + std::string(time + 4, 2);
-        snapshot.order = std::string(date) + time + (n < 10 ? "0" : "") + std::to_string(n);
-        snapshots.push_back(snapshot);
+        snapshot.path = entry.path();
+        if (snapshot.path.extension() == ".bin" && parse_name(snapshot.path.stem().string(), &snapshot)) {
+            snapshots.push_back(snapshot);
+        }
     }
-    std::sort(snapshots.begin(), snapshots.end(), [](const Snapshot& a, const Snapshot& b) { return a.order > b.order; });
+    newest_first(&snapshots);
     return snapshots;
 }
+
+std::vector<Snapshot> list_reports() {
+    std::vector<Snapshot> reports;
+    std::error_code error;
+    for (const auto& entry : std::filesystem::directory_iterator(reports_folder(), error)) {
+        Snapshot report;
+        report.path = entry.path() / "save.bin";
+        if (entry.is_directory() && parse_name(entry.path().filename().string(), &report)) {
+            reports.push_back(report);
+        }
+    }
+    newest_first(&reports);
+    return reports;
+}
+
+std::string request_report(uint8_t* rdram, const std::string& text) {
+    if (g_report.active || g_snapshot_pending || MEM_B(0, kseg0(kEepromAction)) != 0 ||
+        MEM_W(0, kseg0(kEepromWriting)) != 0) {
+        return "";  // a save is still being written
+    }
+    Position here;
+    current_position(rdram, &here);
+    const std::time_t now = std::time(nullptr);
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &now);
+#else
+    localtime_r(&now, &local);
+#endif
+    char stamp[32];
+    std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local);
+    const std::string name = "scene" + std::to_string(here.scene) + "-" + stamp;
+    std::filesystem::path folder = reports_folder() / name;
+    for (int n = 2; std::filesystem::exists(folder); n++) {
+        folder = reports_folder() / (name + "-" + std::to_string(n));
+    }
+    g_report.active = true;
+    g_report.folder = folder;
+    g_report.text = text;
+    g_report.requested = std::chrono::steady_clock::now();
+    const int slot = MEM_B(0, kseg0(kSaveSlot));
+    if (slot < 0 || slot >= kSlots || MEM_BU(0, kseg0(kChapterReplay)) != 0) {
+        finish_report("\nSave: none (no game slot, or a chapter replayed from CHAPTERS, where the game does not save)\n");
+        return folder.filename().string();
+    }
+    // The save is made as SAVE in the pause menu makes it, into a copy of the save as it is now.
+    save_read(rdram, static_cast<int32_t>(kSnapshotScratch), 0, kEepromSize);
+    for (uint32_t i = 0; i < kEepromSize; i++) {
+        g_report.image[i] = static_cast<char>(MEM_BU(i, kseg0(kSnapshotScratch)));
+    }
+    g_report.capturing = true;
+    g_report.saved = false;
+    g_report.slot = slot;
+    g_report.counter_before = MEM_W(0, kseg0(kSaveCounters + static_cast<uint32_t>(slot) * 16));
+    remember_position(rdram, slot);
+    MEM_B(0, kseg0(kEepromAction)) = kEepromSave;
+    MEM_B(0, kseg0(kEepromSlot)) = static_cast<int8_t>(slot);
+    return folder.filename().string();
+}
+
+namespace {
+void start_save(uint8_t* rdram, const std::array<Point, kSlots>& points, int slot);
+}  // namespace
 
 bool load_snapshot(uint8_t* rdram, const std::filesystem::path& path) {
     if (MEM_B(0, kseg0(kEepromAction)) != 0 || MEM_W(0, kseg0(kEepromWriting)) != 0 || g_snapshot_pending) {
@@ -530,19 +669,57 @@ bool load_snapshot(uint8_t* rdram, const std::filesystem::path& path) {
     int slot;
     const std::array<Point, kSlots> snapshot_points = read_points(points, &slot);
     write_points(snapshot_points, points_path(), slot);
+    start_save(rdram, snapshot_points, slot);
+    std::printf("[conker] loading save snapshot %s, slot %d\n", path.string().c_str(), MEM_B(0, kseg0(kSaveSlot)));
+    return true;
+}
+
+bool load_report(uint8_t* rdram, const std::filesystem::path& path) {
+    if (MEM_B(0, kseg0(kEepromAction)) != 0 || MEM_W(0, kseg0(kEepromWriting)) != 0 || g_snapshot_pending ||
+        g_report.active) {
+        return false;  // a save is still being written
+    }
+    // The player's saves folder, as it was before any report was loaded.
+    static const std::filesystem::path saves = ultramodern::get_save_file_path().parent_path();
+    const std::string name = path.parent_path().filename().string();
+    const std::filesystem::path copy = saves / "debug" / (name + ".bin");
+    std::filesystem::path points = path, copy_points = copy;
+    points.replace_extension(".resume");
+    copy_points.replace_extension(".resume");
+    std::error_code error;
+    std::filesystem::create_directories(copy.parent_path(), error);
+    std::filesystem::copy_file(path, copy, std::filesystem::copy_options::overwrite_existing, error);
+    if (error) {
+        std::printf("[conker] could not copy %s: %s\n", path.string().c_str(), error.message().c_str());
+        return false;
+    }
+    std::filesystem::copy_file(points, copy_points, std::filesystem::copy_options::overwrite_existing, error);
+    // The game now plays on the copy: its saves, and their snapshots, go there until it is closed.
+    ultramodern::change_save_file(u8"debug", std::u8string(name.begin(), name.end()));
+    int slot;
+    const std::array<Point, kSlots> report_points = read_points(points_path(), &slot);
+    start_save(rdram, report_points, slot);
+    std::printf("[conker] loading debug report %s, slot %d, playing on %s until the game is closed\n",
+                path.parent_path().string().c_str(), MEM_B(0, kseg0(kSaveSlot)), copy.string().c_str());
+    return true;
+}
+
+namespace {
+
+// Starts `slot` of the save just put in place, as LOAD does (the first point's slot if there is one).
+void start_save(uint8_t* rdram, const std::array<Point, kSlots>& points, int slot) {
     if (slot < 0) {
         slot = MEM_B(0, kseg0(kSaveSlot)) >= 0 ? MEM_B(0, kseg0(kSaveSlot)) : 0;
     } else {
         // The slot's sequence number as the game last read or wrote it, which starting the save
         // checks the point against (conker_resume_start): the snapshot's.
-        MEM_W(0, kseg0(kSaveCounters + static_cast<uint32_t>(slot) * 16)) =
-            static_cast<int32_t>(snapshot_points[slot].counter);
+        MEM_W(0, kseg0(kSaveCounters + static_cast<uint32_t>(slot) * 16)) = static_cast<int32_t>(points[slot].counter);
     }
     MEM_B(0, kseg0(kSaveSlot)) = static_cast<int8_t>(slot);
     request_load(rdram, slot);
-    std::printf("[conker] loading save snapshot %s, slot %d\n", path.string().c_str(), slot);
-    return true;
 }
+
+}  // namespace
 
 }  // namespace conker::resume
 
@@ -553,6 +730,17 @@ using namespace conker::resume;
 extern "C" void conker_resume_saved(uint8_t* /*rdram*/, recomp_context* ctx) {
     const int slot = static_cast<int32_t>(ctx->r17);
     const uint32_t counter = static_cast<uint32_t>(ctx->r16);
+    if (g_report.capturing) {  // a report's save: its points go to the report, not conker_us.resume
+        g_report.points = read_points();
+        if (g_pending.valid && slot == g_pending_slot) {
+            g_report.points[slot] = g_pending;
+            g_report.points[slot].counter = counter;
+        }
+        g_report.slot = slot;
+        g_report.saved = true;
+        g_pending.valid = false;
+        return;
+    }
     if (!g_pending.valid || slot != g_pending_slot) {
         if (slot == g_resumed_slot && std::chrono::steady_clock::now() - g_resumed_at < kResumeSaveWindow) {
             std::array<Point, kSlots> points = read_points();
@@ -632,6 +820,16 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
         g_snapshot_pending = false;
         write_snapshot(rdram);
     }
+    if (g_report.capturing && (g_report.saved || std::chrono::steady_clock::now() - g_report.requested > kReportSaveWait) &&
+        MEM_B(0, kseg0(kEepromAction)) == 0) {
+        g_report.capturing = false;
+        MEM_W(0, kseg0(kSaveCounters + static_cast<uint32_t>(g_report.slot) * 16)) = g_report.counter_before;
+        if (g_report.saved) {
+            write_report_save();
+        } else {
+            finish_report("\nSave: none (the game did not make one)\n");
+        }
+    }
     if (g_load_requested && MEM_B(0, kseg0(kEepromAction)) == 0) {
         g_load_requested = false;
         recomp_context saved = *ctx;
@@ -658,4 +856,40 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
     if (g_resume_frames >= kSettleFrames + g_place_frames) {
         g_resuming.valid = false;
     }
+}
+
+extern "C" int conker_report_skip_write = 0;
+
+// At the start of func_151DCEF0, which starts a paced EEPROM write of `size` bytes ($a3) from
+// `buffer` ($a2) at 8-byte block `block` ($a1): while a debug report's save is being made, the bytes
+// go into the report's copy of the save and the write is skipped (returning 0, as it does when it
+// starts one).
+extern "C" void conker_report_eeprom_write(uint8_t* rdram, recomp_context* ctx) {
+    conker_report_skip_write = 0;
+    if (!g_report.capturing) {
+        return;
+    }
+    const uint32_t start = static_cast<uint32_t>(ctx->r5 & 0xFF) * 8;
+    const uint32_t size = static_cast<uint32_t>(ctx->r7);
+    for (uint32_t i = 0; i < size && start + i < kEepromSize; i++) {
+        g_report.image[start + i] = static_cast<char>(MEM_BU(static_cast<int>(i), ctx->r6));
+    }
+    ctx->r2 = 0;
+    conker_report_skip_write = 1;
+}
+
+// In func_15006BEC before `jal osEepromWrite` (0x15006D1C), which marks the slot's block
+// slot * 16 + 0x13 before the slot is written ($a1 block, $a2 the 8 bytes): while a debug report's
+// save is being made, the bytes go into the report's copy, and the write is pointed at the save's
+// own bytes for that block, so it leaves the player's save as it was.
+extern "C" void conker_report_marker_write(uint8_t* rdram, recomp_context* ctx) {
+    if (!g_report.capturing) {
+        return;
+    }
+    const uint32_t start = static_cast<uint32_t>(ctx->r5 & 0xFF) * 8;
+    for (uint32_t i = 0; i < 8 && start + i < kEepromSize; i++) {
+        g_report.image[start + i] = static_cast<char>(MEM_BU(static_cast<int>(i), ctx->r6));
+    }
+    save_read(rdram, static_cast<int32_t>(kReportBlockScratch), start, 8);
+    ctx->r6 = kseg0(kReportBlockScratch);
 }

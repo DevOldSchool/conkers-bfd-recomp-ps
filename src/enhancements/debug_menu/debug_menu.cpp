@@ -18,6 +18,10 @@
 //     TELEPORT         X, Y, Z, facing and camera yaw to move him to, and spots kept in
 //                      conker-recomp-data/debug_spots.txt
 //     LOAD SNAPSHOT    a list of saves/snapshots/; A starts one (resume_point.cpp)
+//     SAVE DEBUG REPORT  saves the game, then a folder in conker-recomp-data/debug_reports/ with that
+//                      save and report.txt: build, scene, position, facing, camera, settings
+//     LOAD REPORT      a list of those; A starts one's save, where and as it was made, on a copy
+//                      (saves/debug/), so the player's save is not touched
 //
 // The first page also shows where Conker is and where the camera looks, and opening the menu prints
 // them (with the camera's position, look-at point and forward vector). Up and down choose,
@@ -31,6 +35,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -43,6 +48,15 @@
 #include "platform/render_debug.hpp"
 #include "ultramodern/ultramodern.hpp"
 
+#ifdef _WIN32
+#define environ _environ
+#else
+extern char** environ;
+#endif
+#ifndef CONKER_BUILD_VERSION
+#define CONKER_BUILD_VERSION "unknown"
+#endif
+
 extern "C" void func_15042D94(uint8_t* rdram, recomp_context* ctx);
 
 namespace {
@@ -52,6 +66,7 @@ using conker::resume::Position;
 inline gpr kseg0(uint32_t address) { return static_cast<gpr>(static_cast<int32_t>(address)); }
 
 constexpr uint32_t kMenuHandler = 0x800E0B94;   // D_800E0B94: func_151E51EC's handler, 0 in play
+constexpr uint32_t kEntrance = 0x800DD2C0;      // D_800DD2C0: the entrance the scene was entered by
 constexpr uint32_t kPadPressed = 0x800BE930;    // D_800BE930: buttons pressed this frame, per pad
 constexpr uint32_t kPauseOpen = 0x800BEAC1;     // D_800BEAC1: set when Start opens the pause
 constexpr uint32_t kPauseClosing = 0x8008FEEC;  // D_8008FEEC/F0: set to 10 and 5 to close it,
@@ -85,8 +100,8 @@ constexpr int kSteps[] = {1, 10, 100, 1000};
 
 using Clock = std::chrono::steady_clock;
 
-enum class Page { Main, Teleport, Spots, Snapshots };
-enum MainRow { kWireframe, kShowFps, kShowPosition, kTeleport, kLoadSnapshot, kMainRows };
+enum class Page { Main, Teleport, Spots, Snapshots, Reports };
+enum MainRow { kWireframe, kShowFps, kShowPosition, kTeleport, kLoadSnapshot, kSaveReport, kLoadReport, kMainRows };
 enum TeleportRow { kX, kY, kZ, kFacing, kCameraYaw, kStep, kGo, kResetToCurrent, kRemember, kSpotList, kTeleportRows };
 
 bool g_open_requested = false;
@@ -99,7 +114,7 @@ int g_row = 0;           // on the first page
 int g_teleport_row = 0;
 int g_entry = 0;         // in a list
 int g_top = 0;
-std::vector<conker::resume::Snapshot> g_snapshots;
+std::vector<conker::resume::Snapshot> g_snapshots;  // or the reports, on LOAD REPORT
 std::vector<Position> g_spots;  // this scene's
 std::string g_message;
 Clock::time_point g_message_until;
@@ -267,7 +282,8 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
             draw_title(rdram, ctx, "DEBUG MENU");
             draw_rows(rdram, ctx,
                       {std::string("WIREFRAME  ") + on_off(g_wireframe), std::string("SHOW FPS  ") + on_off(g_show_fps),
-                       std::string("SHOW POSITION  ") + on_off(g_show_position), "TELEPORT", "LOAD SNAPSHOT"},
+                       std::string("SHOW POSITION  ") + on_off(g_show_position), "TELEPORT", "LOAD SNAPSHOT",
+                       "SAVE DEBUG REPORT", "LOAD REPORT"},
                       g_row);
             break;
         case Page::Teleport:
@@ -296,11 +312,20 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
             draw_rows(rdram, ctx, rows, g_entry, g_top);
             break;
         }
-        case Page::Snapshots: {
+        case Page::Snapshots:
+        case Page::Reports: {
+            const bool reports = g_page == Page::Reports;
             const int count = static_cast<int>(g_snapshots.size());
-            std::snprintf(text, sizeof(text), count > 0 ? "LOAD SNAPSHOT  %d/%d" : "LOAD SNAPSHOT", g_entry + 1, count);
+            const char* name = reports ? "LOAD REPORT" : "LOAD SNAPSHOT";
+            if (count > 0) {
+                std::snprintf(text, sizeof(text), "%s  %d/%d", name, g_entry + 1, count);
+            } else {
+                std::snprintf(text, sizeof(text), "%s", name);
+            }
             draw_title(rdram, ctx, text);
-            if (count == 0) {
+            if (count == 0 && reports) {
+                draw_rows(rdram, ctx, {"NO REPORTS YET", "SAVE ONE ON THE FIRST PAGE"}, -1);
+            } else if (count == 0) {
                 draw_rows(rdram, ctx, {"NO SNAPSHOTS YET", "SAVE FROM THE PAUSE MENU"}, -1);
             }
             std::vector<std::string> rows;
@@ -371,6 +396,73 @@ void open_list(Page page) {
     g_top = 0;
 }
 
+// report.txt for SAVE DEBUG REPORT, before the save's details: everything needed to see what the
+// player saw.
+std::string report_text(uint8_t* rdram) {
+    std::string out;
+    char line[256];
+    const std::time_t now = std::time(nullptr);
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &now);
+#else
+    localtime_r(&now, &local);
+#endif
+    char when[32];
+    std::strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", &local);
+    out += "Conker's Bad Fur Day: Recompiled - debug report\n";
+    out += std::string("Made: ") + when + "\n";
+    out += std::string("Build: ") + CONKER_BUILD_VERSION + "\n\n";
+
+    Position p;
+    if (conker::resume::current_position(rdram, &p)) {
+        std::snprintf(line, sizeof(line), "Scene: %d, entrance %d\nConker: (%.2f, %.2f, %.2f), facing %.2f\n", p.scene,
+                      MEM_BU(0, kseg0(kEntrance)), p.x, p.y, p.z, p.facing);
+        out += line;
+    } else {
+        out += "Conker: not in play\n";
+    }
+    conker::resume::Camera c;
+    if (conker::resume::current_camera(rdram, &c)) {
+        std::snprintf(line, sizeof(line),
+                      "Camera: at (%.2f, %.2f, %.2f), looking at (%.2f, %.2f, %.2f), forward (%.4f, %.4f, %.4f),\n"
+                      "        yaw %.2f, pitch %.2f\n",
+                      c.eye[0], c.eye[1], c.eye[2], c.at[0], c.at[1], c.at[2], c.forward[0], c.forward[1], c.forward[2],
+                      c.yaw(), c.pitch());
+        out += line;
+    }
+    if (p.has_view) {
+        std::snprintf(line, sizeof(line), "Debug spot (debug_spots.txt): %d %.2f %.2f %.2f %.2f %.2f %.2f %.2f\n", p.scene,
+                      p.x, p.y, p.z, p.yaw, p.facing, p.camera_yaw, p.camera_pitch);
+        out += line;
+    }
+
+    std::snprintf(line, sizeof(line), "\nWireframe: %s\nFrame rate: %d per second\n", g_wireframe ? "on" : "off", g_fps);
+    out += line;
+    out += "\nDisplay (display.cfg):\n";
+    std::ifstream display(ultramodern::get_save_file_path().parent_path().parent_path() / "display.cfg");
+    bool any = false;
+    for (std::string setting; std::getline(display, setting);) {
+        out += "  " + setting + "\n";
+        any = true;
+    }
+    if (!any) {
+        out += "  (none saved)\n";
+    }
+    out += "\nSettings (CONKER_* environment variables):\n";
+    any = false;
+    for (char** variable = environ; *variable != nullptr; variable++) {
+        if (std::strncmp(*variable, "CONKER_", 7) == 0) {
+            out += std::string("  ") + *variable + "\n";
+            any = true;
+        }
+    }
+    if (!any) {
+        out += "  (none)\n";
+    }
+    return out;
+}
+
 // The first page. Returns the sound to play.
 int32_t main_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_horizontal, uint16_t pressed) {
     if (vertical != 0) {
@@ -403,11 +495,19 @@ int32_t main_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_horiz
             g_page = Page::Teleport;
             break;
         case kLoadSnapshot:
+        case kLoadReport:
             if (!(pressed & conker::input::kA)) {
                 return 0;
             }
-            g_snapshots = conker::resume::list_snapshots();
-            open_list(Page::Snapshots);
+            g_snapshots = g_row == kLoadReport ? conker::resume::list_reports() : conker::resume::list_snapshots();
+            open_list(g_row == kLoadReport ? Page::Reports : Page::Snapshots);
+            break;
+        case kSaveReport:
+            if (!(pressed & conker::input::kA)) {
+                return 0;
+            }
+            show_message(conker::resume::request_report(rdram, report_text(rdram)).empty() ? "SAVING, TRY AGAIN"
+                                                                                             : "REPORT SAVED");
             break;
     }
     return kSelectSound;
@@ -499,7 +599,10 @@ int32_t list_page(uint8_t* rdram, int vertical, uint16_t pressed) {
         } else {
             show_message("CANNOT TELEPORT HERE");
         }
-    } else if (conker::resume::load_snapshot(rdram, g_snapshots[g_entry].path)) {
+    } else if (g_page == Page::Reports && !std::filesystem::exists(g_snapshots[g_entry].path)) {
+        show_message("NO SAVE IN THIS REPORT");
+    } else if (g_page == Page::Reports ? conker::resume::load_report(rdram, g_snapshots[g_entry].path)
+                                       : conker::resume::load_snapshot(rdram, g_snapshots[g_entry].path)) {
         close_menu(rdram);
     } else {
         show_message("SAVING, TRY AGAIN");
@@ -631,6 +734,7 @@ extern "C" void conker_debug_menu_frame(uint8_t* rdram, recomp_context* ctx) {
             break;
         case Page::Spots:
         case Page::Snapshots:
+        case Page::Reports:
             sound = list_page(rdram, vertical, pressed);
             break;
     }
