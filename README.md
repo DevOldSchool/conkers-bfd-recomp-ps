@@ -35,6 +35,7 @@ git submodule update --init --recursive
 (cd lib/rt64 && git apply ../../tools/patches/rt64-f3dex2cbfd.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-native-size.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-edge-rects.patch)
+(cd lib/rt64 && git apply ../../tools/patches/rt64-memory-packs.patch)
 tools/regenerate.sh
 cmake -S . -B build/rt64 -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER=rt64
 cmake --build build/rt64
@@ -146,6 +147,21 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   out when controller 1's pad can rumble; `CONKER_RUMBLE_BANNER=1` shows it.
 * **Camera on the right stick:** C-left and C-right are swapped (also on J/L),
   so pushing left turns the view left.
+* **Sharper text:** the game's text font is enlarged 8 times with
+  Super-xBR, a pixel-art upscaler, from the glyphs in your ROM when the game
+  starts: the same letters, smoother and less blurred than the N64's
+  filtering. The game draws each glyph a little short of its edges, which its
+  blur hides, so those rectangles are widened over each glyph's empty border
+  and the sharper letters are not cut off (`src/platform/font_rects.cpp`).
+  `CONKER_SHARP_FONT=0` keeps the original font.
+* **Texture packs:** RT64 replacement packs (a folder, `.rtz` or `.zip` with
+  an `rt64.json`) in `conker-recomp-data/texture_packs` are loaded at start,
+  in name order; where two replace the same texture, the later name wins,
+  and any of them wins over the sharper text. `CONKER_TEXTURE_PACKS=0` loads
+  none. `CONKER_DUMP_SHARP_FONT=<dir>` writes the sharper text out as a pack
+  to edit; `tools/font_pack.py` writes the same pack outside the game, or
+  with `--style traced` a version redrawn with crisp edges and a thin dark
+  outline (`tools/font_trace.py`).
 
 ## Documentation
 

@@ -92,6 +92,15 @@ These environment variables are read by both builds:
   paused), the sequence, its volume and pause mode, and the music-paused flag
   that the pause menu sets. An open pause menu is silent by design and shows
   flag 1 with the players paused.
+* `CONKER_DUMP_TEXTURES=<dir>` (RT64 build) writes each texture the game
+  loads to `<dir>` once, as RT64's `<hash>.v5.png`, `.tmem` and `.tile.json`
+  files, the starting point for a texture pack. `tools/font_pack.py --dump
+  <dir>` checks that every dumped font glyph has the hash the script computes
+  for it from the ROM.
+* `CONKER_DUMP_SHARP_FONT=<dir>` (RT64 build) writes the built-in sharper
+  text, made from the ROM at the first graphics task, to `<dir>` as an RT64
+  pack (`rt64.json` and `font/glyph_NN.png`), to edit and load from
+  `conker-recomp-data/texture_packs`.
 * `CONKER_AUDIO=0` (RT64 build) disables the SDL device; `CONKER_AUDIO_LATENCY_MS`
   (default 60) sets the extra buffering kept on top of what the game asks for;
   `CONKER_SILENT_AUDIO=1` skips the audio microcode entirely.

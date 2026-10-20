@@ -1,0 +1,58 @@
+--- a/src/render/rt64_texture_cache.h
++++ b/src/render/rt64_texture_cache.h
+@@ -57,11 +57,18 @@
+     struct ReplacementDirectory {
+         std::filesystem::path dirOrZipPath;
+         std::string zipBasePath; // Only applies to Zip.
++        std::shared_ptr<FileSystem> fileSystem; // A pack supplied by the application, used instead of dirOrZipPath.
+ 
+         ReplacementDirectory(const std::filesystem::path &dirOrZipPath, const std::string &zipBasePath = "") {
+             this->dirOrZipPath = dirOrZipPath;
+             this->zipBasePath = zipBasePath;
+         }
++
++        // dirOrZipPath only names the pack, as in the replacement list.
++        ReplacementDirectory(std::shared_ptr<FileSystem> fileSystem, const std::filesystem::path &name) {
++            this->dirOrZipPath = name;
++            this->fileSystem = std::move(fileSystem);
++        }
+     };
+ 
+     struct ReplacementMap {
+--- a/src/render/rt64_texture_cache.cpp
++++ b/src/render/rt64_texture_cache.cpp
+@@ -1455,6 +1455,19 @@
+         uploadQueueChanged.notify_all();
+     }
+ 
++    // Forwards to a file system the application keeps a reference to (ReplacementDirectory::fileSystem).
++    struct FileSystemShared : FileSystem {
++        std::shared_ptr<FileSystem> target;
++
++        FileSystemShared(std::shared_ptr<FileSystem> target) : target(std::move(target)) {}
++        Iterator begin() const override { return target->begin(); }
++        Iterator end() const override { return target->end(); }
++        bool load(const std::string &path, uint8_t *fileData, size_t fileDataMaxByteCount) const override { return target->load(path, fileData, fileDataMaxByteCount); }
++        size_t getSize(const std::string &path) const override { return target->getSize(path); }
++        bool exists(const std::string &path) const override { return target->exists(path); }
++        std::string makeCanonical(const std::string &path) const override { return target->makeCanonical(path); }
++    };
++
+     bool TextureCache::loadReplacementDirectory(const ReplacementDirectory &replacementDirectory) {
+         return loadReplacementDirectories({ replacementDirectory });
+     }
+@@ -1470,7 +1483,13 @@
+         std::vector<uint32_t> fileSystemHashVersions;
+         std::vector<std::unordered_set<std::string>> fileSystemStreamSets;
+         for (const ReplacementDirectory &replacementDirectory : replacementDirectories) {
+-            if (std::filesystem::is_regular_file(replacementDirectory.dirOrZipPath)) {
++            if (replacementDirectory.fileSystem != nullptr) {
++                fileSystems.emplace_back(std::make_unique<FileSystemShared>(replacementDirectory.fileSystem));
++                fileSystemResolvedPaths.emplace_back();
++                fileSystemHashVersions.emplace_back();
++                fileSystemStreamSets.emplace_back();
++            }
++            else if (std::filesystem::is_regular_file(replacementDirectory.dirOrZipPath)) {
+                 std::unique_ptr<FileSystem> fileSystem = FileSystemZip::create(replacementDirectory.dirOrZipPath, replacementDirectory.zipBasePath);
+                 if (fileSystem == nullptr) {
+                     fprintf(stderr, "Failed to load file system as a pack for replacements.\n");

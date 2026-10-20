@@ -131,6 +131,12 @@ fixed aspect ratio while that menu is open (`src/platform/renderer_rt64.cpp`).
 
 All of these are candidates for upstreaming.
 
+`tools/patches/rt64-memory-packs.patch` (apply in `lib/rt64`) lets a
+`ReplacementDirectory` carry a `FileSystem` the application made, used in place
+of a folder or zip. The sharper text (`src/enhancements/sharp_font/sharp_font.cpp`)
+is such a pack, made in memory from the ROM's glyphs, so it needs no files and
+loads before the packs in `conker-recomp-data/texture_packs`.
+
 RT64's CMake turns plume's Retina support off, which would size the Metal
 swap chain in points and leave macOS to upscale it 2x on a Retina screen. Our
 `CMakeLists.txt` defines `PLUME_APPLE_RETINA_ENABLED` for the `plume` target
