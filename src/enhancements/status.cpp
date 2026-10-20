@@ -67,6 +67,7 @@ nlohmann::json enhancements(uint8_t* rdram) {
         surround_default(rdram),
         max_detail(),
         rumble_banner(),
+        frame_rate(),
         enhancement("sharp_font", "Sharper text", sharp_font, "CONKER_SHARP_FONT", sharp_options),
         enhancement("sharp_menus", "Sharper menus", sharp_menus, "CONKER_SHARP_MENUS", sharp_options),
         enhancement("camera_stick", "Camera on the right stick", true, nullptr),

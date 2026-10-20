@@ -272,6 +272,11 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   packs to edit; `tools/font_pack.py` writes the same pack outside the game, or
   with `--style traced` a version redrawn with crisp edges and a thin dark
   outline (`tools/font_trace.py`).
+* **60 fps (experimental, off by default):** `CONKER_60FPS=1` lets the game
+  start a frame on every retrace instead of every second one. Its logic
+  already steps by elapsed time, so movement, jumps, the camera, animation and
+  cutscenes keep their speed; a few things still assume 30 fps. See
+  [docs/investigations.md](docs/investigations.md) for what was measured.
 
 ## Documentation
 
