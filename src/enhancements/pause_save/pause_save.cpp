@@ -22,18 +22,18 @@
 // The signs are drawn with sprite selectors that never appear in normal play: SAVE with
 // RESTART's (0x21 unlit, 0x22 lit), LOAD with the title menu's PLAY (0x16, 0x17). While they are
 // on screen, the tile lookup in func_151ED430 hands out our own tiles for those selectors'
-// resources. They are built from the CONT... and QUIT signs' tiles as the game loads them: the
-// lettering inside the frame is cleared and src/enhancements/pause_save/pause_sign_letters.inc
-// (tools/make_pause_signs.py) is drawn instead, so no ROM art is stored in the repository.
+// resources. They are made from the ROM the first time they are needed
+// (src/enhancements/sharp_menus/pause_signs.cpp): CONT...'s and QUIT's frames lettered with letters
+// cut from the game's other green signs, so no ROM art is stored in the repository.
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 
 #include "recomp.h"
 #include "enhancements/pause_save/resume_point.hpp"
+#include "enhancements/sharp_menus/pause_signs.hpp"
 
 extern "C" void func_15042D94(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_1510D0EC(uint8_t* rdram, recomp_context* ctx);
 
 namespace {
 
@@ -87,10 +87,6 @@ constexpr double kSavedFadeSeconds = 1.0;
 
 using Clock = std::chrono::steady_clock;
 
-const uint8_t kLetters[2][2][32][64][4] = {  // [sign][unlit, lit]
-#include "enhancements/pause_save/pause_sign_letters.inc"
-};
-
 bool pause_save_enabled() {
     static const bool enabled = [] {
         const char* value = std::getenv("CONKER_PAUSE_SAVE");
@@ -123,131 +119,41 @@ void select_option(uint8_t* rdram, Option option) {
 
 // --- the signs -----------------------------------------------------------------------------------
 
-struct SignKind {
-    int source_tiles;  // the game sign whose frame it uses: unlit tiles, then lit
-    int target_tiles;  // the selector's resources it replaces
+// The selector resources the signs take the place of: unlit left and right tiles, then lit.
+constexpr int kSignTargets[2] = {
+    2062,  // SAVE, drawn as RESTART
+    2039,  // LOAD, drawn as PLAY
 };
 
-constexpr SignKind kSigns[2] = {
-    {2003, 2062},  // SAVE: CONT...'s frame, drawn as RESTART
-    {2044, 2039},  // LOAD: QUIT's frame, drawn as PLAY
-};
-
-struct SignFrame {
-    uint8_t pixels[32][64][4];  // linear RGBA
-    unsigned captured = 0;      // bit per half
-    bool ready = false;
-};
-
-SignFrame g_frames[2][2];    // [sign][unlit, lit]
 bool g_signs_drawn = false;  // the signs are in this frame's sprite list
-
-// RGBA32 tiles are loaded with LoadBlock and no line swap, so odd rows are stored with the two
-// 8-byte halves of each 16-byte group exchanged, as TMEM holds them.
-uint32_t tile_offset(int x, int y) { return static_cast<uint32_t>((y * 32 + ((y & 1) ? x ^ 2 : x)) * 4); }
+bool g_signs_written = false;
 
 uint32_t sign_tile(int sign, int variant, int half) {
     return kSignTiles + static_cast<uint32_t>(sign * 4 + variant * 2 + half) * 0x1000;
 }
 
-// Everything more than 4 pixels inside the frame's opaque outline is the lettering.
-void find_inside(const SignFrame& frame, bool inside[32][64]) {
-    bool outside[32][64] = {};
-    int stack[32 * 64][2];
-    int top = 0;
-    auto push = [&](int x, int y) {
-        if (x >= 0 && x < 64 && y >= 0 && y < 32 && !outside[y][x] && frame.pixels[y][x][3] <= 60) {
-            outside[y][x] = true;
-            stack[top][0] = x;
-            stack[top][1] = y;
-            top++;
-        }
-    };
-    for (int x = 0; x < 64; x++) {
-        push(x, 0);
-        push(x, 31);
+// Puts the signs' tiles (src/enhancements/sharp_menus/pause_signs.cpp) where the game will load
+// them from; false if they could not be made.
+bool write_signs(uint8_t* rdram) {
+    if (g_signs_written) {
+        return true;
     }
-    for (int y = 0; y < 32; y++) {
-        push(0, y);
-        push(63, y);
+    const conker::pause_signs::Signs* signs = conker::pause_signs::get();
+    if (signs == nullptr) {
+        return false;
     }
-    while (top > 0) {
-        top--;
-        const int x = stack[top][0];
-        const int y = stack[top][1];
-        push(x + 1, y);
-        push(x - 1, y);
-        push(x, y + 1);
-        push(x, y - 1);
-    }
-    for (int y = 0; y < 32; y++) {
-        for (int x = 0; x < 64; x++) {
-            inside[y][x] = !outside[y][x];
-        }
-    }
-    for (int pass = 0; pass < 4; pass++) {
-        bool next[32][64];
-        for (int y = 0; y < 32; y++) {
-            for (int x = 0; x < 64; x++) {
-                next[y][x] = inside[y][x] && x > 0 && x < 63 && y > 0 && y < 31 && inside[y][x - 1] &&
-                             inside[y][x + 1] && inside[y - 1][x] && inside[y + 1][x];
-            }
-        }
-        for (int y = 0; y < 32; y++) {
-            for (int x = 0; x < 64; x++) {
-                inside[y][x] = next[y][x];
+    for (int sign = 0; sign < 2; sign++) {
+        for (int variant = 0; variant < 2; variant++) {
+            for (int half = 0; half < 2; half++) {
+                const std::vector<uint8_t>& tile = signs->tiles[sign][variant][half];
+                for (size_t i = 0; i < tile.size(); i++) {
+                    MEM_B(static_cast<gpr>(i), kseg0(sign_tile(sign, variant, half))) = static_cast<int8_t>(tile[i]);
+                }
             }
         }
     }
-}
-
-void build_sign(uint8_t* rdram, int sign, int variant) {
-    const SignFrame& frame = g_frames[sign][variant];
-    bool inside[32][64];
-    find_inside(frame, inside);
-    for (int y = 0; y < 32; y++) {
-        for (int x = 0; x < 64; x++) {
-            const uint8_t* src = inside[y][x] ? kLetters[sign][variant][y][x] : frame.pixels[y][x];
-            const uint32_t tile = sign_tile(sign, variant, x / 32);
-            const uint32_t offset = tile_offset(x % 32, y);
-            for (int c = 0; c < 4; c++) {
-                MEM_B(offset + c, kseg0(tile)) = static_cast<int8_t>(src[c]);
-            }
-        }
-    }
-    g_frames[sign][variant].ready = true;
-}
-
-void capture_tile(uint8_t* rdram, int sign, int index, uint32_t address) {
-    const int variant = index / 2;
-    const int half = index % 2;
-    SignFrame& frame = g_frames[sign][variant];
-    const gpr base = kseg0((address & 0x1FFFFFFF) | 0x80000000);
-    for (int y = 0; y < 32; y++) {
-        for (int x = 0; x < 32; x++) {
-            const uint32_t offset = tile_offset(x, y);
-            for (int c = 0; c < 4; c++) {
-                frame.pixels[y][half * 32 + x][c] = MEM_BU(offset + c, base);
-            }
-        }
-    }
-    frame.captured |= 1u << half;
-    if (frame.captured == 3) {
-        build_sign(rdram, sign, variant);
-    }
-}
-
-// func_1510D0EC(resource, out, 3, 0) as func_151ED430 calls it; returns the tile's address.
-uint32_t look_up_tile(uint8_t* rdram, recomp_context* ctx, int resource) {
-    recomp_context saved = *ctx;
-    ctx->r4 = resource;
-    ctx->r5 = ctx->r29 + 0x98;
-    ctx->r6 = 3;
-    ctx->r7 = 0;
-    func_1510D0EC(rdram, ctx);
-    const uint32_t address = static_cast<uint32_t>(ctx->r2);
-    *ctx = saved;
-    return address;
+    g_signs_written = true;
+    return true;
 }
 
 // --- drawing -------------------------------------------------------------------------------------
@@ -436,34 +342,16 @@ extern "C" void conker_pause_save_quit_confirmed(uint8_t* rdram, recomp_context*
 }
 
 // In func_151ED430 right after `jal func_1510D0EC` ($s4 = resource, $v0 = its tile in RDRAM):
-// keep copies of the CONT... and QUIT tiles, and give out the signs' tiles in place of the
-// RESTART and PLAY ones.
+// give out the signs' tiles in place of the RESTART and PLAY ones.
 extern "C" void conker_pause_save_tile(uint8_t* rdram, recomp_context* ctx) {
     if (!g_signs_drawn) {
         return;
     }
     const int resource = static_cast<int32_t>(ctx->r20);
-    const uint32_t address = static_cast<uint32_t>(ctx->r2);
     for (int sign = 0; sign < 2; sign++) {
-        const int source = resource - kSigns[sign].source_tiles;
-        if (source >= 0 && source < 4) {
-            if (address != kNotLoaded) {
-                capture_tile(rdram, sign, source, address);
-            }
-            // A sign is lit only once its option is chosen; fetch the lit tile with the unlit one
-            // so the lit sign is ready by then.
-            if (source < 2 && !g_frames[sign][1].ready) {
-                const uint32_t lit = look_up_tile(rdram, ctx, resource + 2);
-                if (lit != kNotLoaded) {
-                    capture_tile(rdram, sign, source + 2, lit);
-                }
-            }
-            return;
-        }
-        const int target = resource - kSigns[sign].target_tiles;
+        const int target = resource - kSignTargets[sign];
         if (target >= 0 && target < 4) {
-            const int variant = target / 2;
-            ctx->r2 = g_frames[sign][variant].ready ? kseg0(sign_tile(sign, variant, target % 2)) : kseg0(kNotLoaded);
+            ctx->r2 = write_signs(rdram) ? kseg0(sign_tile(sign, target / 2, target % 2)) : kseg0(kNotLoaded);
             return;
         }
     }

@@ -21,9 +21,6 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <map>
 #include <string>
 #include <vector>
 
@@ -31,7 +28,7 @@
 #include "common/rt64_filesystem.h"
 #include "common/rt64_load_types.h"
 #include "common/rt64_tmem_hasher.h"
-#include "stb/stb_image_write.h"
+#include "platform/memory_pack.hpp"
 
 namespace conker::sharp_font {
 
@@ -210,43 +207,6 @@ std::vector<uint8_t> enlarge(const Glyph& glyph, int& out_width, int& out_height
     return rgba;
 }
 
-// --- The pack ------------------------------------------------------------------------------------
-
-struct MemoryIterator : RT64::FileSystemIteratorImplementation {
-    std::map<std::string, std::vector<uint8_t>>::const_iterator it;
-
-    explicit MemoryIterator(std::map<std::string, std::vector<uint8_t>>::const_iterator it) : it(it) {}
-    const std::string& value() override { return it->first; }
-    void increment() override { ++it; }
-    bool compare(const FileSystemIteratorImplementation* other) const override {
-        return it == static_cast<const MemoryIterator*>(other)->it;
-    }
-};
-
-struct MemoryFileSystem : RT64::FileSystem {
-    std::map<std::string, std::vector<uint8_t>> files;
-
-    Iterator begin() const override { return {std::make_shared<MemoryIterator>(files.begin())}; }
-    Iterator end() const override { return {std::make_shared<MemoryIterator>(files.end())}; }
-    bool load(const std::string& path, uint8_t* data, size_t max_bytes) const override {
-        auto it = files.find(path);
-        if (it == files.end() || it->second.size() > max_bytes) return false;
-        std::copy(it->second.begin(), it->second.end(), data);
-        return true;
-    }
-    size_t getSize(const std::string& path) const override {
-        auto it = files.find(path);
-        return it == files.end() ? 0 : it->second.size();
-    }
-    bool exists(const std::string& path) const override { return files.count(path) != 0; }
-    std::string makeCanonical(const std::string& path) const override { return exists(path) ? path : std::string(); }
-};
-
-void append_bytes(void* context, void* data, int size) {
-    auto* out = static_cast<std::vector<uint8_t>*>(context);
-    out->insert(out->end(), static_cast<uint8_t*>(data), static_cast<uint8_t*>(data) + size);
-}
-
 } // namespace
 
 bool enabled() {
@@ -259,17 +219,7 @@ void dump_pack(const RT64::FileSystem& pack) {
     if (dir == nullptr || dir[0] == '\0') {
         return;
     }
-    std::vector<uint8_t> bytes;
-    for (auto it = pack.begin(); it != pack.end(); ++it) {
-        const std::string& name = *it;
-        const std::filesystem::path path = std::filesystem::path(dir) / name;
-        std::error_code error;
-        std::filesystem::create_directories(path.parent_path(), error);
-        bytes.resize(pack.getSize(name));
-        if (pack.load(name, bytes.data(), bytes.size())) {
-            std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
-        }
-    }
+    memory_pack::write_files(pack, dir);
     std::printf("[conker] sharp font written to %s\n", dir);
 }
 
@@ -279,24 +229,15 @@ std::shared_ptr<RT64::FileSystem> make_pack(std::span<const uint8_t> rom) {
         std::fprintf(stderr, "[conker] sharp font: %zu glyphs in the ROM's font, expected 95; left as it is\n", glyphs.size());
         return nullptr;
     }
-    auto pack = std::make_shared<MemoryFileSystem>();
-    std::string textures;
+    auto pack = std::make_shared<memory_pack::Pack>();
     for (size_t i = 0; i < glyphs.size(); i++) {
         int width = 0, height = 0;
         const std::vector<uint8_t> rgba = enlarge(glyphs[i], width, height);
-        char name[32], hash_text[17];
+        char name[32];
         std::snprintf(name, sizeof(name), "font/glyph_%02zu.png", i);
-        std::snprintf(hash_text, sizeof(hash_text), "%016llx", static_cast<unsigned long long>(hash(glyphs[i])));
-        std::vector<uint8_t>& png = pack->files[name];
-        stbi_write_png_to_func(append_bytes, &png, width, height, 4, rgba.data(), width * 4);
-        textures += std::string(textures.empty() ? "" : ",") + "{\"path\":\"" + name + "\",\"hashes\":{\"rt64\":\"" +
-                    hash_text + "\",\"rice\":\"\"},\"operation\":\"preload\",\"shift\":\"none\"}";
+        pack->add(name, hash(glyphs[i]), width, height, rgba.data());
     }
-    const std::string database =
-        "{\"configuration\":{\"configurationVersion\":3,\"autoPath\":\"rt64\",\"defaultOperation\":\"stream\","
-        "\"defaultShift\":\"half\",\"hashVersion\":5},\"textures\":[" + textures +
-        "],\"operationFilters\":[],\"shiftFilters\":[],\"extraFiles\":[]}";
-    pack->files["rt64.json"].assign(database.begin(), database.end());
+    pack->finish();
     return pack;
 }
 

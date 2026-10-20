@@ -1,7 +1,8 @@
-// Display rows on the title menu's OPTIONS page, between the sound row and CHEATS: the display mode
-// (WINDOWED, BORDERLESS, FULL SCREEN), the picture's shape (4:3 or WIDESCREEN), the resolution the
-// picture is drawn at in that mode, and whether it is scaled to fill the window or screen or drawn
-// at its own size.
+// Display rows on the title menu's OPTIONS page, between the sound row and CHEATS: whether the
+// sharper text and menus are drawn (SHARP TEXT or ORIGINAL TEXT), the display mode (WINDOWED,
+// BORDERLESS, FULL SCREEN), the picture's shape (4:3 or WIDESCREEN), the resolution the picture is
+// drawn at in that mode, and whether it is scaled to fill the window or screen or drawn at its own
+// size.
 // Native helpers called from the [[patches.hook]] snippets in config/us.toml (func_151DF1BC,
 // func_151E3344); CONKER_DISPLAY_OPTIONS=0 leaves the page as it was.
 //
@@ -19,6 +20,11 @@
 // never see the display settings, which are kept in conker-recomp-data/display.cfg instead
 // (src/platform/display_mode.cpp).
 //
+// * The sharp row borrows option 10 (five values) as a carousel like the resolution row: the
+//   setting is in the middle and the other one on either side, so a step either way switches it.
+//   SHARP TEXT loads the built-in sharper font and menus (src/platform/renderer_rt64.cpp),
+//   ORIGINAL TEXT drops them. The option keeps its five values because func_151E3344 finds each
+//   option's record by adding up the records before it, whose lengths follow their values.
 // * The mode row borrows option 12 (GOAL: three values), one value per mode.
 // * The shape row borrows option 15 (two values): 4:3, or WIDESCREEN, where RT64 widens the view
 //   to the window's or screen's shape, kept for each mode like the fill. The game has a PICTURE 4:3/16:9 setting of its own (option
@@ -89,6 +95,7 @@ Borrowed g_mode_row{12, 31, 3, {2, 28, 4, 29}, kStringArea};
 Borrowed g_scale_row{16, 42, 5, {-6, 35, 36, 37, 38, 39}, kStringArea + 3 * kStringStride};
 Borrowed g_fill_row{19, 52, 2, {-62, 43, 44}, kStringArea + 8 * kStringStride};
 Borrowed g_shape_row{15, 39, 2, {31, 32, 33}, kStringArea + 10 * kStringStride};
+Borrowed g_sharp_row{10, 23, 5, {21, 22, 25, 23, 24, 26}, kStringArea + 12 * kStringStride};
 constexpr int8_t kCarouselMiddle = 2;
 
 bool g_active = false;
@@ -98,11 +105,12 @@ int g_row_count = 0;
 // The gap below a row, by the option it shows.
 int gap_after(int option) {
     switch (option) {
-        case 9: return 26;    // the sound icon, then the display rows
+        case 9: return 22;    // the sound icon, then the display rows
+        case 10:
         case 12:
         case 15:
-        case 16: return 18;   // between the display rows
-        case 19: return 32;   // the display rows, then CHEATS
+        case 16: return 16;   // between the display rows
+        case 19: return 28;   // the display rows, then CHEATS
         default: return kEngineRowSpacing;
     }
 }
@@ -237,9 +245,16 @@ int wrap(int index) {
 extern "C" void conker_display_options_begin(uint8_t* rdram, recomp_context* ctx) {
     if (!display_options_enabled() || static_cast<uint32_t>(ctx->r4) != kOptionsPageMask ||
         !record_matches(rdram, g_mode_row) || !record_matches(rdram, g_scale_row) ||
-        !record_matches(rdram, g_fill_row) || !record_matches(rdram, g_shape_row)) {
+        !record_matches(rdram, g_fill_row) || !record_matches(rdram, g_shape_row) ||
+        !record_matches(rdram, g_sharp_row)) {
         return;
     }
+    const bool sharp = conker::display::sharp();
+    const char* const same = sharp ? "SHARP TEXT" : "ORIGINAL TEXT";
+    const char* const other = sharp ? "ORIGINAL TEXT" : "SHARP TEXT";
+    borrow(rdram, g_sharp_row, kCarouselMiddle, {same, other, same, other, same});
+    ctx->r4 |= 1u << g_sharp_row.option;
+
     const Mode mode = conker::display::current();
     g_shown_mode = static_cast<int8_t>(mode);
     borrow(rdram, g_mode_row, g_shown_mode, {"WINDOWED", "BORDERLESS", "FULL SCREEN"});
@@ -273,7 +288,10 @@ extern "C" void conker_display_options_end(uint8_t* rdram, recomp_context* /*ctx
     const int8_t shape = give_back(rdram, g_shape_row);
     const int8_t step = static_cast<int8_t>(give_back(rdram, g_scale_row) - kCarouselMiddle);
     const int8_t fill = give_back(rdram, g_fill_row);
-    if (mode != g_shown_mode && mode >= 0 && mode < conker::display::kModeCount) {
+    const int8_t sharp_step = static_cast<int8_t>(give_back(rdram, g_sharp_row) - kCarouselMiddle);
+    if (sharp_step != 0) {
+        conker::display::request_sharp(!conker::display::sharp());
+    } else if (mode != g_shown_mode && mode >= 0 && mode < conker::display::kModeCount) {
         conker::display::request(static_cast<Mode>(mode));
     } else if (shape != g_shown_shape) {
         conker::display::request_widescreen(static_cast<Mode>(g_shown_mode), shape == 1);
@@ -293,7 +311,8 @@ extern "C" void conker_display_options_end(uint8_t* rdram, recomp_context* /*ctx
 extern "C" void conker_display_options_sticks(uint8_t* rdram, recomp_context* ctx) {
     const int selected = MEM_BU(0, kseg0(kSelected));
     if (g_active && (selected == g_mode_row.option || selected == g_shape_row.option ||
-                     selected == g_scale_row.option || selected == g_fill_row.option)) {
+                     selected == g_scale_row.option || selected == g_fill_row.option ||
+                     selected == g_sharp_row.option)) {
         ctx->r16 += kStickSpread;
     }
 }

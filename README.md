@@ -4,7 +4,7 @@ This is my attempt at a faithful PC port of *Conker's Bad Fur Day*
 (Nintendo 64, US) for Windows, macOS and Linux. The aim is the game as Rare
 made it: the same look, sound and feel, running natively instead of in an
 emulator. On top of that come a few small quality-of-life changes, such as
-widescreen, higher resolutions, sharper text and skippable cutscenes, listed
+widescreen, higher resolutions, sharper text and menus and skippable cutscenes, listed
 under [Enhancements](#enhancements). They stay out of the way of the
 original style, and most can be switched off.
 
@@ -90,7 +90,9 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
 ## Enhancements
 
 * **Display options:** the OPTIONS page of the title menu has
-  four rows under the sound setting.
+  five rows under the sound setting.
+  * SHARP TEXT or ORIGINAL TEXT: the sharper text and menus below, or the
+    game's own. It switches at once and is on by default.
   * WINDOWED, BORDERLESS or FULL SCREEN. Full screen (the default) is macOS
     full screen in a Space of its own; borderless covers the screen in the
     current Space, with the menu bar and Dock hidden while the game is in
@@ -155,8 +157,9 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   the spot too. The spot is kept in `conker_us.resume` next to the save; a
   checkpoint reached later takes over as usual. Enemies and other things
   the save does not record are reset, as at a checkpoint. Neither sign is
-  offered when replaying a chapter, where the game does not save.
-  `CONKER_PAUSE_SAVE=0` turns them off.
+  offered when replaying a chapter, where the game does not save. The signs
+  are lettered with Rare's own letters, cut from the game's other green signs
+  in your ROM. `CONKER_PAUSE_SAVE=0` turns them off.
 * **Surround by default:** with no saved options (a new save file), the
   OPTIONS menu's sound setting is surround instead of stereo. The
   game keeps its options in EEPROM next to the saved games, so a sound
@@ -180,12 +183,22 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   blur hides, so those rectangles are widened over each glyph's empty border
   and the sharper letters are not cut off (`src/platform/font_rects.cpp`).
   `CONKER_SHARP_FONT=0` keeps the original font.
+* **Sharper menus:** the menus' lettered signs and headings (GAME1, OPTIONS,
+  PLAY, the chapter names, the multiplayer modes, PAUSED and the rest) are
+  drawn unfiltered, so at high resolutions they show as blocks. They are
+  enlarged 4 times with Super-xBR from your ROM when the game starts, each
+  heading as one picture so no seams show between its tiles, and so are the
+  menus' joystick and the OPTIONS speakers. The small P1 to P4 badges use the
+  large badges' artwork. Other pictures such as faces are left as they are.
+  `CONKER_SHARP_MENUS=0` keeps the original signs; the OPTIONS row turns the
+  sharper text and menus off together.
 * **Texture packs:** RT64 replacement packs (a folder, `.rtz` or `.zip` with
   an `rt64.json`) in `conker-recomp-data/texture_packs` are loaded at start,
   in name order; where two replace the same texture, the later name wins,
-  and any of them wins over the sharper text. `CONKER_TEXTURE_PACKS=0` loads
-  none. `CONKER_DUMP_SHARP_FONT=<dir>` writes the sharper text out as a pack
-  to edit; `tools/font_pack.py` writes the same pack outside the game, or
+  and any of them wins over the sharper text and menus.
+  `CONKER_TEXTURE_PACKS=0` loads none. `CONKER_DUMP_SHARP_FONT=<dir>` and
+  `CONKER_DUMP_SHARP_MENUS=<dir>` write the sharper text and menus out as
+  packs to edit; `tools/font_pack.py` writes the same pack outside the game, or
   with `--style traced` a version redrawn with crisp edges and a thin dark
   outline (`tools/font_trace.py`).
 
@@ -215,7 +228,7 @@ license:
 * [SDL2](https://www.libsdl.org/): zlib.
 * The patches in `tools/patches` change those projects, and each is under
   the license of the project it patches.
-* The sharper text uses Hyllian's Super-xBR (MIT).
+* The sharper text and menus use Hyllian's Super-xBR (MIT).
 
 *Conker's Bad Fur Day* and its code, art and sound belong to Rare and
 Microsoft. This project is not affiliated with or endorsed by them, contains
