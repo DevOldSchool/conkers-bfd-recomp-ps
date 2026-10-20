@@ -12,7 +12,8 @@
 // A pad that can rumble (SDL_GameControllerHasRumble; a DualSense, DualShock 4, Xbox or Switch
 // Pro pad) counts as a rumble pak in controller 1, and the game's motor on/off drives both of its
 // motors at full strength, like the pak's single motor. Rumble on Bluetooth PlayStation pads needs
-// SDL's extended reports, which init() turns on.
+// SDL's extended reports, which init() turns on; on macOS those pads go through Apple's
+// GameController framework instead, which rumbles without them.
 //
 // CONKER_VIRTUAL_PAD=<file> attaches an SDL virtual game controller driven by a script, so the
 // whole pad path (hot-plug, mapping, deadzone) can be exercised without hardware. Each line is
@@ -266,6 +267,14 @@ float axis(SDL_GameControllerAxis which) {
 void init() {
     // Keep reading the pad while another window (a terminal, a debugger) has focus.
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+#ifdef __APPLE__
+    // PlayStation pads through Apple's GameController framework rather than SDL's HIDAPI driver.
+    // HIDAPI's rumble switches a Bluetooth pad to extended reports, which it keeps until it is
+    // power-cycled, so other apps (OpenEmu) can't read it after we quit. GameController rumbles
+    // through Core Haptics without that. An environment variable of the same name overrides this.
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4, "0");
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5, "0");
+#endif
     // Extended reports: rumble on PlayStation pads over Bluetooth.
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4_RUMBLE, "1");
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");

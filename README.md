@@ -1,6 +1,14 @@
 # Conker's Bad Fur Day: Recompiled
 
-A static recompilation of *Conker's Bad Fur Day* (Nintendo 64, US) built with
+This is my attempt at a faithful PC port of *Conker's Bad Fur Day*
+(Nintendo 64, US) for Windows, macOS and Linux. The aim is the game as Rare
+made it: the same look, sound and feel, running natively instead of in an
+emulator. On top of that come a few small quality-of-life changes, such as
+widescreen, higher resolutions, sharper text and skippable cutscenes, listed
+under [Enhancements](#enhancements). They stay out of the way of the
+original style, and most can be switched off.
+
+It is a static recompilation built with
 [N64Recomp](https://github.com/N64Recomp/N64Recomp) and
 [N64ModernRuntime](https://github.com/N64Recomp/N64ModernRuntime), using the
 function inventory from
@@ -16,8 +24,13 @@ The RT64 build boots through the intro, title scene and menus, plays the new
 game's opening, saves, and reaches the first playable area, where Conker can
 be walked around. Saved games load from the title menu. There is no known
 crash. Graphics (Rare's F3DEX2CBFD microcode in RT64), audio (the `n_aspMain`
-microcode through RSPRecomp) and EEPROM saves all work that far. Windows is
-not supported yet.
+microcode through RSPRecomp) and EEPROM saves all work that far.
+
+Platforms:
+
+* macOS (the only one tested so far)
+* Windows
+* Linux
 
 ## Building
 
@@ -55,6 +68,11 @@ the keyboard at the same time. There is no remapping yet. A pad that can
 rumble (DualSense, DualShock 4, Xbox, Switch Pro) counts as a Rumble Pak in
 controller 1, so connect it before starting the game, which looks for the pak
 at boot. `CONKER_RUMBLE_TEST=1` buzzes the pad for a second when it connects.
+On macOS, DualSense and DualShock 4 pads are read through Apple's
+GameController framework, so they keep working in other apps (OpenEmu, for
+one) after the game quits; `SDL_JOYSTICK_HIDAPI_PS5=1` (or `_PS4=1`) uses
+SDL's own driver instead, which leaves a Bluetooth pad unreadable to those
+apps until it reconnects.
 
 | N64 | Xbox | PlayStation | Keyboard |
 | --- | --- | --- | --- |
@@ -119,19 +137,18 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   for one run, `CONKER_DISPLAY_OPTIONS=0` hides the rows, and
   `CONKER_ORIGINAL_SIZE=1` opens the original 960x720 window (in points)
   instead.
-* **Skip to the title menu:** Start at any point during the boot logos or the
+* **Skip to the title menu:** L at any point during the boot logos or the
   intro fades to black and then into the GAME 1 menu, skipping the title
-  scene's opening (the clock and the Cock and Plucker) too. On an N64, Start only skips the intro after about five seconds and after
-  the reset button, and the title scene needs another press.
+  scene's opening (the clock and the Cock and Plucker) too. On an N64,
+  Start only skips the intro after about five seconds and after the reset
+  button, and the title scene needs another press.
   `CONKER_SKIP_INTRO=1` skips without a press; `CONKER_SKIP_INTRO=0` keeps the
   original behaviour, where the intro cannot be skipped after a cold boot.
 * **Skip any cutscene:** on an N64, L only skips a cutscene already
   watched, and some, such as the whole opening of a new game, not at all.
-  Here L or Start skips every cutscene, the first time too. Start skips
-  instead of pausing while a cutscene can be skipped, and pauses as usual
-  everywhere else. Skipping any part of the opening goes on to where
-  Conker wakes up, its own skip target in the game's data (about 45
-  seconds into a new game instead of 7 minutes).
+  Here L skips every cutscene, the first time too. Skipping any part of
+  the opening goes on to where Conker wakes up, its own skip target in the
+  game's data (about 45 seconds into a new game instead of 7 minutes).
   `CONKER_SKIP_CUTSCENES=0` keeps the original rules.
 * **SAVE and LOAD in the pause menu:** two signs sit under the lever, LOAD
   below QUIT and SAVE below CONT.... Push down from the sign above, or use
@@ -253,3 +270,24 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
 * [docs/rsp-microcode.md](docs/rsp-microcode.md): graphics and audio microcode
 * [docs/investigations.md](docs/investigations.md): open problems and what
   has been ruled out
+
+## License
+
+The code written for this project (`src`, `tools`, `config` and the docs) is
+under the MIT license; see [LICENSE](LICENSE). Everything else keeps its own
+license:
+
+* [N64ModernRuntime](https://github.com/N64Recomp/N64ModernRuntime):
+  GPL-3.0. A built `ConkerRecomp` links it, so a binary that is passed on
+  falls under the GPL-3.0 as a whole and has to come with its source.
+* [N64Recomp](https://github.com/N64Recomp/N64Recomp): MIT.
+* [RT64](https://github.com/rt64/rt64): MIT, with the libraries it bundles
+  under their own licenses (`lib/rt64/src/contrib`).
+* [SDL2](https://www.libsdl.org/): zlib.
+* The patches in `tools/patches` change those projects, and each is under
+  the license of the project it patches.
+* The sharper text uses Hyllian's Super-xBR (MIT).
+
+*Conker's Bad Fur Day* and its code, art and sound belong to Rare and
+Microsoft. This project is not affiliated with or endorsed by them, contains
+none of the game's data, and needs your own ROM.
