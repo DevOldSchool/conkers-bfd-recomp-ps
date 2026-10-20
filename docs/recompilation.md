@@ -137,6 +137,17 @@ of a folder or zip. The sharper text (`src/enhancements/sharp_font/sharp_font.cp
 is such a pack, made in memory from the ROM's glyphs, so it needs no files and
 loads before the packs in `conker-recomp-data/texture_packs`.
 
+`tools/patches/rt64-wireframe.patch` (apply in `lib/rt64` after the patches
+above) and `tools/patches/plume-wireframe.patch` (apply in
+`lib/rt64/src/contrib/plume`) add the debug menu's wireframe view
+(`src/enhancements/debug_menu/debug_menu.cpp`). plume's command lists get
+`setWireframe`, which Metal applies as the triangle fill mode of each draw;
+the other back ends ignore it. `RT64::SetRenderWireframe` turns it on for the
+game's 3D triangles (indexed draws) only, so rectangles (text, sprites) stay
+solid, and clears each color target to black the first time it is drawn to in
+a frame: Conker never clears its frame, since the scene covers it, so without
+that the lines would be drawn over an old picture.
+
 RT64's CMake turns plume's Retina support off, which would size the Metal
 swap chain in points and leave macOS to upscale it 2x on a Retina screen. Our
 `CMakeLists.txt` defines `PLUME_APPLE_RETINA_ENABLED` for the `plume` target

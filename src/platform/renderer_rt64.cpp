@@ -31,6 +31,7 @@
 // pack from. With any of them loaded, the rectangles the game draws text glyphs with are widened
 // so a replaced glyph is not cut off (src/platform/font_rects.cpp).
 #include "platform/renderer_rt64.hpp"
+#include "platform/render_debug.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -47,6 +48,7 @@
 #include "librecomp/game.hpp"
 #include "platform/font_rects.hpp"
 #include "render/rt64_texture_cache.h"
+#include "rhi/rt64_render_hooks.h"
 #include "platform/display_mode.hpp"
 
 namespace conker::renderer {
@@ -67,6 +69,11 @@ uint32_t dpc_tmem_reg = 0;
 unsigned char dummy_rom_header[0x40];
 
 void dummy_check_interrupts() {}
+
+std::mutex g_texture_packs_mutex;
+std::vector<std::string> g_texture_packs;  // as loaded, for texture_packs()
+std::string g_gpu_name;                    // after setup, for gpu_name() and graphics_api()
+std::string g_graphics_api;
 
 // Loads the built-in font and the texture packs; returns whether any was loaded.
 bool load_texture_packs(RT64::Application& app) {
@@ -105,6 +112,10 @@ bool load_texture_packs(RT64::Application& app) {
     const bool loaded = app.textureCache->loadReplacementDirectories(directories);
     for (const std::string& name : names) {
         std::printf("[conker] %s%s\n", name.c_str(), loaded ? "" : " (not loaded)");
+    }
+    if (loaded) {
+        std::lock_guard lock(g_texture_packs_mutex);
+        g_texture_packs = names;
     }
     return loaded;
 }
@@ -194,6 +205,16 @@ public:
             return;
         }
         start_texture_dump(*app_);
+        {
+            std::lock_guard lock(g_texture_packs_mutex);
+            g_gpu_name = app_->device->getDescription().name;
+            switch (app_->chosenGraphicsAPI) {
+                case RT64::UserConfiguration::GraphicsAPI::D3D12: g_graphics_api = "D3D12"; break;
+                case RT64::UserConfiguration::GraphicsAPI::Vulkan: g_graphics_api = "Vulkan"; break;
+                case RT64::UserConfiguration::GraphicsAPI::Metal: g_graphics_api = "Metal"; break;
+                default: g_graphics_api = "unknown"; break;
+            }
+        }
     }
 
     ~Rt64Renderer() override = default;
@@ -353,6 +374,23 @@ private:
 };
 
 } // namespace
+
+void set_wireframe(bool on) { RT64::SetRenderWireframe(on); }
+
+std::vector<std::string> texture_packs() {
+    std::lock_guard lock(g_texture_packs_mutex);
+    return g_texture_packs;
+}
+
+std::string gpu_name() {
+    std::lock_guard lock(g_texture_packs_mutex);
+    return g_gpu_name;
+}
+
+std::string graphics_api() {
+    std::lock_guard lock(g_texture_packs_mutex);
+    return g_graphics_api;
+}
 
 std::unique_ptr<ultramodern::renderer::RendererContext> create_rt64_render_context(
     uint8_t* rdram, ultramodern::renderer::WindowHandle window_handle, bool developer_mode) {

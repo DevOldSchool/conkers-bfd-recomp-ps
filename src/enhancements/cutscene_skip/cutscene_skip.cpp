@@ -6,6 +6,7 @@
 #include <cstdlib>
 
 #include "recomp.h"
+#include "enhancements/status.hpp"
 
 namespace {
 
@@ -55,4 +56,8 @@ extern "C" void conker_skip_unwatched(uint8_t* /*rdram*/, recomp_context* ctx) {
     if (skip_cutscenes_enabled()) {
         ctx->r2 = 1;
     }
+}
+
+nlohmann::json conker::status::cutscene_skip() {
+    return enhancement("cutscene_skip", "Skip any cutscene", skip_cutscenes_enabled(), "CONKER_SKIP_CUTSCENES");
 }

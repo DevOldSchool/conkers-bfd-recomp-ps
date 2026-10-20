@@ -8,6 +8,7 @@
 #include <cstdlib>
 
 #include "recomp.h"
+#include "enhancements/status.hpp"
 
 namespace {
 
@@ -160,4 +161,12 @@ extern "C" void conker_skip_fade_colour(uint8_t* /*rdram*/, recomp_context* ctx)
         ctx->r7 = 0;
         ctx->r24 = 0;
     }
+}
+
+nlohmann::json conker::status::intro_skip() {
+    const IntroSkip mode = intro_skip_mode();
+    // "press": a press of L skips; "always": skipped without a press; "never": the original behaviour.
+    const char* name = mode == IntroSkip::Always ? "always" : mode == IntroSkip::Never ? "never" : "press";
+    return enhancement("intro_skip", "Skip to the title menu", mode != IntroSkip::Never, "CONKER_SKIP_INTRO",
+                       {{"mode", name}});
 }
