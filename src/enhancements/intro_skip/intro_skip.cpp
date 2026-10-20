@@ -1,6 +1,7 @@
-// Start skips from the boot logos or the intro straight to the title menu. Native helpers called
-// from the [[patches.hook]] snippets in config/us.toml (func_151DE6D4, func_1501E05C,
-// func_1501E1B4, func_1517F3A0). CONKER_SKIP_INTRO=1 skips without a press, =0 turns it off.
+// L skips from the boot logos or the intro straight to the title menu, as it skips cutscenes
+// (src/enhancements/cutscene_skip). Native helpers called from the [[patches.hook]] snippets in
+// config/us.toml (func_151DE6D4, func_1501E05C, func_1501E1B4, func_1517F3A0).
+// CONKER_SKIP_INTRO=1 skips without a press, =0 turns it off.
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -13,33 +14,33 @@ namespace {
 inline gpr kseg0(uint32_t address) { return static_cast<gpr>(static_cast<int32_t>(address)); }
 
 constexpr uint32_t kButtons = 0x800BE710;        // D_800BE710: controller 1's buttons
-constexpr uint16_t kStartButton = 0x1000;
+constexpr uint16_t kLButton = 0x0020;
 constexpr uint32_t kLogoTimer = 0x800E0A90;      // D_800E0A90: boot logo ticks
 constexpr int32_t kLogoEnd = 0x349;              // func_151DE6D4 loads the intro from here
 constexpr uint32_t kTitleSkipFlag = 0x8008FD84;  // D_8008FD84: skip the title scene's script
 
-// Unset: Start skips to the title menu. CONKER_SKIP_INTRO=1 skips without a press.
-// CONKER_SKIP_INTRO=0 keeps the hardware rule (only after a warm reset), so the intro always
-// plays, as the runtime cold boots.
-enum class IntroSkip { Never, OnStart, Always };
+// Unset: L skips to the title menu. CONKER_SKIP_INTRO=1 skips without a press.
+// CONKER_SKIP_INTRO=0 keeps the hardware rule (Start, only after a warm reset), so the intro
+// always plays, as the runtime cold boots.
+enum class IntroSkip { Never, OnPress, Always };
 
 IntroSkip intro_skip_mode() {
     static const IntroSkip mode = [] {
         const char* value = std::getenv("CONKER_SKIP_INTRO");
         if (value == nullptr || value[0] == '\0') {
-            return IntroSkip::OnStart;
+            return IntroSkip::OnPress;
         }
         return value[0] == '0' ? IntroSkip::Never : IntroSkip::Always;
     }();
     return mode;
 }
 
-// One skip per boot. A Start press during the logos or the intro fades the screen to black, the
+// One skip per boot. An L press during the logos or the intro fades the screen to black, the
 // skips then run behind it, and it fades back in on the title menu. Only the game thread touches
 // this.
 enum class Skip {
     Idle,       // no press yet
-    FadingOut,  // Start pressed, the screen is fading to black
+    FadingOut,  // L pressed, the screen is fading to black
     Skipping,   // black: the logos and the intro end at their next check
     Revealing,  // the title scene's opening is ending, still black
     FadingIn,   // at the menu, fading back in
@@ -54,13 +55,13 @@ constexpr uint32_t kScriptState = 0x800C35EA; // D_800C35EA[0]: 1 while a cutsce
 constexpr uint32_t kScriptSkip = 0x800C3C88;  // D_800C3C88: func_1501E1B4's skip fade, 0 when idle
 constexpr int32_t kTitleScene = 0x1D;
 
-// Notes a Start press (if `read_start`) and moves the fade along. True once the screen is black.
-bool skip_to_title_menu(uint8_t* rdram, bool read_start) {
+// Notes an L press (if `read_press`) and moves the fade along. True once the screen is black.
+bool skip_to_title_menu(uint8_t* rdram, bool read_press) {
     if (intro_skip_mode() == IntroSkip::Never) {
         return false;
     }
-    if (skip == Skip::Idle && read_start &&
-        (intro_skip_mode() == IntroSkip::Always || (MEM_HU(0, kseg0(kButtons)) & kStartButton) != 0)) {
+    if (skip == Skip::Idle && read_press &&
+        (intro_skip_mode() == IntroSkip::Always || (MEM_HU(0, kseg0(kButtons)) & kLButton) != 0)) {
         skip = Skip::FadingOut;
         fade_start = std::chrono::steady_clock::now();
     }

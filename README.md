@@ -116,19 +116,18 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   for one run, `CONKER_DISPLAY_OPTIONS=0` hides the rows, and
   `CONKER_ORIGINAL_SIZE=1` opens the original 960x720 window (in points)
   instead.
-* **Skip to the title menu:** Start at any point during the boot logos or the
+* **Skip to the title menu:** L at any point during the boot logos or the
   intro fades to black and then into the GAME 1 menu, skipping the title
-  scene's opening (the clock and the Cock and Plucker) too. On an N64, Start only skips the intro after about five seconds and after
-  the reset button, and the title scene needs another press.
+  scene's opening (the clock and the Cock and Plucker) too. On an N64,
+  Start only skips the intro after about five seconds and after the reset
+  button, and the title scene needs another press.
   `CONKER_SKIP_INTRO=1` skips without a press; `CONKER_SKIP_INTRO=0` keeps the
   original behaviour, where the intro cannot be skipped after a cold boot.
 * **Skip any cutscene:** on an N64, L only skips a cutscene already
   watched, and some, such as the whole opening of a new game, not at all.
-  Here L or Start skips every cutscene, the first time too. Start skips
-  instead of pausing while a cutscene can be skipped, and pauses as usual
-  everywhere else. Skipping any part of the opening goes on to where
-  Conker wakes up, its own skip target in the game's data (about 45
-  seconds into a new game instead of 7 minutes).
+  Here L skips every cutscene, the first time too. Skipping any part of
+  the opening goes on to where Conker wakes up, its own skip target in the
+  game's data (about 45 seconds into a new game instead of 7 minutes).
   `CONKER_SKIP_CUTSCENES=0` keeps the original rules.
 * **SAVE and LOAD in the pause menu:** two signs sit under the lever, LOAD
   below QUIT and SAVE below CONT.... Push down from the sign above, or use
