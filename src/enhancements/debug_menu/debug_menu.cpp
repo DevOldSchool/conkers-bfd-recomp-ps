@@ -87,7 +87,7 @@ using Clock = std::chrono::steady_clock;
 
 enum class Page { Main, Teleport, Spots, Snapshots };
 enum MainRow { kWireframe, kShowFps, kShowPosition, kTeleport, kLoadSnapshot, kMainRows };
-enum TeleportRow { kX, kY, kZ, kFacing, kCameraYaw, kStep, kGo, kHere, kRemember, kSpotList, kTeleportRows };
+enum TeleportRow { kX, kY, kZ, kFacing, kCameraYaw, kStep, kGo, kResetToCurrent, kRemember, kSpotList, kTeleportRows };
 
 bool g_open_requested = false;
 bool g_injected = false;
@@ -279,7 +279,7 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
                        "Z  " + std::to_string(static_cast<int>(std::lround(g_target.z))),
                        "FACING  " + std::to_string(static_cast<int>(std::lround(g_target.facing))),
                        "CAMERA YAW  " + std::to_string(static_cast<int>(std::lround(g_target.camera_yaw))),
-                       std::string("STEP  ") + text, "GO", "HERE", "REMEMBER", "SPOTS  " + std::to_string(g_spots.size())},
+                       std::string("STEP  ") + text, "GO", "RESET TO CURRENT", "REMEMBER", "SPOTS  " + std::to_string(g_spots.size())},
                       g_teleport_row, 0, kTeleportRows);
             break;
         case Page::Spots: {
@@ -453,7 +453,7 @@ int32_t teleport_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_h
                 show_message("CANNOT TELEPORT HERE");
             }
             break;
-        case kHere:
+        case kResetToCurrent:
             if (conker::resume::current_position(rdram, &here)) {
                 g_target = here;
             }

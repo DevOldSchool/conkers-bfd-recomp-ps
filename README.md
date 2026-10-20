@@ -171,7 +171,8 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
     numbers on screen, to the hundredth of a degree, for repeating what someone
     saw. The camera's pitch is the game's own for that spot (it keeps the
     camera at the height it wants), so it is shown and recorded but not set.
-    HERE goes back to where he is, REMEMBER keeps the spot in
+    RESET TO CURRENT sets the values back to where he is and how he and the
+    camera face, REMEMBER keeps the values shown in
     `conker-recomp-data/debug_spots.txt` (one line each: `scene x y z angle
     facing camera-yaw camera-pitch`) and shows what it kept, and SPOTS lists
     those of the scene being played with their facing, yaw and pitch; A on one
