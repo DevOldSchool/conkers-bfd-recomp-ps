@@ -1,6 +1,14 @@
 # Conker's Bad Fur Day: Recompiled
 
-A static recompilation of *Conker's Bad Fur Day* (Nintendo 64, US) built with
+This is my attempt at a faithful PC port of *Conker's Bad Fur Day*
+(Nintendo 64, US) for Windows, macOS and Linux. The aim is the game as Rare
+made it: the same look, sound and feel, running natively instead of in an
+emulator. On top of that come a few small quality-of-life changes, such as
+widescreen, higher resolutions, sharper text and skippable cutscenes, listed
+under [Enhancements](#enhancements). They stay out of the way of the
+original style, and most can be switched off.
+
+It is a static recompilation built with
 [N64Recomp](https://github.com/N64Recomp/N64Recomp) and
 [N64ModernRuntime](https://github.com/N64Recomp/N64ModernRuntime), using the
 function inventory from
@@ -16,8 +24,13 @@ The RT64 build boots through the intro, title scene and menus, plays the new
 game's opening, saves, and reaches the first playable area, where Conker can
 be walked around. Saved games load from the title menu. There is no known
 crash. Graphics (Rare's F3DEX2CBFD microcode in RT64), audio (the `n_aspMain`
-microcode through RSPRecomp) and EEPROM saves all work that far. Windows is
-not supported yet.
+microcode through RSPRecomp) and EEPROM saves all work that far.
+
+Platforms:
+
+* macOS (the only one tested so far)
+* Windows
+* Linux
 
 ## Building
 
@@ -181,3 +194,24 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
 * [docs/rsp-microcode.md](docs/rsp-microcode.md): graphics and audio microcode
 * [docs/investigations.md](docs/investigations.md): open problems and what
   has been ruled out
+
+## License
+
+The code written for this project (`src`, `tools`, `config` and the docs) is
+under the MIT license; see [LICENSE](LICENSE). Everything else keeps its own
+license:
+
+* [N64ModernRuntime](https://github.com/N64Recomp/N64ModernRuntime):
+  GPL-3.0. A built `ConkerRecomp` links it, so a binary that is passed on
+  falls under the GPL-3.0 as a whole and has to come with its source.
+* [N64Recomp](https://github.com/N64Recomp/N64Recomp): MIT.
+* [RT64](https://github.com/rt64/rt64): MIT, with the libraries it bundles
+  under their own licenses (`lib/rt64/src/contrib`).
+* [SDL2](https://www.libsdl.org/): zlib.
+* The patches in `tools/patches` change those projects, and each is under
+  the license of the project it patches.
+* The sharper text uses Hyllian's Super-xBR (MIT).
+
+*Conker's Bad Fur Day* and its code, art and sound belong to Rare and
+Microsoft. This project is not affiliated with or endorsed by them, contains
+none of the game's data, and needs your own ROM.
