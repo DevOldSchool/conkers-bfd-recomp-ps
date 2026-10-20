@@ -15,7 +15,8 @@
 //     SHOW FPS         the frames the game draws per second, in the corner, on every screen
 //     SHOW POSITION    Conker's scene, position and facing, and the camera's yaw and pitch, under
 //                      it, during play
-//     TELEPORT         X, Y and Z to move him to, and spots kept in conker-recomp-data/debug_spots.txt
+//     TELEPORT         X, Y, Z, facing and camera yaw to move him to, and spots kept in
+//                      conker-recomp-data/debug_spots.txt
 //     LOAD SNAPSHOT    a list of saves/snapshots/; A starts one (resume_point.cpp)
 //
 // The first page also shows where Conker is and where the camera looks, and opening the menu prints
@@ -69,11 +70,11 @@ constexpr int32_t kSelectSound = 0x500;
 constexpr uint32_t kTitleColor = 0xCEC461FF;    // the game's gold
 constexpr uint32_t kChosenColor = 0xFFFFFFFF;
 constexpr uint32_t kOtherColor = 0x9A9A9AFF;
-constexpr int kTitleY = 46;
-constexpr int kFirstRowY = 64;
-constexpr int kRowHeight = 13;
+constexpr int kTitleY = 40;
+constexpr int kFirstRowY = 56;
+constexpr int kRowHeight = 12;
 constexpr int kListRows = 9;
-constexpr int kInfoY = 178;                     // the position and camera lines under the rows
+constexpr int kInfoY = 182;                     // the position and camera lines under the rows
 constexpr int kOverlayX = 16;                   // FPS and position in play, top left
 constexpr int kOverlayY = 12;
 constexpr int kSteps[] = {1, 10, 100, 1000};
@@ -82,7 +83,7 @@ using Clock = std::chrono::steady_clock;
 
 enum class Page { Main, Teleport, Spots, Snapshots };
 enum MainRow { kWireframe, kShowFps, kShowPosition, kTeleport, kLoadSnapshot, kMainRows };
-enum TeleportRow { kX, kY, kZ, kStep, kGo, kHere, kRemember, kSpotList, kTeleportRows };
+enum TeleportRow { kX, kY, kZ, kFacing, kCameraYaw, kStep, kGo, kHere, kRemember, kSpotList, kTeleportRows };
 
 bool g_open_requested = false;
 bool g_injected = false;
@@ -106,7 +107,7 @@ int g_frames = 0;
 Clock::time_point g_fps_since = Clock::now();
 int g_fps = 0;
 
-Position g_target;       // the teleport page's X, Y and Z
+Position g_target;       // the teleport page's X, Y, Z, facing and camera yaw
 int g_step = 2;          // index in kSteps
 
 uint16_t g_previous_buttons = 0;
@@ -126,7 +127,8 @@ void show_message(const std::string& message) {
 
 // --- spots ---------------------------------------------------------------------------------------
 
-// conker-recomp-data/debug_spots.txt: one spot a line, "<scene> <x> <y> <z> <facing>".
+// conker-recomp-data/debug_spots.txt: one spot a line, "<scene> <x> <y> <z> <yaw>", optionally
+// followed by "<facing> <camera yaw>" (see conker::resume::Position).
 std::filesystem::path spots_path() {
     return ultramodern::get_save_file_path().parent_path().parent_path() / "debug_spots.txt";
 }
@@ -136,7 +138,10 @@ std::vector<Position> read_spots() {
     std::ifstream file(spots_path());
     for (std::string line; std::getline(file, line);) {
         Position spot;
-        if (std::sscanf(line.c_str(), "%d %f %f %f %f", &spot.scene, &spot.x, &spot.y, &spot.z, &spot.yaw) == 5) {
+        const int fields = std::sscanf(line.c_str(), "%d %f %f %f %f %f %f", &spot.scene, &spot.x, &spot.y, &spot.z,
+                                       &spot.yaw, &spot.facing, &spot.camera_yaw);
+        if (fields >= 5) {
+            spot.has_view = fields == 7;
             spots.push_back(spot);
         }
     }
@@ -155,8 +160,13 @@ std::vector<Position> scene_spots(int scene) {
 
 void remember_spot(const Position& spot) {
     std::ofstream file(spots_path(), std::ios::app);
-    char line[96];
-    std::snprintf(line, sizeof(line), "%d %.2f %.2f %.2f %.2f\n", spot.scene, spot.x, spot.y, spot.z, spot.yaw);
+    char line[128];
+    if (spot.has_view) {
+        std::snprintf(line, sizeof(line), "%d %.2f %.2f %.2f %.2f %.2f %.2f\n", spot.scene, spot.x, spot.y, spot.z, spot.yaw,
+                      spot.facing, spot.camera_yaw);
+    } else {
+        std::snprintf(line, sizeof(line), "%d %.2f %.2f %.2f %.2f\n", spot.scene, spot.x, spot.y, spot.z, spot.yaw);
+    }
     file << line;
     std::printf("[conker] debug menu: spot kept, scene %d (%.0f, %.0f, %.0f)\n", spot.scene, spot.x, spot.y, spot.z);
 }
@@ -242,8 +252,10 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
             draw_rows(rdram, ctx,
                       {"X  " + std::to_string(static_cast<int>(std::lround(g_target.x))),
                        "Y  " + std::to_string(static_cast<int>(std::lround(g_target.y))),
-                       "Z  " + std::to_string(static_cast<int>(std::lround(g_target.z))), std::string("STEP  ") + text, "GO",
-                       "HERE", "REMEMBER", "SPOTS  " + std::to_string(g_spots.size())},
+                       "Z  " + std::to_string(static_cast<int>(std::lround(g_target.z))),
+                       "FACING  " + std::to_string(static_cast<int>(std::lround(g_target.facing))),
+                       "CAMERA YAW  " + std::to_string(static_cast<int>(std::lround(g_target.camera_yaw))),
+                       std::string("STEP  ") + text, "GO", "HERE", "REMEMBER", "SPOTS  " + std::to_string(g_spots.size())},
                       g_teleport_row);
             break;
         case Page::Spots: {
@@ -389,6 +401,13 @@ int32_t teleport_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_h
     float* axis = g_teleport_row == kX ? &g_target.x : g_teleport_row == kY ? &g_target.y : g_teleport_row == kZ ? &g_target.z : nullptr;
     if (axis != nullptr && horizontal != 0) {
         *axis = static_cast<float>(std::lround(*axis)) + horizontal * kSteps[g_step];
+        return fresh_horizontal ? kMoveSound : 0;
+    }
+    float* angle = g_teleport_row == kFacing ? &g_target.facing : g_teleport_row == kCameraYaw ? &g_target.camera_yaw : nullptr;
+    if (angle != nullptr && horizontal != 0) {
+        const long degrees = (std::lround(*angle) + horizontal * kSteps[g_step]) % 360;
+        *angle = static_cast<float>(degrees < 0 ? degrees + 360 : degrees);
+        g_target.has_view = true;
         return fresh_horizontal ? kMoveSound : 0;
     }
     if (g_teleport_row == kStep && horizontal != 0 && fresh_horizontal) {

@@ -35,6 +35,7 @@
 #include <iomanip>
 #include <string>
 
+#include "platform/input.hpp"
 #include "recomp.h"
 #include "ultramodern/ultramodern.hpp"
 
@@ -56,10 +57,19 @@ constexpr int kObjectY = 0x18;
 constexpr int kObjectZ = 0x1C;
 constexpr int kObjectYaw = 0xB8;                 // an angle in radians, restored with the position
 constexpr int kObjectFacing = 0x40;              // facing, degrees from +Z towards +X (not wrapped)
+constexpr int kObjectFacingAngle = 0x76;         // the facing it is made from, and the one turned
+constexpr int kObjectFacingTarget = 0x7A;        // towards: 16-bit angles from +X, 0x10000 a turn
 constexpr int kObjectCamera = 0x31C;             // the camera block: forward vector, eye, look-at
 constexpr int kCameraForward = 0x130;
 constexpr int kCameraEye = 0x13C;
 constexpr int kCameraAt = 0x148;
+constexpr uint32_t kPauseOpen = 0x800BEAC1;      // D_800BEAC1: the pause menu is open
+// After a teleport the camera is turned with the C buttons, as a player would: its own angles
+// (+0x318 -> +0x37C, the camera's yaw + 180 in degrees) are set again by the game every frame.
+constexpr float kCameraTolerance = 1.5f;         // degrees
+constexpr int kCameraSettledFrames = 15;         // it keeps turning a little once let go: done
+                                                 // when it has stayed there this long
+constexpr int kCameraTurnFrames = 150;           // gives up after about 5 s
 constexpr uint32_t kScene = 0x800BE9F0;          // D_800BE9F0: the scene being played
 constexpr uint32_t kEntrance = 0x800DD2C0;       // D_800DD2C0: the entrance it was entered by
 constexpr int kObjectPreviousX = 0x2C;           // last frame's position
@@ -94,6 +104,10 @@ bool g_load_requested = false;
 Point g_resuming;          // being started, waiting for Conker to be placed
 int g_resume_frames = 0;
 int g_place_frames = kPlaceFrames;
+Position g_view;           // a teleport's facing and camera, held with its position
+bool g_turning_camera = false;  // then the camera is turned to g_view.camera_yaw
+int g_turn_frames = 0;
+int g_settled_frames = 0;
 int g_resumed_slot = -1;   // the slot last started at its point, and when
 std::chrono::steady_clock::time_point g_resumed_at;
 bool g_snapshot_pending = false;  // a save to keep once the EEPROM write is done
@@ -194,6 +208,22 @@ uint32_t player_object(uint8_t* rdram) {
     return (object & 0xFF000000) == 0x80000000 ? object : 0;
 }
 
+// Turns Conker as `view` says.
+void place_view(uint8_t* rdram, uint32_t object, const Position& view) {
+    write_float(rdram, object + kObjectFacing, view.facing);
+    const auto angle = static_cast<int16_t>(static_cast<int32_t>(std::lround((view.facing - 90.0f) * (65536.0f / 360.0f))));
+    MEM_H(0, kseg0(object + kObjectFacingAngle)) = angle;
+    MEM_H(0, kseg0(object + kObjectFacingTarget)) = angle;
+}
+
+// From a to b the short way round, in degrees: -180 to 180.
+float angle_difference(float a, float b) {
+    float d = std::fmod(b - a, 360.0f);
+    if (d > 180.0f) d -= 360.0f;
+    if (d < -180.0f) d += 360.0f;
+    return d;
+}
+
 uint32_t save_counter(uint8_t* rdram, int slot) {
     return static_cast<uint32_t>(MEM_W(0, kseg0(kSaveCounters + static_cast<uint32_t>(slot) * 16)));
 }
@@ -239,6 +269,32 @@ void write_snapshot(uint8_t* rdram) {
     std::printf("[conker] save snapshot: %s\n", path.string().c_str());
 }
 
+// Once a teleport has placed Conker and the pause has closed, holds C-left or C-right until the
+// camera looks the way the teleport asked.
+void turn_camera(uint8_t* rdram) {
+    if (!g_turning_camera || g_resuming.valid || MEM_BU(0, kseg0(kPauseOpen)) != 0) {
+        return;
+    }
+    Camera camera;
+    float difference = 0;
+    const bool seen = current_camera(rdram, &camera);
+    if (seen) {
+        difference = angle_difference(camera.yaw(), g_view.camera_yaw);
+    }
+    const bool close = std::fabs(difference) <= kCameraTolerance;
+    g_settled_frames = close ? g_settled_frames + 1 : 0;
+    if (!seen || g_settled_frames >= kCameraSettledFrames || ++g_turn_frames > kCameraTurnFrames) {
+        g_turning_camera = false;
+        conker::input::set_forced_buttons(0);
+        if (seen) {
+            std::printf("[conker] teleport: camera yaw %.1f (asked %.1f)\n", camera.yaw(), g_view.camera_yaw);
+        }
+        return;
+    }
+    // C-right turns the camera's yaw up, C-left down.
+    conker::input::set_forced_buttons(close ? 0 : difference > 0 ? conker::input::kCRight : conker::input::kCLeft);
+}
+
 }  // namespace
 
 void remember_position(uint8_t* rdram, int slot) {
@@ -279,6 +335,9 @@ bool current_position(uint8_t* rdram, Position* out) {
     if (out->facing < 0) {
         out->facing += 360.0f;
     }
+    Camera camera;
+    out->has_view = current_camera(rdram, &camera);
+    out->camera_yaw = out->has_view ? camera.yaw() : 0.0f;
     return true;
 }
 
@@ -323,11 +382,26 @@ bool teleport(uint8_t* rdram, const Position& to) {
     point.z = to.z;
     point.yaw = to.yaw;
     place(rdram, object, point);
+    if (to.has_view) {
+        g_view = to;
+        place_view(rdram, object, g_view);
+        g_turning_camera = true;
+        g_turn_frames = 0;
+        g_settled_frames = 0;
+    } else {
+        g_view.has_view = false;
+        g_turning_camera = false;
+    }
     // Held there for a few frames more, through the end of the pause.
     g_resuming = point;
     g_resume_frames = kSettleFrames;
     g_place_frames = kTeleportFrames;
-    std::printf("[conker] teleport: scene %d to (%.0f, %.0f, %.0f) facing %.0f\n", to.scene, to.x, to.y, to.z, to.yaw);
+    if (to.has_view) {
+        std::printf("[conker] teleport: scene %d to (%.0f, %.0f, %.0f) facing %.0f, camera yaw %.0f\n", to.scene, to.x, to.y,
+                    to.z, to.facing, to.camera_yaw);
+    } else {
+        std::printf("[conker] teleport: scene %d to (%.0f, %.0f, %.0f)\n", to.scene, to.x, to.y, to.z);
+    }
     return true;
 }
 
@@ -442,6 +516,7 @@ extern "C" void conker_resume_start(uint8_t* rdram, recomp_context* ctx) {
     g_resuming = point;
     g_resume_frames = 0;
     g_place_frames = kPlaceFrames;
+    g_view.has_view = false;
     g_resumed_slot = slot;
     g_resumed_at = std::chrono::steady_clock::now();
     std::printf("[conker] resuming slot %d in scene %d at (%.0f, %.0f, %.0f)\n", slot, point.scene, point.x, point.y,
@@ -464,6 +539,7 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
         *ctx = saved;
         return;
     }
+    turn_camera(rdram);
     if (!g_resuming.valid) {
         return;
     }
@@ -476,6 +552,9 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     place(rdram, object, g_resuming);
+    if (g_view.has_view) {
+        place_view(rdram, object, g_view);
+    }
     if (g_resume_frames >= kSettleFrames + g_place_frames) {
         g_resuming.valid = false;
     }

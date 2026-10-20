@@ -27,6 +27,10 @@ constexpr uint16_t kCRight = 0x0001;
 // +y up; ultramodern scales it to the N64 range (about +-82 on the axes).
 void read(uint16_t* buttons, float* x, float* y);
 
+// Buttons held on controller 1 by the recomp itself, on top of the pad and keyboard: the debug
+// menu's teleport turns the camera with the C buttons. 0 lets go. Safe to call from any thread.
+void set_forced_buttons(uint16_t buttons);
+
 // True once for each press of the debug menu button: the pad's Back (Create/Share on a
 // PlayStation pad, View on an Xbox pad) or the ` key. Safe to call from any thread.
 bool take_debug_menu_press();

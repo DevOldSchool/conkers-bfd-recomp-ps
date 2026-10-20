@@ -15,11 +15,14 @@ void request_load(uint8_t* rdram, int slot);
 
 // Where Conker is: the scene and his position. `yaw` is the angle a resumed save restores (in
 // degrees; object +0xB8), `facing` the way he faces (object +0x40), in degrees from +Z towards +X,
-// as the camera's yaw is.
+// as `camera_yaw`, the way the camera looks, is. A teleport restores the facing and the camera's
+// turn when `has_view` is set.
 struct Position {
     int scene = 0;
     float x = 0, y = 0, z = 0, yaw = 0;
+    bool has_view = false;
     float facing = 0;
+    float camera_yaw = 0;
 };
 
 // The camera Conker is seen through: where it is, the point it looks at (above Conker), and the

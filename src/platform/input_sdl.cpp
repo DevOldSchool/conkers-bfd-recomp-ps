@@ -17,8 +17,8 @@
 // CONKER_VIRTUAL_PAD=<file> attaches an SDL virtual game controller driven by a script, so the
 // whole pad path (hot-plug, mapping, deadzone) can be exercised without hardware. Each line is
 // "<vi> <length in VIs> <control>...", where a control is an SDL button name (a, b, x, start,
-// leftshoulder, dpup, ...) or "<axis>=<value>" (leftx, lefty, rightx, righty, lefttrigger,
-// righttrigger; -1 to 1, SDL's +y is down). '#' starts a comment. Real pads are then ignored.
+// leftshoulder, dpup, ...) or "<axis>=<value>" (leftx, lefty, rightx, righty: -1 to 1, SDL's +y is
+// down; lefttrigger, righttrigger: 0 released to 1). '#' starts a comment. Real pads are then ignored.
 // The virtual pad can rumble and logs each change.
 #include "platform/input.hpp"
 #include "platform/input_sdl.hpp"
@@ -93,6 +93,7 @@ bool g_scripted = false;  // CONKER_VIRTUAL_PAD: only the virtual pad counts
 std::atomic<uint16_t> g_buttons{0};
 std::atomic<float> g_stick_x{0.0f};
 std::atomic<float> g_stick_y{0.0f};
+std::atomic<uint16_t> g_forced_buttons{0};
 std::atomic<int> g_debug_menu_presses{0};
 bool g_debug_menu_held = false;          // main thread only
 
@@ -241,8 +242,12 @@ void drive_virtual_pad() {
         SDL_JoystickSetVirtualButton(g_virtual, b, buttons[b] ? SDL_PRESSED : SDL_RELEASED);
     }
     for (int a = 0; a < SDL_CONTROLLER_AXIS_MAX; a++) {
-        const float v = std::fmax(-1.0f, std::fmin(axes[a], 1.0f));
-        SDL_JoystickSetVirtualAxis(g_virtual, a, static_cast<Sint16>(v * 32767.0f));
+        // A trigger's raw axis runs from -32768 (released) to 32767, which SDL maps to 0..32767; a raw
+        // 0 would be half pressed, which is Z.
+        const bool trigger = a == SDL_CONTROLLER_AXIS_TRIGGERLEFT || a == SDL_CONTROLLER_AXIS_TRIGGERRIGHT;
+        const float v = std::fmax(trigger ? 0.0f : -1.0f, std::fmin(axes[a], 1.0f));
+        const float raw = trigger ? v * 65535.0f - 32768.0f : v * 32767.0f;
+        SDL_JoystickSetVirtualAxis(g_virtual, a, static_cast<Sint16>(raw));
     }
 }
 
@@ -366,10 +371,12 @@ void update() {
 }
 
 void read(uint16_t* buttons, float* x, float* y) {
-    *buttons = g_buttons.load(std::memory_order_relaxed);
+    *buttons = g_buttons.load(std::memory_order_relaxed) | g_forced_buttons.load(std::memory_order_relaxed);
     *x = g_stick_x.load(std::memory_order_relaxed);
     *y = g_stick_y.load(std::memory_order_relaxed);
 }
+
+void set_forced_buttons(uint16_t buttons) { g_forced_buttons.store(buttons, std::memory_order_relaxed); }
 
 bool take_debug_menu_press() { return g_debug_menu_presses.exchange(0, std::memory_order_relaxed) > 0; }
 
