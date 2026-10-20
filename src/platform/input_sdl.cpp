@@ -6,6 +6,8 @@
 // Pad (SDL's Xbox-style names): south A, west and east B, LT Z, LB L, RT and RB R, Start Start,
 // D-pad D-pad, left stick the analog stick, right stick the C buttons. Keyboard: see kKeys and
 // the README.
+// Back (Create/Share on a PlayStation pad, View on an Xbox pad) and the ` key open the debug menu
+// (src/enhancements/debug_menu); they are not N64 buttons.
 //
 // A pad that can rumble (SDL_GameControllerHasRumble; a DualSense, DualShock 4, Xbox or Switch
 // Pro pad) counts as a rumble pak in controller 1, and the game's motor on/off drives both of its
@@ -16,8 +18,8 @@
 // CONKER_VIRTUAL_PAD=<file> attaches an SDL virtual game controller driven by a script, so the
 // whole pad path (hot-plug, mapping, deadzone) can be exercised without hardware. Each line is
 // "<vi> <length in VIs> <control>...", where a control is an SDL button name (a, b, x, start,
-// leftshoulder, dpup, ...) or "<axis>=<value>" (leftx, lefty, rightx, righty, lefttrigger,
-// righttrigger; -1 to 1, SDL's +y is down). '#' starts a comment. Real pads are then ignored.
+// leftshoulder, dpup, ...) or "<axis>=<value>" (leftx, lefty, rightx, righty: -1 to 1, SDL's +y is
+// down; lefttrigger, righttrigger: 0 released to 1). '#' starts a comment. Real pads are then ignored.
 // The virtual pad can rumble and logs each change.
 #include "platform/input.hpp"
 #include "platform/input_sdl.hpp"
@@ -27,6 +29,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -92,6 +95,10 @@ bool g_scripted = false;  // CONKER_VIRTUAL_PAD: only the virtual pad counts
 std::atomic<uint16_t> g_buttons{0};
 std::atomic<float> g_stick_x{0.0f};
 std::atomic<float> g_stick_y{0.0f};
+std::atomic<int> g_debug_menu_presses{0};
+std::mutex g_pad_name_mutex;
+std::string g_pad_name;                  // controller 1's, for controller_name()
+bool g_debug_menu_held = false;          // main thread only
 
 std::atomic<bool> g_has_rumble{false};  // the open pad can rumble
 std::atomic<bool> g_rumble_on{false};   // the game's motor state, applied by update()
@@ -112,6 +119,10 @@ void open_pad(int device_index) {
         return;
     }
     g_pad_id = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(g_pad));
+    {
+        std::lock_guard lock(g_pad_name_mutex);
+        g_pad_name = SDL_GameControllerName(g_pad) ? SDL_GameControllerName(g_pad) : "controller";
+    }
     g_has_rumble.store(SDL_GameControllerHasRumble(g_pad) == SDL_TRUE);
     g_rumble_applied = false;
     std::printf("[conker] controller 1: %s (%s)\n", SDL_GameControllerName(g_pad),
@@ -238,8 +249,12 @@ void drive_virtual_pad() {
         SDL_JoystickSetVirtualButton(g_virtual, b, buttons[b] ? SDL_PRESSED : SDL_RELEASED);
     }
     for (int a = 0; a < SDL_CONTROLLER_AXIS_MAX; a++) {
-        const float v = std::fmax(-1.0f, std::fmin(axes[a], 1.0f));
-        SDL_JoystickSetVirtualAxis(g_virtual, a, static_cast<Sint16>(v * 32767.0f));
+        // A trigger's raw axis runs from -32768 (released) to 32767, which SDL maps to 0..32767; a raw
+        // 0 would be half pressed, which is Z.
+        const bool trigger = a == SDL_CONTROLLER_AXIS_TRIGGERLEFT || a == SDL_CONTROLLER_AXIS_TRIGGERRIGHT;
+        const float v = std::fmax(trigger ? 0.0f : -1.0f, std::fmin(axes[a], 1.0f));
+        const float raw = trigger ? v * 65535.0f - 32768.0f : v * 32767.0f;
+        SDL_JoystickSetVirtualAxis(g_virtual, a, static_cast<Sint16>(raw));
     }
 }
 
@@ -281,6 +296,10 @@ void handle_event(const SDL_Event& event) {
                 std::printf("[conker] controller 1 disconnected\n");
                 SDL_GameControllerClose(g_pad);
                 g_pad = nullptr;
+                {
+                    std::lock_guard lock(g_pad_name_mutex);
+                    g_pad_name.clear();
+                }
                 g_pad_id = -1;
                 g_has_rumble.store(false);
                 open_first_pad();
@@ -297,6 +316,7 @@ void update() {
     uint16_t buttons = 0;
     float x = 0.0f;
     float y = 0.0f;
+    bool debug_menu = false;
 
     // Keys held with Cmd or Alt are shortcuts (Cmd+Enter toggles full screen), not game input.
     if ((SDL_GetModState() & (KMOD_GUI | KMOD_ALT)) == 0) {
@@ -309,6 +329,7 @@ void update() {
         }
         x = static_cast<float>((keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) - (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT]));
         y = static_cast<float>((keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) - (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]));
+        debug_menu = keys[SDL_SCANCODE_GRAVE] != 0;
     }
 
     if (g_pad != nullptr) {
@@ -317,6 +338,7 @@ void update() {
                 buttons |= b.n64;
             }
         }
+        debug_menu = debug_menu || SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_BACK);
         // Z sits under the right hand on modern pads (R2/RT); the left trigger stays Z as well.
         if (SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > kTriggerThreshold) buttons |= kZ;
         if (SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > kTriggerThreshold) buttons |= kZ;
@@ -342,6 +364,10 @@ void update() {
     }
 
     g_buttons.store(buttons, std::memory_order_relaxed);
+    if (debug_menu && !g_debug_menu_held) {
+        g_debug_menu_presses.fetch_add(1, std::memory_order_relaxed);
+    }
+    g_debug_menu_held = debug_menu;
     g_stick_x.store(x, std::memory_order_relaxed);
     g_stick_y.store(y, std::memory_order_relaxed);
 
@@ -368,6 +394,13 @@ void read(uint16_t* buttons, float* x, float* y) {
     *x = g_stick_x.load(std::memory_order_relaxed);
     *y = g_stick_y.load(std::memory_order_relaxed);
 }
+
+std::string controller_name() {
+    std::lock_guard lock(g_pad_name_mutex);
+    return g_pad_name;
+}
+
+bool take_debug_menu_press() { return g_debug_menu_presses.exchange(0, std::memory_order_relaxed) > 0; }
 
 bool has_rumble() { return g_has_rumble.load(std::memory_order_relaxed); }
 

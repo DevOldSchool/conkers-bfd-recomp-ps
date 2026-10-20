@@ -55,6 +55,10 @@ void set_limits(const Limits& limits);
 
 // The limits for the picture's current shape.
 int window_max();
+
+// The display's size in pixels, 0 until the window has measured it.
+int display_width();
+int display_height();
 int screen_max();
 
 // Whether the picture is widened from Conker's 4:3 to the shape of the window or screen (RT64's

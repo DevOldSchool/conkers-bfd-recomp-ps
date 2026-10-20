@@ -1,0 +1,128 @@
+diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
+index 53cfb69..c09e25d 100644
+--- a/src/render/rt64_framebuffer_renderer.cpp
++++ b/src/render/rt64_framebuffer_renderer.cpp
+@@ -4,6 +4,8 @@
+ 
+ #include "rt64_framebuffer_renderer.h"
+ 
++#include <algorithm>
++
+ #include "../include/rt64_extended_gbi.h"
+ 
+ #include "common/rt64_elapsed_timer.h"
+@@ -13,6 +15,7 @@
+ #include "shared/rt64_framebuffer_params.h"
+ #include "shared/rt64_raster_params.h"
+ 
++#include "rhi/rt64_render_hooks.h"
+ #include "rt64_descriptor_sets.h"
+ #include "rt64_render_worker.h"
+ 
+@@ -512,12 +515,28 @@ namespace RT64 {
+             switchToGraphicsPipeline();
+         }
+         
++        // Only the 3D triangles become wireframes: rects (text, sprites) stay solid. Games rarely clear
++        // the color buffer, since the scene covers it, so each color target starts its frame cleared to
++        // black, the first time it is drawn to in a frame.
++        const bool wireframe = GetRenderWireframe();
++        bool wireframeSet = false;
++        if (wireframe && (fbStorage->colorTarget != nullptr) &&
++            (std::find(wireframeClearedTargets.begin(), wireframeClearedTargets.end(), fbStorage->colorTarget) == wireframeClearedTargets.end())) {
++            wireframeClearedTargets.push_back(fbStorage->colorTarget);
++            worker->commandList->clearColor(0, RenderColor(0.0f, 0.0f, 0.0f, 1.0f));
++        }
+         for (uint32_t i : rasterScene.instanceIndices) {
+             const InstanceDrawCall &drawCall = instanceDrawCallVector[i];
+             switch (drawCall.type) {
+             case InstanceDrawCall::Type::IndexedTriangles: 
+             case InstanceDrawCall::Type::RawTriangles:
+             case InstanceDrawCall::Type::RegularRect: {
++                const bool drawWireframe = wireframe && (drawCall.type == InstanceDrawCall::Type::IndexedTriangles);
++                if (drawWireframe != wireframeSet) {
++                    worker->commandList->setWireframe(drawWireframe);
++                    wireframeSet = drawWireframe;
++                }
++
+                 assert(fbStorage->colorTarget != nullptr);
+ 
+                 const bool typeDifferent = (drawCall.type != previousCallType);
+@@ -638,6 +657,10 @@ namespace RT64 {
+             }
+         }
+ 
++        if (wireframeSet) {
++            worker->commandList->setWireframe(false);
++        }
++
+         // Mark targets for resolve.
+         if (fbStorage->colorTarget != nullptr) {
+             fbStorage->colorTarget->markForResolve();
+@@ -1172,6 +1195,8 @@ namespace RT64 {
+ 
+     void FramebufferRenderer::recordSetup(RenderWorker *worker, std::vector<BufferUploader *> bufferUploaders, RSPProcessor *rspProcessor,
+         VertexProcessor *vertexProcessor, const OutputBuffers *outputBuffers, bool rtEnabled) {
++        wireframeClearedTargets.clear();
++
+         if (!dummyColorTargetTransitioned) {
+             worker->commandList->barriers(RenderBarrierStage::GRAPHICS_AND_COMPUTE, RenderTextureBarrier(dummyColorTarget.get(), RenderTextureLayout::SHADER_READ));
+             dummyColorTargetTransitioned = true;
+diff --git a/src/render/rt64_framebuffer_renderer.h b/src/render/rt64_framebuffer_renderer.h
+index cc55348..1852efa 100644
+--- a/src/render/rt64_framebuffer_renderer.h
++++ b/src/render/rt64_framebuffer_renderer.h
+@@ -67,6 +67,7 @@ namespace RT64 {
+         uint32_t textureCacheGlobalVersion = 0;
+         bool textureCacheReplacementMapEnabled = false;
+         std::vector<InstanceDrawCall> instanceDrawCallVector;
++        std::vector<const RenderTarget *> wireframeClearedTargets; // color targets cleared this frame in wireframe
+         std::vector<RenderPipelineProgram> hitGroupVector;
+         std::vector<interop::RenderIndices> renderIndicesVector;
+         std::vector<DynamicTextureView> dynamicTextureViewVector;
+diff --git a/src/rhi/rt64_render_hooks.cpp b/src/rhi/rt64_render_hooks.cpp
+index 2e60745..13e774d 100644
+--- a/src/rhi/rt64_render_hooks.cpp
++++ b/src/rhi/rt64_render_hooks.cpp
+@@ -4,10 +4,13 @@
+ 
+ #include "rt64_render_hooks.h"
+ 
++#include <atomic>
++
+ namespace RT64 {
+     static RenderHookInit *init = nullptr;
+     static RenderHookDraw *draw = nullptr;
+     static RenderHookDeinit *deinit = nullptr;
++    static std::atomic<bool> wireframe = false;
+ 
+     RenderHookInit *GetRenderHookInit() {
+         return init;
+@@ -26,4 +29,12 @@ namespace RT64 {
+         draw = draw_;
+         deinit = deinit_;
+     }
+-};
+\ No newline at end of file
++
++    void SetRenderWireframe(bool enable) {
++        wireframe = enable;
++    }
++
++    bool GetRenderWireframe() {
++        return wireframe;
++    }
++};
+diff --git a/src/rhi/rt64_render_hooks.h b/src/rhi/rt64_render_hooks.h
+index be01701..eddf640 100644
+--- a/src/rhi/rt64_render_hooks.h
++++ b/src/rhi/rt64_render_hooks.h
+@@ -16,4 +16,8 @@ namespace RT64 {
+     RenderHookDeinit *GetRenderHookDeinit();
+ 
+     void SetRenderHooks(RenderHookInit *init, RenderHookDraw *draw, RenderHookDeinit *deinit);
++
++    // Draw the game's 3D triangles as their edges (Metal only). Safe to call from any thread.
++    void SetRenderWireframe(bool enable);
++    bool GetRenderWireframe();
+ };

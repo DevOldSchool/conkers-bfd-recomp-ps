@@ -32,6 +32,7 @@
 #include "recomp.h"
 #include "enhancements/pause_save/resume_point.hpp"
 #include "enhancements/sharp_menus/pause_signs.hpp"
+#include "enhancements/status.hpp"
 
 extern "C" void func_15042D94(uint8_t* rdram, recomp_context* ctx);
 
@@ -360,4 +361,8 @@ extern "C" void conker_pause_save_tile(uint8_t* rdram, recomp_context* ctx) {
 // At the end of func_15043384, which draws the frame's sprite list.
 extern "C" void conker_pause_save_sprites_done(uint8_t* /*rdram*/, recomp_context* /*ctx*/) {
     g_signs_drawn = false;
+}
+
+nlohmann::json conker::status::pause_save() {
+    return enhancement("pause_save", "SAVE and LOAD in the pause menu", pause_save_enabled(), "CONKER_PAUSE_SAVE");
 }

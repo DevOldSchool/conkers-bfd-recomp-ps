@@ -49,6 +49,8 @@ git submodule update --init --recursive
 (cd lib/rt64 && git apply ../../tools/patches/rt64-native-size.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-edge-rects.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-memory-packs.patch)
+(cd lib/rt64 && git apply ../../tools/patches/rt64-wireframe.patch)
+(cd lib/rt64/src/contrib/plume && git apply ../../../../../tools/patches/plume-wireframe.patch)
 tools/regenerate.sh
 cmake -S . -B build/rt64 -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER=rt64
 cmake --build build/rt64
@@ -83,6 +85,7 @@ apps until it reconnects.
 | Start | Start | Options | Enter |
 | C buttons | Right stick | Right stick | I J K L |
 | D-pad | D-pad | D-pad | T F G H |
+| Debug menu | View | Create (Share) | ` |
 
 Keys held with Cmd or Alt are not passed to the game, so the full-screen
 shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
@@ -153,13 +156,81 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   below QUIT and SAVE below CONT.... Push down from the sign above, or use
   the stick's down-left and down-right diagonals, and press A. SAVE saves
   the game where Conker stands, and LOAD, or starting that save from the
-  title menu, puts him back on that spot. Quitting from the pause menu keeps
+  title menu, puts him back on that spot, facing the same way, with the
+  camera put back where it looked once it has settled behind him (saves made
+  before this keep only the spot). Quitting from the pause menu keeps
   the spot too. The spot is kept in `conker_us.resume` next to the save; a
   checkpoint reached later takes over as usual. Enemies and other things
   the save does not record are reset, as at a checkpoint. Neither sign is
   offered when replaying a chapter, where the game does not save. The signs
   are lettered with Rare's own letters, cut from the game's other green signs
   in your ROM. `CONKER_PAUSE_SAVE=0` turns them off.
+  Every save made this way is also kept as its own snapshot in
+  `saves/snapshots/`, named after the scene number and when it was made
+  (`scene12-20261020-143205.bin` with a matching `.resume`). LOAD still
+  starts the latest save; to go back to an earlier one, copy its two files
+  over `conker_us.bin` and `conker_us.resume` while the game is closed, or
+  load it from the debug menu.
+  `CONKER_SAVE_SNAPSHOTS=0` stops keeping them.
+* **Debug menu:** View on an Xbox pad, Create (Share) on a PlayStation pad, or
+  the ` key opens it during play. It is the game's pause with its own page in
+  place of the lever, PAUSED and the HUD, so the game stops as it does for the
+  pause menu, and it closes with B, Start or the same button. Up and down choose a row, A or left and
+  right change it:
+  * WIREFRAME: the game's 3D triangles drawn as their edges on black; text,
+    sprites and the HUD stay solid. Metal only for now.
+  * SHOW FPS: the frames the game draws per second, in the top left corner.
+  * SHOW POSITION: the scene, Conker's X, Y and Z and his facing, and the
+    camera's yaw and pitch, under the frame rate during play. Angles are in
+    degrees, and facing and yaw share their zero (+Z) and direction (towards
+    +X), so walking away from the camera they agree. The first page shows them
+    too, and opening the menu prints them in the terminal, with the camera's
+    position, the point it looks at and its forward vector.
+  * TELEPORT: X, Y, Z, FACING and CAMERA YAW, set to where Conker is and
+    changed with left and right by STEP (1, 10, 100 or 1000; held, they keep
+    changing). GO puts him there facing that way, and the camera where it
+    looks along CAMERA YAW at him, as far away as it was: the same view as the
+    numbers on screen, to the hundredth of a degree, for repeating what someone
+    saw. The camera's pitch is the game's own for that spot (it keeps the
+    camera at the height it wants), so it is shown and recorded but not set.
+    RESET TO CURRENT sets the values back to where he is and how he and the
+    camera face, REMEMBER keeps the values shown in
+    `conker-recomp-data/debug_spots.txt` (one line each: `scene x y z angle
+    facing camera-yaw camera-pitch`) and shows what it kept, and SPOTS lists
+    those of the scene being played with their facing, yaw and pitch; A on one
+    puts him there. Teleports stay within the scene.
+  * LOAD SNAPSHOT: the snapshots in `saves/snapshots/`, newest first. A makes
+    the chosen one the save, as copying its files over `conker_us.bin` and
+    `conker_us.resume` would, and starts it where it was saved, as LOAD does.
+    Progress since the last snapshot is not kept.
+  * SAVE DEBUG REPORT: for reporting an issue. Makes a folder in
+    `conker-recomp-data/debug_reports/`, named after the scene and the time,
+    with `report.json` and a save of the game as it is at that moment
+    (`save.bin`, `save.resume`). The JSON has the build (`git describe` of
+    the commit it was built from), the scene and entrance, Conker's position
+    and facing, the camera (position, look-at point, forward vector, yaw,
+    pitch), every enhancement (`id`, `name`, `on`, its `CONKER_*` `variable`
+    and its `options` as values), the settings that go with them (display,
+    texture packs, controller, frame rate, `display.cfg`), the computer
+    (operating system, CPU, memory, GPU and graphics API, display size;
+    nothing that names the computer or its user), the `CONKER_*` variables
+    set (a path keeps only its file name), and what save is in the folder. The save is made by the game's own save routine into a copy:
+    the player's save is not changed, and no snapshot is made. Where the game
+    does not save (a chapter replayed from CHAPTERS), there is no save.
+  * LOAD REPORT: the reports, newest first; A starts a report's save where
+    and as it was made, Conker's facing and the camera included. Reports can
+    come from anyone, so one is checked first and refused, with the reason on
+    screen and in the log, unless: its files are regular files (no links) of
+    the right sizes (`save.bin` exactly 2048 bytes), `report.json` is a
+    version 1 report with a scene, entrance and position in range, and every
+    line of `save.resume` is well formed, starts with the report's slot and
+    matches the JSON's slot, save number, scene and position. A report from
+    another build is loaded, and the log says so. The save is played on a
+    copy, `saves/debug/<report>.bin`, until the game is closed, so the
+    player's own save is not touched (saves made meanwhile go to the copy).
+
+  It opens wherever Start would open the pause menu. The settings last until
+  the game is closed. `CONKER_DEBUG_MENU=0` turns it off.
 * **Surround by default:** with no saved options (a new save file), the
   OPTIONS menu's sound setting is surround instead of stereo. The
   game keeps its options in EEPROM next to the saved games, so a sound

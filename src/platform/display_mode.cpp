@@ -137,6 +137,9 @@ void set_limits(const Limits& limits) {
     g_screen_height.store(limits.screen_height);
 }
 
+int display_width() { return g_screen_width.load(); }
+int display_height() { return g_screen_height.load(); }
+
 int window_max() { return (widescreen(Mode::Windowed) ? g_wide_window_max : g_window_max).load(); }
 int screen_max() { return (widescreen(Mode::Fullscreen) ? g_wide_screen_max : g_screen_max).load(); }
 

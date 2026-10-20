@@ -5,6 +5,7 @@
 #include <cstdlib>
 
 #include "recomp.h"
+#include "enhancements/status.hpp"
 
 namespace {
 
@@ -29,4 +30,8 @@ extern "C" void conker_max_detail(uint8_t* /*rdram*/, recomp_context* ctx) {
     if (max_detail_enabled()) {
         ctx->r3 = 0;
     }
+}
+
+nlohmann::json conker::status::max_detail() {
+    return enhancement("max_detail", "Characters at full detail", max_detail_enabled(), "CONKER_MAX_DETAIL");
 }

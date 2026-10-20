@@ -34,8 +34,9 @@ These environment variables are read by both builds:
   controller driven by a script, so the whole controller path can be tested
   without hardware. Each line is `<vi> <length in VIs> <control>...`, where a
   control is an SDL button name (`a`, `b`, `x`, `start`, `leftshoulder`,
-  `dpup`, ...) or `<axis>=<value>` (`leftx`, `lefty`, `rightx`, `righty`,
-  `lefttrigger`, `righttrigger`, from -1 to 1, with +y down as in SDL). `#`
+  `dpup`, ...) or `<axis>=<value>` (`leftx`, `lefty`, `rightx`, `righty`
+  from -1 to 1, with +y down as in SDL; `lefttrigger`, `righttrigger` from 0,
+  released, to 1). Before this, the triggers rested half pressed, which held Z. `#`
   starts a comment. For example, `5400 10 start` then `7500 10 a` goes from the
   title scene to a new game. Real controllers are ignored while it is set:
   SDL passes pad input to every process, so a pad in use in another window
@@ -100,7 +101,8 @@ These environment variables are read by both builds:
 * `CONKER_DUMP_SHARP_FONT=<dir>` (RT64 build) writes the built-in sharper
   text, made from the ROM at the first graphics task, to `<dir>` as an RT64
   pack (`rt64.json` and `font/glyph_NN.png`), to edit and load from
-  `conker-recomp-data/texture_packs`.
+  `conker-recomp-data/texture_packs`. `CONKER_DUMP_SHARP_MENUS=<dir>` does the
+  same for the built-in sharper menus (`menus/<name>_N.png`, one per tile).
 * `CONKER_AUDIO=0` (RT64 build) disables the SDL device; `CONKER_AUDIO_LATENCY_MS`
   (default 60) sets the extra buffering kept on top of what the game asks for;
   `CONKER_SILENT_AUDIO=1` skips the audio microcode entirely.
