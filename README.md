@@ -137,7 +137,9 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   below QUIT and SAVE below CONT.... Push down from the sign above, or use
   the stick's down-left and down-right diagonals, and press A. SAVE saves
   the game where Conker stands, and LOAD, or starting that save from the
-  title menu, puts him back on that spot. Quitting from the pause menu keeps
+  title menu, puts him back on that spot, facing the same way, with the
+  camera put back where it looked once it has settled behind him (saves made
+  before this keep only the spot). Quitting from the pause menu keeps
   the spot too. The spot is kept in `conker_us.resume` next to the save; a
   checkpoint reached later takes over as usual. Enemies and other things
   the save does not record are reset, as at a checkpoint. Neither sign is

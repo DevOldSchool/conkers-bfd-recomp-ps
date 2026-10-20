@@ -3,10 +3,11 @@
 //
 // The game's save holds progress and the checkpoint to resume from (scene D_800BE3DF, entrance
 // D_800BE3E0), not where Conker stands. A save made from the pause menu (SAVE, or QUIT then Y)
-// also records the scene, entrance, position and facing in a file next to the save,
-// conker_us.resume, tagged with the save's sequence number. Starting that save (PLAY on the title
-// menu, or LOAD in the pause menu) then enters the recorded scene by that entrance, and once the
-// scene is running, Conker is moved to the recorded spot for the first few frames. (The spawn
+// also records the scene, entrance, position, Conker's facing and the camera's yaw in a file next
+// to the save, conker_us.resume, tagged with the save's sequence number. Starting that save (PLAY on
+// the title menu, or LOAD in the pause menu) then enters the recorded scene by that entrance, and
+// once the scene is running, Conker is moved to the recorded spot for the first few frames, facing
+// as he did, with the camera put back where it looked (as the debug menu's teleport does). (The spawn
 // override the scene triggers use, func_15022190, is only read by func_15022BA4, which places
 // Conker in the intro and title scenes, not in the game's own.) A checkpoint save made later has
 // a newer sequence number, so the game then resumes from that checkpoint as usual, except for the
@@ -100,6 +101,8 @@ struct Point {
     int scene = 0;
     int entrance = 0;
     float x = 0, y = 0, z = 0, yaw = 0;  // yaw in degrees
+    bool has_view = false;               // facing and camera_yaw recorded (see Position)
+    float facing = 0, camera_yaw = 0;
 };
 
 Point g_pending;           // remembered, waiting for the save to be written
@@ -110,7 +113,16 @@ int g_resume_frames = 0;
 int g_place_frames = kPlaceFrames;
 Position g_view;           // a teleport's facing and camera, held with its position
 float g_camera_distance = 600.0f;  // from the camera to the point it looks at, and its pitch,
-float g_camera_pitch = -30.0f;     // when the teleport was asked for
+float g_camera_pitch = -30.0f;     // when a teleport was asked for or a resumed save first placed
+// A resumed save's camera is put back once it has settled behind Conker (it swings into place as
+// the scene starts), then held there for a few frames.
+bool g_camera_waits = false;
+int g_camera_still = 0;            // frames it has not moved
+int g_camera_wait = 0;             // frames waited
+int g_camera_hold = 0;             // frames left to hold it
+float g_last_eye[3] = {};
+constexpr int kCameraStillFrames = 10;
+constexpr int kCameraWaitFrames = 150;  // about 5 s
 int g_resumed_slot = -1;   // the slot last started at its point, and when
 std::chrono::steady_clock::time_point g_resumed_at;
 bool g_snapshot_pending = false;  // a save to keep once the EEPROM write is done
@@ -132,7 +144,8 @@ std::filesystem::path points_path() {
     return path;
 }
 
-// One line per slot: "<slot> <counter> <scene> <entrance> <x> <y> <z> <yaw>". `first_slot` is set
+// One line per slot: "<slot> <counter> <scene> <entrance> <x> <y> <z> <yaw>", then "<facing> <camera
+// yaw>" if they were recorded (points saved before that have none). `first_slot` is set
 // to the slot of the first line, or -1 when there is none. Read with sscanf: a stream refuses a
 // float too small to be normal (a facing of 5.7e-39 degrees), and the line would be lost.
 std::array<Point, kSlots> read_points(const std::filesystem::path& path, int* first_slot = nullptr) {
@@ -144,10 +157,12 @@ std::array<Point, kSlots> read_points(const std::filesystem::path& path, int* fi
     for (std::string line; std::getline(file, line);) {
         int slot;
         Point point;
-        if (std::sscanf(line.c_str(), "%d %u %d %d %f %f %f %f", &slot, &point.counter, &point.scene, &point.entrance,
-                        &point.x, &point.y, &point.z, &point.yaw) == 8 &&
-            slot >= 0 && slot < kSlots) {
+        const int fields = std::sscanf(line.c_str(), "%d %u %d %d %f %f %f %f %f %f", &slot, &point.counter, &point.scene,
+                                       &point.entrance, &point.x, &point.y, &point.z, &point.yaw, &point.facing,
+                                       &point.camera_yaw);
+        if (fields >= 8 && slot >= 0 && slot < kSlots) {
             point.valid = true;
+            point.has_view = fields == 10;
             points[slot] = point;
             if (first_slot != nullptr && *first_slot < 0) {
                 *first_slot = slot;
@@ -168,7 +183,11 @@ void write_points(const std::array<Point, kSlots>& points, const std::filesystem
         const Point& p = points[slot];
         if (p.valid) {
             file << slot << ' ' << p.counter << ' ' << p.scene << ' ' << p.entrance << ' ' << p.x << ' ' << p.y << ' '
-                 << p.z << ' ' << p.yaw << '\n';
+                 << p.z << ' ' << p.yaw;
+            if (p.has_view) {
+                file << ' ' << p.facing << ' ' << p.camera_yaw;
+            }
+            file << '\n';
         }
     };
     if (first_slot >= 0 && first_slot < kSlots) {
@@ -211,17 +230,35 @@ uint32_t player_object(uint8_t* rdram) {
     return (object & 0xFF000000) == 0x80000000 ? object : 0;
 }
 
-// Turns Conker, and puts the camera where it looks along the view's yaw at him there.
-void place_view(uint8_t* rdram, uint32_t object, const Position& view) {
-    write_float(rdram, object + kObjectFacing, view.facing);
-    const auto angle = static_cast<int16_t>(static_cast<int32_t>(std::lround((view.facing - 90.0f) * (65536.0f / 360.0f))));
-    MEM_H(0, kseg0(object + kObjectFacingAngle)) = angle;
-    MEM_H(0, kseg0(object + kObjectFacingTarget)) = angle;
+// Measures how far the camera is from the point it looks at, and its pitch, for place_view.
+void measure_camera(uint8_t* rdram) {
+    Camera camera;
+    if (current_camera(rdram, &camera)) {
+        const float d[3] = {camera.at[0] - camera.eye[0], camera.at[1] - camera.eye[1], camera.at[2] - camera.eye[2]};
+        g_camera_distance = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        g_camera_pitch = camera.pitch();
+    }
+}
+
+// Turns Conker as the view says, and puts the camera where it looks along the view's yaw at him
+// where he is.
+void place_view(uint8_t* rdram, uint32_t object, const Position& view, bool turn_conker = true, bool camera_too = true) {
+    if (turn_conker) {
+        write_float(rdram, object + kObjectFacing, view.facing);
+        const auto angle =
+            static_cast<int16_t>(static_cast<int32_t>(std::lround((view.facing - 90.0f) * (65536.0f / 360.0f))));
+        MEM_H(0, kseg0(object + kObjectFacingAngle)) = angle;
+        MEM_H(0, kseg0(object + kObjectFacingTarget)) = angle;
+    }
+    if (!camera_too) {
+        return;
+    }
 
     const float yaw = view.camera_yaw * (3.14159265f / 180.0f);
     const float pitch = g_camera_pitch * (3.14159265f / 180.0f);
     const float forward[3] = {std::cos(pitch) * std::sin(yaw), std::sin(pitch), std::cos(pitch) * std::cos(yaw)};
-    const float at[3] = {view.x, view.y + kLookAtHeight, view.z};
+    const float at[3] = {read_float(rdram, object + kObjectX), read_float(rdram, object + kObjectY) + kLookAtHeight,
+                         read_float(rdram, object + kObjectZ)};
     float eye[3];
     for (int i = 0; i < 3; i++) {
         eye[i] = at[i] - forward[i] * g_camera_distance;
@@ -297,6 +334,44 @@ void write_snapshot(uint8_t* rdram) {
     std::printf("[conker] save snapshot: %s\n", path.string().c_str());
 }
 
+// After a resumed save has placed Conker: once the camera has stopped moving, puts it where it looked
+// when the save was made (Conker turned again too, if he has not moved since) and holds it there.
+void settle_camera(uint8_t* rdram) {
+    if (!g_camera_waits || g_resuming.valid) {
+        return;
+    }
+    const uint32_t object = player_object(rdram);
+    Camera camera;
+    if (object == 0 || !current_camera(rdram, &camera)) {
+        if (++g_camera_wait > kCameraWaitFrames) {
+            g_camera_waits = false;
+        }
+        return;
+    }
+    const float dx = read_float(rdram, object + kObjectX) - g_view.x;
+    const float dz = read_float(rdram, object + kObjectZ) - g_view.z;
+    const bool where_saved = dx * dx + dz * dz < 1.0f;
+    if (g_camera_hold > 0) {
+        place_view(rdram, object, g_view, where_saved, true);
+        if (--g_camera_hold == 0) {
+            g_camera_waits = false;
+        }
+        return;
+    }
+    float moved = 0;
+    for (int i = 0; i < 3; i++) {
+        moved += std::fabs(camera.eye[i] - g_last_eye[i]);
+        g_last_eye[i] = camera.eye[i];
+    }
+    g_camera_still = moved < 0.5f ? g_camera_still + 1 : 0;
+    if (g_camera_still >= kCameraStillFrames || ++g_camera_wait > kCameraWaitFrames) {
+        measure_camera(rdram);
+        place_view(rdram, object, g_view, where_saved, true);
+        g_camera_hold = kPlaceFrames;
+        std::printf("[conker] resumed camera: yaw %.2f\n", g_view.camera_yaw);
+    }
+}
+
 }  // namespace
 
 void remember_position(uint8_t* rdram, int slot) {
@@ -311,6 +386,10 @@ void remember_position(uint8_t* rdram, int slot) {
     g_pending.y = read_float(rdram, object + kObjectY);
     g_pending.z = read_float(rdram, object + kObjectZ);
     g_pending.yaw = read_float(rdram, object + kObjectYaw) * (180.0f / 3.14159265f);
+    Position here;
+    g_pending.has_view = current_position(rdram, &here) && here.has_view;
+    g_pending.facing = here.facing;
+    g_pending.camera_yaw = here.camera_yaw;
     g_pending_slot = slot;
 }
 
@@ -387,12 +466,8 @@ bool teleport(uint8_t* rdram, const Position& to) {
     place(rdram, object, point);
     if (to.has_view) {
         g_view = to;
-        Camera camera;
-        if (current_camera(rdram, &camera)) {
-            const float d[3] = {camera.at[0] - camera.eye[0], camera.at[1] - camera.eye[1], camera.at[2] - camera.eye[2]};
-            g_camera_distance = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-            g_camera_pitch = camera.pitch();
-        }
+        g_camera_waits = false;
+        measure_camera(rdram);
         place_view(rdram, object, g_view);
     } else {
         g_view.has_view = false;
@@ -498,9 +573,10 @@ extern "C" void conker_resume_saved(uint8_t* /*rdram*/, recomp_context* ctx) {
         g_snapshot_slot = slot;
         g_snapshot_time = std::time(nullptr);
     }
-    std::printf("[conker] resume point: slot %d, save %u, scene %d entrance %d at (%.0f, %.0f, %.0f) facing %.0f\n",
+    std::printf("[conker] resume point: slot %d, save %u, scene %d entrance %d at (%.2f, %.2f, %.2f) facing %.2f, camera "
+                "yaw %.2f\n",
                 slot, points[slot].counter, g_pending.scene, g_pending.entrance, g_pending.x, g_pending.y, g_pending.z,
-                g_pending.yaw);
+                g_pending.facing, g_pending.camera_yaw);
     g_pending.valid = false;
 }
 
@@ -521,11 +597,30 @@ extern "C" void conker_resume_start(uint8_t* rdram, recomp_context* ctx) {
     g_resuming = point;
     g_resume_frames = 0;
     g_place_frames = kPlaceFrames;
-    g_view.has_view = false;
+    g_view = Position{};
+    if (point.has_view) {
+        g_view.scene = point.scene;
+        g_view.x = point.x;
+        g_view.y = point.y;
+        g_view.z = point.z;
+        g_view.yaw = point.yaw;
+        g_view.has_view = true;
+        g_view.facing = point.facing;
+        g_view.camera_yaw = point.camera_yaw;
+        g_camera_waits = true;
+        g_camera_still = 0;
+        g_camera_wait = 0;
+        g_camera_hold = 0;
+    }
     g_resumed_slot = slot;
     g_resumed_at = std::chrono::steady_clock::now();
-    std::printf("[conker] resuming slot %d in scene %d at (%.0f, %.0f, %.0f)\n", slot, point.scene, point.x, point.y,
-                point.z);
+    if (point.has_view) {
+        std::printf("[conker] resuming slot %d in scene %d at (%.2f, %.2f, %.2f) facing %.2f, camera yaw %.2f\n", slot,
+                    point.scene, point.x, point.y, point.z, point.facing, point.camera_yaw);
+    } else {
+        std::printf("[conker] resuming slot %d in scene %d at (%.0f, %.0f, %.0f)\n", slot, point.scene, point.x, point.y,
+                    point.z);
+    }
 }
 
 // At the start of func_1501C57C, the EEPROM manager, once a frame: when a LOAD's slot read has
@@ -544,6 +639,7 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
         *ctx = saved;
         return;
     }
+    settle_camera(rdram);
     if (!g_resuming.valid) {
         return;
     }
@@ -557,7 +653,7 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
     }
     place(rdram, object, g_resuming);
     if (g_view.has_view) {
-        place_view(rdram, object, g_view);
+        place_view(rdram, object, g_view, true, !g_camera_waits);
     }
     if (g_resume_frames >= kSettleFrames + g_place_frames) {
         g_resuming.valid = false;
