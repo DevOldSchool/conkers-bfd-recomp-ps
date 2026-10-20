@@ -284,6 +284,12 @@ public:
 
     void update_screen() override {
         apply_display_scale();
+        // The game culls what lies outside its own 4:3 view; a widened picture needs it to cull to
+        // the wider view (src/enhancements/display_options/widescreen_culling.cpp).
+        conker::display::set_rendered_aspect(
+            !applied_wide_ ? kPictureAspect
+            : holding_     ? app_->userConfig.aspectTarget
+                           : expanded_aspect());
         app_->updateScreen();
     }
 
@@ -327,6 +333,23 @@ public:
     }
 
 private:
+    static constexpr float kPictureAspect = float(conker::display::kPictureWidth) / conker::display::kPictureHeight;
+
+    // The picture's shape when Expand widens it to the swap chain's: the swap chain's shape, made up
+    // for the columns left out at the sides as Expand does, and never narrower than the picture.
+    float expanded_aspect() const {
+        float target;
+        {
+            RT64::SharedQueueResources* shared = app_->sharedQueueResources.get();
+            std::scoped_lock lock(shared->configurationMutex);
+            target = shared->swapChainHeight > 0
+                         ? float(shared->swapChainWidth) / float(shared->swapChainHeight)
+                         : 16.0f / 9.0f;
+        }
+        target *= float(conker::display::kPictureWidth) / (conker::display::kPictureWidth - 2.0f * kUndrawnColumns);
+        return target > kPictureAspect ? target : kPictureAspect;
+    }
+
     // RT64 renders at the multiple chosen for the mode, in 4:3 or widened to the window's shape, and
     // either scales it to fill the window or screen or presents it at its own size.
     void apply_display_scale() {
@@ -340,19 +363,8 @@ private:
             if (!holding_) {
                 holding_ = true;
                 if (applied_wide_) {
-                    float target;
-                    {
-                        RT64::SharedQueueResources* shared = app_->sharedQueueResources.get();
-                        std::scoped_lock lock(shared->configurationMutex);
-                        target = shared->swapChainHeight > 0
-                                     ? float(shared->swapChainWidth) / float(shared->swapChainHeight)
-                                     : 16.0f / 9.0f;
-                    }
-                    const float picture = float(conker::display::kPictureWidth) / conker::display::kPictureHeight;
-                    // As Expand does, make up for the columns left out at the sides.
-                    target *= float(conker::display::kPictureWidth) / (conker::display::kPictureWidth - 2.0f * kUndrawnColumns);
                     app_->userConfig.aspectRatio = RT64::UserConfiguration::AspectRatio::Manual;
-                    app_->userConfig.aspectTarget = target > picture ? target : picture;
+                    app_->userConfig.aspectTarget = expanded_aspect();
                     app_->updateUserConfig(false);
                 }
             }

@@ -33,6 +33,7 @@ std::atomic<bool> g_requested{false};
 std::atomic<uint32_t> g_frame_copies{0};
 std::atomic<bool> g_rendered_widescreen{false};
 std::atomic<bool> g_sharp{true};
+std::atomic<float> g_rendered_aspect{float(kPictureWidth) / kPictureHeight};
 std::mutex g_save_mutex;
 
 // Next to the saves, under the working directory (see main.cpp).
@@ -230,6 +231,10 @@ uint32_t frame_copy_count() { return g_frame_copies.load(); }
 void set_rendered_widescreen(bool widescreen) { g_rendered_widescreen.store(widescreen); }
 
 bool rendered_widescreen() { return g_rendered_widescreen.load(); }
+
+void set_rendered_aspect(float aspect) { g_rendered_aspect.store(aspect); }
+
+float rendered_aspect() { return g_rendered_aspect.load(); }
 
 bool take_request(Mode* mode) {
     if (!g_requested.exchange(false)) {
