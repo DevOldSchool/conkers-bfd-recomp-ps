@@ -32,7 +32,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
+#include <iomanip>
 #include <string>
 
 #include "recomp.h"
@@ -109,7 +109,8 @@ std::filesystem::path points_path() {
 }
 
 // One line per slot: "<slot> <counter> <scene> <entrance> <x> <y> <z> <yaw>". `first_slot` is set
-// to the slot of the first line, or -1 when there is none.
+// to the slot of the first line, or -1 when there is none. Read with sscanf: a stream refuses a
+// float too small to be normal (a facing of 5.7e-39 degrees), and the line would be lost.
 std::array<Point, kSlots> read_points(const std::filesystem::path& path, int* first_slot = nullptr) {
     std::array<Point, kSlots> points{};
     if (first_slot != nullptr) {
@@ -117,10 +118,10 @@ std::array<Point, kSlots> read_points(const std::filesystem::path& path, int* fi
     }
     std::ifstream file(path);
     for (std::string line; std::getline(file, line);) {
-        std::istringstream in(line);
         int slot;
         Point point;
-        if (in >> slot >> point.counter >> point.scene >> point.entrance >> point.x >> point.y >> point.z >> point.yaw &&
+        if (std::sscanf(line.c_str(), "%d %u %d %d %f %f %f %f", &slot, &point.counter, &point.scene, &point.entrance,
+                        &point.x, &point.y, &point.z, &point.yaw) == 8 &&
             slot >= 0 && slot < kSlots) {
             point.valid = true;
             points[slot] = point;
@@ -138,6 +139,7 @@ std::array<Point, kSlots> read_points() { return read_points(points_path()); }
 void write_points(const std::array<Point, kSlots>& points, const std::filesystem::path& path, int first_slot = -1) {
     std::filesystem::create_directories(path.parent_path());
     std::ofstream file(path, std::ios::trunc);
+    file << std::fixed << std::setprecision(2);
     auto write = [&](int slot) {
         const Point& p = points[slot];
         if (p.valid) {
