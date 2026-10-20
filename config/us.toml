@@ -144,6 +144,27 @@ func = "func_150A3A70"
 before_vram = 0x150AE280
 text = "conker_geometry_escape(rdram, ctx);"
 
+# The debug menu (Back on the pad, or the ` key): the game's pause with its page replaced. A press
+# is taken once a frame in func_151E51EC, the menu handler, which also draws the frame rate. At
+# the start of func_151DDC20 Start is added to pad 1's buttons pressed this frame (D_800BE930),
+# and at 0x151DDDE0, after the handler has looked for it, taken out again; if the pause opened,
+# the pause page at 0x151DE00C (the SAVE/LOAD hook below) draws the debug menu and skips to the
+# end of the frame. See src/enhancements/debug_menu/debug_menu.cpp.
+[[patches.hook]]
+func = "func_151E51EC"
+before_vram = 0x151E5220
+text = "{ void conker_debug_menu_tick(uint8_t*, recomp_context*); conker_debug_menu_tick(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151DDC20"
+before_vram = 0x151DDC20
+text = "{ void conker_debug_menu_request(uint8_t*, recomp_context*); conker_debug_menu_request(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151DDC20"
+before_vram = 0x151DDDE0
+text = "{ void conker_debug_menu_requested(uint8_t*, recomp_context*); conker_debug_menu_requested(rdram, ctx); }"
+
 # SAVE and LOAD in the pause menu: func_151DDC20 gets two signs under its lever row (QUIT over LOAD,
 # CONT... over SAVE), built on its chapter-replay RESTART option. SAVE queues the game's own save,
 # LOAD reloads it. The signs are the RESTART and PLAY sprites with tiles made from the CONT... and
@@ -152,7 +173,7 @@ text = "conker_geometry_escape(rdram, ctx);"
 [[patches.hook]]
 func = "func_151DDC20"
 before_vram = 0x151DE00C
-text = "{ void conker_pause_save_layout(uint8_t*, recomp_context*); conker_pause_save_layout(rdram, ctx); }"
+text = "{ extern int conker_debug_menu_skip; void conker_debug_menu_frame(uint8_t*, recomp_context*); void conker_pause_save_layout(uint8_t*, recomp_context*); conker_debug_menu_frame(rdram, ctx); if (conker_debug_menu_skip) { goto L_151DE698; } conker_pause_save_layout(rdram, ctx); }"
 
 [[patches.hook]]
 func = "func_151DDC20"

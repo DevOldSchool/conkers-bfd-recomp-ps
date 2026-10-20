@@ -15,12 +15,14 @@
 //
 // Each of those saves is also kept as a snapshot in saves/snapshots/, named
 // scene<scene>-<YYYYMMDD>-<HHMMSS>: a .bin with the whole EEPROM, as conker_us.bin holds it, and a
-// .resume with the points, as conker_us.resume holds them, so copying both over those two files
-// restores it. Rare writes the EEPROM 8 bytes per 12 ms timer tick (func_151DCEF0, drained by
+// .resume with the points, as conker_us.resume holds them (the saved slot's line first), so
+// copying both over those two files restores it. The debug menu lists them (list_snapshots) and
+// starts one (load_snapshot). Rare writes the EEPROM 8 bytes per 12 ms timer tick (func_151DCEF0, drained by
 // func_151DCFD8 at the start of func_1501C57C), so the copy is taken once that write is done.
 // CONKER_SAVE_SNAPSHOTS=0 turns the snapshots off.
 #include "enhancements/pause_save/resume_point.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -37,8 +39,10 @@
 #include "ultramodern/ultramodern.hpp"
 
 extern "C" void func_151E327C(uint8_t* rdram, recomp_context* ctx);
-// librecomp's copy of the save (lib/N64ModernRuntime/librecomp/src/pi.cpp), read into RDRAM.
+// librecomp's copy of the save (lib/N64ModernRuntime/librecomp/src/pi.cpp), read from and written
+// to RDRAM.
 void save_read(uint8_t* rdram, int32_t rdram_address, uint32_t offset, uint32_t count);
+void save_write(uint8_t* rdram, int32_t rdram_address, uint32_t offset, uint32_t count);
 
 namespace conker::resume {
 
@@ -87,6 +91,7 @@ int g_resumed_slot = -1;   // the slot last started at its point, and when
 std::chrono::steady_clock::time_point g_resumed_at;
 bool g_snapshot_pending = false;  // a save to keep once the EEPROM write is done
 int g_snapshot_scene = 0;
+int g_snapshot_slot = 0;
 std::time_t g_snapshot_time = 0;
 
 bool snapshots_enabled() {
@@ -103,10 +108,14 @@ std::filesystem::path points_path() {
     return path;
 }
 
-// One line per slot: "<slot> <counter> <scene> <entrance> <x> <y> <z> <yaw>".
-std::array<Point, kSlots> read_points() {
+// One line per slot: "<slot> <counter> <scene> <entrance> <x> <y> <z> <yaw>". `first_slot` is set
+// to the slot of the first line, or -1 when there is none.
+std::array<Point, kSlots> read_points(const std::filesystem::path& path, int* first_slot = nullptr) {
     std::array<Point, kSlots> points{};
-    std::ifstream file(points_path());
+    if (first_slot != nullptr) {
+        *first_slot = -1;
+    }
+    std::ifstream file(path);
     for (std::string line; std::getline(file, line);) {
         std::istringstream in(line);
         int slot;
@@ -115,23 +124,38 @@ std::array<Point, kSlots> read_points() {
             slot >= 0 && slot < kSlots) {
             point.valid = true;
             points[slot] = point;
+            if (first_slot != nullptr && *first_slot < 0) {
+                *first_slot = slot;
+            }
         }
     }
     return points;
 }
 
-void write_points(const std::array<Point, kSlots>& points) {
-    const std::filesystem::path path = points_path();
+std::array<Point, kSlots> read_points() { return read_points(points_path()); }
+
+// `first_slot`'s line goes first, so a snapshot says which slot it saved.
+void write_points(const std::array<Point, kSlots>& points, const std::filesystem::path& path, int first_slot = -1) {
     std::filesystem::create_directories(path.parent_path());
     std::ofstream file(path, std::ios::trunc);
-    for (int slot = 0; slot < kSlots; slot++) {
+    auto write = [&](int slot) {
         const Point& p = points[slot];
         if (p.valid) {
             file << slot << ' ' << p.counter << ' ' << p.scene << ' ' << p.entrance << ' ' << p.x << ' ' << p.y << ' '
                  << p.z << ' ' << p.yaw << '\n';
         }
+    };
+    if (first_slot >= 0 && first_slot < kSlots) {
+        write(first_slot);
+    }
+    for (int slot = 0; slot < kSlots; slot++) {
+        if (slot != first_slot) {
+            write(slot);
+        }
     }
 }
+
+void write_points(const std::array<Point, kSlots>& points) { write_points(points, points_path()); }
 
 void write_float(uint8_t* rdram, uint32_t address, float value) {
     uint32_t bits;
@@ -151,6 +175,8 @@ uint32_t save_counter(uint8_t* rdram, int slot) {
 }
 
 // saves/snapshots/scene<scene>-<YYYYMMDD>-<HHMMSS>, with -2, -3... for more in the same second.
+std::filesystem::path snapshots_folder() { return ultramodern::get_save_file_path().parent_path() / "snapshots"; }
+
 std::filesystem::path snapshot_path(int scene, std::time_t time) {
     std::tm local{};
 #ifdef _WIN32
@@ -160,7 +186,7 @@ std::filesystem::path snapshot_path(int scene, std::time_t time) {
 #endif
     char stamp[32];
     std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local);
-    const std::filesystem::path folder = ultramodern::get_save_file_path().parent_path() / "snapshots";
+    const std::filesystem::path folder = snapshots_folder();
     const std::string name = "scene" + std::to_string(scene) + "-" + stamp;
     std::filesystem::path path = folder / (name + ".bin");
     for (int n = 2; std::filesystem::exists(path); n++) {
@@ -185,7 +211,7 @@ void write_snapshot(uint8_t* rdram) {
     }
     std::filesystem::path points = path;
     points.replace_extension(".resume");
-    std::filesystem::copy_file(points_path(), points, std::filesystem::copy_options::overwrite_existing, error);
+    write_points(read_points(), points, g_snapshot_slot);
     std::printf("[conker] save snapshot: %s\n", path.string().c_str());
 }
 
@@ -215,6 +241,65 @@ void request_load(uint8_t* rdram, int slot) {
     g_load_requested = true;
 }
 
+std::vector<Snapshot> list_snapshots() {
+    std::vector<Snapshot> snapshots;
+    std::error_code error;
+    for (const auto& entry : std::filesystem::directory_iterator(snapshots_folder(), error)) {
+        const std::filesystem::path& path = entry.path();
+        // scene<scene>-<YYYYMMDD>-<HHMMSS>[-<n>].bin
+        int scene, n = 1;
+        char date[9] = {}, time[7] = {};
+        const std::string name = path.stem().string();
+        if (path.extension() != ".bin" ||
+            std::sscanf(name.c_str(), "scene%d-%8[0-9]-%6[0-9]-%d", &scene, date, time, &n) < 3 ||
+            std::strlen(date) != 8 || std::strlen(time) != 6) {
+            continue;
+        }
+        Snapshot snapshot;
+        snapshot.path = path;
+        snapshot.scene = scene;
+        snapshot.when = std::string(date, 4) + "-" + std::string(date + 4, 2) + "-" + std::string(date + 6, 2) + " " +
+                        std::string(time, 2) + ":" + std::string(time + 2, 2) + ":" + std::string(time + 4, 2);
+        snapshot.order = std::string(date) + time + (n < 10 ? "0" : "") + std::to_string(n);
+        snapshots.push_back(snapshot);
+    }
+    std::sort(snapshots.begin(), snapshots.end(), [](const Snapshot& a, const Snapshot& b) { return a.order > b.order; });
+    return snapshots;
+}
+
+bool load_snapshot(uint8_t* rdram, const std::filesystem::path& path) {
+    if (MEM_B(0, kseg0(kEepromAction)) != 0 || MEM_W(0, kseg0(kEepromWriting)) != 0 || g_snapshot_pending) {
+        return false;  // a save is still being written
+    }
+    std::array<char, kEepromSize> image;
+    std::ifstream file(path, std::ios::binary);
+    if (!file.read(image.data(), image.size())) {
+        std::printf("[conker] could not read save snapshot %s\n", path.string().c_str());
+        return false;
+    }
+    for (uint32_t i = 0; i < kEepromSize; i++) {
+        MEM_B(i, kseg0(kSnapshotScratch)) = static_cast<int8_t>(image[i]);
+    }
+    save_write(rdram, static_cast<int32_t>(kSnapshotScratch), 0, kEepromSize);
+    std::filesystem::path points = path;
+    points.replace_extension(".resume");
+    int slot;
+    const std::array<Point, kSlots> snapshot_points = read_points(points, &slot);
+    write_points(snapshot_points, points_path(), slot);
+    if (slot < 0) {
+        slot = MEM_B(0, kseg0(kSaveSlot)) >= 0 ? MEM_B(0, kseg0(kSaveSlot)) : 0;
+    } else {
+        // The slot's sequence number as the game last read or wrote it, which starting the save
+        // checks the point against (conker_resume_start): the snapshot's.
+        MEM_W(0, kseg0(kSaveCounters + static_cast<uint32_t>(slot) * 16)) =
+            static_cast<int32_t>(snapshot_points[slot].counter);
+    }
+    MEM_B(0, kseg0(kSaveSlot)) = static_cast<int8_t>(slot);
+    request_load(rdram, slot);
+    std::printf("[conker] loading save snapshot %s, slot %d\n", path.string().c_str(), slot);
+    return true;
+}
+
 }  // namespace conker::resume
 
 using namespace conker::resume;
@@ -241,6 +326,7 @@ extern "C" void conker_resume_saved(uint8_t* /*rdram*/, recomp_context* ctx) {
     if (snapshots_enabled()) {
         g_snapshot_pending = true;
         g_snapshot_scene = g_pending.scene;
+        g_snapshot_slot = slot;
         g_snapshot_time = std::time(nullptr);
     }
     std::printf("[conker] resume point: slot %d, save %u, scene %d entrance %d at (%.0f, %.0f, %.0f) facing %.0f\n",

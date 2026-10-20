@@ -6,6 +6,8 @@
 // Pad (SDL's Xbox-style names): south A, west and east B, LT Z, LB L, RT and RB R, Start Start,
 // D-pad D-pad, left stick the analog stick, right stick the C buttons. Keyboard: see kKeys and
 // the README.
+// Back (Create/Share on a PlayStation pad, View on an Xbox pad) and the ` key open the debug menu
+// (src/enhancements/debug_menu); they are not N64 buttons.
 //
 // A pad that can rumble (SDL_GameControllerHasRumble; a DualSense, DualShock 4, Xbox or Switch
 // Pro pad) counts as a rumble pak in controller 1, and the game's motor on/off drives both of its
@@ -91,6 +93,8 @@ bool g_scripted = false;  // CONKER_VIRTUAL_PAD: only the virtual pad counts
 std::atomic<uint16_t> g_buttons{0};
 std::atomic<float> g_stick_x{0.0f};
 std::atomic<float> g_stick_y{0.0f};
+std::atomic<int> g_debug_menu_presses{0};
+bool g_debug_menu_held = false;          // main thread only
 
 std::atomic<bool> g_has_rumble{false};  // the open pad can rumble
 std::atomic<bool> g_rumble_on{false};   // the game's motor state, applied by update()
@@ -288,6 +292,7 @@ void update() {
     uint16_t buttons = 0;
     float x = 0.0f;
     float y = 0.0f;
+    bool debug_menu = false;
 
     // Keys held with Cmd or Alt are shortcuts (Cmd+Enter toggles full screen), not game input.
     if ((SDL_GetModState() & (KMOD_GUI | KMOD_ALT)) == 0) {
@@ -300,6 +305,7 @@ void update() {
         }
         x = static_cast<float>((keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) - (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT]));
         y = static_cast<float>((keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) - (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]));
+        debug_menu = keys[SDL_SCANCODE_GRAVE] != 0;
     }
 
     if (g_pad != nullptr) {
@@ -308,6 +314,7 @@ void update() {
                 buttons |= b.n64;
             }
         }
+        debug_menu = debug_menu || SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_BACK);
         // Z sits under the right hand on modern pads (R2/RT); the left trigger stays Z as well.
         if (SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > kTriggerThreshold) buttons |= kZ;
         if (SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > kTriggerThreshold) buttons |= kZ;
@@ -333,6 +340,10 @@ void update() {
     }
 
     g_buttons.store(buttons, std::memory_order_relaxed);
+    if (debug_menu && !g_debug_menu_held) {
+        g_debug_menu_presses.fetch_add(1, std::memory_order_relaxed);
+    }
+    g_debug_menu_held = debug_menu;
     g_stick_x.store(x, std::memory_order_relaxed);
     g_stick_y.store(y, std::memory_order_relaxed);
 
@@ -359,6 +370,8 @@ void read(uint16_t* buttons, float* x, float* y) {
     *x = g_stick_x.load(std::memory_order_relaxed);
     *y = g_stick_y.load(std::memory_order_relaxed);
 }
+
+bool take_debug_menu_press() { return g_debug_menu_presses.exchange(0, std::memory_order_relaxed) > 0; }
 
 bool has_rumble() { return g_has_rumble.load(std::memory_order_relaxed); }
 

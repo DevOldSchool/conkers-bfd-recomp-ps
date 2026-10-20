@@ -36,6 +36,8 @@ git submodule update --init --recursive
 (cd lib/rt64 && git apply ../../tools/patches/rt64-native-size.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-edge-rects.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-memory-packs.patch)
+(cd lib/rt64 && git apply ../../tools/patches/rt64-wireframe.patch)
+(cd lib/rt64/src/contrib/plume && git apply ../../../../../tools/patches/plume-wireframe.patch)
 tools/regenerate.sh
 cmake -S . -B build/rt64 -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER=rt64
 cmake --build build/rt64
@@ -65,6 +67,7 @@ at boot. `CONKER_RUMBLE_TEST=1` buzzes the pad for a second when it connects.
 | Start | Start | Options | Enter |
 | C buttons | Right stick | Right stick | I J K L |
 | D-pad | D-pad | D-pad | T F G H |
+| Debug menu | View | Create (Share) | ` |
 
 Keys held with Cmd or Alt are not passed to the game, so the full-screen
 shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
@@ -144,8 +147,24 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   `saves/snapshots/`, named after the scene number and when it was made
   (`scene12-20261020-143205.bin` with a matching `.resume`). LOAD still
   starts the latest save; to go back to an earlier one, copy its two files
-  over `conker_us.bin` and `conker_us.resume` while the game is closed.
+  over `conker_us.bin` and `conker_us.resume` while the game is closed, or
+  load it from the debug menu.
   `CONKER_SAVE_SNAPSHOTS=0` stops keeping them.
+* **Debug menu:** View on an Xbox pad, Create (Share) on a PlayStation pad, or
+  the ` key opens it during play. It is the game's pause with its own page
+  under PAUSED, so the game stops as it does for the pause menu, and it closes
+  with B, Start or the same button. Up and down choose a row, A or left and
+  right change it:
+  * WIREFRAME: the game's 3D triangles drawn as their edges on black; text,
+    sprites and the HUD stay solid. Metal only for now.
+  * SHOW FPS: the frames the game draws per second, in the top left corner.
+  * LOAD SNAPSHOT: the snapshots in `saves/snapshots/`, newest first. A makes
+    the chosen one the save, as copying its files over `conker_us.bin` and
+    `conker_us.resume` would, and starts it where it was saved, as LOAD does.
+    Progress since the last snapshot is not kept.
+
+  It opens wherever Start would open the pause menu. The settings last until
+  the game is closed. `CONKER_DEBUG_MENU=0` turns it off.
 * **Surround by default:** with no saved options (a new save file), the
   OPTIONS menu's sound setting is surround instead of stereo. The
   game keeps its options in EEPROM next to the saved games, so a sound

@@ -1,4 +1,5 @@
 #include "platform/renderer_null.hpp"
+#include "platform/render_debug.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -304,6 +305,8 @@ private:
 };
 
 } // namespace
+
+void set_wireframe(bool /*on*/) {}
 
 std::unique_ptr<ultramodern::renderer::RendererContext> create_null_render_context(
     uint8_t* rdram, ultramodern::renderer::WindowHandle /*window_handle*/, bool /*developer_mode*/) {

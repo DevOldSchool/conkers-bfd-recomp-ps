@@ -9,6 +9,8 @@ void read(uint16_t* buttons, float* x, float* y) {
     *y = 0.0f;
 }
 
+bool take_debug_menu_press() { return false; }
+
 bool has_rumble() { return false; }
 void set_rumble(bool /*on*/) {}
 

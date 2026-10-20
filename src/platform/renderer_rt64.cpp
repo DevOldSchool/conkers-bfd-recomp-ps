@@ -31,6 +31,7 @@
 // pack from. With any of them loaded, the rectangles the game draws text glyphs with are widened
 // so a replaced glyph is not cut off (src/platform/font_rects.cpp).
 #include "platform/renderer_rt64.hpp"
+#include "platform/render_debug.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -47,6 +48,7 @@
 #include "librecomp/game.hpp"
 #include "platform/font_rects.hpp"
 #include "render/rt64_texture_cache.h"
+#include "rhi/rt64_render_hooks.h"
 #include "platform/display_mode.hpp"
 
 namespace conker::renderer {
@@ -353,6 +355,8 @@ private:
 };
 
 } // namespace
+
+void set_wireframe(bool on) { RT64::SetRenderWireframe(on); }
 
 std::unique_ptr<ultramodern::renderer::RendererContext> create_rt64_render_context(
     uint8_t* rdram, ultramodern::renderer::WindowHandle window_handle, bool developer_mode) {
