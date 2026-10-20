@@ -18,10 +18,11 @@
 //     TELEPORT         X, Y, Z, facing and camera yaw to move him to, and spots kept in
 //                      conker-recomp-data/debug_spots.txt
 //     LOAD SNAPSHOT    a list of saves/snapshots/; A starts one (resume_point.cpp)
-//     SAVE DEBUG REPORT  saves the game, then a folder in conker-recomp-data/debug_reports/ with that
-//                      save and report.txt: build, scene, position, facing, camera, settings
-//     LOAD REPORT      a list of those; A starts one's save, where and as it was made, on a copy
-//                      (saves/debug/), so the player's save is not touched
+//     SAVE DEBUG REPORT  a folder in conker-recomp-data/debug_reports/ with report.json (build, scene,
+//                      position, facing, camera, enhancements, settings) and a save of the game as it
+//                      is, made into a copy, so the player's save is not touched
+//     LOAD REPORT      a list of those; A checks one (it may come from anyone) and starts its save,
+//                      where and as it was made, on a copy (saves/debug/)
 //
 // The first page also shows where Conker is and where the camera looks, and opening the menu prints
 // them (with the camera's position, look-at point and forward vector). Up and down choose,
@@ -44,6 +45,9 @@
 
 #include "recomp.h"
 #include "enhancements/pause_save/resume_point.hpp"
+#include "enhancements/status.hpp"
+#include "build_version.h"
+#include "json/json.hpp"
 #include "platform/input.hpp"
 #include "platform/render_debug.hpp"
 #include "ultramodern/ultramodern.hpp"
@@ -52,9 +56,6 @@
 #define environ _environ
 #else
 extern char** environ;
-#endif
-#ifndef CONKER_BUILD_VERSION
-#define CONKER_BUILD_VERSION "unknown"
 #endif
 
 extern "C" void func_15042D94(uint8_t* rdram, recomp_context* ctx);
@@ -117,6 +118,7 @@ int g_top = 0;
 std::vector<conker::resume::Snapshot> g_snapshots;  // or the reports, on LOAD REPORT
 std::vector<Position> g_spots;  // this scene's
 std::string g_message;
+std::string g_message_detail;  // a smaller line under it
 Clock::time_point g_message_until;
 
 bool g_wireframe = false;
@@ -139,9 +141,10 @@ bool debug_menu_enabled() {
     return enabled;
 }
 
-void show_message(const std::string& message) {
+void show_message(const std::string& message, const std::string& detail = "") {
     g_message = message;
-    g_message_until = Clock::now() + std::chrono::seconds(2);
+    g_message_detail = detail;
+    g_message_until = Clock::now() + std::chrono::seconds(detail.empty() ? 2 : 4);
 }
 
 // --- spots ---------------------------------------------------------------------------------------
@@ -263,6 +266,9 @@ std::string camera_line(uint8_t* rdram) {
 void draw_title(uint8_t* rdram, recomp_context* ctx, const std::string& title) {
     const bool message = !g_message.empty() && Clock::now() < g_message_until;
     draw_text(rdram, ctx, kCenterX, kTitleY, kCentered, kTitleColor, message ? g_message : title, 1.0f);
+    if (message && !g_message_detail.empty()) {
+        draw_text(rdram, ctx, kCenterX, kTitleY - kLineHeight, kCentered, kOtherColor, g_message_detail);
+    }
 }
 
 // The rows from `first` on, as many as a list shows (all of them on the first and teleport pages).
@@ -396,11 +402,10 @@ void open_list(Page page) {
     g_top = 0;
 }
 
-// report.txt for SAVE DEBUG REPORT, before the save's details: everything needed to see what the
-// player saw.
-std::string report_text(uint8_t* rdram) {
-    std::string out;
-    char line[256];
+// The report SAVE DEBUG REPORT makes (resume_point.cpp adds "save"): everything needed to see what
+// the player saw, as JSON.
+std::string report_json(uint8_t* rdram) {
+    const auto rounded = [](float value) { return std::round(static_cast<double>(value) * 100.0) / 100.0; };
     const std::time_t now = std::time(nullptr);
     std::tm local{};
 #ifdef _WIN32
@@ -410,57 +415,61 @@ std::string report_text(uint8_t* rdram) {
 #endif
     char when[32];
     std::strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", &local);
-    out += "Conker's Bad Fur Day: Recompiled - debug report\n";
-    out += std::string("Made: ") + when + "\n";
-    out += std::string("Build: ") + CONKER_BUILD_VERSION + "\n\n";
-
+    nlohmann::json report = {
+        {"format", "conker-recomp-debug-report"},
+        {"version", 1},
+        {"made", when},
+        {"build", CONKER_BUILD_VERSION},
+    };
     Position p;
     if (conker::resume::current_position(rdram, &p)) {
-        std::snprintf(line, sizeof(line), "Scene: %d, entrance %d\nConker: (%.2f, %.2f, %.2f), facing %.2f\n", p.scene,
-                      MEM_BU(0, kseg0(kEntrance)), p.x, p.y, p.z, p.facing);
-        out += line;
-    } else {
-        out += "Conker: not in play\n";
+        report["scene"] = p.scene;
+        report["entrance"] = MEM_BU(0, kseg0(kEntrance));
+        report["conker"] = {{"x", rounded(p.x)},           {"y", rounded(p.y)},
+                            {"z", rounded(p.z)},           {"facing", rounded(p.facing)},
+                            {"angle", rounded(p.yaw)}};
     }
     conker::resume::Camera c;
     if (conker::resume::current_camera(rdram, &c)) {
-        std::snprintf(line, sizeof(line),
-                      "Camera: at (%.2f, %.2f, %.2f), looking at (%.2f, %.2f, %.2f), forward (%.4f, %.4f, %.4f),\n"
-                      "        yaw %.2f, pitch %.2f\n",
-                      c.eye[0], c.eye[1], c.eye[2], c.at[0], c.at[1], c.at[2], c.forward[0], c.forward[1], c.forward[2],
-                      c.yaw(), c.pitch());
-        out += line;
+        report["camera"] = {
+            {"eye", {rounded(c.eye[0]), rounded(c.eye[1]), rounded(c.eye[2])}},
+            {"look_at", {rounded(c.at[0]), rounded(c.at[1]), rounded(c.at[2])}},
+            {"forward", {std::round(c.forward[0] * 1e4) / 1e4, std::round(c.forward[1] * 1e4) / 1e4,
+                         std::round(c.forward[2] * 1e4) / 1e4}},
+            {"yaw", rounded(c.yaw())},
+            {"pitch", rounded(c.pitch())},
+        };
     }
-    if (p.has_view) {
-        std::snprintf(line, sizeof(line), "Debug spot (debug_spots.txt): %d %.2f %.2f %.2f %.2f %.2f %.2f %.2f\n", p.scene,
-                      p.x, p.y, p.z, p.yaw, p.facing, p.camera_yaw, p.camera_pitch);
-        out += line;
+    nlohmann::json enhancements = nlohmann::json::array();
+    for (const conker::status::Line& line : conker::status::enhancements(rdram)) {
+        enhancements.push_back({{"name", line.name}, {"on", line.on}, {"detail", line.detail}});
     }
-
-    std::snprintf(line, sizeof(line), "\nWireframe: %s\nFrame rate: %d per second\n", g_wireframe ? "on" : "off", g_fps);
-    out += line;
-    out += "\nDisplay (display.cfg):\n";
-    std::ifstream display(ultramodern::get_save_file_path().parent_path().parent_path() / "display.cfg");
-    bool any = false;
-    for (std::string setting; std::getline(display, setting);) {
-        out += "  " + setting + "\n";
-        any = true;
+    report["enhancements"] = enhancements;
+    nlohmann::json settings = nlohmann::json::object();
+    for (const auto& [name, value] : conker::status::settings(rdram)) {
+        settings[name] = value;
     }
-    if (!any) {
-        out += "  (none saved)\n";
-    }
-    out += "\nSettings (CONKER_* environment variables):\n";
-    any = false;
-    for (char** variable = environ; *variable != nullptr; variable++) {
-        if (std::strncmp(*variable, "CONKER_", 7) == 0) {
-            out += std::string("  ") + *variable + "\n";
-            any = true;
+    settings["frame_rate"] = g_fps;
+    nlohmann::json display = nlohmann::json::object();
+    std::ifstream display_file(ultramodern::get_save_file_path().parent_path().parent_path() / "display.cfg");
+    for (std::string setting; std::getline(display_file, setting);) {
+        const size_t equals = setting.find('=');
+        if (equals != std::string::npos) {
+            display[setting.substr(0, equals)] = setting.substr(equals + 1);
         }
     }
-    if (!any) {
-        out += "  (none)\n";
+    settings["display_cfg"] = display;
+    report["settings"] = settings;
+    nlohmann::json environment = nlohmann::json::object();
+    for (char** variable = environ; *variable != nullptr; variable++) {
+        const std::string entry = *variable;
+        if (entry.rfind("CONKER_", 0) == 0) {
+            const size_t equals = entry.find('=');
+            environment[entry.substr(0, equals)] = equals == std::string::npos ? "" : entry.substr(equals + 1);
+        }
     }
-    return out;
+    report["environment"] = environment;
+    return report.dump();
 }
 
 // The first page. Returns the sound to play.
@@ -506,7 +515,7 @@ int32_t main_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_horiz
             if (!(pressed & conker::input::kA)) {
                 return 0;
             }
-            show_message(conker::resume::request_report(rdram, report_text(rdram)).empty() ? "SAVING, TRY AGAIN"
+            show_message(conker::resume::request_report(rdram, report_json(rdram)).empty() ? "SAVING, TRY AGAIN"
                                                                                              : "REPORT SAVED");
             break;
     }
@@ -599,10 +608,15 @@ int32_t list_page(uint8_t* rdram, int vertical, uint16_t pressed) {
         } else {
             show_message("CANNOT TELEPORT HERE");
         }
-    } else if (g_page == Page::Reports && !std::filesystem::exists(g_snapshots[g_entry].path)) {
-        show_message("NO SAVE IN THIS REPORT");
-    } else if (g_page == Page::Reports ? conker::resume::load_report(rdram, g_snapshots[g_entry].path)
-                                       : conker::resume::load_snapshot(rdram, g_snapshots[g_entry].path)) {
+    } else if (g_page == Page::Reports) {
+        std::string problem;
+        if (conker::resume::load_report(rdram, g_snapshots[g_entry].path, &problem)) {
+            close_menu(rdram);
+        } else {
+            std::transform(problem.begin(), problem.end(), problem.begin(), ::toupper);
+            show_message("REPORT REFUSED", problem);  // the log says it too
+        }
+    } else if (conker::resume::load_snapshot(rdram, g_snapshots[g_entry].path)) {
         close_menu(rdram);
     } else {
         show_message("SAVING, TRY AGAIN");
@@ -746,4 +760,10 @@ extern "C" void conker_debug_menu_frame(uint8_t* rdram, recomp_context* ctx) {
     if (sound != 0) {
         MEM_W(kSoundSlot, ctx->r29) = sound;
     }
+}
+
+conker::status::Line conker::status::debug_menu() {
+    return {"Debug menu", debug_menu_enabled(),
+            std::string("CONKER_DEBUG_MENU; wireframe ") + (g_wireframe ? "on" : "off") + ", show FPS " +
+                (g_show_fps ? "on" : "off") + ", show position " + (g_show_position ? "on" : "off")};
 }

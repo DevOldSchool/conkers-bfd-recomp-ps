@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace conker::input {
 
@@ -26,6 +27,9 @@ constexpr uint16_t kCRight = 0x0001;
 // Current state of controller 1, safe to call from any thread. The stick is in [-1, 1] with
 // +y up; ultramodern scales it to the N64 range (about +-82 on the axes).
 void read(uint16_t* buttons, float* x, float* y);
+
+// Controller 1's name, or "" when none is connected (keyboard only). Safe to call from any thread.
+std::string controller_name();
 
 // True once for each press of the debug menu button: the pad's Back (Create/Share on a
 // PlayStation pad, View on an Xbox pad) or the ` key. Safe to call from any thread.

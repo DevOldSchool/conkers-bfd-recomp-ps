@@ -308,6 +308,8 @@ private:
 
 void set_wireframe(bool /*on*/) {}
 
+std::vector<std::string> texture_packs() { return {}; }
+
 std::unique_ptr<ultramodern::renderer::RendererContext> create_null_render_context(
     uint8_t* rdram, ultramodern::renderer::WindowHandle /*window_handle*/, bool /*developer_mode*/) {
     return std::make_unique<NullRenderer>(rdram);

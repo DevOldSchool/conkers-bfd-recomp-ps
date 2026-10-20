@@ -34,10 +34,14 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <sstream>
 #include <string>
 
+#include "build_version.h"
+#include "json/json.hpp"
 #include "recomp.h"
 #include "ultramodern/ultramodern.hpp"
+#include "enhancements/status.hpp"
 
 extern "C" void func_151E327C(uint8_t* rdram, recomp_context* ctx);
 // librecomp's copy of the save (lib/N64ModernRuntime/librecomp/src/pi.cpp), read from and written
@@ -354,15 +358,21 @@ bool write_save_copy(const std::array<char, kEepromSize>& image, const std::file
     return true;
 }
 
-// report.txt: the report's text, then what the save in it is and how to start it.
-void finish_report(const std::string& save_line) {
+// report.json: the report the debug menu made, with "save" saying what save is in the folder.
+void finish_report(const nlohmann::json& save) {
     std::error_code error;
     std::filesystem::create_directories(g_report.folder, error);
-    std::ofstream file(g_report.folder / "report.txt", std::ios::trunc);
-    file << g_report.text << save_line;
+    nlohmann::json report = nlohmann::json::parse(g_report.text, nullptr, false);
+    if (!report.is_object()) {
+        report = nlohmann::json::object();
+    }
+    report["save"] = save;
+    std::ofstream(g_report.folder / "report.json", std::ios::trunc) << report.dump(2) << '\n';
     std::printf("[conker] debug report: %s\n", g_report.folder.string().c_str());
     g_report.active = false;
 }
+
+nlohmann::json no_save(const char* reason) { return {{"slot", nullptr}, {"reason", reason}}; }
 
 void write_snapshot(uint8_t* rdram) {
     save_read(rdram, static_cast<int32_t>(kSnapshotScratch), 0, kEepromSize);
@@ -378,25 +388,21 @@ void write_snapshot(uint8_t* rdram) {
     }
 }
 
-// The report's save, once the game has made it: save.bin, save.resume and report.txt.
+// The report's save, once the game has made it: save.bin, save.resume and report.json.
 void write_report_save() {
     std::error_code error;
     std::filesystem::create_directories(g_report.folder, error);
-    const std::filesystem::path path = g_report.folder / "save.bin";
-    std::ofstream file(path, std::ios::binary | std::ios::trunc);
-    char line[320];
-    if (file.write(g_report.image.data(), g_report.image.size())) {
-        write_points(g_report.points, g_report.folder / "save.resume", g_report.slot);
-        std::snprintf(line, sizeof(line),
-                      "\nSave: slot %d, save %u, made for this report (save.bin and save.resume, as conker_us.bin and\n"
-                      "conker_us.resume hold a save; the player's own save was not changed)\n"
-                      "To replay: debug menu, LOAD REPORT; or copy save.bin and save.resume over\n"
-                      "conker-recomp-data/saves/conker_us.bin and conker_us.resume and start slot %d.\n",
-                      g_report.slot, g_report.points[g_report.slot].counter, g_report.slot);
-    } else {
-        std::snprintf(line, sizeof(line), "\nSave: could not be written\n");
+    std::ofstream file(g_report.folder / "save.bin", std::ios::binary | std::ios::trunc);
+    if (!file.write(g_report.image.data(), g_report.image.size())) {
+        finish_report(no_save("could not be written"));
+        return;
     }
-    finish_report(line);
+    file.close();
+    write_points(g_report.points, g_report.folder / "save.resume", g_report.slot);
+    finish_report({{"slot", g_report.slot},
+                   {"counter", g_report.points[g_report.slot].counter},
+                   {"files", {"save.bin", "save.resume"}},
+                   {"note", "made for this report; the player's own save was not changed"}});
 }
 
 // After a resumed save has placed Conker: once the camera has stopped moving, puts it where it looked
@@ -593,7 +599,8 @@ std::vector<Snapshot> list_reports() {
     for (const auto& entry : std::filesystem::directory_iterator(reports_folder(), error)) {
         Snapshot report;
         report.path = entry.path() / "save.bin";
-        if (entry.is_directory() && parse_name(entry.path().filename().string(), &report)) {
+        if (entry.is_directory() && std::filesystem::exists(entry.path() / "report.json") &&
+            parse_name(entry.path().filename().string(), &report)) {
             reports.push_back(report);
         }
     }
@@ -628,7 +635,7 @@ std::string request_report(uint8_t* rdram, const std::string& text) {
     g_report.requested = std::chrono::steady_clock::now();
     const int slot = MEM_B(0, kseg0(kSaveSlot));
     if (slot < 0 || slot >= kSlots || MEM_BU(0, kseg0(kChapterReplay)) != 0) {
-        finish_report("\nSave: none (no game slot, or a chapter replayed from CHAPTERS, where the game does not save)\n");
+        finish_report(no_save("no game slot, or a chapter replayed from CHAPTERS, where the game does not save"));
         return folder.filename().string();
     }
     // The save is made as SAVE in the pause menu makes it, into a copy of the save as it is now.
@@ -674,33 +681,189 @@ bool load_snapshot(uint8_t* rdram, const std::filesystem::path& path) {
     return true;
 }
 
-bool load_report(uint8_t* rdram, const std::filesystem::path& path) {
+namespace {
+
+constexpr const char* kReportFormat = "conker-recomp-debug-report";
+constexpr int kReportVersion = 1;
+constexpr uintmax_t kMaxReportJson = 256 * 1024;
+constexpr uintmax_t kMaxReportPoints = 4 * 1024;
+constexpr double kMaxCoordinate = 1.0e6;   // well past any level's size
+constexpr int kMaxScene = 255;
+
+// A report's files, read once: what is checked is what is loaded.
+struct ReportFiles {
+    nlohmann::json report;
+    std::array<char, kEepromSize> save{};
+    std::string points;
+};
+
+// Reads `name` from `folder` into `out`: a regular file (not a link) of at most `limit` bytes, or
+// exactly `limit` bytes if `exact`.
+bool read_report_file(const std::filesystem::path& folder, const char* name, uintmax_t limit, bool exact,
+                      std::string* out, std::string* problem) {
+    const std::filesystem::path path = folder / name;
+    std::error_code error;
+    if (std::filesystem::is_symlink(path, error) || !std::filesystem::is_regular_file(path, error)) {
+        *problem = std::string("no ") + name;
+        return false;
+    }
+    const uintmax_t size = std::filesystem::file_size(path, error);
+    if (error || (exact ? size != limit : size > limit)) {
+        *problem = std::string(name) + " is the wrong size";
+        return false;
+    }
+    std::ifstream file(path, std::ios::binary);
+    out->assign(static_cast<size_t>(size), '\0');
+    if (!file.read(out->data(), static_cast<std::streamsize>(size))) {
+        *problem = std::string("cannot read ") + name;
+        return false;
+    }
+    return true;
+}
+
+// A finite number in [low, high] at `key` of `object`.
+bool number_in(const nlohmann::json& object, const char* key, double low, double high, double* out = nullptr) {
+    if (!object.is_object() || !object.contains(key) || !object[key].is_number()) {
+        return false;
+    }
+    const double value = object[key].get<double>();
+    if (!std::isfinite(value) || value < low || value > high) {
+        return false;
+    }
+    if (out != nullptr) {
+        *out = value;
+    }
+    return true;
+}
+
+// Checks a report, which may come from anyone, before anything is loaded from it.
+bool check_report(const std::filesystem::path& folder, ReportFiles* files, std::string* problem) {
+    Snapshot name;
+    std::error_code error;
+    if (!parse_name(folder.filename().string(), &name) || std::filesystem::is_symlink(folder, error)) {
+        *problem = "the folder is not a report";
+        return false;
+    }
+    std::string text, save;
+    if (!read_report_file(folder, "report.json", kMaxReportJson, false, &text, problem) ||
+        !read_report_file(folder, "save.bin", kEepromSize, true, &save, problem) ||
+        !read_report_file(folder, "save.resume", kMaxReportPoints, false, &files->points, problem)) {
+        return false;
+    }
+    std::copy(save.begin(), save.end(), files->save.begin());
+
+    nlohmann::json& report = files->report;
+    report = nlohmann::json::parse(text, nullptr, false);
+    if (!report.is_object()) {
+        *problem = "report.json is not JSON";
+        return false;
+    }
+    if (!report.contains("format") || report["format"] != kReportFormat || !report.contains("version") ||
+        report["version"] != kReportVersion) {
+        *problem = "report.json is not a version 1 report";
+        return false;
+    }
+    double scene, x, y, z;
+    const nlohmann::json conker = report.value("conker", nlohmann::json());
+    if (!number_in(report, "scene", 0, kMaxScene, &scene) || scene != std::floor(scene) ||
+        !number_in(report, "entrance", 0, 255) || !number_in(conker, "x", -kMaxCoordinate, kMaxCoordinate, &x) ||
+        !number_in(conker, "y", -kMaxCoordinate, kMaxCoordinate, &y) ||
+        !number_in(conker, "z", -kMaxCoordinate, kMaxCoordinate, &z) || !number_in(conker, "facing", -720, 720)) {
+        *problem = "report.json has no valid scene and position";
+        return false;
+    }
+    double slot, counter;
+    const nlohmann::json save_info = report.value("save", nlohmann::json());
+    if (!number_in(save_info, "slot", 0, kSlots - 1, &slot) || slot != std::floor(slot) ||
+        !number_in(save_info, "counter", 0, 4294967295.0, &counter) || counter != std::floor(counter)) {
+        *problem = "the report has no save";
+        return false;
+    }
+
+    // save.resume: every line well formed, the saved slot's point the report's.
+    std::istringstream lines(files->points);
+    std::array<bool, kSlots> seen{};
+    bool found = false;
+    int count = 0;
+    for (std::string line; std::getline(lines, line);) {
+        if (line.empty()) {
+            continue;
+        }
+        int line_slot;
+        Point point;
+        const int fields = std::sscanf(line.c_str(), "%d %u %d %d %f %f %f %f %f %f", &line_slot, &point.counter,
+                                       &point.scene, &point.entrance, &point.x, &point.y, &point.z, &point.yaw,
+                                       &point.facing, &point.camera_yaw);
+        const float values[] = {point.x, point.y, point.z, point.yaw, point.facing, point.camera_yaw};
+        bool sound = (fields == 8 || fields == 10) && ++count <= kSlots && line_slot >= 0 && line_slot < kSlots &&
+                     !seen[line_slot] && point.scene >= 0 && point.scene <= kMaxScene && point.entrance >= 0 &&
+                     point.entrance <= 255;
+        for (float value : values) {
+            sound = sound && std::isfinite(value) && std::fabs(value) <= kMaxCoordinate;
+        }
+        if (!sound) {
+            *problem = "save.resume is not valid";
+            return false;
+        }
+        seen[line_slot] = true;
+        if (count == 1 && line_slot != static_cast<int>(slot)) {
+            *problem = "save.resume does not start with the report's slot";  // the slot a load starts
+            return false;
+        }
+        if (line_slot == static_cast<int>(slot)) {
+            found = point.counter == static_cast<uint32_t>(counter) && point.scene == static_cast<int>(scene) &&
+                    std::fabs(point.x - x) < 0.01 && std::fabs(point.y - y) < 0.01 && std::fabs(point.z - z) < 0.01;
+        }
+    }
+    if (!found) {
+        *problem = "save.resume does not match report.json";
+        return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+bool load_report(uint8_t* rdram, const std::filesystem::path& path, std::string* problem) {
     if (MEM_B(0, kseg0(kEepromAction)) != 0 || MEM_W(0, kseg0(kEepromWriting)) != 0 || g_snapshot_pending ||
         g_report.active) {
-        return false;  // a save is still being written
+        *problem = "saving, try again";
+        return false;
+    }
+    const std::filesystem::path folder = path.parent_path();
+    ReportFiles files;
+    if (!check_report(folder, &files, problem)) {
+        std::printf("[conker] debug report %s refused: %s\n", folder.string().c_str(), problem->c_str());
+        return false;
+    }
+    const std::string build = files.report.value("build", std::string("unknown"));
+    if (build != CONKER_BUILD_VERSION) {
+        std::printf("[conker] debug report %s was made by build %s; this is %s\n", folder.string().c_str(),
+                    build.c_str(), CONKER_BUILD_VERSION);
     }
     // The player's saves folder, as it was before any report was loaded.
     static const std::filesystem::path saves = ultramodern::get_save_file_path().parent_path();
-    const std::string name = path.parent_path().filename().string();
+    const std::string name = folder.filename().string();
     const std::filesystem::path copy = saves / "debug" / (name + ".bin");
-    std::filesystem::path points = path, copy_points = copy;
-    points.replace_extension(".resume");
+    std::filesystem::path copy_points = copy;
     copy_points.replace_extension(".resume");
     std::error_code error;
     std::filesystem::create_directories(copy.parent_path(), error);
-    std::filesystem::copy_file(path, copy, std::filesystem::copy_options::overwrite_existing, error);
-    if (error) {
-        std::printf("[conker] could not copy %s: %s\n", path.string().c_str(), error.message().c_str());
+    std::ofstream save_file(copy, std::ios::binary | std::ios::trunc);
+    std::ofstream points_file(copy_points, std::ios::trunc);
+    if (!save_file.write(files.save.data(), files.save.size()) || !(points_file << files.points)) {
+        *problem = "cannot copy the save";
         return false;
     }
-    std::filesystem::copy_file(points, copy_points, std::filesystem::copy_options::overwrite_existing, error);
+    save_file.close();
+    points_file.close();
     // The game now plays on the copy: its saves, and their snapshots, go there until it is closed.
     ultramodern::change_save_file(u8"debug", std::u8string(name.begin(), name.end()));
     int slot;
     const std::array<Point, kSlots> report_points = read_points(points_path(), &slot);
     start_save(rdram, report_points, slot);
     std::printf("[conker] loading debug report %s, slot %d, playing on %s until the game is closed\n",
-                path.parent_path().string().c_str(), MEM_B(0, kseg0(kSaveSlot)), copy.string().c_str());
+                folder.string().c_str(), MEM_B(0, kseg0(kSaveSlot)), copy.string().c_str());
     return true;
 }
 
@@ -827,7 +990,7 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
         if (g_report.saved) {
             write_report_save();
         } else {
-            finish_report("\nSave: none (the game did not make one)\n");
+            finish_report(no_save("the game did not make one"));
         }
     }
     if (g_load_requested && MEM_B(0, kseg0(kEepromAction)) == 0) {
@@ -892,4 +1055,8 @@ extern "C" void conker_report_marker_write(uint8_t* rdram, recomp_context* ctx) 
     }
     save_read(rdram, static_cast<int32_t>(kReportBlockScratch), start, 8);
     ctx->r6 = kseg0(kReportBlockScratch);
+}
+
+conker::status::Line conker::status::save_snapshots() {
+    return {"Save snapshots", conker::resume::snapshots_enabled(), "CONKER_SAVE_SNAPSHOTS; saves/snapshots/ for each pause-menu save"};
 }

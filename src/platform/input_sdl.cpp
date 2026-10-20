@@ -28,6 +28,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -94,6 +95,8 @@ std::atomic<uint16_t> g_buttons{0};
 std::atomic<float> g_stick_x{0.0f};
 std::atomic<float> g_stick_y{0.0f};
 std::atomic<int> g_debug_menu_presses{0};
+std::mutex g_pad_name_mutex;
+std::string g_pad_name;                  // controller 1's, for controller_name()
 bool g_debug_menu_held = false;          // main thread only
 
 std::atomic<bool> g_has_rumble{false};  // the open pad can rumble
@@ -115,6 +118,10 @@ void open_pad(int device_index) {
         return;
     }
     g_pad_id = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(g_pad));
+    {
+        std::lock_guard lock(g_pad_name_mutex);
+        g_pad_name = SDL_GameControllerName(g_pad) ? SDL_GameControllerName(g_pad) : "controller";
+    }
     g_has_rumble.store(SDL_GameControllerHasRumble(g_pad) == SDL_TRUE);
     g_rumble_applied = false;
     std::printf("[conker] controller 1: %s (%s)\n", SDL_GameControllerName(g_pad),
@@ -280,6 +287,10 @@ void handle_event(const SDL_Event& event) {
                 std::printf("[conker] controller 1 disconnected\n");
                 SDL_GameControllerClose(g_pad);
                 g_pad = nullptr;
+                {
+                    std::lock_guard lock(g_pad_name_mutex);
+                    g_pad_name.clear();
+                }
                 g_pad_id = -1;
                 g_has_rumble.store(false);
                 open_first_pad();
@@ -373,6 +384,11 @@ void read(uint16_t* buttons, float* x, float* y) {
     *buttons = g_buttons.load(std::memory_order_relaxed);
     *x = g_stick_x.load(std::memory_order_relaxed);
     *y = g_stick_y.load(std::memory_order_relaxed);
+}
+
+std::string controller_name() {
+    std::lock_guard lock(g_pad_name_mutex);
+    return g_pad_name;
 }
 
 bool take_debug_menu_press() { return g_debug_menu_presses.exchange(0, std::memory_order_relaxed) > 0; }

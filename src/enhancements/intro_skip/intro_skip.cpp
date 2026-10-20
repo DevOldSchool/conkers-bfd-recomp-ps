@@ -7,6 +7,7 @@
 #include <cstdlib>
 
 #include "recomp.h"
+#include "enhancements/status.hpp"
 
 namespace {
 
@@ -158,5 +159,17 @@ extern "C" void conker_skip_fade_colour(uint8_t* /*rdram*/, recomp_context* ctx)
         ctx->r6 = 0;
         ctx->r7 = 0;
         ctx->r24 = 0;
+    }
+}
+
+conker::status::Line conker::status::intro_skip() {
+    switch (intro_skip_mode()) {
+        case IntroSkip::Never:
+            return {"Skip to the title menu", false, "CONKER_SKIP_INTRO=0; the intro cannot be skipped after a cold boot"};
+        case IntroSkip::Always:
+            return {"Skip to the title menu", true, "CONKER_SKIP_INTRO=1; skipped without a press"};
+        case IntroSkip::OnStart:
+        default:
+            return {"Skip to the title menu", true, "CONKER_SKIP_INTRO; Start skips to the GAME 1 menu"};
     }
 }

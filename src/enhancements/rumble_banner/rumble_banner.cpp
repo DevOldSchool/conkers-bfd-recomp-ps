@@ -10,6 +10,7 @@
 #include "recomp.h"
 
 #include "platform/input.hpp"
+#include "enhancements/status.hpp"
 
 namespace {
 
@@ -31,4 +32,10 @@ extern "C" void conker_rumble_banner(uint8_t* rdram, recomp_context* /*ctx*/) {
     if (!always_show_banner() && conker::input::has_rumble()) {
         MEM_H(0, kseg0(kBannerCountdown)) = 0;
     }
+}
+
+conker::status::Line conker::status::rumble_banner() {
+    return {"No Rumble Pak banner with a rumbling pad", !always_show_banner(),
+            std::string("CONKER_RUMBLE_BANNER=1 shows it; the pad ") +
+                (conker::input::has_rumble() ? "can rumble" : "cannot rumble")};
 }

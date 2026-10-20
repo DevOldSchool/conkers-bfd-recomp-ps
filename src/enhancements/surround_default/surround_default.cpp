@@ -4,6 +4,7 @@
 #include <cstdlib>
 
 #include "recomp.h"
+#include "enhancements/status.hpp"
 
 namespace {
 
@@ -38,4 +39,12 @@ extern "C" void conker_surround_default(uint8_t* rdram, recomp_context* /*ctx*/)
     if (sound < 0 || sound > kSoundOptionMax) {
         MEM_B(0, kseg0(kSoundOption)) = kSurround;
     }
+}
+
+conker::status::Line conker::status::surround_default(uint8_t* rdram) {
+    const int8_t option = MEM_B(0, kseg0(kSoundOption));
+    const char* names[] = {"stereo", "surround", "mono"};
+    return {"Surround by default", surround_default_enabled(),
+            std::string("CONKER_SURROUND_DEFAULT; the sound option is now ") +
+                (option >= 0 && option <= kSoundOptionMax ? names[option] : "unknown")};
 }

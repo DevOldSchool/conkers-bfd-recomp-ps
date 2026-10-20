@@ -70,6 +70,9 @@ unsigned char dummy_rom_header[0x40];
 
 void dummy_check_interrupts() {}
 
+std::mutex g_texture_packs_mutex;
+std::vector<std::string> g_texture_packs;  // as loaded, for texture_packs()
+
 // Loads the built-in font and the texture packs; returns whether any was loaded.
 bool load_texture_packs(RT64::Application& app) {
     std::vector<RT64::ReplacementDirectory> directories;
@@ -107,6 +110,10 @@ bool load_texture_packs(RT64::Application& app) {
     const bool loaded = app.textureCache->loadReplacementDirectories(directories);
     for (const std::string& name : names) {
         std::printf("[conker] %s%s\n", name.c_str(), loaded ? "" : " (not loaded)");
+    }
+    if (loaded) {
+        std::lock_guard lock(g_texture_packs_mutex);
+        g_texture_packs = names;
     }
     return loaded;
 }
@@ -357,6 +364,11 @@ private:
 } // namespace
 
 void set_wireframe(bool on) { RT64::SetRenderWireframe(on); }
+
+std::vector<std::string> texture_packs() {
+    std::lock_guard lock(g_texture_packs_mutex);
+    return g_texture_packs;
+}
 
 std::unique_ptr<ultramodern::renderer::RendererContext> create_rt64_render_context(
     uint8_t* rdram, ultramodern::renderer::WindowHandle window_handle, bool developer_mode) {

@@ -7,6 +7,7 @@
 #include <cstdlib>
 
 #include "recomp.h"
+#include "enhancements/status.hpp"
 
 namespace {
 
@@ -102,4 +103,8 @@ extern "C" void conker_skip_unwatched(uint8_t* /*rdram*/, recomp_context* ctx) {
     if (skip_cutscenes_enabled()) {
         ctx->r2 = 1;
     }
+}
+
+conker::status::Line conker::status::cutscene_skip() {
+    return {"Skip any cutscene", skip_cutscenes_enabled(), "CONKER_SKIP_CUTSCENES; L or Start skips every cutscene"};
 }

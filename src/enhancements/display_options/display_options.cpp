@@ -45,6 +45,7 @@
 
 #include "recomp.h"
 #include "platform/display_mode.hpp"
+#include "enhancements/status.hpp"
 
 namespace {
 
@@ -319,4 +320,8 @@ extern "C" void conker_display_options_stick_y(uint8_t* rdram, recomp_context* c
     std::memcpy(&progress, &bits, sizeof(progress));
     const float y = static_cast<float>(row_y(from)) + progress * static_cast<float>(row_y(to) - row_y(from));
     ctx->r17 = static_cast<int32_t>(y);
+}
+
+conker::status::Line conker::status::display_options() {
+    return {"Display options", display_options_enabled(), "CONKER_DISPLAY_OPTIONS; the OPTIONS page's display rows"};
 }
