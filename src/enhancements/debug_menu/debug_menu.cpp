@@ -1,6 +1,6 @@
 // The debug menu: the pad's Back button (Create/Share on a PlayStation pad, View on an Xbox pad)
 // or the ` key opens it during play. Native helpers called from the [[patches.hook]] snippets in
-// config/us.toml (func_151E51EC, func_151DDC20).
+// config/us.toml (func_151E51EC, func_151DDC20, func_151EB06C).
 //
 // It is the game's own pause with its page replaced, so the game stops just as it does for the
 // pause menu and the menu draws with the game's font. A press asks for the pause: at the start of
@@ -13,16 +13,23 @@
 //
 //     WIREFRAME        the game's 3D triangles drawn as their edges (src/platform/render_debug.hpp)
 //     SHOW FPS         the frames the game draws per second, in the corner, on every screen
+//     SHOW POSITION    Conker's scene, position and facing under it, during play
+//     TELEPORT         X, Y and Z to move him to, and spots kept in conker-recomp-data/debug_spots.txt
 //     LOAD SNAPSHOT    a list of saves/snapshots/; A starts one (resume_point.cpp)
 //
-// Up and down choose, A or left and right change, B goes back, and Back, Start or B on the first
-// page close it. The pad is read directly (conker::input::read), not through the game.
+// The first page also shows where Conker is, and opening the menu prints it. Up and down choose,
+// A or left and right change (held, a number keeps changing), B goes back, and Back, Start or B on
+// the first page close it. The pad is read directly (conker::input::read), not through the game.
 // CONKER_DEBUG_MENU=0 turns it off.
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -30,10 +37,13 @@
 #include "enhancements/pause_save/resume_point.hpp"
 #include "platform/input.hpp"
 #include "platform/render_debug.hpp"
+#include "ultramodern/ultramodern.hpp"
 
 extern "C" void func_15042D94(uint8_t* rdram, recomp_context* ctx);
 
 namespace {
+
+using conker::resume::Position;
 
 inline gpr kseg0(uint32_t address) { return static_cast<gpr>(static_cast<int32_t>(address)); }
 
@@ -57,16 +67,20 @@ constexpr int32_t kSelectSound = 0x500;
 constexpr uint32_t kTitleColor = 0xCEC461FF;    // the game's gold
 constexpr uint32_t kChosenColor = 0xFFFFFFFF;
 constexpr uint32_t kOtherColor = 0x9A9A9AFF;
-constexpr int kTitleY = 60;
-constexpr int kFirstRowY = 80;
-constexpr int kRowHeight = 14;
-constexpr int kListRowHeight = 12;
-constexpr int kListRows = 8;
+constexpr int kTitleY = 46;
+constexpr int kFirstRowY = 64;
+constexpr int kRowHeight = 13;
+constexpr int kListRows = 9;
+constexpr int kInfoY = 190;                     // the position line under the rows
+constexpr int kOverlayX = 16;                   // FPS and position in play, top left
+constexpr int kOverlayY = 12;
+constexpr int kSteps[] = {1, 10, 100, 1000};
 
 using Clock = std::chrono::steady_clock;
 
-enum class Page { Main, Snapshots };
-enum Row { kWireframe, kShowFps, kLoadSnapshot, kRowCount };
+enum class Page { Main, Teleport, Spots, Snapshots };
+enum MainRow { kWireframe, kShowFps, kShowPosition, kTeleport, kLoadSnapshot, kMainRows };
+enum TeleportRow { kX, kY, kZ, kStep, kGo, kHere, kRemember, kSpotList, kTeleportRows };
 
 bool g_open_requested = false;
 bool g_injected = false;
@@ -74,22 +88,26 @@ uint16_t g_pad_before = 0;
 bool g_active = false;
 bool g_close_requested = false;
 Page g_page = Page::Main;
-int g_row = 0;
-int g_entry = 0;
+int g_row = 0;           // on the first page
+int g_teleport_row = 0;
+int g_entry = 0;         // in a list
 int g_top = 0;
 std::vector<conker::resume::Snapshot> g_snapshots;
+std::vector<Position> g_spots;  // this scene's
 std::string g_message;
 Clock::time_point g_message_until;
 
 bool g_wireframe = false;
 bool g_show_fps = false;
+bool g_show_position = false;
 int g_frames = 0;
 Clock::time_point g_fps_since = Clock::now();
 int g_fps = 0;
 
+Position g_target;       // the teleport page's X, Y and Z
+int g_step = 2;          // index in kSteps
+
 uint16_t g_previous_buttons = 0;
-int g_previous_direction = 0;
-Clock::time_point g_repeat_at;
 
 bool debug_menu_enabled() {
     static const bool enabled = [] {
@@ -97,6 +115,54 @@ bool debug_menu_enabled() {
         return value == nullptr || value[0] != '0';
     }();
     return enabled;
+}
+
+void show_message(const std::string& message) {
+    g_message = message;
+    g_message_until = Clock::now() + std::chrono::seconds(2);
+}
+
+// --- spots ---------------------------------------------------------------------------------------
+
+// conker-recomp-data/debug_spots.txt: one spot a line, "<scene> <x> <y> <z> <facing>".
+std::filesystem::path spots_path() {
+    return ultramodern::get_save_file_path().parent_path().parent_path() / "debug_spots.txt";
+}
+
+std::vector<Position> read_spots() {
+    std::vector<Position> spots;
+    std::ifstream file(spots_path());
+    for (std::string line; std::getline(file, line);) {
+        Position spot;
+        if (std::sscanf(line.c_str(), "%d %f %f %f %f", &spot.scene, &spot.x, &spot.y, &spot.z, &spot.yaw) == 5) {
+            spots.push_back(spot);
+        }
+    }
+    return spots;
+}
+
+std::vector<Position> scene_spots(int scene) {
+    std::vector<Position> spots;
+    for (const Position& spot : read_spots()) {
+        if (spot.scene == scene) {
+            spots.push_back(spot);
+        }
+    }
+    return spots;
+}
+
+void remember_spot(const Position& spot) {
+    std::ofstream file(spots_path(), std::ios::app);
+    char line[96];
+    std::snprintf(line, sizeof(line), "%d %.2f %.2f %.2f %.2f\n", spot.scene, spot.x, spot.y, spot.z, spot.yaw);
+    file << line;
+    std::printf("[conker] debug menu: spot kept, scene %d (%.0f, %.0f, %.0f)\n", spot.scene, spot.x, spot.y, spot.z);
+}
+
+std::string describe(const Position& p) {
+    char text[kTextSize];
+    std::snprintf(text, sizeof(text), "%.0f  %.0f  %.0f", p.x, p.y, p.z);
+    return text;
 }
 
 // --- drawing -------------------------------------------------------------------------------------
@@ -124,73 +190,112 @@ void draw_text(uint8_t* rdram, recomp_context* ctx, int x, int y, uint8_t flags,
 
 const char* on_off(bool on) { return on ? "ON" : "OFF"; }
 
-void draw_main(uint8_t* rdram, recomp_context* ctx) {
-    draw_text(rdram, ctx, kCenterX, kTitleY, kCentered, kTitleColor, "DEBUG MENU");
-    const std::string rows[kRowCount] = {
-        std::string("WIREFRAME  ") + on_off(g_wireframe),
-        std::string("SHOW FPS  ") + on_off(g_show_fps),
-        "LOAD SNAPSHOT",
-    };
-    for (int row = 0; row < kRowCount; row++) {
-        draw_text(rdram, ctx, kCenterX, kFirstRowY + row * kRowHeight, kCentered, row == g_row ? kChosenColor : kOtherColor,
-                  rows[row]);
+std::string position_line(uint8_t* rdram) {
+    Position p;
+    if (!conker::resume::current_position(rdram, &p)) {
+        return "";
+    }
+    char text[kTextSize];
+    std::snprintf(text, sizeof(text), "SCENE %d  %.0f %.0f %.0f  %.0f", p.scene, p.x, p.y, p.z, p.yaw);
+    return text;
+}
+
+// The title, or for two seconds the last message in its place.
+void draw_title(uint8_t* rdram, recomp_context* ctx, const std::string& title) {
+    const bool message = !g_message.empty() && Clock::now() < g_message_until;
+    draw_text(rdram, ctx, kCenterX, kTitleY, kCentered, kTitleColor, message ? g_message : title);
+}
+
+void draw_rows(uint8_t* rdram, recomp_context* ctx, const std::vector<std::string>& rows, int chosen, int first = 0) {
+    const int count = static_cast<int>(rows.size());
+    for (int i = first; i < std::min(count, first + kListRows); i++) {
+        draw_text(rdram, ctx, kCenterX, kFirstRowY + (i - first) * kRowHeight, kCentered,
+                  i == chosen ? kChosenColor : kOtherColor, rows[i]);
     }
 }
 
-void draw_snapshots(uint8_t* rdram, recomp_context* ctx) {
-    const int count = static_cast<int>(g_snapshots.size());
-    char title[kTextSize];
-    if (!g_message.empty() && Clock::now() < g_message_until) {
-        std::snprintf(title, sizeof(title), "%s", g_message.c_str());
-    } else if (count > 0) {
-        std::snprintf(title, sizeof(title), "LOAD SNAPSHOT  %d/%d", g_entry + 1, count);
-    } else {
-        std::snprintf(title, sizeof(title), "LOAD SNAPSHOT");
+void draw_page(uint8_t* rdram, recomp_context* ctx) {
+    char text[kTextSize];
+    switch (g_page) {
+        case Page::Main:
+            draw_title(rdram, ctx, "DEBUG MENU");
+            draw_rows(rdram, ctx,
+                      {std::string("WIREFRAME  ") + on_off(g_wireframe), std::string("SHOW FPS  ") + on_off(g_show_fps),
+                       std::string("SHOW POSITION  ") + on_off(g_show_position), "TELEPORT", "LOAD SNAPSHOT"},
+                      g_row);
+            break;
+        case Page::Teleport:
+            draw_title(rdram, ctx, "TELEPORT");
+            std::snprintf(text, sizeof(text), "%d", kSteps[g_step]);
+            draw_rows(rdram, ctx,
+                      {"X  " + std::to_string(static_cast<int>(std::lround(g_target.x))),
+                       "Y  " + std::to_string(static_cast<int>(std::lround(g_target.y))),
+                       "Z  " + std::to_string(static_cast<int>(std::lround(g_target.z))), std::string("STEP  ") + text, "GO",
+                       "HERE", "REMEMBER", "SPOTS  " + std::to_string(g_spots.size())},
+                      g_teleport_row);
+            break;
+        case Page::Spots: {
+            const int count = static_cast<int>(g_spots.size());
+            std::snprintf(text, sizeof(text), count > 0 ? "SPOTS  %d/%d" : "SPOTS", g_entry + 1, count);
+            draw_title(rdram, ctx, text);
+            if (count == 0) {
+                draw_rows(rdram, ctx, {"NONE IN THIS SCENE", "REMEMBER ONE ON TELEPORT"}, -1);
+            }
+            std::vector<std::string> rows;
+            for (const Position& spot : g_spots) {
+                rows.push_back(describe(spot));
+            }
+            draw_rows(rdram, ctx, rows, g_entry, g_top);
+            break;
+        }
+        case Page::Snapshots: {
+            const int count = static_cast<int>(g_snapshots.size());
+            std::snprintf(text, sizeof(text), count > 0 ? "LOAD SNAPSHOT  %d/%d" : "LOAD SNAPSHOT", g_entry + 1, count);
+            draw_title(rdram, ctx, text);
+            if (count == 0) {
+                draw_rows(rdram, ctx, {"NO SNAPSHOTS YET", "SAVE FROM THE PAUSE MENU"}, -1);
+            }
+            std::vector<std::string> rows;
+            for (const conker::resume::Snapshot& snapshot : g_snapshots) {
+                std::snprintf(text, sizeof(text), "SCENE %-3d %s", snapshot.scene, snapshot.when.c_str());
+                rows.push_back(text);
+            }
+            draw_rows(rdram, ctx, rows, g_entry, g_top);
+            break;
+        }
     }
-    draw_text(rdram, ctx, kCenterX, kTitleY, kCentered, kTitleColor, title);
-    if (g_snapshots.empty()) {
-        draw_text(rdram, ctx, kCenterX, kFirstRowY, kCentered, kOtherColor, "NO SNAPSHOTS YET");
-        draw_text(rdram, ctx, kCenterX, kFirstRowY + kListRowHeight, kCentered, kOtherColor, "SAVE FROM THE PAUSE MENU");
-    }
-    for (int i = g_top; i < std::min(count, g_top + kListRows); i++) {
-        const conker::resume::Snapshot& snapshot = g_snapshots[i];
-        char line[kTextSize];
-        std::snprintf(line, sizeof(line), "SCENE %-3d %s", snapshot.scene, snapshot.when.c_str());
-        draw_text(rdram, ctx, kCenterX, kFirstRowY - 2 + (i - g_top) * kListRowHeight, kCentered,
-                  i == g_entry ? kChosenColor : kOtherColor, line);
+    if (g_page == Page::Main || g_page == Page::Teleport) {
+        draw_text(rdram, ctx, kCenterX, kInfoY, kCentered, kOtherColor, position_line(rdram));
     }
 }
 
 // --- input ---------------------------------------------------------------------------------------
 
-// -1 up, 1 down, 0 neither: a fresh push, then repeats while held.
-int vertical_step(uint16_t buttons, float y) {
-    int direction = 0;
-    if ((buttons & conker::input::kDUp) || y > 0.5f) direction = -1;
-    if ((buttons & conker::input::kDDown) || y < -0.5f) direction = 1;
-    const Clock::time_point now = Clock::now();
-    int step = 0;
-    if (direction != 0 && direction != g_previous_direction) {
-        step = direction;
-        g_repeat_at = now + std::chrono::milliseconds(400);
-    } else if (direction != 0 && now >= g_repeat_at) {
-        step = direction;
-        g_repeat_at = now + std::chrono::milliseconds(90);
-    }
-    g_previous_direction = direction;
-    return step;
-}
+// A direction on one axis: a fresh push, then repeats while held.
+struct Repeat {
+    int previous = 0;
+    Clock::time_point next;
 
-// A fresh push left or right.
-bool horizontal_push(uint16_t buttons, float x) {
-    static int previous = 0;
-    const int direction = ((buttons & conker::input::kDLeft) || x < -0.5f)    ? -1
-                          : ((buttons & conker::input::kDRight) || x > 0.5f) ? 1
-                                                                              : 0;
-    const bool push = direction != 0 && direction != previous;
-    previous = direction;
-    return push;
-}
+    // -1, 1 or 0; `fresh` is set only for the push itself.
+    int step(int direction, bool* fresh) {
+        const Clock::time_point now = Clock::now();
+        int step = 0;
+        *fresh = false;
+        if (direction != 0 && direction != previous) {
+            step = direction;
+            *fresh = true;
+            next = now + std::chrono::milliseconds(400);
+        } else if (direction != 0 && now >= next) {
+            step = direction;
+            next = now + std::chrono::milliseconds(80);
+        }
+        previous = direction;
+        return step;
+    }
+};
+
+Repeat g_vertical;
+Repeat g_horizontal;
 
 void close_menu(uint8_t* rdram) {
     g_active = false;
@@ -205,10 +310,144 @@ void set_wireframe(bool on) {
     std::printf("[conker] debug menu: wireframe %s\n", on ? "on" : "off");
 }
 
+// Moves the list selection by `step` and keeps it in view.
+void move_in_list(int step, int count) {
+    g_entry = std::clamp(g_entry + step, 0, std::max(count - 1, 0));
+    g_top = std::clamp(g_top, g_entry - kListRows + 1, g_entry);
+}
+
+void open_list(Page page) {
+    g_page = page;
+    g_entry = 0;
+    g_top = 0;
+}
+
+// The first page. Returns the sound to play.
+int32_t main_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_horizontal, uint16_t pressed) {
+    if (vertical != 0) {
+        g_row = (g_row + vertical + kMainRows) % kMainRows;
+        return kMoveSound;
+    }
+    const bool change = (pressed & conker::input::kA) || (horizontal != 0 && fresh_horizontal);
+    if (!change) {
+        return 0;
+    }
+    switch (g_row) {
+        case kWireframe:
+            set_wireframe(!g_wireframe);
+            break;
+        case kShowFps:
+            g_show_fps = !g_show_fps;
+            break;
+        case kShowPosition:
+            g_show_position = !g_show_position;
+            break;
+        case kTeleport:
+            if (!(pressed & conker::input::kA)) {
+                return 0;
+            }
+            if (!conker::resume::current_position(rdram, &g_target)) {
+                show_message("NO CONKER HERE");
+                return kSelectSound;
+            }
+            g_spots = scene_spots(g_target.scene);
+            g_page = Page::Teleport;
+            break;
+        case kLoadSnapshot:
+            if (!(pressed & conker::input::kA)) {
+                return 0;
+            }
+            g_snapshots = conker::resume::list_snapshots();
+            open_list(Page::Snapshots);
+            break;
+    }
+    return kSelectSound;
+}
+
+int32_t teleport_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_horizontal, uint16_t pressed) {
+    if (pressed & conker::input::kB) {
+        g_page = Page::Main;
+        return kSelectSound;
+    }
+    if (vertical != 0) {
+        g_teleport_row = (g_teleport_row + vertical + kTeleportRows) % kTeleportRows;
+        return kMoveSound;
+    }
+    float* axis = g_teleport_row == kX ? &g_target.x : g_teleport_row == kY ? &g_target.y : g_teleport_row == kZ ? &g_target.z : nullptr;
+    if (axis != nullptr && horizontal != 0) {
+        *axis = static_cast<float>(std::lround(*axis)) + horizontal * kSteps[g_step];
+        return fresh_horizontal ? kMoveSound : 0;
+    }
+    if (g_teleport_row == kStep && horizontal != 0 && fresh_horizontal) {
+        g_step = std::clamp(g_step + horizontal, 0, static_cast<int>(std::size(kSteps)) - 1);
+        return kMoveSound;
+    }
+    if (!(pressed & conker::input::kA)) {
+        return 0;
+    }
+    Position here;
+    switch (g_teleport_row) {
+        case kStep:
+            g_step = (g_step + 1) % static_cast<int>(std::size(kSteps));
+            break;
+        case kGo:
+            if (conker::resume::teleport(rdram, g_target)) {
+                close_menu(rdram);
+            } else {
+                show_message("CANNOT TELEPORT HERE");
+            }
+            break;
+        case kHere:
+            if (conker::resume::current_position(rdram, &here)) {
+                g_target = here;
+            }
+            break;
+        case kRemember:
+            remember_spot(g_target);
+            g_spots = scene_spots(g_target.scene);
+            show_message("SPOT KEPT");
+            break;
+        case kSpotList:
+            open_list(Page::Spots);
+            break;
+        default:
+            return 0;
+    }
+    return kSelectSound;
+}
+
+int32_t list_page(uint8_t* rdram, int vertical, uint16_t pressed) {
+    const int count = static_cast<int>(g_page == Page::Spots ? g_spots.size() : g_snapshots.size());
+    if (pressed & conker::input::kB) {
+        g_page = g_page == Page::Spots ? Page::Teleport : Page::Main;
+        return kSelectSound;
+    }
+    if (vertical != 0 && count > 0) {
+        move_in_list(vertical, count);
+        return kMoveSound;
+    }
+    if (!(pressed & conker::input::kA) || count == 0) {
+        return 0;
+    }
+    if (g_page == Page::Spots) {
+        g_target = g_spots[g_entry];
+        if (conker::resume::teleport(rdram, g_target)) {
+            close_menu(rdram);
+        } else {
+            show_message("CANNOT TELEPORT HERE");
+        }
+    } else if (conker::resume::load_snapshot(rdram, g_snapshots[g_entry].path)) {
+        close_menu(rdram);
+    } else {
+        show_message("SAVING, TRY AGAIN");
+    }
+    return kSelectSound;
+}
+
 }  // namespace
 
 // In func_151E51EC, the menu handler, once a frame on every screen (after func_15042D78): counts
-// frames, draws the frame rate, and takes a press of the debug menu button.
+// frames, draws the frame rate and position, and takes a press of the debug menu button.
 extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
     g_frames++;
     const Clock::time_point now = Clock::now();
@@ -218,8 +457,13 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
         g_frames = 0;
         g_fps_since = now;
     }
+    int y = kOverlayY;
     if (g_show_fps) {
-        draw_text(rdram, ctx, 16, 12, kLeft, 0xFFFFFFFF, std::to_string(g_fps) + " FPS");
+        draw_text(rdram, ctx, kOverlayX, y, kLeft, 0xFFFFFFFF, std::to_string(g_fps) + " FPS");
+        y += 11;
+    }
+    if (g_show_position && !g_active) {
+        draw_text(rdram, ctx, kOverlayX, y, kLeft, 0xFFFFFFFF, position_line(rdram));
     }
 
     if (g_active && MEM_BU(0, kseg0(kPauseOpen)) == 0) {
@@ -258,10 +502,15 @@ extern "C" void conker_debug_menu_requested(uint8_t* rdram, recomp_context* /*ct
         g_active = true;
         g_close_requested = false;
         g_page = Page::Main;
+        g_message.clear();
         uint16_t buttons;
         float x, y;
         conker::input::read(&buttons, &x, &y);
         g_previous_buttons = buttons;  // a button held while opening does not count as a press
+        Position p;
+        if (conker::resume::current_position(rdram, &p)) {
+            std::printf("[conker] debug menu: scene %d at (%.2f, %.2f, %.2f) facing %.2f\n", p.scene, p.x, p.y, p.z, p.yaw);
+        }
     }
 }
 
@@ -288,9 +537,11 @@ extern "C" void conker_debug_menu_frame(uint8_t* rdram, recomp_context* ctx) {
     conker::input::read(&buttons, &x, &y);
     const uint16_t pressed = buttons & ~g_previous_buttons;
     g_previous_buttons = buttons;
-    const int step = vertical_step(buttons, y);
-    const bool push = horizontal_push(buttons, x);
-    int32_t sound = 0;
+    bool fresh_vertical, fresh_horizontal;
+    const int up_down = ((buttons & conker::input::kDUp) || y > 0.5f) ? -1 : ((buttons & conker::input::kDDown) || y < -0.5f) ? 1 : 0;
+    const int left_right = ((buttons & conker::input::kDLeft) || x < -0.5f) ? -1 : ((buttons & conker::input::kDRight) || x > 0.5f) ? 1 : 0;
+    const int vertical = g_vertical.step(up_down, &fresh_vertical);
+    const int horizontal = g_horizontal.step(left_right, &fresh_horizontal);
 
     if (g_close_requested || (pressed & conker::input::kStart) ||
         (g_page == Page::Main && (pressed & conker::input::kB))) {
@@ -299,52 +550,24 @@ extern "C" void conker_debug_menu_frame(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
 
-    if (g_page == Page::Main) {
-        if (step != 0) {
-            g_row = (g_row + step + kRowCount) % kRowCount;
-            sound = kMoveSound;
-        }
-        const bool activate = (pressed & conker::input::kA) != 0;
-        if (g_row == kWireframe && (activate || push)) {
-            set_wireframe(!g_wireframe);
-            sound = kSelectSound;
-        } else if (g_row == kShowFps && (activate || push)) {
-            g_show_fps = !g_show_fps;
-            std::printf("[conker] debug menu: show fps %s\n", g_show_fps ? "on" : "off");
-            sound = kSelectSound;
-        } else if (g_row == kLoadSnapshot && activate) {
-            g_snapshots = conker::resume::list_snapshots();
-            g_page = Page::Snapshots;
-            g_entry = 0;
-            g_top = 0;
-            g_message.clear();
-            sound = kSelectSound;
-        }
-    } else {
-        const int count = static_cast<int>(g_snapshots.size());
-        if (pressed & conker::input::kB) {
-            g_page = Page::Main;
-            sound = kSelectSound;
-        } else if (step != 0 && count > 0) {
-            g_entry = std::clamp(g_entry + step, 0, count - 1);
-            g_top = std::clamp(g_top, g_entry - kListRows + 1, g_entry);
-            sound = kMoveSound;
-        } else if ((pressed & conker::input::kA) && count > 0) {
-            if (conker::resume::load_snapshot(rdram, g_snapshots[g_entry].path)) {
-                close_menu(rdram);
-            } else {
-                g_message = "SAVING, TRY AGAIN";
-                g_message_until = Clock::now() + std::chrono::seconds(2);
-            }
-            sound = kSelectSound;
-        }
+    int32_t sound = 0;
+    switch (g_page) {
+        case Page::Main:
+            sound = main_page(rdram, vertical, horizontal, fresh_horizontal, pressed);
+            break;
+        case Page::Teleport:
+            sound = teleport_page(rdram, vertical, horizontal, fresh_horizontal, pressed);
+            break;
+        case Page::Spots:
+        case Page::Snapshots:
+            sound = list_page(rdram, vertical, pressed);
+            break;
     }
-
-    if (g_page == Page::Main) {
-        draw_main(rdram, ctx);
-    } else {
-        draw_snapshots(rdram, ctx);
+    if (!g_active) {  // a teleport or a load closed it
+        MEM_W(kSoundSlot, ctx->r29) = sound;
+        return;
     }
+    draw_page(rdram, ctx);
     if (sound != 0) {
         MEM_W(kSoundSlot, ctx->r29) = sound;
     }

@@ -61,6 +61,7 @@ constexpr int kObjectPreviousX = 0x2C;           // last frame's position
 constexpr uint32_t kTransition = 0x800BE615;     // D_800BE615: scene change pending, 0 when none
 constexpr int kSettleFrames = 10;                // frames the scene runs before Conker is moved
 constexpr int kPlaceFrames = 4;                  // frames he is then held at the resumed spot
+constexpr int kTeleportFrames = 8;               // frames he is held after a teleport (debug menu)
 constexpr uint32_t kSaveCounters = 0x800BE400;   // D_800BE3F8 + 8, 16 bytes per slot
 constexpr uint32_t kSaveSlot = 0x8008FDA8;       // D_8008FDA8: the game slot in play
 constexpr uint32_t kEepromAction = 0x80082BB4;   // D_80082BB4: request for func_1501C57C
@@ -87,6 +88,7 @@ int g_pending_slot = -1;
 bool g_load_requested = false;
 Point g_resuming;          // being started, waiting for Conker to be placed
 int g_resume_frames = 0;
+int g_place_frames = kPlaceFrames;
 int g_resumed_slot = -1;   // the slot last started at its point, and when
 std::chrono::steady_clock::time_point g_resumed_at;
 bool g_snapshot_pending = false;  // a save to keep once the EEPROM write is done
@@ -172,6 +174,21 @@ float read_float(uint8_t* rdram, uint32_t address) {
     return value;
 }
 
+// Puts Conker's object at the point, this frame and the last (so he does not sweep there).
+void place(uint8_t* rdram, uint32_t object, const Point& point) {
+    const float position[3] = {point.x, point.y, point.z};
+    for (int i = 0; i < 3; i++) {
+        write_float(rdram, object + kObjectX + 4 * i, position[i]);
+        write_float(rdram, object + kObjectPreviousX + 4 * i, position[i]);
+    }
+    write_float(rdram, object + kObjectYaw, point.yaw * (3.14159265f / 180.0f));
+}
+
+uint32_t player_object(uint8_t* rdram) {
+    const uint32_t object = static_cast<uint32_t>(MEM_W(0, kseg0(kPlayerObject)));
+    return (object & 0xFF000000) == 0x80000000 ? object : 0;
+}
+
 uint32_t save_counter(uint8_t* rdram, int slot) {
     return static_cast<uint32_t>(MEM_W(0, kseg0(kSaveCounters + static_cast<uint32_t>(slot) * 16)));
 }
@@ -241,6 +258,40 @@ void request_load(uint8_t* rdram, int slot) {
     MEM_B(0, kseg0(kEepromAction)) = kEepromLoad;
     MEM_B(0, kseg0(kEepromSlot)) = static_cast<int8_t>(slot);
     g_load_requested = true;
+}
+
+bool current_position(uint8_t* rdram, Position* out) {
+    const uint32_t object = player_object(rdram);
+    if (object == 0) {
+        return false;
+    }
+    out->scene = MEM_W(0, kseg0(kScene));
+    out->x = read_float(rdram, object + kObjectX);
+    out->y = read_float(rdram, object + kObjectY);
+    out->z = read_float(rdram, object + kObjectZ);
+    out->yaw = read_float(rdram, object + kObjectYaw) * (180.0f / 3.14159265f);
+    return true;
+}
+
+bool teleport(uint8_t* rdram, const Position& to) {
+    const uint32_t object = player_object(rdram);
+    if (object == 0 || MEM_W(0, kseg0(kScene)) != to.scene) {
+        return false;
+    }
+    Point point;
+    point.valid = true;
+    point.scene = to.scene;
+    point.x = to.x;
+    point.y = to.y;
+    point.z = to.z;
+    point.yaw = to.yaw;
+    place(rdram, object, point);
+    // Held there for a few frames more, through the end of the pause.
+    g_resuming = point;
+    g_resume_frames = kSettleFrames;
+    g_place_frames = kTeleportFrames;
+    std::printf("[conker] teleport: scene %d to (%.0f, %.0f, %.0f) facing %.0f\n", to.scene, to.x, to.y, to.z, to.yaw);
+    return true;
 }
 
 std::vector<Snapshot> list_snapshots() {
@@ -353,6 +404,7 @@ extern "C" void conker_resume_start(uint8_t* rdram, recomp_context* ctx) {
     ctx->r6 = point.entrance;
     g_resuming = point;
     g_resume_frames = 0;
+    g_place_frames = kPlaceFrames;
     g_resumed_slot = slot;
     g_resumed_at = std::chrono::steady_clock::now();
     std::printf("[conker] resuming slot %d in scene %d at (%.0f, %.0f, %.0f)\n", slot, point.scene, point.x, point.y,
@@ -386,13 +438,8 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
     if (++g_resume_frames <= kSettleFrames) {
         return;
     }
-    const float position[3] = {g_resuming.x, g_resuming.y, g_resuming.z};
-    for (int i = 0; i < 3; i++) {
-        write_float(rdram, object + kObjectX + 4 * i, position[i]);
-        write_float(rdram, object + kObjectPreviousX + 4 * i, position[i]);
-    }
-    write_float(rdram, object + kObjectYaw, g_resuming.yaw * (3.14159265f / 180.0f));
-    if (g_resume_frames >= kSettleFrames + kPlaceFrames) {
+    place(rdram, object, g_resuming);
+    if (g_resume_frames >= kSettleFrames + g_place_frames) {
         g_resuming.valid = false;
     }
 }

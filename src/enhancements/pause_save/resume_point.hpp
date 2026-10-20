@@ -13,6 +13,19 @@ void remember_position(uint8_t* rdram, int slot);
 // Reload `slot` from the save and start it where it was saved, as PLAY on the title menu does.
 void request_load(uint8_t* rdram, int slot);
 
+// Where Conker is: the scene, his position and his facing in degrees.
+struct Position {
+    int scene = 0;
+    float x = 0, y = 0, z = 0, yaw = 0;
+};
+
+// False while there is no Conker (a menu, a scene change).
+bool current_position(uint8_t* rdram, Position* out);
+
+// Moves Conker to `to` in the scene being played, and holds him there for a few frames. False
+// when there is no Conker or `to` is in another scene.
+bool teleport(uint8_t* rdram, const Position& to);
+
 // A snapshot of a save in saves/snapshots/ (see resume_point.cpp).
 struct Snapshot {
     std::filesystem::path path;  // the .bin
