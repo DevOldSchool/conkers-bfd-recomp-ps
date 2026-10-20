@@ -66,6 +66,11 @@ the keyboard at the same time. There is no remapping yet. A pad that can
 rumble (DualSense, DualShock 4, Xbox, Switch Pro) counts as a Rumble Pak in
 controller 1, so connect it before starting the game, which looks for the pak
 at boot. `CONKER_RUMBLE_TEST=1` buzzes the pad for a second when it connects.
+On macOS, DualSense and DualShock 4 pads are read through Apple's
+GameController framework, so they keep working in other apps (OpenEmu, for
+one) after the game quits; `SDL_JOYSTICK_HIDAPI_PS5=1` (or `_PS4=1`) uses
+SDL's own driver instead, which leaves a Bluetooth pad unreadable to those
+apps until it reconnects.
 
 | N64 | Xbox | PlayStation | Keyboard |
 | --- | --- | --- | --- |
