@@ -151,9 +151,9 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   load it from the debug menu.
   `CONKER_SAVE_SNAPSHOTS=0` stops keeping them.
 * **Debug menu:** View on an Xbox pad, Create (Share) on a PlayStation pad, or
-  the ` key opens it during play. It is the game's pause with its own page
-  under PAUSED, so the game stops as it does for the pause menu, and it closes
-  with B, Start or the same button. Up and down choose a row, A or left and
+  the ` key opens it during play. It is the game's pause with its own page in
+  place of the lever, PAUSED and the HUD, so the game stops as it does for the
+  pause menu, and it closes with B, Start or the same button. Up and down choose a row, A or left and
   right change it:
   * WIREFRAME: the game's 3D triangles drawn as their edges on black; text,
     sprites and the HUD stay solid. Metal only for now.

@@ -8,8 +8,8 @@
 // frame (D_800BE930), so the pause opens only where Start would open it, and taken out again once
 // the handler has looked for it. When that pause opened (D_800BEAC1), the pause page
 // (0x151DE00C on) draws this menu and skips to the end of the frame, 0x151DE698, which plays the
-// sound left in the frame's sound slot. Closing it is CONT...'s: the close countdown in
-// D_8008FEEC/F0.
+// sound left in the frame's sound slot. func_151EB06C, which draws PAUSED and the HUD while
+// paused, is kept from drawing them. Closing it is CONT...'s: the close countdown in D_8008FEEC/F0.
 //
 //     WIREFRAME        the game's 3D triangles drawn as their edges (src/platform/render_debug.hpp)
 //     SHOW FPS         the frames the game draws per second, in the corner, on every screen
@@ -57,12 +57,11 @@ constexpr int32_t kSelectSound = 0x500;
 constexpr uint32_t kTitleColor = 0xCEC461FF;    // the game's gold
 constexpr uint32_t kChosenColor = 0xFFFFFFFF;
 constexpr uint32_t kOtherColor = 0x9A9A9AFF;
-// The pause keeps drawing PAUSED above and the HUD below, so the menu fits between them.
-constexpr int kTitleY = 78;
-constexpr int kFirstRowY = 96;
+constexpr int kTitleY = 60;
+constexpr int kFirstRowY = 80;
 constexpr int kRowHeight = 14;
 constexpr int kListRowHeight = 12;
-constexpr int kListRows = 4;
+constexpr int kListRows = 8;
 
 using Clock = std::chrono::steady_clock;
 
@@ -263,6 +262,15 @@ extern "C" void conker_debug_menu_requested(uint8_t* rdram, recomp_context* /*ct
         float x, y;
         conker::input::read(&buttons, &x, &y);
         g_previous_buttons = buttons;  // a button held while opening does not count as a press
+    }
+}
+
+// In func_151EB06C, which draws PAUSED and the HUD (chocolate, cash) while the game is paused, at
+// 0x151EB128 ($v0 = D_800BEAC0, the pause running): the debug menu's pause shows neither, so the
+// game is not paused as far as it is concerned.
+extern "C" void conker_debug_menu_hud(uint8_t* /*rdram*/, recomp_context* ctx) {
+    if (g_active) {
+        ctx->r2 = 0;
     }
 }
 

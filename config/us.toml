@@ -149,11 +149,17 @@ text = "conker_geometry_escape(rdram, ctx);"
 # the start of func_151DDC20 Start is added to pad 1's buttons pressed this frame (D_800BE930),
 # and at 0x151DDDE0, after the handler has looked for it, taken out again; if the pause opened,
 # the pause page at 0x151DE00C (the SAVE/LOAD hook below) draws the debug menu and skips to the
-# end of the frame. See src/enhancements/debug_menu/debug_menu.cpp.
+# end of the frame. func_151EB06C, which draws PAUSED and the HUD while paused, is told at
+# 0x151EB128 ($v0, D_800BEAC0) that the game is not. See src/enhancements/debug_menu/debug_menu.cpp.
 [[patches.hook]]
 func = "func_151E51EC"
 before_vram = 0x151E5220
 text = "{ void conker_debug_menu_tick(uint8_t*, recomp_context*); conker_debug_menu_tick(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151EB06C"
+before_vram = 0x151EB128
+text = "{ void conker_debug_menu_hud(uint8_t*, recomp_context*); conker_debug_menu_hud(rdram, ctx); }"
 
 [[patches.hook]]
 func = "func_151DDC20"
