@@ -13,11 +13,13 @@
 //
 //     WIREFRAME        the game's 3D triangles drawn as their edges (src/platform/render_debug.hpp)
 //     SHOW FPS         the frames the game draws per second, in the corner, on every screen
-//     SHOW POSITION    Conker's scene, position and facing under it, during play
+//     SHOW POSITION    Conker's scene, position and facing, and the camera's yaw and pitch, under
+//                      it, during play
 //     TELEPORT         X, Y and Z to move him to, and spots kept in conker-recomp-data/debug_spots.txt
 //     LOAD SNAPSHOT    a list of saves/snapshots/; A starts one (resume_point.cpp)
 //
-// The first page also shows where Conker is, and opening the menu prints it. Up and down choose,
+// The first page also shows where Conker is and where the camera looks, and opening the menu prints
+// them (with the camera's position, look-at point and forward vector). Up and down choose,
 // A or left and right change (held, a number keeps changing), B goes back, and Back, Start or B on
 // the first page close it. The pad is read directly (conker::input::read), not through the game.
 // CONKER_DEBUG_MENU=0 turns it off.
@@ -71,7 +73,7 @@ constexpr int kTitleY = 46;
 constexpr int kFirstRowY = 64;
 constexpr int kRowHeight = 13;
 constexpr int kListRows = 9;
-constexpr int kInfoY = 190;                     // the position line under the rows
+constexpr int kInfoY = 178;                     // the position and camera lines under the rows
 constexpr int kOverlayX = 16;                   // FPS and position in play, top left
 constexpr int kOverlayY = 12;
 constexpr int kSteps[] = {1, 10, 100, 1000};
@@ -196,7 +198,17 @@ std::string position_line(uint8_t* rdram) {
         return "";
     }
     char text[kTextSize];
-    std::snprintf(text, sizeof(text), "SCENE %d  %.0f %.0f %.0f  %.0f", p.scene, p.x, p.y, p.z, p.yaw);
+    std::snprintf(text, sizeof(text), "SCENE %d  %.0f %.0f %.0f  FACING %.0f", p.scene, p.x, p.y, p.z, p.facing);
+    return text;
+}
+
+std::string camera_line(uint8_t* rdram) {
+    conker::resume::Camera camera;
+    if (!conker::resume::current_camera(rdram, &camera)) {
+        return "";
+    }
+    char text[kTextSize];
+    std::snprintf(text, sizeof(text), "CAMERA YAW %.0f  PITCH %.0f", camera.yaw(), camera.pitch());
     return text;
 }
 
@@ -266,6 +278,7 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
     }
     if (g_page == Page::Main || g_page == Page::Teleport) {
         draw_text(rdram, ctx, kCenterX, kInfoY, kCentered, kOtherColor, position_line(rdram));
+        draw_text(rdram, ctx, kCenterX, kInfoY + 11, kCentered, kOtherColor, camera_line(rdram));
     }
 }
 
@@ -464,6 +477,7 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
     }
     if (g_show_position && !g_active) {
         draw_text(rdram, ctx, kOverlayX, y, kLeft, 0xFFFFFFFF, position_line(rdram));
+        draw_text(rdram, ctx, kOverlayX, y + 11, kLeft, 0xFFFFFFFF, camera_line(rdram));
     }
 
     if (g_active && MEM_BU(0, kseg0(kPauseOpen)) == 0) {
@@ -509,7 +523,14 @@ extern "C" void conker_debug_menu_requested(uint8_t* rdram, recomp_context* /*ct
         g_previous_buttons = buttons;  // a button held while opening does not count as a press
         Position p;
         if (conker::resume::current_position(rdram, &p)) {
-            std::printf("[conker] debug menu: scene %d at (%.2f, %.2f, %.2f) facing %.2f\n", p.scene, p.x, p.y, p.z, p.yaw);
+            std::printf("[conker] debug menu: scene %d at (%.2f, %.2f, %.2f) facing %.2f\n", p.scene, p.x, p.y, p.z, p.facing);
+        }
+        conker::resume::Camera c;
+        if (conker::resume::current_camera(rdram, &c)) {
+            std::printf("[conker] debug menu: camera at (%.2f, %.2f, %.2f) looking at (%.2f, %.2f, %.2f), forward (%.3f, %.3f, "
+                        "%.3f), yaw %.2f pitch %.2f\n",
+                        c.eye[0], c.eye[1], c.eye[2], c.at[0], c.at[1], c.at[2], c.forward[0], c.forward[1], c.forward[2],
+                        c.yaw(), c.pitch());
         }
     }
 }

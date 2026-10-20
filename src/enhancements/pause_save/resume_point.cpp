@@ -54,7 +54,12 @@ constexpr uint32_t kPlayerObject = 0x80088720;   // D_80088720: Conker's object
 constexpr int kObjectX = 0x14;                   // position, floats
 constexpr int kObjectY = 0x18;
 constexpr int kObjectZ = 0x1C;
-constexpr int kObjectYaw = 0xB8;                 // facing, radians
+constexpr int kObjectYaw = 0xB8;                 // an angle in radians, restored with the position
+constexpr int kObjectFacing = 0x40;              // facing, degrees from +Z towards +X (not wrapped)
+constexpr int kObjectCamera = 0x31C;             // the camera block: forward vector, eye, look-at
+constexpr int kCameraForward = 0x130;
+constexpr int kCameraEye = 0x13C;
+constexpr int kCameraAt = 0x148;
 constexpr uint32_t kScene = 0x800BE9F0;          // D_800BE9F0: the scene being played
 constexpr uint32_t kEntrance = 0x800DD2C0;       // D_800DD2C0: the entrance it was entered by
 constexpr int kObjectPreviousX = 0x2C;           // last frame's position
@@ -270,7 +275,39 @@ bool current_position(uint8_t* rdram, Position* out) {
     out->y = read_float(rdram, object + kObjectY);
     out->z = read_float(rdram, object + kObjectZ);
     out->yaw = read_float(rdram, object + kObjectYaw) * (180.0f / 3.14159265f);
+    out->facing = std::fmod(read_float(rdram, object + kObjectFacing), 360.0f);
+    if (out->facing < 0) {
+        out->facing += 360.0f;
+    }
     return true;
+}
+
+float Camera::yaw() const {
+    float degrees = std::atan2(forward[0], forward[2]) * (180.0f / 3.14159265f);
+    return degrees < 0 ? degrees + 360.0f : degrees;
+}
+
+float Camera::pitch() const {
+    return std::asin(std::clamp(forward[1], -1.0f, 1.0f)) * (180.0f / 3.14159265f);
+}
+
+bool current_camera(uint8_t* rdram, Camera* out) {
+    const uint32_t object = player_object(rdram);
+    if (object == 0) {
+        return false;
+    }
+    const uint32_t camera = static_cast<uint32_t>(MEM_W(0, kseg0(object + kObjectCamera)));
+    if ((camera & 0xFF800000) != 0x80000000) {  // in the game's 8 MiB
+        return false;
+    }
+    for (int i = 0; i < 3; i++) {
+        out->forward[i] = read_float(rdram, camera + kCameraForward + 4 * i);
+        out->eye[i] = read_float(rdram, camera + kCameraEye + 4 * i);
+        out->at[i] = read_float(rdram, camera + kCameraAt + 4 * i);
+    }
+    const float length = std::sqrt(out->forward[0] * out->forward[0] + out->forward[1] * out->forward[1] +
+                                   out->forward[2] * out->forward[2]);
+    return std::isfinite(length) && std::fabs(length - 1.0f) < 0.01f;
 }
 
 bool teleport(uint8_t* rdram, const Position& to) {

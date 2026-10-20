@@ -158,9 +158,12 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
   * WIREFRAME: the game's 3D triangles drawn as their edges on black; text,
     sprites and the HUD stay solid. Metal only for now.
   * SHOW FPS: the frames the game draws per second, in the top left corner.
-  * SHOW POSITION: the scene, Conker's X, Y and Z and his facing in degrees,
-    under the frame rate during play. The first page shows them too, and
-    opening the menu prints them in the terminal.
+  * SHOW POSITION: the scene, Conker's X, Y and Z and his facing, and the
+    camera's yaw and pitch, under the frame rate during play. Angles are in
+    degrees, and facing and yaw share their zero (+Z) and direction (towards
+    +X), so walking away from the camera they agree. The first page shows them
+    too, and opening the menu prints them in the terminal, with the camera's
+    position, the point it looks at and its forward vector.
   * TELEPORT: X, Y and Z, set to where Conker is and changed with left and
     right by STEP (1, 10, 100 or 1000; held, they keep changing). GO puts him
     there, HERE goes back to where he is, REMEMBER keeps the spot in

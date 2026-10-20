@@ -13,11 +13,27 @@ void remember_position(uint8_t* rdram, int slot);
 // Reload `slot` from the save and start it where it was saved, as PLAY on the title menu does.
 void request_load(uint8_t* rdram, int slot);
 
-// Where Conker is: the scene, his position and his facing in degrees.
+// Where Conker is: the scene and his position. `yaw` is the angle a resumed save restores (in
+// degrees; object +0xB8), `facing` the way he faces (object +0x40), in degrees from +Z towards +X,
+// as the camera's yaw is.
 struct Position {
     int scene = 0;
     float x = 0, y = 0, z = 0, yaw = 0;
+    float facing = 0;
 };
+
+// The camera Conker is seen through: where it is, the point it looks at (above Conker), and the
+// unit vector from one to the other.
+struct Camera {
+    float eye[3] = {};
+    float at[3] = {};
+    float forward[3] = {};
+    float yaw() const;    // degrees from +Z towards +X, 0 to 360
+    float pitch() const;  // degrees, up positive
+};
+
+// False while there is no camera (no Conker).
+bool current_camera(uint8_t* rdram, Camera* out);
 
 // False while there is no Conker (a menu, a scene change).
 bool current_position(uint8_t* rdram, Position* out);
