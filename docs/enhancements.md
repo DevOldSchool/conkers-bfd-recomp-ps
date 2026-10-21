@@ -205,11 +205,12 @@ The menus' lettered signs and headings (GAME1, OPTIONS, PLAY, the chapter
 names, the multiplayer modes, PAUSED and the rest) are drawn unfiltered, so
 at high resolutions they show as blocks. They are enlarged 4 times with
 Super-xBR from your ROM when the game starts, each heading as one picture so
-no seams show between its tiles, and so are the menus' joystick and the
-OPTIONS speakers. The small P1 to P4 badges use the large badges' artwork.
-Other pictures such as faces are left as they are. `CONKER_SHARP_MENUS=0`
-keeps the original signs; the OPTIONS row turns the sharper text and menus
-off together.
+no seams show between its tiles, and so are the menus' joystick, the OPTIONS
+speakers, the button prompts, the multiplayer heads and the pause menu's
+coloured digits and dollar sign. The small P1 to P4 badges use the large
+badges' artwork. Other pictures such as the small statistics icons are left
+as they are. `CONKER_SHARP_MENUS=0` keeps the original signs; the OPTIONS
+row turns the sharper text and menus off together.
 
 ## Texture packs
 

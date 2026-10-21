@@ -1,10 +1,11 @@
 // The menus' signs and headings are 32x32 RGBA32 tiles (src/enhancements/sharp_menus/menu_art.cpp),
 // drawn unfiltered, so at high resolutions they show as blocks. This enlarges each lettered sign
-// and heading, the joystick and the speakers four times with Super-xBR, keeping Rare's pixels and
-// soft edges, and hands the tiles to RT64 as a texture pack in memory, keyed by the hash RT64
-// computes for each tile as the game loads it (TMEMHasher). Tiles drawn side by side are enlarged
-// together, so no seams show between them. Other pictures (faces, the small statistics icons) are
-// left as they are: they lose their detail when enlarged.
+// and heading, the joystick, the speakers and the pause menu's digits four times with Super-xBR,
+// keeping Rare's pixels and soft edges, and hands the tiles to RT64 as a texture pack in memory,
+// keyed by the hash RT64 computes for each tile as the game loads it (TMEMHasher). Tiles drawn
+// side by side are enlarged together, so no seams show between them. The button prompts and the
+// multiplayer heads are enlarged too; other pictures (the small statistics icons) are left as they
+// are: they lose their detail when enlarged.
 //
 // The pause menu's SAVE and LOAD signs (src/enhancements/sharp_menus/pause_signs.cpp) are made at
 // four times the size with the others, and keyed by the hash of the game-size tiles the pause
@@ -77,6 +78,16 @@ constexpr Title kTitles[] = {
     {2023, 1, "joystick 1"}, {2024, 1, "joystick 2"}, {2025, 1, "joystick 3"},
     {2026, 1, "joystick 4"}, {2027, 1, "joystick 5"}, {2028, 1, "joystick 6"},
     {2072, 2, "stereo"}, {2074, 2, "surround"}, {2029, 1, "mono"},
+    // The coloured digits and dollar sign of the pause menu's money and lives (the digit table
+    // D_80090074, drawn one tile per digit by func_151EADFC; the dollar sign by func_151EB06C)
+    {2226, 1, "digit 0"}, {2192, 1, "digit 1"}, {2219, 1, "digit 2"}, {2216, 1, "digit 3"},
+    {2178, 1, "digit 4"}, {2177, 1, "digit 5"}, {2210, 1, "digit 6"}, {2209, 1, "digit 7"},
+    {2176, 1, "digit 8"}, {2191, 1, "digit 9"}, {2038, 1, "dollar"},
+    // Button prompts: the A and B buttons dark and lit, START, the red button and the four arrows
+    {2164, 1, "A unlit"}, {2165, 1, "A lit"}, {2168, 1, "B unlit"}, {2169, 1, "B lit"},
+    {2206, 1, "START"}, {2207, 1, "red button"}, {2167, 1, "arrows"},
+    // The multiplayer heads
+    {2215, 1, "Tediz head"}, {2211, 1, "SHC head"}, {2220, 1, "Uga Buga head"}, {2203, 1, "Raptor head"},
 };
 
 // The small P1 to P4 badges (as on the multiplayer STATS screen) are the four 16x16 corners of one
