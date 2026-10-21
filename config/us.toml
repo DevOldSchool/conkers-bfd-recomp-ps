@@ -391,6 +391,15 @@ func = "func_15110CFC"
 before_vram = 0x15111128
 text = "{ void conker_sky_tile_fits(uint8_t*, recomp_context*); conker_sky_tile_fits(rdram, ctx); }"
 
+# The scenery sprites (sunflowers, grass, mushrooms: func_1517DE5C -> func_1517BBAC) are drawn
+# only within 1500 units of Conker ($a3 at 0x1517DEC4), fading in over the last 510. Widened, the
+# picture's sides reach farther than that and showed the flowers missing or faint, so the distance
+# is widened with the view just before the call.
+[[patches.hook]]
+func = "func_1517DE5C"
+before_vram = 0x1517DF04
+text = "{ void conker_scenery_sprite_distance(uint8_t*, recomp_context*); conker_scenery_sprite_distance(rdram, ctx); }"
+
 # The title menu's "INSERT RUMBLE PAK" banner (message 0x8F) shows for a few seconds whenever the
 # menu comes up, pak or not, while the countdown D_8008FEFC is above 60. With a pad that can rumble
 # there is a pak, so the countdown is cleared just before func_151DE8F0 reads it. See

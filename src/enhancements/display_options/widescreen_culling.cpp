@@ -107,3 +107,20 @@ extern "C" void conker_sky_tile_fits(uint8_t* rdram, recomp_context* ctx) {
         ctx->r2 = 0;
     }
 }
+
+// The scenery sprites: func_1517DE5C has func_1517BBAC build a camera-facing quad for each sprite
+// (sunflowers, grass, mushrooms) within a distance of Conker, 1500, with its vertex alpha fading
+// over the last 510 (min(255, (distance limit - distance) / 2)). That is far enough for the 4:3
+// view; widened, the picture's sides show ground farther from Conker, and the sprites there were
+// missing or still faint (scene 41, past the end of the bridge). The limit is widened like the view.
+// The sprite buffer is sized for every sprite in the scene up to the game's own cap, whatever the
+// distance, so more of them in range cannot overflow it.
+
+// At 0x1517DF04 in func_1517DE5C, with the distance limit in $a3 just before func_1517BBAC.
+extern "C" void conker_scenery_sprite_distance(uint8_t* /*rdram*/, recomp_context* ctx) {
+    const float widening = conker::display::rendered_aspect() / kPictureAspect;
+    if (widening <= 1.0f || !culling_enabled()) {
+        return;
+    }
+    ctx->r7 = static_cast<int32_t>(static_cast<float>(static_cast<int32_t>(ctx->r7)) * widening * kMargin);
+}
