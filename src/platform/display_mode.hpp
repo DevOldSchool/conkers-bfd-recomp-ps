@@ -108,6 +108,11 @@ bool rendered_widescreen();
 bool sharp();
 void request_sharp(bool sharp);
 
+// The shape (width / height) of the picture RT64 is rendering, set by the renderer every screen
+// refresh: the picture's own 292:216 in 4:3, the window's or screen's shape widened.
+void set_rendered_aspect(float aspect);
+float rendered_aspect();
+
 // For the window: whether the mode, the window's multiple or the picture's shape changed since the
 // last call, and the mode to be in.
 bool take_request(Mode* mode);

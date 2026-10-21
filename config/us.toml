@@ -357,6 +357,20 @@ func = "func_150311C4"
 before_vram = 0x150311C4
 text = "{ int conker_widescreen_hide_attachment(uint8_t*, gpr); if (conker_widescreen_hide_attachment(rdram, ctx->r6)) { ctx->r2 = ctx->r4; return; } }"
 
+# In widescreen the game culls to the widened view rather than its 4:3 view: func_1501B22C, which
+# builds a camera's view planes, gets a horizontal field of view opened to the rendered picture's
+# shape, and func_1510B958's x scale for the level geometry's view test is narrowed to match. See
+# src/enhancements/display_options/widescreen_culling.cpp; CONKER_WIDESCREEN_CULLING=0 turns it off.
+[[patches.hook]]
+func = "func_1501B22C"
+before_vram = 0x1501B264
+text = "{ void conker_widescreen_culling(uint8_t*, recomp_context*); conker_widescreen_culling(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1510B958"
+before_vram = 0x1510B9A0
+text = "{ void conker_widescreen_culling_scale(uint8_t*, recomp_context*); conker_widescreen_culling_scale(rdram, ctx); }"
+
 # The title menu's "INSERT RUMBLE PAK" banner (message 0x8F) shows for a few seconds whenever the
 # menu comes up, pak or not, while the countdown D_8008FEFC is above 60. With a pad that can rumble
 # there is a pak, so the countdown is cleared just before func_151DE8F0 reads it. See
