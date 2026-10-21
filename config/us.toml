@@ -293,6 +293,15 @@ func = "func_1502C6E8"
 before_vram = 0x1502C8C4
 text = "{ void conker_max_detail(uint8_t*, recomp_context*); conker_max_detail(rdram, ctx); }"
 
+# Characters drawn as far as the scene is. func_1502E4C4 fades an actor out past its own distance
+# from the camera (u16 actor +0x10, mostly 3000) although the scene reaches much farther; that
+# distance is in $s0 at 0x1502E770 and is raised to the scene's far distance (D_800D9B1C). See
+# src/enhancements/character_distance/character_distance.cpp; CONKER_CHARACTER_DISTANCE=0 turns it off.
+[[patches.hook]]
+func = "func_1502E4C4"
+before_vram = 0x1502E770
+text = "{ void conker_character_distance(uint8_t*, recomp_context*); conker_character_distance(rdram, ctx); }"
+
 # Display options on the title menu's OPTIONS page: rows for the display mode, 4:3/WIDESCREEN, the
 # resolution and FILL SCREEN/CENTERED. Around the page's call to the menu engine func_151E3344,
 # multiplayer options 12, 15, 16 and 19 are lent to the rows and given back; hooks inside the engine space the

@@ -184,6 +184,16 @@ is the easiest place to see it), and for cruder ones further out. He, and
 the few other characters with more than one model, keep their most detailed
 model at any distance. `CONKER_MAX_DETAIL=0` keeps the game's choice.
 
+## Characters seen from farther
+
+The game fades each character out once the camera is more than its own
+distance away, 3000 units for most, though the scene around it is drawn to
+13000 or so; a character in plain view, such as the sunflower on the ledge
+past the stone steps in scene 12, only appeared on walking up to it.
+Characters are now drawn as far as the scene is. Only their drawing changes:
+what they do does not depend on it. `CONKER_CHARACTER_DISTANCE=0` keeps the
+game's distances.
+
 ## No Rumble Pak banner with a rumbling pad
 
 The title menu's "INSERT RUMBLE PAK" banner shows on an N64 even with the
