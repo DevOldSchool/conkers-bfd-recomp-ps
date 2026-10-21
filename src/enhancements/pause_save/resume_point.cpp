@@ -33,6 +33,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -50,6 +51,7 @@
 #include "recomp.h"
 #include "ultramodern/ultramodern.hpp"
 #include "enhancements/status.hpp"
+#include "enhancements/switches.hpp"
 
 extern "C" void func_151E327C(uint8_t* rdram, recomp_context* ctx);
 // librecomp's copy of the save (lib/N64ModernRuntime/librecomp/src/pi.cpp), read from and written
@@ -221,13 +223,12 @@ int g_snapshot_scene = 0;
 int g_snapshot_slot = 0;
 std::time_t g_snapshot_time = 0;
 
-bool snapshots_enabled() {
-    static const bool enabled = [] {
-        const char* value = std::getenv("CONKER_SAVE_SNAPSHOTS");
-        return value == nullptr || value[0] != '0';
-    }();
-    return enabled;
-}
+std::atomic<bool> g_snapshots_enabled{[] {
+    const char* value = std::getenv("CONKER_SAVE_SNAPSHOTS");
+    return value == nullptr || value[0] != '0';
+}()};  // the debug menu switches it
+
+bool snapshots_enabled() { return g_snapshots_enabled.load(std::memory_order_relaxed); }
 
 std::filesystem::path points_path() {
     std::filesystem::path path = ultramodern::get_save_file_path();
@@ -1407,4 +1408,8 @@ extern "C" void conker_report_marker_write(uint8_t* rdram, recomp_context* ctx) 
 
 nlohmann::json conker::status::save_snapshots() {
     return enhancement("save_snapshots", "Save snapshots", conker::resume::snapshots_enabled(), "CONKER_SAVE_SNAPSHOTS");
+}
+
+conker::switches::Switch conker::switches::save_snapshots() {
+    return {"SAVE SNAPSHOTS", conker::resume::snapshots_enabled, [](bool on) { conker::resume::g_snapshots_enabled.store(on); }};
 }

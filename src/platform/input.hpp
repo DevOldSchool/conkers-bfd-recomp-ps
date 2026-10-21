@@ -40,4 +40,9 @@ bool take_debug_menu_press();
 bool has_rumble();
 void set_rumble(bool on);
 
+// Whether C-left and C-right are swapped, on the right stick and on J/L, so that pushing left turns
+// the view left (on unless the debug menu turns it off). Safe to call from any thread.
+bool camera_swapped();
+void set_camera_swapped(bool swapped);
+
 } // namespace conker::input

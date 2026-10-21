@@ -103,12 +103,12 @@ says how to turn it off. The details, and every setting, are in
 | [Skip to the title menu](docs/enhancements.md#skip-to-the-title-menu) | L skips the boot logos, the intro and the title scene's opening | `CONKER_SKIP_INTRO=0` |
 | [Skip any cutscene](docs/enhancements.md#skip-any-cutscene) | L skips every cutscene, the first time too | `CONKER_SKIP_CUTSCENES=0` |
 | [SAVE and LOAD in the pause menu](docs/enhancements.md#save-and-load-in-the-pause-menu) | Save where Conker stands and load back to that spot, with a snapshot of every save | `CONKER_PAUSE_SAVE=0` |
-| [Debug menu](docs/enhancements.md#debug-menu) | Wireframe, frame rate, position, teleport, snapshots and debug reports | `CONKER_DEBUG_MENU=0` |
+| [Debug menu](docs/enhancements.md#debug-menu) | Wireframe, frame rate, position, enhancements on and off, teleport, snapshots and debug reports | `CONKER_DEBUG_MENU=0` |
 | [Surround by default](docs/enhancements.md#surround-by-default) | A new save file's sound setting is surround instead of stereo | `CONKER_SURROUND_DEFAULT=0` |
 | [Characters at full detail](docs/enhancements.md#characters-at-full-detail) | Conker and others keep their most detailed model at any distance | `CONKER_MAX_DETAIL=0` |
 | [Characters seen from farther](docs/enhancements.md#characters-seen-from-farther) | Characters drawn as far as the scene, not faded out past 3000 units | `CONKER_CHARACTER_DISTANCE=0` |
 | [No Rumble Pak banner](docs/enhancements.md#no-rumble-pak-banner-with-a-rumbling-pad) | No "INSERT RUMBLE PAK" banner when the pad can rumble | `CONKER_RUMBLE_BANNER=1` shows it |
-| [Camera on the right stick](docs/enhancements.md#camera-on-the-right-stick) | C-left and C-right swapped, so left turns the view left | Always on |
+| [Camera on the right stick](docs/enhancements.md#camera-on-the-right-stick) | C-left and C-right swapped, so left turns the view left | Always on; the debug menu can switch it |
 | [Sharper text](docs/enhancements.md#sharper-text) | The font enlarged with Super-xBR from your ROM | `CONKER_SHARP_FONT=0` |
 | [Sharper menus](docs/enhancements.md#sharper-menus) | The menus' signs and headings enlarged the same way | `CONKER_SHARP_MENUS=0` |
 | [Texture packs](docs/enhancements.md#texture-packs) | RT64 replacement packs from `conker-recomp-data/texture_packs` | `CONKER_TEXTURE_PACKS=0` |

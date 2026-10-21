@@ -125,6 +125,23 @@ button. Up and down choose a row, A or left and right change it:
   +X), so walking away from the camera they agree. The first page shows them
   too, and opening the menu prints them in the terminal, with the camera's
   position, the point it looks at and its forward vector.
+* ENHANCEMENTS: every enhancement that can be switched while the game
+  runs, each ON or OFF, starting as its `CONKER_*` variable set it: SHARP
+  TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
+  WIDESCREEN CULLING, SKIP INTRO, SKIP CUTSCENES, PAUSE SAVE AND LOAD, SAVE
+  SNAPSHOTS, SURROUND DEFAULT, FULL DETAIL, CHARACTER DISTANCE, NO RUMBLE
+  PAK BANNER, CAMERA STICK SWAP and 60 FPS. A or left and right switch the
+  chosen one. SHARP TEXT and WIDESCREEN are the OPTIONS rows' settings and
+  are kept in `display.cfg` as those rows keep them (a new shape applies once
+  the game carries on); the rest last until the game is closed, and a debug
+  report records them as they are. Each acts the next time the game comes to
+  it: SKIP INTRO only during the boot logos and the intro, PAUSE SAVE AND
+  LOAD at the next pause, SURROUND DEFAULT only when the game finds no saved
+  options, the banner when the title menu next comes up. The tiled sky's
+  room is set when a scene starts, so WIDESCREEN CULLING switched on in a
+  scene may leave out sky tiles at the sides until the next one. The OPTIONS
+  page's own rows (`CONKER_DISPLAY_OPTIONS`) and the debug menu are not
+  switched here.
 * TELEPORT: X, Y, Z, FACING and CAMERA YAW, set to where Conker is and
   changed with left and right by STEP (1, 10, 100 or 1000; held, they keep
   changing). GO puts him there facing that way, and the camera where it
@@ -208,7 +225,7 @@ pak inserted. It is left out when controller 1's pad can rumble;
 ## Camera on the right stick
 
 C-left and C-right are swapped (also on J/L), so pushing left turns the view
-left.
+left. It has no variable; the debug menu's ENHANCEMENTS page switches it.
 
 ## Sharper text
 

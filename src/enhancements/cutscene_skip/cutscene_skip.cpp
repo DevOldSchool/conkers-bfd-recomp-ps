@@ -2,21 +2,22 @@
 // skip, such as the new game's opening. Native helpers called from the [[patches.hook]] snippets
 // in config/us.toml (func_1501E05C). CONKER_SKIP_CUTSCENES=0 keeps the game's rule, where only
 // cutscenes already watched can be skipped, and some not at all.
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 
 #include "recomp.h"
 #include "enhancements/status.hpp"
+#include "enhancements/switches.hpp"
 
 namespace {
 
-bool skip_cutscenes_enabled() {
-    static const bool enabled = [] {
-        const char* value = std::getenv("CONKER_SKIP_CUTSCENES");
-        return value == nullptr || value[0] != '0';
-    }();
-    return enabled;
-}
+std::atomic<bool> g_enabled{[] {
+    const char* value = std::getenv("CONKER_SKIP_CUTSCENES");
+    return value == nullptr || value[0] != '0';
+}()};  // the debug menu switches it
+
+bool skip_cutscenes_enabled() { return g_enabled.load(std::memory_order_relaxed); }
 
 }  // namespace
 
@@ -60,4 +61,8 @@ extern "C" void conker_skip_unwatched(uint8_t* /*rdram*/, recomp_context* ctx) {
 
 nlohmann::json conker::status::cutscene_skip() {
     return enhancement("cutscene_skip", "Skip any cutscene", skip_cutscenes_enabled(), "CONKER_SKIP_CUTSCENES");
+}
+
+conker::switches::Switch conker::switches::cutscene_skip() {
+    return {"SKIP CUTSCENES", skip_cutscenes_enabled, [](bool on) { g_enabled.store(on); }};
 }

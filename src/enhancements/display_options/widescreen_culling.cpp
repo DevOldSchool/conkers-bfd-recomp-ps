@@ -20,11 +20,13 @@
 // the tests' coarse treatment of big spheres near the edges; culling a little wider than needed
 // only draws a little more. In 4:3 the game's tests are left as they are.
 // CONKER_WIDESCREEN_CULLING=0 keeps the 4:3 culling.
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
 
 #include "recomp.h"
+#include "enhancements/switches.hpp"
 #include "platform/display_mode.hpp"
 
 namespace {
@@ -34,13 +36,12 @@ constexpr float kMargin = 1.05f;
 constexpr float kDegrees = 3.14159265358979f / 180.0f;
 constexpr float kMaxFov = 170.0f;  // the planes stay in front of the camera
 
-bool culling_enabled() {
-    static const bool enabled = [] {
-        const char* value = std::getenv("CONKER_WIDESCREEN_CULLING");
-        return value == nullptr || value[0] != '0';
-    }();
-    return enabled;
-}
+std::atomic<bool> g_culling{[] {
+    const char* value = std::getenv("CONKER_WIDESCREEN_CULLING");
+    return value == nullptr || value[0] != '0';
+}()};  // the debug menu switches it
+
+bool culling_enabled() { return g_culling.load(std::memory_order_relaxed); }
 
 }  // namespace
 
@@ -123,4 +124,8 @@ extern "C" void conker_scenery_sprite_distance(uint8_t* /*rdram*/, recomp_contex
         return;
     }
     ctx->r7 = static_cast<int32_t>(static_cast<float>(static_cast<int32_t>(ctx->r7)) * widening * kMargin);
+}
+
+conker::switches::Switch conker::switches::widescreen_culling() {
+    return {"WIDESCREEN CULLING", culling_enabled, [](bool on) { g_culling.store(on); }};
 }

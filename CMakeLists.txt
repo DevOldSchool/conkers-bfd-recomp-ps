@@ -80,6 +80,7 @@ add_executable(ConkerRecomp
     src/enhancements/character_distance/character_distance.cpp
     src/enhancements/debug_menu/debug_menu.cpp
     src/enhancements/status.cpp
+    src/enhancements/switches.cpp
     src/enhancements/display_options/display_options.cpp
     src/enhancements/display_options/widescreen_intro.cpp
     src/enhancements/display_options/widescreen_copies.cpp
