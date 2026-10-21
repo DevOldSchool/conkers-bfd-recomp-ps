@@ -1,8 +1,8 @@
 // Experimental 60 fps: CONKER_60FPS=1 lets Rare's scheduler start a frame on every retrace instead
 // of every second one. Off by default; docs/investigations.md has what was measured. Native helpers
 // called from the [[patches.hook]] snippets for func_1501C880, func_800049E0, func_80004DB0,
-// func_80005020, and the half steps in func_15116BAC, func_151169B4 and func_8000BF60, in
-// config/us.toml.
+// func_80005020, the half steps in func_15116BAC, func_151169B4 and func_8000BF60, and the frame
+// counter in func_15043384, in config/us.toml.
 //
 // The game logic already steps by the retraces its frame took: func_80004F00 copies the count since
 // the last frame started (D_8003B238) to D_800BE9E4, and the logic scales by it (D_800BE9A4 =
@@ -129,6 +129,17 @@ extern "C" void conker_60fps_scheduler_message(uint8_t* rdram, recomp_context* c
 extern "C" void conker_60fps_half_step(uint8_t* rdram, gpr* product) {
     if (enabled() && MEM_W(0, kseg0(kFrameTicks)) == 1) {
         *product = static_cast<gpr>(static_cast<int32_t>(*product) * 2 * MEM_BU(0, kseg0(kHalfSteps)));
+    }
+}
+
+// Counters that go up once a frame where they should go up once a 30 Hz step. Called before the
+// increment with the old value in a register; at one retrace a frame it is lowered by one unless
+// this frame takes a step, so the counter keeps its 30 fps rate. func_15043384 (the HUD text pass)
+// counts D_80085CD0, whose (count >> 1) % 10 picks the frame of the wobbling joystick sprite (kind
+// 0x1A, D_80085AA8) beside the selected row of the OPTIONS and pause menus.
+extern "C" void conker_60fps_frame_counter(uint8_t* rdram, gpr* count) {
+    if (enabled() && MEM_W(0, kseg0(kFrameTicks)) == 1 && MEM_BU(0, kseg0(kHalfSteps)) == 0) {
+        *count = static_cast<gpr>(static_cast<int32_t>(*count) - 1);
     }
 }
 
