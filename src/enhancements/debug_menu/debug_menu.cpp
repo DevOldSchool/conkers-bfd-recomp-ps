@@ -25,6 +25,8 @@
 //     SHOW FPS         the frames the game draws per second, in the corner, on every screen
 //     SHOW POSITION    Conker's scene, position and facing, and the camera's yaw and pitch, under
 //                      it, during play
+//     ENHANCEMENTS     every enhancement that can be switched while the game runs, on and off
+//                      (src/enhancements/switches.hpp), until the game is closed
 //     TELEPORT         X, Y, Z, facing and camera yaw to move him to, and spots kept in
 //                      conker-recomp-data/debug_spots.txt
 //     LOAD SNAPSHOT    a list of saves/snapshots/; A starts one (resume_point.cpp)
@@ -57,6 +59,7 @@
 #include "recomp.h"
 #include "enhancements/pause_save/resume_point.hpp"
 #include "enhancements/status.hpp"
+#include "enhancements/switches.hpp"
 #include "build_version.h"
 #include "json/json.hpp"
 #include "platform/input.hpp"
@@ -119,8 +122,8 @@ constexpr int kSteps[] = {1, 10, 100, 1000};
 
 using Clock = std::chrono::steady_clock;
 
-enum class Page { Main, Teleport, Spots, Snapshots, Reports };
-enum MainRow { kWireframe, kShowFps, kShowPosition, kTeleport, kLoadSnapshot, kSaveReport, kLoadReport, kMainRows };
+enum class Page { Main, Enhancements, Teleport, Spots, Snapshots, Reports };
+enum MainRow { kWireframe, kShowFps, kShowPosition, kEnhancements, kTeleport, kLoadSnapshot, kSaveReport, kLoadReport, kMainRows };
 enum TeleportRow { kX, kY, kZ, kFacing, kCameraYaw, kStep, kGo, kResetToCurrent, kRemember, kSpotList, kTeleportRows };
 
 bool g_open_requested = false;
@@ -129,11 +132,13 @@ uint16_t g_pad_before = 0;
 bool g_active = false;
 bool g_holding = false;      // the menu holds the game itself, not the pause (see the top)
 bool g_set_pause = false;    // and set the pause flag to do it
+bool g_first_frame = false;  // holding, the frame it opened in (see conker_debug_menu_tick)
 bool g_pads_held = false;    // the game reads no pad until the buttons are let go
 bool g_close_requested = false;
 Page g_page = Page::Main;
 int g_row = 0;           // on the first page
 int g_teleport_row = 0;
+int g_switch_row = 0;    // on the enhancements page
 int g_entry = 0;         // in a list
 int g_top = 0;
 std::vector<conker::resume::Snapshot> g_snapshots;  // or the reports, on LOAD REPORT
@@ -166,6 +171,12 @@ void show_message(const std::string& message, const std::string& detail = "") {
     g_message = message;
     g_message_detail = detail;
     g_message_until = Clock::now() + std::chrono::seconds(detail.empty() ? 2 : 4);
+}
+
+// The enhancements page's rows: every switch, made once.
+const std::vector<conker::switches::Switch>& switches() {
+    static const std::vector<conker::switches::Switch> all = conker::switches::all();
+    return all;
 }
 
 // --- spots ---------------------------------------------------------------------------------------
@@ -309,10 +320,19 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
             draw_title(rdram, ctx, "DEBUG MENU");
             draw_rows(rdram, ctx,
                       {std::string("WIREFRAME  ") + on_off(g_wireframe), std::string("SHOW FPS  ") + on_off(g_show_fps),
-                       std::string("SHOW POSITION  ") + on_off(g_show_position), "TELEPORT", "LOAD SNAPSHOT",
-                       "SAVE DEBUG REPORT", "LOAD REPORT"},
+                       std::string("SHOW POSITION  ") + on_off(g_show_position), "ENHANCEMENTS", "TELEPORT",
+                       "LOAD SNAPSHOT", "SAVE DEBUG REPORT", "LOAD REPORT"},
                       g_row);
             break;
+        case Page::Enhancements: {
+            draw_title(rdram, ctx, "ENHANCEMENTS");
+            std::vector<std::string> rows;
+            for (const conker::switches::Switch& sw : switches()) {
+                rows.push_back(std::string(sw.label) + "  " + on_off(sw.on()));
+            }
+            draw_rows(rdram, ctx, rows, g_switch_row, 0, static_cast<int>(rows.size()));
+            break;
+        }
         case Page::Teleport:
             draw_title(rdram, ctx, "TELEPORT");
             std::snprintf(text, sizeof(text), "%d", kSteps[g_step]);
@@ -417,6 +437,7 @@ void close_menu(uint8_t* rdram) {
 void open_menu(uint8_t* rdram, bool hold) {
     g_active = true;
     g_holding = hold;
+    g_first_frame = hold;
     g_set_pause = false;
     if (hold && MEM_BU(0, kseg0(kPauseOpen)) == 0) {
         MEM_B(0, kseg0(kPauseOpen)) = 1;
@@ -564,6 +585,12 @@ int32_t main_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_horiz
         case kShowPosition:
             g_show_position = !g_show_position;
             break;
+        case kEnhancements:
+            if (!(pressed & conker::input::kA)) {
+                return 0;
+            }
+            g_page = Page::Enhancements;
+            break;
         case kTeleport:
             if (!(pressed & conker::input::kA)) {
                 return 0;
@@ -591,6 +618,25 @@ int32_t main_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_horiz
                                                                                              : "REPORT SAVED");
             break;
     }
+    return kSelectSound;
+}
+
+int32_t enhancements_page(int vertical, int horizontal, bool fresh_horizontal, uint16_t pressed) {
+    if (pressed & conker::input::kB) {
+        g_page = Page::Main;
+        return kSelectSound;
+    }
+    const int count = static_cast<int>(switches().size());
+    if (vertical != 0) {
+        g_switch_row = (g_switch_row + vertical + count) % count;
+        return kMoveSound;
+    }
+    if (!(pressed & conker::input::kA) && !(horizontal != 0 && fresh_horizontal)) {
+        return 0;
+    }
+    const conker::switches::Switch& sw = switches()[static_cast<size_t>(g_switch_row)];
+    sw.set(!sw.on());
+    std::printf("[conker] debug menu: %s %s\n", sw.label, sw.on() ? "on" : "off");
     return kSelectSound;
 }
 
@@ -721,6 +767,9 @@ int32_t menu_frame(uint8_t* rdram, recomp_context* ctx) {
         case Page::Main:
             sound = main_page(rdram, vertical, horizontal, fresh_horizontal, pressed);
             break;
+        case Page::Enhancements:
+            sound = enhancements_page(vertical, horizontal, fresh_horizontal, pressed);
+            break;
         case Page::Teleport:
             sound = teleport_page(rdram, vertical, horizontal, fresh_horizontal, pressed);
             break;
@@ -777,7 +826,12 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
             g_open_requested = true;  // in play: ask for the pause (conker_debug_menu_request)
         }
     }
-    if (g_active && g_holding) {
+    // The pause flag has the game copy the last frame as the paused background, a frame after it is
+    // set, so the menu is not drawn in the frame it opened in, or its first page would stay in the
+    // background of every page.
+    if (g_active && g_holding && g_first_frame) {
+        g_first_frame = false;
+    } else if (g_active && g_holding) {
         const int32_t sound = menu_frame(rdram, ctx);
         if (sound != 0) {
             play_sound(rdram, ctx, sound);

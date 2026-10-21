@@ -1,21 +1,22 @@
 // Characters always drawn with their most detailed model. Native helper called from the
 // [[patches.hook]] snippet in config/us.toml (func_1502C6E8). CONKER_MAX_DETAIL=0 keeps the game's
 // distance-based choice.
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 
 #include "recomp.h"
 #include "enhancements/status.hpp"
+#include "enhancements/switches.hpp"
 
 namespace {
 
-bool max_detail_enabled() {
-    static const bool enabled = [] {
-        const char* value = std::getenv("CONKER_MAX_DETAIL");
-        return value == nullptr || value[0] != '0';
-    }();
-    return enabled;
-}
+std::atomic<bool> g_enabled{[] {
+    const char* value = std::getenv("CONKER_MAX_DETAIL");
+    return value == nullptr || value[0] != '0';
+}()};  // the debug menu switches it
+
+bool max_detail_enabled() { return g_enabled.load(std::memory_order_relaxed); }
 
 }  // namespace
 
@@ -34,4 +35,8 @@ extern "C" void conker_max_detail(uint8_t* /*rdram*/, recomp_context* ctx) {
 
 nlohmann::json conker::status::max_detail() {
     return enhancement("max_detail", "Characters at full detail", max_detail_enabled(), "CONKER_MAX_DETAIL");
+}
+
+conker::switches::Switch conker::switches::max_detail() {
+    return {"FULL DETAIL", max_detail_enabled, [](bool on) { g_enabled.store(on); }};
 }

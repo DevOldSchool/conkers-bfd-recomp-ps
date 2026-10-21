@@ -16,4 +16,7 @@ bool take_debug_menu_press() { return false; }
 bool has_rumble() { return false; }
 void set_rumble(bool /*on*/) {}
 
+bool camera_swapped() { return true; }
+void set_camera_swapped(bool /*swapped*/) {}
+
 } // namespace conker::input

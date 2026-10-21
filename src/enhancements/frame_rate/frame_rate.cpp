@@ -16,6 +16,7 @@
 // CONKER_FRAME_LOG=<file> (either mode) writes a line per frame: VI, the frame's retrace count,
 // scene, logic delta (D_800BE9A4), Conker's position and the camera's eye, for comparing the two
 // rates.
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -24,6 +25,7 @@
 #include "recomp.h"
 #include "ultramodern/ultra64.h"
 #include "enhancements/status.hpp"
+#include "enhancements/switches.hpp"
 #include "runtime/game.hpp"
 
 extern "C" void func_80004DB0(uint8_t* rdram, recomp_context* ctx);
@@ -43,13 +45,12 @@ constexpr uint32_t kFrameDelta = 0x800BE9A4;    // D_800BE9A4: the same as a flo
 constexpr uint32_t kScene = 0x800BE9F0;         // D_800BE9F0
 constexpr uint32_t kPlayerObject = 0x80088720;  // D_80088720: Conker's object, position at +0x14
 
-bool enabled() {
-    static const bool on = [] {
-        const char* value = std::getenv("CONKER_60FPS");
-        return value != nullptr && value[0] == '1';
-    }();
-    return on;
-}
+std::atomic<bool> g_enabled{[] {
+    const char* value = std::getenv("CONKER_60FPS");
+    return value != nullptr && value[0] == '1';
+}()};  // the debug menu switches it
+
+bool enabled() { return g_enabled.load(std::memory_order_relaxed); }
 
 void wake_scheduler(uint8_t* rdram) {
     osSendMesg(rdram, static_cast<int32_t>(kSchedulerQueue), kWakeMessage, OS_MESG_NOBLOCK);
@@ -144,4 +145,8 @@ extern "C" void conker_60fps_current_framebuffer(uint8_t* /*rdram*/, recomp_cont
 
 nlohmann::json conker::status::frame_rate() {
     return enhancement("frame_rate", "60 fps (experimental)", enabled(), "CONKER_60FPS");
+}
+
+conker::switches::Switch conker::switches::frame_rate() {
+    return {"60 FPS", enabled, [](bool on) { g_enabled.store(on); }};
 }

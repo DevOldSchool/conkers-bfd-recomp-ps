@@ -71,7 +71,7 @@ nlohmann::json enhancements(uint8_t* rdram) {
         frame_rate(),
         enhancement("sharp_font", "Sharper text", sharp_font, "CONKER_SHARP_FONT", sharp_options),
         enhancement("sharp_menus", "Sharper menus", sharp_menus, "CONKER_SHARP_MENUS", sharp_options),
-        enhancement("camera_stick", "Camera on the right stick", true, nullptr),
+        enhancement("camera_stick", "Camera on the right stick", conker::input::camera_swapped(), nullptr),
         debug_menu(),
     });
 }

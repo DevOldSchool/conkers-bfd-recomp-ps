@@ -1,11 +1,13 @@
 // Characters drawn as far as the scene is. Native helper called from the [[patches.hook]] snippet
 // in config/us.toml (func_1502E4C4). CONKER_CHARACTER_DISTANCE=0 keeps the game's distances.
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 
 #include "recomp.h"
 #include "enhancements/status.hpp"
+#include "enhancements/switches.hpp"
 
 namespace {
 
@@ -20,13 +22,12 @@ float read_float(uint8_t* rdram, uint32_t address) {
     return value;
 }
 
-bool character_distance_enabled() {
-    static const bool enabled = [] {
-        const char* value = std::getenv("CONKER_CHARACTER_DISTANCE");
-        return value == nullptr || value[0] != '0';
-    }();
-    return enabled;
-}
+std::atomic<bool> g_enabled{[] {
+    const char* value = std::getenv("CONKER_CHARACTER_DISTANCE");
+    return value == nullptr || value[0] != '0';
+}()};  // the debug menu switches it
+
+bool character_distance_enabled() { return g_enabled.load(std::memory_order_relaxed); }
 
 }  // namespace
 
@@ -56,4 +57,8 @@ extern "C" void conker_character_distance(uint8_t* rdram, recomp_context* ctx) {
 nlohmann::json conker::status::character_distance() {
     return enhancement("character_distance", "Characters seen from farther", character_distance_enabled(),
                        "CONKER_CHARACTER_DISTANCE");
+}
+
+conker::switches::Switch conker::switches::character_distance() {
+    return {"CHARACTER DISTANCE", character_distance_enabled, [](bool on) { g_enabled.store(on); }};
 }

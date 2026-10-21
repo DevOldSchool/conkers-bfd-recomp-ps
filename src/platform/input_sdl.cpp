@@ -102,6 +102,7 @@ bool g_debug_menu_held = false;          // main thread only
 
 std::atomic<bool> g_has_rumble{false};  // the open pad can rumble
 std::atomic<bool> g_rumble_on{false};   // the game's motor state, applied by update()
+std::atomic<bool> g_camera_swapped{true};  // C-left and C-right (camera_swapped)
 bool g_rumble_applied = false;          // main thread only
 
 void open_pad(int device_index) {
@@ -363,6 +364,11 @@ void update() {
         }
     }
 
+    if (!g_camera_swapped.load(std::memory_order_relaxed)) {
+        const uint16_t c = buttons & (kCLeft | kCRight);
+        buttons = static_cast<uint16_t>((buttons & ~(kCLeft | kCRight)) | ((c & kCLeft) ? kCRight : 0) |
+                                        ((c & kCRight) ? kCLeft : 0));
+    }
     g_buttons.store(buttons, std::memory_order_relaxed);
     if (debug_menu && !g_debug_menu_held) {
         g_debug_menu_presses.fetch_add(1, std::memory_order_relaxed);
@@ -405,5 +411,9 @@ bool take_debug_menu_press() { return g_debug_menu_presses.exchange(0, std::memo
 bool has_rumble() { return g_has_rumble.load(std::memory_order_relaxed); }
 
 void set_rumble(bool on) { g_rumble_on.store(on, std::memory_order_relaxed); }
+
+bool camera_swapped() { return g_camera_swapped.load(std::memory_order_relaxed); }
+
+void set_camera_swapped(bool swapped) { g_camera_swapped.store(swapped, std::memory_order_relaxed); }
 
 } // namespace conker::input
