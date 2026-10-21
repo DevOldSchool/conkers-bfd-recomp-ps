@@ -2,7 +2,8 @@
 // of every second one. Off by default; docs/investigations.md has what was measured. Native helpers
 // called from the [[patches.hook]] snippets for func_1501C880, func_800049E0, func_80004DB0,
 // func_80005020, the half steps in func_15116BAC, func_151169B4, func_151934B4 and func_8000BF60,
-// and the frame counters in func_15043384 and func_151934B4, in config/us.toml.
+// the frame counters in func_15043384 and func_151934B4, and the menu repeat timers in
+// func_151DE8F0, in config/us.toml.
 //
 // The game logic already steps by the retraces its frame took: func_80004F00 copies the count since
 // the last frame started (D_8003B238) to D_800BE9E4, and the logic scales by it (D_800BE9A4 =
@@ -142,6 +143,19 @@ extern "C" void conker_60fps_half_step(uint8_t* rdram, gpr* product) {
 extern "C" void conker_60fps_frame_counter(uint8_t* rdram, gpr* count) {
     if (enabled() && MEM_W(0, kseg0(kFrameTicks)) == 1 && MEM_BU(0, kseg0(kHalfSteps)) == 0) {
         *count = static_cast<gpr>(static_cast<int32_t>(*count) - 1);
+    }
+}
+
+// Timers that add the frame's ticks and act when they pass a threshold. At 30 fps they move in steps
+// of 2, so a threshold that falls between two steps is reached a retrace late. Called with the
+// ticks in a register; at one retrace a frame they become 2 * D_800BE9A0 (2 on every second frame),
+// so the timer moves in 30 Hz steps and acts on the same retrace it would at 30 fps. func_151DE8F0
+// (the title menu's input pass) repeats a held stick direction with two per player, +0x36 for left
+// and right and +0x3A for up and down, from 0 to 0x33 and then from 0x28 again: one repeat every 12
+// retraces at 30 fps, every 11 at 60 without this.
+extern "C" void conker_60fps_step_ticks(uint8_t* rdram, gpr* ticks) {
+    if (enabled() && static_cast<int32_t>(*ticks) == 1) {
+        *ticks = static_cast<gpr>(2 * MEM_BU(0, kseg0(kHalfSteps)));
     }
 }
 
