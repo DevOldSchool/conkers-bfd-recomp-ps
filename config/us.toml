@@ -371,6 +371,26 @@ func = "func_1510B958"
 before_vram = 0x1510B9A0
 text = "{ void conker_widescreen_culling_scale(uint8_t*, recomp_context*); conker_widescreen_culling_scale(rdram, ctx); }"
 
+# The tiled sky (func_15111AF4 -> func_15110CFC) keeps the tiles that pass that x-scale test, so
+# widened it draws more of them than its vertex buffers hold: func_15000AD0 sizes them for a 4:3
+# view, 0x130 vertices ($a0 at 0x15000B6C), and the overflow ran into the next heap block (a crash
+# on entering scene 6). The buffers are made bigger, and at 0x15111128, after the tile's view test,
+# a tile whose four vertices would not fit counts as out of view.
+[[patches.hook]]
+func = "func_15000AD0"
+before_vram = 0x15000AD0
+text = "{ void conker_sky_vertices_reset(uint8_t*, recomp_context*); conker_sky_vertices_reset(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_15000AD0"
+before_vram = 0x15000B6C
+text = "{ void conker_sky_vertices(uint8_t*, recomp_context*); conker_sky_vertices(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_15110CFC"
+before_vram = 0x15111128
+text = "{ void conker_sky_tile_fits(uint8_t*, recomp_context*); conker_sky_tile_fits(rdram, ctx); }"
+
 # The title menu's "INSERT RUMBLE PAK" banner (message 0x8F) shows for a few seconds whenever the
 # menu comes up, pak or not, while the countdown D_8008FEFC is above 60. With a pad that can rumble
 # there is a pak, so the countdown is cleared just before func_151DE8F0 reads it. See

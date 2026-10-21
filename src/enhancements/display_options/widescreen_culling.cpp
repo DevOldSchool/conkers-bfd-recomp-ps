@@ -67,3 +67,43 @@ extern "C" void conker_widescreen_culling_scale(uint8_t* /*rdram*/, recomp_conte
     }
     ctx->f4.fl /= widening * kMargin;
 }
+
+// The tiled sky: func_15110CFC puts four vertices in a frame's vertex buffer (D_800DBE88) for each
+// tile that passes func_150A6210, the x-scale test above. func_15000AD0 gives each buffer room for
+// 0x130 vertices (0x1C0 with two views), enough for the tiles a 4:3 view keeps; widened, more pass,
+// and the overflow ran into the next heap block (scene 6, entered from scene 41's tunnel, crashed in
+// func_80004250 a frame later). Scene 6 measured 272 vertices in 4:3 and 316 in 16:9. With the
+// wider culling the buffers get room for kSkyVertices, enough for a picture past 32:9, and a tile
+// that would still not fit is left out, so a window of any shape cannot overflow them.
+namespace {
+constexpr int32_t kSkyVertices = 0x400;
+int32_t g_sky_capacity = 0;  // vertices per buffer, 0 when this scene has no tiled sky
+}  // namespace
+
+// At the start of func_15000AD0, which sets up a scene's sky.
+extern "C" void conker_sky_vertices_reset(uint8_t* /*rdram*/, recomp_context* /*ctx*/) {
+    g_sky_capacity = 0;
+}
+
+// At 0x15000B6C in func_15000AD0, with the vertices per buffer in $a0 before both buffers of each
+// view are allocated (one block of $a0 * 32 bytes).
+extern "C" void conker_sky_vertices(uint8_t* /*rdram*/, recomp_context* ctx) {
+    int32_t vertices = static_cast<int32_t>(ctx->r4);
+    if (culling_enabled() && vertices < kSkyVertices) {
+        vertices = kSkyVertices;
+        ctx->r4 = vertices;
+    }
+    g_sky_capacity = vertices;
+}
+
+// At 0x15111128 in func_15110CFC, after func_150A6210 ($v0, nonzero when the tile is in view). The
+// buffer holds the vertices flushed so far (sp+0xD8) and the ones not yet flushed ($t4).
+extern "C" void conker_sky_tile_fits(uint8_t* rdram, recomp_context* ctx) {
+    if (ctx->r2 == 0 || g_sky_capacity == 0) {
+        return;
+    }
+    const int32_t used = MEM_W(0xD8, ctx->r29) + static_cast<int32_t>(ctx->r12);
+    if (used + 4 > g_sky_capacity) {
+        ctx->r2 = 0;
+    }
+}
