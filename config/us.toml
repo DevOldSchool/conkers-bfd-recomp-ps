@@ -169,6 +169,27 @@ func = "func_151E51EC"
 before_vram = 0x151E5220
 text = "{ void conker_debug_menu_tick(uint8_t*, recomp_context*); conker_debug_menu_tick(rdram, ctx); }"
 
+# Where Start cannot open the pause (the title, the game's menus, a cutscene), the menu holds the
+# game itself: it sets the pause flag D_800BEAC1, so the world stops, draws from the tick above,
+# and keeps the screen's own handler (func_151E51EC's jalr at 0x151E52AC, $t9) and its drawing
+# (func_151E84B0's jalr at 0x151E84FC, $v1; the title's signs, say) from running by pointing them
+# at the empty func_151DE6CC. While it is open, and until the buttons are let go after, the pads
+# read by func_1501BBB8 (sp+0x38, after osContGetReadData) are emptied so the game sees no input.
+[[patches.hook]]
+func = "func_151E51EC"
+before_vram = 0x151E52AC
+text = "{ int conker_debug_menu_holding_game(void); if (conker_debug_menu_holding_game()) { ctx->r25 = 0x151DE6CC; } }"
+
+[[patches.hook]]
+func = "func_151E84B0"
+before_vram = 0x151E84FC
+text = "{ int conker_debug_menu_holding_game(void); if (conker_debug_menu_holding_game()) { ctx->r3 = 0x151DE6CC; } }"
+
+[[patches.hook]]
+func = "func_1501BBB8"
+before_vram = 0x1501BC18
+text = "{ void conker_debug_menu_pads(uint8_t*, recomp_context*); conker_debug_menu_pads(rdram, ctx); }"
+
 [[patches.hook]]
 func = "func_151EB06C"
 before_vram = 0x151EB128

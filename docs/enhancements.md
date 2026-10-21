@@ -107,10 +107,14 @@ from the debug menu. `CONKER_SAVE_SNAPSHOTS=0` stops keeping them.
 ## Debug menu
 
 View on an Xbox pad, Create (Share) on a PlayStation pad, or the `` ` `` key opens
-it during play. It is the game's pause with its own page in place of the
-lever, PAUSED and the HUD, so the game stops as it does for the pause menu,
-and it closes with B, Start or the same button. Up and down choose a row, A
-or left and right change it:
+it anywhere: in play, in the pause menu, on the title and the game's other
+menus, and in cutscenes. In play it is the game's pause with its own page in
+place of the lever, PAUSED and the HUD, so the game stops as it does for the
+pause menu. Where the pause cannot open, the menu stops the game itself with
+the same pause flag (the world, the cutscene and the sound stop; the screen's
+own menu waits underneath). The game reads no buttons while it is open, nor
+after it closes until they are let go. It closes with B, Start or the same
+button. Up and down choose a row, A or left and right change it:
 
 * WIREFRAME: the game's 3D triangles drawn as their edges on black; text,
   sprites and the HUD stay solid. Metal only for now.
@@ -154,7 +158,9 @@ or left and right change it:
   changed, and no snapshot is made. Where the game does not save (a chapter
   replayed from CHAPTERS), there is no save.
 * LOAD REPORT: the reports, newest first; A starts a report's save where and
-  as it was made, Conker's facing and the camera included. Reports can come
+  as it was made, Conker's facing and the camera included. It works from the
+  title menu too, so a report is a few seconds from starting the game
+  (`CONKER_SKIP_INTRO=1` skips the intro). Reports can come
   from anyone, so one is checked first and refused, with the reason on
   screen and in the log, unless: its files are regular files (no links) of
   the right sizes (`save.bin` exactly 2048 bytes), `report.json` is a
@@ -166,8 +172,7 @@ or left and right change it:
   copy, `saves/debug/<report>.bin`, until the game is closed, so the
   player's own save is not touched (saves made meanwhile go to the copy).
 
-It opens wherever Start would open the pause menu. The settings last until
-the game is closed. `CONKER_DEBUG_MENU=0` turns it off.
+The settings last until the game is closed. `CONKER_DEBUG_MENU=0` turns it off.
 
 ## Surround by default
 
