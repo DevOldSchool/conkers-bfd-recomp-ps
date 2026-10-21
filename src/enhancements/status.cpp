@@ -66,6 +66,7 @@ nlohmann::json enhancements(uint8_t* rdram) {
         save_snapshots(),
         surround_default(rdram),
         max_detail(),
+        character_distance(),
         rumble_banner(),
         frame_rate(),
         enhancement("sharp_font", "Sharper text", sharp_font, "CONKER_SHARP_FONT", sharp_options),
