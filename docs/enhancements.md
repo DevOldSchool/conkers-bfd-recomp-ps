@@ -220,3 +220,12 @@ the sharper text and menus. `CONKER_TEXTURE_PACKS=0` loads none.
 sharper text and menus out as packs to edit; `tools/font_pack.py` writes the
 same pack outside the game, or with `--style traced` a version redrawn with
 crisp edges and a thin dark outline (`tools/font_trace.py`).
+
+## 60 fps (experimental)
+
+Off by default. `CONKER_60FPS=1` lets the game start a frame on every retrace
+instead of every second one. Its logic already steps by elapsed time, so
+movement, jumps, the camera, animation and cutscenes keep their speed; a few
+things still assume 30 fps. See
+[investigations.md](investigations.md#60-fps-conker_60fps1-experimental) for
+what was measured.

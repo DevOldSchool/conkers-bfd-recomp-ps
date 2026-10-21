@@ -379,3 +379,42 @@ text = "{ void conker_widescreen_culling_scale(uint8_t*, recomp_context*); conke
 func = "func_151DE8F0"
 before_vram = 0x151DEDF8
 text = "{ void conker_rumble_banner(uint8_t*, recomp_context*); conker_rumble_banner(rdram, ctx); }"
+
+# Experimental 60 fps (CONKER_60FPS=1, off by default): Rare's scheduler is woken when a frame is
+# queued and when one is swapped, so the next frame starts in the same retrace and the logic steps
+# by one retrace instead of two. See src/enhancements/frame_rate/frame_rate.cpp.
+[[patches.hook]]
+func = "func_1501C880"
+before_vram = 0x1501CC00
+text = "{ void conker_60fps_task_queued(uint8_t*, recomp_context*); conker_60fps_task_queued(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_800049E0"
+before_vram = 0x10004A84
+text = "{ void conker_60fps_scheduler_message(uint8_t*, recomp_context*); conker_60fps_scheduler_message(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_80004DB0"
+before_vram = 0x10004DF0
+text = "{ void conker_60fps_current_framebuffer(uint8_t*, recomp_context*); conker_60fps_current_framebuffer(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_80005020"
+before_vram = 0x10005084
+text = "{ void conker_60fps_swapped(uint8_t*, recomp_context*); conker_60fps_swapped(rdram, ctx); }"
+
+# (rate * ticks) >> 1 steps, which stall at one retrace a frame: see conker_60fps_half_step.
+[[patches.hook]]
+func = "func_15116BAC"
+before_vram = 0x15116C5C
+text = "{ void conker_60fps_half_step(uint8_t*, gpr*); conker_60fps_half_step(rdram, &ctx->r9); }"
+
+[[patches.hook]]
+func = "func_151169B4"
+before_vram = 0x15116AA4
+text = "{ void conker_60fps_half_step(uint8_t*, gpr*); conker_60fps_half_step(rdram, &ctx->r8); }"
+
+[[patches.hook]]
+func = "func_8000BF60"
+before_vram = 0x1000C2BC
+text = "{ void conker_60fps_half_step(uint8_t*, gpr*); conker_60fps_half_step(rdram, &ctx->r25); }"

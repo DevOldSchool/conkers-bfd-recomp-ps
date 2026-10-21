@@ -27,6 +27,7 @@ nlohmann::json system();
 nlohmann::json cutscene_skip();
 nlohmann::json intro_skip();
 nlohmann::json max_detail();
+nlohmann::json frame_rate();
 nlohmann::json rumble_banner();
 nlohmann::json surround_default(uint8_t* rdram);
 nlohmann::json display_options();

@@ -93,8 +93,9 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
 
 ## Enhancements
 
-Each one is on by default; the last column says how to turn it off. The
-details, and every setting, are in [docs/enhancements.md](docs/enhancements.md).
+Each one is on by default unless the last column says otherwise; that column
+says how to turn it off. The details, and every setting, are in
+[docs/enhancements.md](docs/enhancements.md).
 
 | Enhancement | What it does | Off |
 | --- | --- | --- |
@@ -110,6 +111,7 @@ details, and every setting, are in [docs/enhancements.md](docs/enhancements.md).
 | [Sharper text](docs/enhancements.md#sharper-text) | The font enlarged with Super-xBR from your ROM | `CONKER_SHARP_FONT=0` |
 | [Sharper menus](docs/enhancements.md#sharper-menus) | The menus' signs and headings enlarged the same way | `CONKER_SHARP_MENUS=0` |
 | [Texture packs](docs/enhancements.md#texture-packs) | RT64 replacement packs from `conker-recomp-data/texture_packs` | `CONKER_TEXTURE_PACKS=0` |
+| [60 fps (experimental)](docs/enhancements.md#60-fps-experimental) | Starts a frame on every retrace instead of every second one | Off by default; `CONKER_60FPS=1` turns it on |
 
 ## Documentation
 
