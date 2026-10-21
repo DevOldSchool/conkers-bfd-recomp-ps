@@ -86,9 +86,14 @@ facing the same way, with the camera put back where it looked once it has
 settled behind him (saves made before this keep only the spot). Quitting
 from the pause menu keeps the spot too. The spot is kept in
 `conker_us.resume` next to the save; a checkpoint reached later takes over
-as usual. Enemies and other things the save does not record are reset, as at
-a checkpoint. Neither sign is offered when replaying a chapter, where the
-game does not save. The signs are lettered with Rare's own letters, cut from
+as usual. The game's own save only records finished events, so the spot
+also keeps the scene as it was: the game's own tables of characters, scene
+objects, triggers and event progress, copied whole (so a gate a conversation
+opened stays open, a conversation that plays once does not play again, and a
+count a character keeps is kept), and the variables of the event scripts
+running. Words in them that hold memory addresses belong to the run of the
+game that made them and are left as they are. The file is JSON. Neither
+sign is offered when replaying a chapter, where the game does not save. The signs are lettered with Rare's own letters, cut from
 the game's other green signs in your ROM. `CONKER_PAUSE_SAVE=0` turns them
 off.
 
@@ -153,8 +158,9 @@ or left and right change it:
   from anyone, so one is checked first and refused, with the reason on
   screen and in the log, unless: its files are regular files (no links) of
   the right sizes (`save.bin` exactly 2048 bytes), `report.json` is a
-  version 1 report with a scene, entrance and position in range, and every
-  line of `save.resume` is well formed, starts with the report's slot and
+  version 1 report with a scene, entrance and position in range, and
+  `save.resume` is a well-formed resume file (the points and their scene
+  state, within its limits) that starts with the report's slot and
   matches the JSON's slot, save number, scene and position. A report from
   another build is loaded, and the log says so. The save is played on a
   copy, `saves/debug/<report>.bin`, until the game is closed, so the
