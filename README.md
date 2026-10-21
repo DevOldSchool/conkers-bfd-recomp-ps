@@ -2,11 +2,11 @@
 
 This is my attempt at a faithful PC port of *Conker's Bad Fur Day*
 (Nintendo 64, US) for Windows, macOS and Linux. The aim is the game as Rare
-made it: the same look, sound and feel, running natively instead of in an
-emulator. On top of that come a few small quality-of-life changes, such as
-widescreen, higher resolutions, sharper text and menus and skippable cutscenes, listed
-under [Enhancements](#enhancements). They stay out of the way of the
-original style, and most can be switched off.
+made it: the same look, sound and feel, running natively. On top of that
+come a few small quality-of-life changes, such as widescreen, higher
+resolutions, sharper text and menus and skippable cutscenes, listed under
+[Enhancements](#enhancements). They stay out of the way of the original
+style, and most can be switched off.
 
 It is a static recompilation built with
 [N64Recomp](https://github.com/N64Recomp/N64Recomp) and
@@ -92,189 +92,28 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
 
 ## Enhancements
 
-* **Display options:** the OPTIONS page of the title menu has
-  five rows under the sound setting.
-  * SHARP TEXT or ORIGINAL TEXT: the sharper text and menus below, or the
-    game's own. It switches at once and is on by default.
-  * WINDOWED, BORDERLESS or FULL SCREEN. Full screen (the default) is macOS
-    full screen in a Space of its own; borderless covers the screen in the
-    current Space, with the menu bar and Dock hidden while the game is in
-    front.
-  * 4:3 or WIDESCREEN. Widescreen widens the view to the shape of the
-    window or screen instead of stretching the picture: the window becomes
-    16:9 (384x216 for each multiple), and covering the screen the picture
-    takes the display's own shape (16:9, 16:10 or ultrawide). The HUD and
-    menus stay in the middle, and the circle wipe that opens and closes a
-    scene covers the whole width. Covering the screen is widescreen by
-    default; a window is 4:3 by default, as on an N64. The game
-    still decides what to draw for its own 4:3 view, so objects at the far
-    sides can appear late. In the intro, Conker is not drawn while he
-    waits for his cue just past the edge of the 4:3 view. Behind the pause menu the paused scene stays
-    widescreen, but sharp: the game blurs only the 4:3 middle of the frame,
-    so that blur is skipped in widescreen. Switching between the window and
-    full screen while paused keeps the paused picture as it was, fitted to
-    the new size; the new resolution and shape apply once you carry on.
-  * The resolution: how large the game's 292x216 picture is rendered, in
-    whole multiples from 292x216 (1x). In a window it is the window's size,
-    up to the largest that fits the display (1460x1080, 5x, on a 2560x1440
-    display with the Dock showing, which is also the default). Covering the
-    screen it goes up to the first multiple that covers the screen's height
-    (2044x1512, 7x, on 1440 lines, the default). Widescreen widths are
-    shown in widescreen. Sizes are in pixels, also on a Retina screen,
-    where the game draws at the screen's full pixel density: on a 3024x1964
-    screen a window goes up to 2044x1512 (7x, half that in points),
-    and covering the screen up to 2920x2160 (10x).
-  * FILL SCREEN or CENTERED: the picture is scaled to fill the window or
-    screen, or drawn at its own size in the middle with black bars, so that
-    every game pixel is an even block. Covering the screen it fills by
-    default; a lower resolution then fills it with larger pixels. A window
-    is centered by default, which only shows once it is resized by hand.
+Each one is on by default; the last column says how to turn it off. The
+details, and every setting, are in [docs/enhancements.md](docs/enhancements.md).
 
-  The window and the screen-covering modes each keep their own resolution,
-  shape and fill. F11, Cmd+Enter, Alt+Enter or
-  Ctrl+Cmd+F switch between the window and the last screen-covering mode.
-  The choices are kept in `conker-recomp-data/display.cfg`, not in the
-  game's save, so the OPTIONS saved to EEPROM are unchanged.
-  `CONKER_DISPLAY=windowed`, `borderless` or `fullscreen` overrides the mode
-  for one run, `CONKER_DISPLAY_OPTIONS=0` hides the rows, and
-  `CONKER_ORIGINAL_SIZE=1` opens the original 960x720 window (in points)
-  instead.
-* **Skip to the title menu:** L at any point during the boot logos or the
-  intro fades to black and then into the GAME 1 menu, skipping the title
-  scene's opening (the clock and the Cock and Plucker) too. On an N64,
-  Start only skips the intro after about five seconds and after the reset
-  button, and the title scene needs another press.
-  `CONKER_SKIP_INTRO=1` skips without a press; `CONKER_SKIP_INTRO=0` keeps the
-  original behaviour, where the intro cannot be skipped after a cold boot.
-* **Skip any cutscene:** on an N64, L only skips a cutscene already
-  watched, and some, such as the whole opening of a new game, not at all.
-  Here L skips every cutscene, the first time too. Skipping any part of
-  the opening goes on to where Conker wakes up, its own skip target in the
-  game's data (about 45 seconds into a new game instead of 7 minutes).
-  `CONKER_SKIP_CUTSCENES=0` keeps the original rules.
-* **SAVE and LOAD in the pause menu:** two signs sit under the lever, LOAD
-  below QUIT and SAVE below CONT.... Push down from the sign above, or use
-  the stick's down-left and down-right diagonals, and press A. SAVE saves
-  the game where Conker stands, and LOAD, or starting that save from the
-  title menu, puts him back on that spot, facing the same way, with the
-  camera put back where it looked once it has settled behind him (saves made
-  before this keep only the spot). Quitting from the pause menu keeps
-  the spot too. The spot is kept in `conker_us.resume` next to the save; a
-  checkpoint reached later takes over as usual. Enemies and other things
-  the save does not record are reset, as at a checkpoint. Neither sign is
-  offered when replaying a chapter, where the game does not save. The signs
-  are lettered with Rare's own letters, cut from the game's other green signs
-  in your ROM. `CONKER_PAUSE_SAVE=0` turns them off.
-  Every save made this way is also kept as its own snapshot in
-  `saves/snapshots/`, named after the scene number and when it was made
-  (`scene12-20261020-143205.bin` with a matching `.resume`). LOAD still
-  starts the latest save; to go back to an earlier one, copy its two files
-  over `conker_us.bin` and `conker_us.resume` while the game is closed, or
-  load it from the debug menu.
-  `CONKER_SAVE_SNAPSHOTS=0` stops keeping them.
-* **Debug menu:** View on an Xbox pad, Create (Share) on a PlayStation pad, or
-  the ` key opens it during play. It is the game's pause with its own page in
-  place of the lever, PAUSED and the HUD, so the game stops as it does for the
-  pause menu, and it closes with B, Start or the same button. Up and down choose a row, A or left and
-  right change it:
-  * WIREFRAME: the game's 3D triangles drawn as their edges on black; text,
-    sprites and the HUD stay solid. Metal only for now.
-  * SHOW FPS: the frames the game draws per second, in the top left corner.
-  * SHOW POSITION: the scene, Conker's X, Y and Z and his facing, and the
-    camera's yaw and pitch, under the frame rate during play. Angles are in
-    degrees, and facing and yaw share their zero (+Z) and direction (towards
-    +X), so walking away from the camera they agree. The first page shows them
-    too, and opening the menu prints them in the terminal, with the camera's
-    position, the point it looks at and its forward vector.
-  * TELEPORT: X, Y, Z, FACING and CAMERA YAW, set to where Conker is and
-    changed with left and right by STEP (1, 10, 100 or 1000; held, they keep
-    changing). GO puts him there facing that way, and the camera where it
-    looks along CAMERA YAW at him, as far away as it was: the same view as the
-    numbers on screen, to the hundredth of a degree, for repeating what someone
-    saw. The camera's pitch is the game's own for that spot (it keeps the
-    camera at the height it wants), so it is shown and recorded but not set.
-    RESET TO CURRENT sets the values back to where he is and how he and the
-    camera face, REMEMBER keeps the values shown in
-    `conker-recomp-data/debug_spots.txt` (one line each: `scene x y z angle
-    facing camera-yaw camera-pitch`) and shows what it kept, and SPOTS lists
-    those of the scene being played with their facing, yaw and pitch; A on one
-    puts him there. Teleports stay within the scene.
-  * LOAD SNAPSHOT: the snapshots in `saves/snapshots/`, newest first. A makes
-    the chosen one the save, as copying its files over `conker_us.bin` and
-    `conker_us.resume` would, and starts it where it was saved, as LOAD does.
-    Progress since the last snapshot is not kept.
-  * SAVE DEBUG REPORT: for reporting an issue. Makes a folder in
-    `conker-recomp-data/debug_reports/`, named after the scene and the time,
-    with `report.json` and a save of the game as it is at that moment
-    (`save.bin`, `save.resume`). The JSON has the build (`git describe` of
-    the commit it was built from), the scene and entrance, Conker's position
-    and facing, the camera (position, look-at point, forward vector, yaw,
-    pitch), every enhancement (`id`, `name`, `on`, its `CONKER_*` `variable`
-    and its `options` as values), the settings that go with them (display,
-    texture packs, controller, frame rate, `display.cfg`), the computer
-    (operating system, CPU, memory, GPU and graphics API, display size;
-    nothing that names the computer or its user), the `CONKER_*` variables
-    set (a path keeps only its file name), and what save is in the folder. The save is made by the game's own save routine into a copy:
-    the player's save is not changed, and no snapshot is made. Where the game
-    does not save (a chapter replayed from CHAPTERS), there is no save.
-  * LOAD REPORT: the reports, newest first; A starts a report's save where
-    and as it was made, Conker's facing and the camera included. Reports can
-    come from anyone, so one is checked first and refused, with the reason on
-    screen and in the log, unless: its files are regular files (no links) of
-    the right sizes (`save.bin` exactly 2048 bytes), `report.json` is a
-    version 1 report with a scene, entrance and position in range, and every
-    line of `save.resume` is well formed, starts with the report's slot and
-    matches the JSON's slot, save number, scene and position. A report from
-    another build is loaded, and the log says so. The save is played on a
-    copy, `saves/debug/<report>.bin`, until the game is closed, so the
-    player's own save is not touched (saves made meanwhile go to the copy).
-
-  It opens wherever Start would open the pause menu. The settings last until
-  the game is closed. `CONKER_DEBUG_MENU=0` turns it off.
-* **Surround by default:** with no saved options (a new save file), the
-  OPTIONS menu's sound setting is surround instead of stereo. The
-  game keeps its options in EEPROM next to the saved games, so a sound
-  setting chosen and saved from that menu stays as it was.
-  `CONKER_SURROUND_DEFAULT=0` keeps the stereo default.
-* **Characters at full detail:** the game swaps Conker for a lower-detail
-  model once the camera is more than 500 units away, which in play is often
-  its usual distance (the blockier tail is the easiest place to see it), and
-  for cruder ones further out. He, and the few other characters with more
-  than one model, keep their most detailed model at any distance.
-  `CONKER_MAX_DETAIL=0` keeps the game's choice.
-* **No Rumble Pak banner with a rumbling pad:** the title menu's "INSERT
-  RUMBLE PAK" banner shows on an N64 even with the pak inserted. It is left
-  out when controller 1's pad can rumble; `CONKER_RUMBLE_BANNER=1` shows it.
-* **Camera on the right stick:** C-left and C-right are swapped (also on J/L),
-  so pushing left turns the view left.
-* **Sharper text:** the game's text font is enlarged 8 times with
-  Super-xBR, a pixel-art upscaler, from the glyphs in your ROM when the game
-  starts: the same letters, smoother and less blurred than the N64's
-  filtering. The game draws each glyph a little short of its edges, which its
-  blur hides, so those rectangles are widened over each glyph's empty border
-  and the sharper letters are not cut off (`src/platform/font_rects.cpp`).
-  `CONKER_SHARP_FONT=0` keeps the original font.
-* **Sharper menus:** the menus' lettered signs and headings (GAME1, OPTIONS,
-  PLAY, the chapter names, the multiplayer modes, PAUSED and the rest) are
-  drawn unfiltered, so at high resolutions they show as blocks. They are
-  enlarged 4 times with Super-xBR from your ROM when the game starts, each
-  heading as one picture so no seams show between its tiles, and so are the
-  menus' joystick and the OPTIONS speakers. The small P1 to P4 badges use the
-  large badges' artwork. Other pictures such as faces are left as they are.
-  `CONKER_SHARP_MENUS=0` keeps the original signs; the OPTIONS row turns the
-  sharper text and menus off together.
-* **Texture packs:** RT64 replacement packs (a folder, `.rtz` or `.zip` with
-  an `rt64.json`) in `conker-recomp-data/texture_packs` are loaded at start,
-  in name order; where two replace the same texture, the later name wins,
-  and any of them wins over the sharper text and menus.
-  `CONKER_TEXTURE_PACKS=0` loads none. `CONKER_DUMP_SHARP_FONT=<dir>` and
-  `CONKER_DUMP_SHARP_MENUS=<dir>` write the sharper text and menus out as
-  packs to edit; `tools/font_pack.py` writes the same pack outside the game, or
-  with `--style traced` a version redrawn with crisp edges and a thin dark
-  outline (`tools/font_trace.py`).
+| Enhancement | What it does | Off |
+| --- | --- | --- |
+| [Display options](docs/enhancements.md#display-options) | Window, borderless or full screen, widescreen, resolution, fill or centered, and sharp or original text, in the OPTIONS menu | `CONKER_DISPLAY_OPTIONS=0` hides the rows |
+| [Skip to the title menu](docs/enhancements.md#skip-to-the-title-menu) | L skips the boot logos, the intro and the title scene's opening | `CONKER_SKIP_INTRO=0` |
+| [Skip any cutscene](docs/enhancements.md#skip-any-cutscene) | L skips every cutscene, the first time too | `CONKER_SKIP_CUTSCENES=0` |
+| [SAVE and LOAD in the pause menu](docs/enhancements.md#save-and-load-in-the-pause-menu) | Save where Conker stands and load back to that spot, with a snapshot of every save | `CONKER_PAUSE_SAVE=0` |
+| [Debug menu](docs/enhancements.md#debug-menu) | Wireframe, frame rate, position, teleport, snapshots and debug reports | `CONKER_DEBUG_MENU=0` |
+| [Surround by default](docs/enhancements.md#surround-by-default) | A new save file's sound setting is surround instead of stereo | `CONKER_SURROUND_DEFAULT=0` |
+| [Characters at full detail](docs/enhancements.md#characters-at-full-detail) | Conker and others keep their most detailed model at any distance | `CONKER_MAX_DETAIL=0` |
+| [No Rumble Pak banner](docs/enhancements.md#no-rumble-pak-banner-with-a-rumbling-pad) | No "INSERT RUMBLE PAK" banner when the pad can rumble | `CONKER_RUMBLE_BANNER=1` shows it |
+| [Camera on the right stick](docs/enhancements.md#camera-on-the-right-stick) | C-left and C-right swapped, so left turns the view left | Always on |
+| [Sharper text](docs/enhancements.md#sharper-text) | The font enlarged with Super-xBR from your ROM | `CONKER_SHARP_FONT=0` |
+| [Sharper menus](docs/enhancements.md#sharper-menus) | The menus' signs and headings enlarged the same way | `CONKER_SHARP_MENUS=0` |
+| [Texture packs](docs/enhancements.md#texture-packs) | RT64 replacement packs from `conker-recomp-data/texture_packs` | `CONKER_TEXTURE_PACKS=0` |
 
 ## Documentation
 
+* [docs/enhancements.md](docs/enhancements.md): each enhancement in full
+  and its settings
 * [docs/diagnostics.md](docs/diagnostics.md): crash reports, display-list and
   audio dumps, scripted input, skipping the opening with a save
 * [docs/recompilation.md](docs/recompilation.md): how the recompilation is set
@@ -283,6 +122,14 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
 * [docs/rsp-microcode.md](docs/rsp-microcode.md): graphics and audio microcode
 * [docs/investigations.md](docs/investigations.md): open problems and what
   has been ruled out
+
+## AI disclosure
+
+This project is developed with the help of AI. Much of the code, the tools
+and the documentation is written by an AI coding assistant. The direction
+and the quality assurance are mine: I decide what is worked on and how it
+should behave, test the changes in the game, and review them before they
+are merged.
 
 ## License
 
