@@ -1,0 +1,24 @@
+diff --git a/src/hle/rt64_rsp.cpp b/src/hle/rt64_rsp.cpp
+--- a/src/hle/rt64_rsp.cpp
++++ b/src/hle/rt64_rsp.cpp
+@@ -1162,7 +1162,19 @@
+ 
+             const interop::RSPViewport &viewport = viewportStack[viewportStackSize - 1];
+             const FixedRect viewportClipRect = viewport.rect(clipRatios.data());
+-            drawRect = viewportClipRect.intersection(scissorRect.intersection(drawRect));
++            const FixedRect clipRect = viewportClipRect.intersection(scissorRect);
++            const FixedRect triRect = drawRect;
++            drawRect = clipRect.intersection(triRect);
++
++            // With a wider aspect ratio the scene is drawn beside the scissor too, but the framebuffer pair's target is only as
++            // tall as its draw rect, which counts what lands inside the scissor. A triangle wholly beside it (an object left of
++            // the original picture) is cut off when nothing inside reaches its rows, so its rows count at the nearest column.
++            const bool besideClip = (triRect.lrx <= clipRect.ulx) || (triRect.ulx >= clipRect.lrx);
++            if (besideClip && !clipRect.isEmpty() && (state->ext.userConfig->aspectRatio != UserConfiguration::AspectRatio::Original)) {
++                const int32_t column = (triRect.lrx <= clipRect.ulx) ? clipRect.ulx : std::max(clipRect.lrx - 4, clipRect.ulx);
++                drawRect = clipRect.intersection(FixedRect(column, triRect.uly, column + 4, triRect.lry));
++            }
++
+             if (!drawRect.isNull()) {
+                 fbPair.drawColorRect.merge(drawRect);
+                 if (otherModeStack[otherModeStackSize - 1].zUpd()) {

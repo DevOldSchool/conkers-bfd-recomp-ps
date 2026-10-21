@@ -50,6 +50,7 @@ git submodule update --init --recursive
 (cd lib/rt64 && git apply ../../tools/patches/rt64-edge-rects.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-memory-packs.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-wireframe.patch)
+(cd lib/rt64 && git apply ../../tools/patches/rt64-wide-draw-rect.patch)
 (cd lib/rt64/src/contrib/plume && git apply ../../../../../tools/patches/plume-wireframe.patch)
 tools/regenerate.sh
 cmake -S . -B build/rt64 -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER=rt64

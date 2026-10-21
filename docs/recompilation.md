@@ -148,6 +148,18 @@ solid, and clears each color target to black the first time it is drawn to in
 a frame: Conker never clears its frame, since the scene covers it, so without
 that the lines would be drawn over an old picture.
 
+`tools/patches/rt64-wide-draw-rect.patch` (apply in `lib/rt64` after the
+patches above) fixes objects that vanish beside the original picture when it is
+widened. RT64 sizes each framebuffer pair's render target from the pair's draw
+rect, which only counts what lands inside the game's 4:3 scissor. Conker splits
+its frame into many pairs (each switch to a small off-screen image starts a new
+one), so a pair whose triangles inside the scissor all lie near the top got a
+target that ended above an object drawn wholly beside the scissor further down,
+and that object was clipped away: the plank bridge on the left pillar in scene
+41 disappeared once all of it was left of the 4:3 picture. With a widened
+aspect ratio such a triangle now counts its rows at the scissor's nearest
+column.
+
 RT64's CMake turns plume's Retina support off, which would size the Metal
 swap chain in points and leave macOS to upscale it 2x on a Retina screen. Our
 `CMakeLists.txt` defines `PLUME_APPLE_RETINA_ENABLED` for the `plume` target
