@@ -93,6 +93,11 @@ These environment variables are read by both builds:
   paused), the sequence, its volume and pause mode, and the music-paused flag
   that the pause menu sets. An open pause menu is silent by design and shows
   flag 1 with the players paused.
+* `CONKER_FRAME_LOG=<file>` writes a line for every frame the game queues:
+  the VI, the retraces the frame steps by (`D_800BE9E4`), the scene, the logic
+  delta (`D_800BE9A4`), Conker's position and the camera's eye. It works in
+  either build and at either frame rate (`CONKER_60FPS`), for comparing the
+  two over the same pad script.
 * `CONKER_DUMP_TEXTURES=<dir>` (RT64 build) writes each texture the game
   loads to `<dir>` once, as RT64's `<hash>.v5.png`, `.tmem` and `.tile.json`
   files, the starting point for a texture pack. `tools/font_pack.py --dump

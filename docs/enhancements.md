@@ -24,7 +24,8 @@ The OPTIONS page of the title menu has five rows under the sound setting.
   by default, as on an N64. The game decides what to draw for the widened
   view too, so the level, props and characters at the sides are not left
   out as they were past the edges of its 4:3 view
-  (`CONKER_WIDESCREEN_CULLING=0` keeps the 4:3 choice). In the intro,
+  (`CONKER_WIDESCREEN_CULLING=0` keeps the 4:3 choice); the tiled sky gets
+  vertex buffers big enough for the extra tiles. In the intro,
   Conker is not drawn while he waits for his cue just past the edge of the
   4:3 view. Behind the pause menu the paused scene stays widescreen, but
   sharp: the game blurs only the 4:3 middle of the frame, so that blur is
@@ -220,3 +221,12 @@ the sharper text and menus. `CONKER_TEXTURE_PACKS=0` loads none.
 sharper text and menus out as packs to edit; `tools/font_pack.py` writes the
 same pack outside the game, or with `--style traced` a version redrawn with
 crisp edges and a thin dark outline (`tools/font_trace.py`).
+
+## 60 fps (experimental)
+
+Off by default. `CONKER_60FPS=1` lets the game start a frame on every retrace
+instead of every second one. Its logic already steps by elapsed time, so
+movement, jumps, the camera, animation and cutscenes keep their speed; a few
+things still assume 30 fps. See
+[investigations.md](investigations.md#60-fps-conker_60fps1-experimental) for
+what was measured.
