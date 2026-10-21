@@ -86,14 +86,14 @@ facing the same way, with the camera put back where it looked once it has
 settled behind him (saves made before this keep only the spot). Quitting
 from the pause menu keeps the spot too. The spot is kept in
 `conker_us.resume` next to the save; a checkpoint reached later takes over
-as usual. The game's own save only records finished events, so the spot also
-keeps what is under way in the scene: each of the scene's objects' state
-(a gate a conversation opened stays open), the variables of the event
-scripts running (a conversation chain carries on where it was) and which of
-the scene's triggers have fired (a conversation that plays once does not
-play again). The file is JSON. Enemies and other characters are reset, as at
-a checkpoint. Neither sign is offered when replaying a chapter, where the
-game does not save. The signs are lettered with Rare's own letters, cut from
+as usual. The game's own save only records finished events, so the spot
+also keeps the scene as it was: the game's own tables of characters, scene
+objects, triggers and event progress, copied whole (so a gate a conversation
+opened stays open, a conversation that plays once does not play again, and a
+count a character keeps is kept), and the variables of the event scripts
+running. Words in them that hold memory addresses belong to the run of the
+game that made them and are left as they are. The file is JSON. Neither
+sign is offered when replaying a chapter, where the game does not save. The signs are lettered with Rare's own letters, cut from
 the game's other green signs in your ROM. `CONKER_PAUSE_SAVE=0` turns them
 off.
 

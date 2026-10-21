@@ -18,8 +18,8 @@
 // what is under way in the scene: a conversation partway through a chain (the event script's
 // variables) or what a script has done to the scene's objects (a gate it opened). On hardware that
 // is lost by design, as a save always restarts at a checkpoint. So the point also records the
-// scene's objects' states and rotations, the running event scripts' variables and which of the
-// scene's triggers have fired (a conversation that plays once), and puts them back as Conker is
+// scene as whole tables of the game's own records (characters, scene objects, triggers, event
+// progress; see kTables) and the running event scripts' variables, and puts them back as Conker is
 // placed.
 //
 // Each of those saves is also kept as a snapshot in saves/snapshots/, named
@@ -111,18 +111,39 @@ constexpr int kSlots = 3;
 // resumed one: the point carries over to it.
 constexpr std::chrono::seconds kResumeSaveWindow{10};
 
-// The scene's objects: D_800DBEF0 records of 0xA0 bytes at D_800DBEF4 (a gate, a door, a spinning
-// pickup). The state byte drives the object: the gate in the cheese farm (scene 12) is 4 shut and
-// 7 open, and swings to match it. Byte 0x71 is the record's own index.
-constexpr uint32_t kObjectCount = 0x800DBEF0;
-constexpr uint32_t kObjects = 0x800DBEF4;
-constexpr uint32_t kObjectRecordSize = 0xA0;
-constexpr int kObjectRotation = 0x00;            // three floats, degrees
-constexpr int kObjectIndex = 0x71;
-constexpr int kObjectState = 0x73;
-constexpr int kMaxObjects = 512;
+// The scene's state is kept as whole tables of the game's own records, restored as they were saved
+// except for the words that hold addresses (see restore_tables), so nothing in them needs to be
+// understood one field at a time. A table is where its records are, how many there are and how big
+// one is:
+//   actors        the 25 characters at D_800CC2D0, 0x32C bytes each (Conker first, then the rest)
+//   objects       D_800DBEF0 scene objects of 0xA0 bytes at D_800DBEF4 (a gate, a door, a spinning
+//                 pickup; byte 0x73 is the state the object moves to: the cheese farm's gate in
+//                 scene 12 is 4 shut and 7 open)
+//   triggers      D_800D3094 zones of 0x34 bytes at D_800D3098 that start a cutscene or an event
+//                 when Conker enters them (func_150A11C4); byte 0x14 marks a one-shot trigger as
+//                 fired (Jack's conversation), and func_150A1DA0 skips it then
+//   event_status  D_800D2E70, a byte per event (1 running, 3 done)
+//   event_flags2  D_800D2E50, 16 bytes of event bits the save leaves out
+struct TableSpec {
+    const char* name;
+    uint32_t address;        // the records, or the pointer to them when `indirect`
+    bool indirect;
+    uint32_t count_address;  // a 32-bit count, or 0 for `fixed_count` records
+    int fixed_count;
+    uint32_t record_size;
+    int max_count;
+    int model_byte;          // actors: a slot is only restored if it holds the same model, or -1
+};
+constexpr TableSpec kTables[] = {
+    {"actors", 0x800CC2D0, false, 0, 25, 0x32C, 25, 0x4},
+    {"objects", 0x800DBEF4, true, 0x800DBEF0, 0, 0xA0, 512, -1},
+    {"triggers", 0x800D3098, true, 0x800D3094, 0, 0x34, 1024, -1},
+    {"event_status", 0x800D2E70, false, 0, 1, 0xCC, 1, -1},
+    {"event_flags2", 0x800D2E50, false, 0, 1, 0x10, 1, -1},
+};
 // The running event scripts: a list {u16 count, head, tail} of nodes {u16 key (event id in the low
-// 10 bits), ..., u16 +6 variables' size, u16 +0xA their offset in the node, ..., next +0x18}.
+// 10 bits), ..., u16 +6 variables' size, u16 +0xA their offset in the node, ..., next +0x18}. Their
+// variables are kept per event, as the nodes are allocated anywhere.
 constexpr uint32_t kScriptCount = 0x800D2F48;
 constexpr uint32_t kScriptHead = 0x800D2F4C;
 constexpr int kScriptVariablesSize = 0x6;
@@ -131,23 +152,15 @@ constexpr int kScriptNext = 0x18;
 constexpr uint16_t kScriptEvent = 0x3FF;
 constexpr int kMaxScripts = 64;
 constexpr size_t kMaxScriptVariables = 1024;
-// The scene's triggers: D_800D3094 records of 0x34 bytes at D_800D3098, zones that start a cutscene
-// or an event when Conker enters them (func_150A11C4). Byte 0x14 is set once a one-shot trigger has
-// fired (Jack's conversation in scene 12), and func_150A1DA0 skips a trigger with it set.
-constexpr uint32_t kTriggerCount = 0x800D3094;
-constexpr uint32_t kTriggers = 0x800D3098;
-constexpr uint32_t kTriggerRecordSize = 0x34;
-constexpr int kTriggerFired = 0x14;
-constexpr int kMaxTriggers = 1024;
 constexpr const char* kPointsFormat = "conker-recomp-resume";
-constexpr int kPointsVersion = 1;
+constexpr int kPointsVersion = 2;
 constexpr double kMaxCoordinate = 1.0e6;   // well past any level's size
 constexpr int kMaxScene = 255;
 
-struct SceneObject {
-    int index = 0;
-    int state = 0;
-    float rotation[3] = {};
+struct TableState {
+    const TableSpec* spec = nullptr;
+    int count = 0;
+    std::vector<uint8_t> bytes;  // count * record_size, as the game holds them (big-endian words)
 };
 
 struct ScriptVariables {
@@ -163,10 +176,8 @@ struct Point {
     float x = 0, y = 0, z = 0, yaw = 0;  // yaw in degrees
     bool has_view = false;               // facing and camera_yaw recorded (see Position)
     float facing = 0, camera_yaw = 0;
-    std::vector<SceneObject> objects;    // the scene as it was (see the top of the file)
+    std::vector<TableState> tables;      // the scene as it was (see the top of the file)
     std::vector<ScriptVariables> scripts;
-    int trigger_count = -1;              // -1: no triggers recorded
-    std::vector<int> fired_triggers;
 };
 
 Point g_pending;           // remembered, waiting for the save to be written
@@ -254,6 +265,23 @@ int hex_digit(char c) {
     return c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
 }
 
+// `digits` as exactly `size` bytes into `out`; false if it is anything else.
+bool from_hex(const std::string& digits, size_t size, std::vector<uint8_t>* out) {
+    if (digits.size() != 2 * size) {
+        return false;
+    }
+    out->clear();
+    out->reserve(size);
+    for (size_t i = 0; i < digits.size(); i += 2) {
+        const int high = hex_digit(digits[i]), low = hex_digit(digits[i + 1]);
+        if (high < 0 || low < 0) {
+            return false;
+        }
+        out->push_back(static_cast<uint8_t>(high * 16 + low));
+    }
+    return true;
+}
+
 // One point of the points file (see parse_points) into `point` and its slot into `slot`.
 bool parse_point(const nlohmann::json& entry, Point* point, int* slot) {
     double value, counter, scene, entrance;
@@ -283,29 +311,40 @@ bool parse_point(const nlohmann::json& entry, Point* point, int* slot) {
         point->facing = static_cast<float>(facing);
         point->camera_yaw = static_cast<float>(camera_yaw);
     }
-    if (entry.contains("objects")) {
-        const nlohmann::json& objects = entry["objects"];
-        if (!objects.is_array() || objects.size() > static_cast<size_t>(kMaxObjects)) {
+    if (entry.contains("tables")) {
+        const nlohmann::json& tables = entry["tables"];
+        if (!tables.is_array() || tables.size() > std::size(kTables)) {
             return false;
         }
-        for (const nlohmann::json& item : objects) {
-            double index, state;
-            SceneObject object;
-            if (!whole_in(item, "index", 0, kMaxObjects - 1, &index) || !whole_in(item, "state", 0, 0xFF, &state) ||
-                !item.contains("rotation") || !item["rotation"].is_array() || item["rotation"].size() != 3) {
+        for (const nlohmann::json& item : tables) {
+            if (!item.is_object() || !item.contains("name") || !item["name"].is_string() || !item.contains("bytes") ||
+                !item["bytes"].is_string()) {
                 return false;
             }
-            for (int i = 0; i < 3; i++) {
-                const nlohmann::json& angle = item["rotation"][i];
-                if (!angle.is_number() || !std::isfinite(angle.get<double>()) ||
-                    std::fabs(angle.get<double>()) > kMaxCoordinate) {
+            const TableSpec* spec = nullptr;
+            for (const TableSpec& candidate : kTables) {
+                if (item["name"] == candidate.name) {
+                    spec = &candidate;
+                }
+            }
+            double count, record_size;
+            if (spec == nullptr || !whole_in(item, "count", 1, spec->max_count, &count) ||
+                !whole_in(item, "record_size", spec->record_size, spec->record_size, &record_size)) {
+                return false;
+            }
+            for (const TableState& seen : point->tables) {
+                if (seen.spec == spec) {
                     return false;
                 }
-                object.rotation[i] = angle.get<float>();
             }
-            object.index = static_cast<int>(index);
-            object.state = static_cast<int>(state);
-            point->objects.push_back(object);
+            TableState table;
+            table.spec = spec;
+            table.count = static_cast<int>(count);
+            if (!from_hex(item["bytes"].get_ref<const std::string&>(), static_cast<size_t>(table.count) * spec->record_size,
+                          &table.bytes)) {
+                return false;
+            }
+            point->tables.push_back(std::move(table));
         }
     }
     if (entry.contains("scripts")) {
@@ -319,33 +358,13 @@ bool parse_point(const nlohmann::json& entry, Point* point, int* slot) {
                 return false;
             }
             const std::string& digits = item["variables"].get_ref<const std::string&>();
-            if (digits.empty() || digits.size() % 2 != 0 || digits.size() > 2 * kMaxScriptVariables) {
-                return false;
-            }
             ScriptVariables script;
             script.key = static_cast<uint16_t>(key);
-            for (size_t i = 0; i < digits.size(); i += 2) {
-                const int high = hex_digit(digits[i]), low = hex_digit(digits[i + 1]);
-                if (high < 0 || low < 0) {
-                    return false;
-                }
-                script.bytes.push_back(static_cast<uint8_t>(high * 16 + low));
-            }
-            point->scripts.push_back(std::move(script));
-        }
-    }
-    if (entry.contains("trigger_count")) {
-        double triggers;
-        if (!whole_in(entry, "trigger_count", 0, kMaxTriggers, &triggers) || !entry.contains("fired_triggers") ||
-            !entry["fired_triggers"].is_array() || entry["fired_triggers"].size() > static_cast<size_t>(triggers)) {
-            return false;
-        }
-        point->trigger_count = static_cast<int>(triggers);
-        for (const nlohmann::json& item : entry["fired_triggers"]) {
-            if (!item.is_number_integer() || item.get<int64_t>() < 0 || item.get<int64_t>() >= point->trigger_count) {
+            if (digits.empty() || digits.size() > 2 * kMaxScriptVariables ||
+                !from_hex(digits, digits.size() / 2, &script.bytes)) {
                 return false;
             }
-            point->fired_triggers.push_back(static_cast<int>(item.get<int64_t>()));
+            point->scripts.push_back(std::move(script));
         }
     }
     point->valid = true;
@@ -353,12 +372,12 @@ bool parse_point(const nlohmann::json& entry, Point* point, int* slot) {
 }
 
 // The points file, conker_us.resume (a snapshot's .resume, a report's save.resume), is JSON:
-// {"format": "conker-recomp-resume", "version": 1, "slots": [point, ...]}, at most one point per slot,
+// {"format": "conker-recomp-resume", "version": 2, "slots": [point, ...]}, at most one point per slot,
 // the saved slot's first. A point: "slot", "counter" (the save's sequence number), "scene", "entrance",
 // "x", "y", "z", "yaw" (degrees), "facing" and "camera_yaw" when they were recorded, and the scene as
-// it was: "objects" [{"index", "state", "rotation": [x, y, z]}], "scripts" [{"key", "variables",
-// hex}], and "trigger_count" with "fired_triggers" [index, ...]. Everything is checked (a report's may come from anyone); false with the reason in `problem`.
-// `first_slot` is the first point's slot, or -1 when there is none.
+// it was: "tables" [{"name", "count", "record_size", "bytes", hex}] (see kTables) and "scripts"
+// [{"key", "variables", hex}]. Everything is checked (a report's may come from anyone); false with
+// the reason in `problem`. `first_slot` is the first point's slot, or -1 when there is none.
 bool parse_points(const std::string& text, std::array<Point, kSlots>* points, int* first_slot, std::string* problem) {
     *points = {};
     *first_slot = -1;
@@ -366,7 +385,7 @@ bool parse_points(const std::string& text, std::array<Point, kSlots>* points, in
     if (!doc.is_object() || !doc.contains("format") || doc["format"] != kPointsFormat || !doc.contains("version") ||
         doc["version"] != kPointsVersion || !doc.contains("slots") || !doc["slots"].is_array() ||
         doc["slots"].size() > static_cast<size_t>(kSlots)) {
-        *problem = "not a version 1 resume file";
+        *problem = "not a version 2 resume file";
         return false;
     }
     for (const nlohmann::json& entry : doc["slots"]) {
@@ -429,22 +448,19 @@ void write_points(const std::array<Point, kSlots>& points, const std::filesystem
             entry["facing"] = p.facing;
             entry["camera_yaw"] = p.camera_yaw;
         }
-        nlohmann::json objects = nlohmann::json::array();
-        for (const SceneObject& object : p.objects) {
-            objects.push_back({{"index", object.index},
-                               {"state", object.state},
-                               {"rotation", {object.rotation[0], object.rotation[1], object.rotation[2]}}});
+        nlohmann::json tables = nlohmann::json::array();
+        for (const TableState& table : p.tables) {
+            tables.push_back({{"name", table.spec->name},
+                              {"count", table.count},
+                              {"record_size", table.spec->record_size},
+                              {"bytes", to_hex(table.bytes)}});
         }
         nlohmann::json scripts = nlohmann::json::array();
         for (const ScriptVariables& script : p.scripts) {
             scripts.push_back({{"key", script.key}, {"variables", to_hex(script.bytes)}});
         }
-        entry["objects"] = std::move(objects);
+        entry["tables"] = std::move(tables);
         entry["scripts"] = std::move(scripts);
-        if (p.trigger_count >= 0) {
-            entry["trigger_count"] = p.trigger_count;
-            entry["fired_triggers"] = p.fired_triggers;
-        }
         slots.push_back(std::move(entry));
     };
     if (first_slot >= 0 && first_slot < kSlots) {
@@ -479,15 +495,23 @@ float read_float(uint8_t* rdram, uint32_t address) {
 
 bool in_rdram(uint32_t address) { return (address & 0xFF800000) == 0x80000000; }
 
-// The scene's object records and how many there are; 0 when there is no scene.
-uint32_t scene_objects(uint8_t* rdram, int* count) {
-    const uint32_t table = static_cast<uint32_t>(MEM_W(0, kseg0(kObjects)));
-    *count = MEM_W(0, kseg0(kObjectCount));
-    if (!in_rdram(table) || *count <= 0 || *count > kMaxObjects) {
+// Where `spec`'s records are and how many there are now; 0 when there are none (no scene).
+uint32_t table_records(uint8_t* rdram, const TableSpec& spec, int* count) {
+    const uint32_t records = spec.indirect ? static_cast<uint32_t>(MEM_W(0, kseg0(spec.address))) : spec.address;
+    *count = spec.count_address != 0 ? MEM_W(0, kseg0(spec.count_address)) : spec.fixed_count;
+    if (!in_rdram(records) || *count <= 0 || *count > spec.max_count ||
+        !in_rdram(records + static_cast<uint32_t>(*count) * spec.record_size - 1)) {
         *count = 0;
         return 0;
     }
-    return table;
+    return records;
+}
+
+// A word that holds an address, in RDRAM or in the game's code: it belongs to this run of the game
+// (where things were allocated), so it is never restored.
+bool is_address(uint32_t word) {
+    const uint32_t top = word >> 24;
+    return (top >= 0x80 && top < 0x88) || top == 0x10 || top == 0x15 || top == 0x16;
 }
 
 // Calls `visit(node)` for each running event script, while the list holds together.
@@ -501,41 +525,22 @@ void for_each_script(uint8_t* rdram, Visit visit) {
     }
 }
 
-// The scene's trigger records and how many there are; 0 when there is no scene.
-uint32_t scene_triggers(uint8_t* rdram, int* count) {
-    const uint32_t table = static_cast<uint32_t>(MEM_W(0, kseg0(kTriggers)));
-    *count = MEM_W(0, kseg0(kTriggerCount));
-    if (!in_rdram(table) || *count <= 0 || *count > kMaxTriggers) {
-        *count = 0;
-        return 0;
-    }
-    return table;
-}
-
 // Records the scene as it is now (see the top of the file) in `point`.
 void capture_scene(uint8_t* rdram, Point* point) {
-    point->objects.clear();
+    point->tables.clear();
     point->scripts.clear();
-    point->fired_triggers.clear();
-    int triggers;
-    const uint32_t trigger_table = scene_triggers(rdram, &triggers);
-    point->trigger_count = triggers;
-    for (int index = 0; index < triggers; index++) {
-        if (MEM_BU(kTriggerFired, kseg0(trigger_table + static_cast<uint32_t>(index) * kTriggerRecordSize)) != 0) {
-            point->fired_triggers.push_back(index);
+    for (const TableSpec& spec : kTables) {
+        TableState table;
+        const uint32_t records = table_records(rdram, spec, &table.count);
+        if (table.count == 0) {
+            continue;
         }
-    }
-    int count;
-    const uint32_t table = scene_objects(rdram, &count);
-    for (int index = 0; index < count; index++) {
-        const uint32_t record = table + static_cast<uint32_t>(index) * kObjectRecordSize;
-        SceneObject object;
-        object.index = index;
-        object.state = MEM_BU(kObjectState, kseg0(record));
-        for (int i = 0; i < 3; i++) {
-            object.rotation[i] = read_float(rdram, record + kObjectRotation + 4 * i);
+        table.spec = &spec;
+        const uint32_t size = static_cast<uint32_t>(table.count) * spec.record_size;
+        for (uint32_t i = 0; i < size; i++) {
+            table.bytes.push_back(MEM_BU(static_cast<int>(i), kseg0(records)));
         }
-        point->objects.push_back(object);
+        point->tables.push_back(std::move(table));
     }
     for_each_script(rdram, [&](uint32_t node) {
         const uint32_t size = MEM_HU(kScriptVariablesSize, kseg0(node));
@@ -552,35 +557,42 @@ void capture_scene(uint8_t* rdram, Point* point) {
     });
 }
 
-// Puts back the scene `point` recorded: each object's state and rotation (when the record is the
-// one recorded), and the variables of each event script running again (the same event, the same
-// size). The game then moves the objects to match their states, as it does when a script sets them.
+// Puts back the scene `point` recorded: each table whose record count is the same as now (an actor
+// slot only if it holds the same model), word by word, except the words that hold an address now or
+// did then (is_address), and the variables of each event script running again (the same event, the
+// same size). The game then carries on from there: objects move to the states they had, a fired
+// trigger stays fired.
 void restore_scene(uint8_t* rdram, const Point& point) {
-    int triggers;
-    const uint32_t trigger_table = scene_triggers(rdram, &triggers);
-    const bool same_triggers = point.trigger_count > 0 && point.trigger_count == triggers;
-    if (same_triggers) {
-        for (int index = 0; index < triggers; index++) {
-            MEM_B(kTriggerFired, kseg0(trigger_table + static_cast<uint32_t>(index) * kTriggerRecordSize)) = 0;
-        }
-        for (int index : point.fired_triggers) {
-            MEM_B(kTriggerFired, kseg0(trigger_table + static_cast<uint32_t>(index) * kTriggerRecordSize)) = 1;
-        }
-    }
-    int count;
-    const uint32_t table = scene_objects(rdram, &count);
-    int objects = 0, scripts = 0;
-    for (const SceneObject& object : point.objects) {
-        const uint32_t record = table + static_cast<uint32_t>(object.index) * kObjectRecordSize;
-        if (object.index >= count || MEM_BU(kObjectIndex, kseg0(record)) != (object.index & 0xFF)) {
+    std::string restored;
+    for (const TableState& table : point.tables) {
+        const TableSpec& spec = *table.spec;
+        int count;
+        const uint32_t records = table_records(rdram, spec, &count);
+        if (count != table.count) {
+            restored += std::string(" ") + spec.name + " (skipped, " + std::to_string(count) + " now, " +
+                        std::to_string(table.count) + " saved)";
             continue;
         }
-        MEM_B(kObjectState, kseg0(record)) = static_cast<int8_t>(object.state);
-        for (int i = 0; i < 3; i++) {
-            write_float(rdram, record + kObjectRotation + 4 * i, object.rotation[i]);
+        int records_restored = 0;
+        for (int index = 0; index < count; index++) {
+            const uint32_t record = records + static_cast<uint32_t>(index) * spec.record_size;
+            const uint8_t* saved = table.bytes.data() + static_cast<size_t>(index) * spec.record_size;
+            if (spec.model_byte >= 0 && MEM_BU(spec.model_byte, kseg0(record)) != saved[spec.model_byte]) {
+                continue;
+            }
+            for (uint32_t offset = 0; offset < spec.record_size; offset += 4) {
+                const uint32_t then = (uint32_t{saved[offset]} << 24) | (uint32_t{saved[offset + 1]} << 16) |
+                                      (uint32_t{saved[offset + 2]} << 8) | saved[offset + 3];
+                const uint32_t now = static_cast<uint32_t>(MEM_W(0, kseg0(record + offset)));
+                if (!is_address(then) && !is_address(now)) {
+                    MEM_W(0, kseg0(record + offset)) = static_cast<int32_t>(then);
+                }
+            }
+            records_restored++;
         }
-        objects++;
+        restored += std::string(" ") + spec.name + " " + std::to_string(records_restored) + "/" + std::to_string(count);
     }
+    int scripts = 0;
     for_each_script(rdram, [&](uint32_t node) {
         const uint16_t key = MEM_HU(0, kseg0(node));
         const uint32_t size = MEM_HU(kScriptVariablesSize, kseg0(node));
@@ -595,9 +607,8 @@ void restore_scene(uint8_t* rdram, const Point& point) {
             }
         }
     });
-    std::printf("[conker] resumed scene state: %d of %zu objects, %d of %zu event scripts, %s\n", objects,
-                point.objects.size(), scripts, point.scripts.size(),
-                same_triggers ? "triggers" : "no triggers (another count)");
+    std::printf("[conker] resumed scene state:%s, event scripts %d/%zu\n", restored.c_str(), scripts,
+                point.scripts.size());
 }
 
 // Puts Conker's object at the point, this frame and the last (so he does not sweep there).
@@ -1346,8 +1357,7 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
     if (++g_resume_frames <= kSettleFrames) {
         return;
     }
-    if (g_resume_frames == kSettleFrames + 1 &&
-        (!g_resuming.objects.empty() || !g_resuming.scripts.empty() || g_resuming.trigger_count > 0)) {
+    if (g_resume_frames == kSettleFrames + 1 && (!g_resuming.tables.empty() || !g_resuming.scripts.empty())) {
         restore_scene(rdram, g_resuming);
     }
     place(rdram, object, g_resuming);
