@@ -4,7 +4,7 @@
 // The game's save holds progress and the checkpoint to resume from (scene D_800BE3DF, entrance
 // D_800BE3E0), not where Conker stands. A save made from the pause menu (SAVE, or QUIT then Y)
 // also records the scene, entrance, position, Conker's facing and the camera's yaw in a file next
-// to the save, conker_us.resume, tagged with the save's sequence number. Starting that save (PLAY on
+// to the save, conker_us.resume (JSON, see parse_points), tagged with the save's sequence number. Starting that save (PLAY on
 // the title menu, or LOAD in the pause menu) then enters the recorded scene by that entrance, and
 // once the scene is running, Conker is moved to the recorded spot for the first few frames, facing
 // as he did, with the camera put back where it looked (as the debug menu's teleport does). (The spawn
@@ -18,8 +18,9 @@
 // what is under way in the scene: a conversation partway through a chain (the event script's
 // variables) or what a script has done to the scene's objects (a gate it opened). On hardware that
 // is lost by design, as a save always restarts at a checkpoint. So the point also records the
-// scene's objects' states and rotations and the running event scripts' variables, and puts them
-// back as Conker is placed.
+// scene's objects' states and rotations, the running event scripts' variables and which of the
+// scene's triggers have fired (a conversation that plays once), and puts them back as Conker is
+// placed.
 //
 // Each of those saves is also kept as a snapshot in saves/snapshots/, named
 // scene<scene>-<YYYYMMDD>-<HHMMSS>: a .bin with the whole EEPROM, as conker_us.bin holds it, and a
@@ -130,6 +131,18 @@ constexpr int kScriptNext = 0x18;
 constexpr uint16_t kScriptEvent = 0x3FF;
 constexpr int kMaxScripts = 64;
 constexpr size_t kMaxScriptVariables = 1024;
+// The scene's triggers: D_800D3094 records of 0x34 bytes at D_800D3098, zones that start a cutscene
+// or an event when Conker enters them (func_150A11C4). Byte 0x14 is set once a one-shot trigger has
+// fired (Jack's conversation in scene 12), and func_150A1DA0 skips a trigger with it set.
+constexpr uint32_t kTriggerCount = 0x800D3094;
+constexpr uint32_t kTriggers = 0x800D3098;
+constexpr uint32_t kTriggerRecordSize = 0x34;
+constexpr int kTriggerFired = 0x14;
+constexpr int kMaxTriggers = 1024;
+constexpr const char* kPointsFormat = "conker-recomp-resume";
+constexpr int kPointsVersion = 1;
+constexpr double kMaxCoordinate = 1.0e6;   // well past any level's size
+constexpr int kMaxScene = 255;
 
 struct SceneObject {
     int index = 0;
@@ -152,6 +165,8 @@ struct Point {
     float facing = 0, camera_yaw = 0;
     std::vector<SceneObject> objects;    // the scene as it was (see the top of the file)
     std::vector<ScriptVariables> scripts;
+    int trigger_count = -1;              // -1: no triggers recorded
+    std::vector<int> fired_triggers;
 };
 
 Point g_pending;           // remembered, waiting for the save to be written
@@ -209,6 +224,26 @@ std::filesystem::path points_path() {
     return path;
 }
 
+// A finite number in [low, high] at `key` of `object`.
+bool number_in(const nlohmann::json& object, const char* key, double low, double high, double* out = nullptr) {
+    if (!object.is_object() || !object.contains(key) || !object[key].is_number()) {
+        return false;
+    }
+    const double value = object[key].get<double>();
+    if (!std::isfinite(value) || value < low || value > high) {
+        return false;
+    }
+    if (out != nullptr) {
+        *out = value;
+    }
+    return true;
+}
+
+// A whole number in [low, high] at `key` of `object`.
+bool whole_in(const nlohmann::json& object, const char* key, double low, double high, double* out) {
+    return number_in(object, key, low, high, out) && *out == std::floor(*out);
+}
+
 int hex_digit(char c) {
     if (c >= '0' && c <= '9') {
         return c - '0';
@@ -219,123 +254,212 @@ int hex_digit(char c) {
     return c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
 }
 
-// A line of the scene's state under a slot's point, added to `point`: "object <index> <state> <rotation
-// x> <y> <z>" or "script <key, hex> <variables, hex>". False when the line is neither, or out of range.
-bool read_scene_line(const std::string& line, Point* point) {
-    int index, state, consumed = 0;
-    SceneObject object;
-    if (std::sscanf(line.c_str(), "object %d %d %f %f %f%n", &index, &state, &object.rotation[0], &object.rotation[1],
-                    &object.rotation[2], &consumed) == 5 &&
-        consumed == static_cast<int>(line.size())) {
-        if (index < 0 || index >= kMaxObjects || state < 0 || state > 0xFF ||
-            point->objects.size() >= static_cast<size_t>(kMaxObjects)) {
+// One point of the points file (see parse_points) into `point` and its slot into `slot`.
+bool parse_point(const nlohmann::json& entry, Point* point, int* slot) {
+    double value, counter, scene, entrance;
+    if (!whole_in(entry, "slot", 0, kSlots - 1, &value) || !whole_in(entry, "counter", 0, 4294967295.0, &counter) ||
+        !whole_in(entry, "scene", 0, kMaxScene, &scene) || !whole_in(entry, "entrance", 0, 255, &entrance)) {
+        return false;
+    }
+    *slot = static_cast<int>(value);
+    point->counter = static_cast<uint32_t>(counter);
+    point->scene = static_cast<int>(scene);
+    point->entrance = static_cast<int>(entrance);
+    float* const coordinates[] = {&point->x, &point->y, &point->z, &point->yaw};
+    const char* const names[] = {"x", "y", "z", "yaw"};
+    for (int i = 0; i < 4; i++) {
+        if (!number_in(entry, names[i], -kMaxCoordinate, kMaxCoordinate, &value)) {
             return false;
         }
-        for (float value : object.rotation) {
-            if (!std::isfinite(value) || std::fabs(value) > 1.0e6f) {
+        *coordinates[i] = static_cast<float>(value);
+    }
+    point->has_view = entry.contains("facing") || entry.contains("camera_yaw");
+    if (point->has_view) {
+        double facing, camera_yaw;
+        if (!number_in(entry, "facing", -kMaxCoordinate, kMaxCoordinate, &facing) ||
+            !number_in(entry, "camera_yaw", -kMaxCoordinate, kMaxCoordinate, &camera_yaw)) {
+            return false;
+        }
+        point->facing = static_cast<float>(facing);
+        point->camera_yaw = static_cast<float>(camera_yaw);
+    }
+    if (entry.contains("objects")) {
+        const nlohmann::json& objects = entry["objects"];
+        if (!objects.is_array() || objects.size() > static_cast<size_t>(kMaxObjects)) {
+            return false;
+        }
+        for (const nlohmann::json& item : objects) {
+            double index, state;
+            SceneObject object;
+            if (!whole_in(item, "index", 0, kMaxObjects - 1, &index) || !whole_in(item, "state", 0, 0xFF, &state) ||
+                !item.contains("rotation") || !item["rotation"].is_array() || item["rotation"].size() != 3) {
                 return false;
             }
+            for (int i = 0; i < 3; i++) {
+                const nlohmann::json& angle = item["rotation"][i];
+                if (!angle.is_number() || !std::isfinite(angle.get<double>()) ||
+                    std::fabs(angle.get<double>()) > kMaxCoordinate) {
+                    return false;
+                }
+                object.rotation[i] = angle.get<float>();
+            }
+            object.index = static_cast<int>(index);
+            object.state = static_cast<int>(state);
+            point->objects.push_back(object);
         }
-        object.index = index;
-        object.state = state;
-        point->objects.push_back(object);
-        return true;
     }
-    unsigned key;
-    char bytes[2 * kMaxScriptVariables + 2] = {};
-    char format[32];
-    std::snprintf(format, sizeof(format), "script %%x %%%zu[0-9a-fA-F]%%n", sizeof(bytes) - 1);
-    consumed = 0;
-    if (std::sscanf(line.c_str(), format, &key, bytes, &consumed) != 2 || consumed != static_cast<int>(line.size()) ||
-        key > 0xFFFF || point->scripts.size() >= static_cast<size_t>(kMaxScripts)) {
-        return false;
+    if (entry.contains("scripts")) {
+        const nlohmann::json& scripts = entry["scripts"];
+        if (!scripts.is_array() || scripts.size() > static_cast<size_t>(kMaxScripts)) {
+            return false;
+        }
+        for (const nlohmann::json& item : scripts) {
+            double key;
+            if (!whole_in(item, "key", 0, 0xFFFF, &key) || !item.contains("variables") || !item["variables"].is_string()) {
+                return false;
+            }
+            const std::string& digits = item["variables"].get_ref<const std::string&>();
+            if (digits.empty() || digits.size() % 2 != 0 || digits.size() > 2 * kMaxScriptVariables) {
+                return false;
+            }
+            ScriptVariables script;
+            script.key = static_cast<uint16_t>(key);
+            for (size_t i = 0; i < digits.size(); i += 2) {
+                const int high = hex_digit(digits[i]), low = hex_digit(digits[i + 1]);
+                if (high < 0 || low < 0) {
+                    return false;
+                }
+                script.bytes.push_back(static_cast<uint8_t>(high * 16 + low));
+            }
+            point->scripts.push_back(std::move(script));
+        }
     }
-    const size_t digits = std::strlen(bytes);
-    if (digits % 2 != 0 || digits > 2 * kMaxScriptVariables) {
-        return false;
+    if (entry.contains("trigger_count")) {
+        double triggers;
+        if (!whole_in(entry, "trigger_count", 0, kMaxTriggers, &triggers) || !entry.contains("fired_triggers") ||
+            !entry["fired_triggers"].is_array() || entry["fired_triggers"].size() > static_cast<size_t>(triggers)) {
+            return false;
+        }
+        point->trigger_count = static_cast<int>(triggers);
+        for (const nlohmann::json& item : entry["fired_triggers"]) {
+            if (!item.is_number_integer() || item.get<int64_t>() < 0 || item.get<int64_t>() >= point->trigger_count) {
+                return false;
+            }
+            point->fired_triggers.push_back(static_cast<int>(item.get<int64_t>()));
+        }
     }
-    ScriptVariables script;
-    script.key = static_cast<uint16_t>(key);
-    for (size_t i = 0; i < digits; i += 2) {
-        script.bytes.push_back(static_cast<uint8_t>(hex_digit(bytes[i]) * 16 + hex_digit(bytes[i + 1])));
-    }
-    point->scripts.push_back(std::move(script));
+    point->valid = true;
     return true;
 }
 
-// One line per slot: "<slot> <counter> <scene> <entrance> <x> <y> <z> <yaw>", then "<facing> <camera
-// yaw>" if they were recorded, followed by the scene's state as it was (read_scene_line). `first_slot`
-// is set to the slot of the first point, or -1 when there is none. Read with sscanf: a stream refuses
-// a float too small to be normal (a facing of 5.7e-39 degrees), and the line would be lost.
+// The points file, conker_us.resume (a snapshot's .resume, a report's save.resume), is JSON:
+// {"format": "conker-recomp-resume", "version": 1, "slots": [point, ...]}, at most one point per slot,
+// the saved slot's first. A point: "slot", "counter" (the save's sequence number), "scene", "entrance",
+// "x", "y", "z", "yaw" (degrees), "facing" and "camera_yaw" when they were recorded, and the scene as
+// it was: "objects" [{"index", "state", "rotation": [x, y, z]}], "scripts" [{"key", "variables",
+// hex}], and "trigger_count" with "fired_triggers" [index, ...]. Everything is checked (a report's may come from anyone); false with the reason in `problem`.
+// `first_slot` is the first point's slot, or -1 when there is none.
+bool parse_points(const std::string& text, std::array<Point, kSlots>* points, int* first_slot, std::string* problem) {
+    *points = {};
+    *first_slot = -1;
+    const nlohmann::json doc = nlohmann::json::parse(text, nullptr, false);
+    if (!doc.is_object() || !doc.contains("format") || doc["format"] != kPointsFormat || !doc.contains("version") ||
+        doc["version"] != kPointsVersion || !doc.contains("slots") || !doc["slots"].is_array() ||
+        doc["slots"].size() > static_cast<size_t>(kSlots)) {
+        *problem = "not a version 1 resume file";
+        return false;
+    }
+    for (const nlohmann::json& entry : doc["slots"]) {
+        Point point;
+        int slot;
+        if (!parse_point(entry, &point, &slot) || (*points)[slot].valid) {
+            *problem = "a point is not valid";
+            *points = {};
+            *first_slot = -1;
+            return false;
+        }
+        (*points)[slot] = std::move(point);
+        if (*first_slot < 0) {
+            *first_slot = slot;
+        }
+    }
+    return true;
+}
+
 std::array<Point, kSlots> read_points(const std::filesystem::path& path, int* first_slot = nullptr) {
     std::array<Point, kSlots> points{};
-    if (first_slot != nullptr) {
-        *first_slot = -1;
-    }
-    Point* last = nullptr;
+    int first;
     std::ifstream file(path);
-    for (std::string line; std::getline(file, line);) {
-        int slot;
-        Point point;
-        const int fields = std::sscanf(line.c_str(), "%d %u %d %d %f %f %f %f %f %f", &slot, &point.counter, &point.scene,
-                                       &point.entrance, &point.x, &point.y, &point.z, &point.yaw, &point.facing,
-                                       &point.camera_yaw);
-        if (fields >= 8 && slot >= 0 && slot < kSlots) {
-            point.valid = true;
-            point.has_view = fields == 10;
-            points[slot] = point;
-            last = &points[slot];
-            if (first_slot != nullptr && *first_slot < 0) {
-                *first_slot = slot;
-            }
-        } else if (last != nullptr) {
-            read_scene_line(line, last);
+    if (file) {
+        const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        std::string problem;
+        if (!parse_points(text, &points, &first, &problem)) {
+            std::printf("[conker] %s: %s; no resume points\n", path.string().c_str(), problem.c_str());
         }
+    }
+    if (first_slot != nullptr) {
+        *first_slot = file ? first : -1;
     }
     return points;
 }
 
 std::array<Point, kSlots> read_points() { return read_points(points_path()); }
 
-// `first_slot`'s line goes first, so a snapshot says which slot it saved.
+std::string to_hex(const std::vector<uint8_t>& bytes) {
+    std::string text;
+    for (uint8_t byte : bytes) {
+        char digits[3];
+        std::snprintf(digits, sizeof(digits), "%02x", byte);
+        text += digits;
+    }
+    return text;
+}
+
+// `first_slot`'s point goes first, so a snapshot says which slot it saved.
 void write_points(const std::array<Point, kSlots>& points, const std::filesystem::path& path, int first_slot = -1) {
-    std::filesystem::create_directories(path.parent_path());
-    std::ofstream file(path, std::ios::trunc);
-    file << std::fixed << std::setprecision(2);
-    auto write = [&](int slot) {
+    nlohmann::json slots = nlohmann::json::array();
+    auto add = [&](int slot) {
         const Point& p = points[slot];
-        if (p.valid) {
-            file << slot << ' ' << p.counter << ' ' << p.scene << ' ' << p.entrance << ' ' << p.x << ' ' << p.y << ' '
-                 << p.z << ' ' << p.yaw;
-            if (p.has_view) {
-                file << ' ' << p.facing << ' ' << p.camera_yaw;
-            }
-            file << '\n';
-            for (const SceneObject& object : p.objects) {
-                file << "object " << object.index << ' ' << object.state << ' ' << object.rotation[0] << ' '
-                     << object.rotation[1] << ' ' << object.rotation[2] << '\n';
-            }
-            for (const ScriptVariables& script : p.scripts) {
-                char key[8];
-                std::snprintf(key, sizeof(key), "%x", script.key);
-                file << "script " << key << ' ';
-                for (uint8_t byte : script.bytes) {
-                    char digits[3];
-                    std::snprintf(digits, sizeof(digits), "%02x", byte);
-                    file << digits;
-                }
-                file << '\n';
-            }
+        if (!p.valid) {
+            return;
         }
+        nlohmann::json entry = {{"slot", slot}, {"counter", p.counter}, {"scene", p.scene}, {"entrance", p.entrance},
+                                {"x", p.x},     {"y", p.y},             {"z", p.z},         {"yaw", p.yaw}};
+        if (p.has_view) {
+            entry["facing"] = p.facing;
+            entry["camera_yaw"] = p.camera_yaw;
+        }
+        nlohmann::json objects = nlohmann::json::array();
+        for (const SceneObject& object : p.objects) {
+            objects.push_back({{"index", object.index},
+                               {"state", object.state},
+                               {"rotation", {object.rotation[0], object.rotation[1], object.rotation[2]}}});
+        }
+        nlohmann::json scripts = nlohmann::json::array();
+        for (const ScriptVariables& script : p.scripts) {
+            scripts.push_back({{"key", script.key}, {"variables", to_hex(script.bytes)}});
+        }
+        entry["objects"] = std::move(objects);
+        entry["scripts"] = std::move(scripts);
+        if (p.trigger_count >= 0) {
+            entry["trigger_count"] = p.trigger_count;
+            entry["fired_triggers"] = p.fired_triggers;
+        }
+        slots.push_back(std::move(entry));
     };
     if (first_slot >= 0 && first_slot < kSlots) {
-        write(first_slot);
+        add(first_slot);
     }
     for (int slot = 0; slot < kSlots; slot++) {
         if (slot != first_slot) {
-            write(slot);
+            add(slot);
         }
     }
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream(path, std::ios::trunc) << nlohmann::json{{"format", kPointsFormat}, {"version", kPointsVersion},
+                                                           {"slots", std::move(slots)}}
+                                                .dump(1)
+                                         << '\n';
 }
 
 void write_points(const std::array<Point, kSlots>& points) { write_points(points, points_path()); }
@@ -377,10 +501,30 @@ void for_each_script(uint8_t* rdram, Visit visit) {
     }
 }
 
+// The scene's trigger records and how many there are; 0 when there is no scene.
+uint32_t scene_triggers(uint8_t* rdram, int* count) {
+    const uint32_t table = static_cast<uint32_t>(MEM_W(0, kseg0(kTriggers)));
+    *count = MEM_W(0, kseg0(kTriggerCount));
+    if (!in_rdram(table) || *count <= 0 || *count > kMaxTriggers) {
+        *count = 0;
+        return 0;
+    }
+    return table;
+}
+
 // Records the scene as it is now (see the top of the file) in `point`.
 void capture_scene(uint8_t* rdram, Point* point) {
     point->objects.clear();
     point->scripts.clear();
+    point->fired_triggers.clear();
+    int triggers;
+    const uint32_t trigger_table = scene_triggers(rdram, &triggers);
+    point->trigger_count = triggers;
+    for (int index = 0; index < triggers; index++) {
+        if (MEM_BU(kTriggerFired, kseg0(trigger_table + static_cast<uint32_t>(index) * kTriggerRecordSize)) != 0) {
+            point->fired_triggers.push_back(index);
+        }
+    }
     int count;
     const uint32_t table = scene_objects(rdram, &count);
     for (int index = 0; index < count; index++) {
@@ -412,6 +556,17 @@ void capture_scene(uint8_t* rdram, Point* point) {
 // one recorded), and the variables of each event script running again (the same event, the same
 // size). The game then moves the objects to match their states, as it does when a script sets them.
 void restore_scene(uint8_t* rdram, const Point& point) {
+    int triggers;
+    const uint32_t trigger_table = scene_triggers(rdram, &triggers);
+    const bool same_triggers = point.trigger_count > 0 && point.trigger_count == triggers;
+    if (same_triggers) {
+        for (int index = 0; index < triggers; index++) {
+            MEM_B(kTriggerFired, kseg0(trigger_table + static_cast<uint32_t>(index) * kTriggerRecordSize)) = 0;
+        }
+        for (int index : point.fired_triggers) {
+            MEM_B(kTriggerFired, kseg0(trigger_table + static_cast<uint32_t>(index) * kTriggerRecordSize)) = 1;
+        }
+    }
     int count;
     const uint32_t table = scene_objects(rdram, &count);
     int objects = 0, scripts = 0;
@@ -440,8 +595,9 @@ void restore_scene(uint8_t* rdram, const Point& point) {
             }
         }
     });
-    std::printf("[conker] resumed scene state: %d of %zu objects, %d of %zu event scripts\n", objects,
-                point.objects.size(), scripts, point.scripts.size());
+    std::printf("[conker] resumed scene state: %d of %zu objects, %d of %zu event scripts, %s\n", objects,
+                point.objects.size(), scripts, point.scripts.size(),
+                same_triggers ? "triggers" : "no triggers (another count)");
 }
 
 // Puts Conker's object at the point, this frame and the last (so he does not sweep there).
@@ -900,8 +1056,6 @@ constexpr const char* kReportFormat = "conker-recomp-debug-report";
 constexpr int kReportVersion = 1;
 constexpr uintmax_t kMaxReportJson = 256 * 1024;
 constexpr uintmax_t kMaxReportPoints = 512 * 1024;  // three slots of points with their scene state
-constexpr double kMaxCoordinate = 1.0e6;   // well past any level's size
-constexpr int kMaxScene = 255;
 
 // A report's files, read once: what is checked is what is loaded.
 struct ReportFiles {
@@ -930,21 +1084,6 @@ bool read_report_file(const std::filesystem::path& folder, const char* name, uin
     if (!file.read(out->data(), static_cast<std::streamsize>(size))) {
         *problem = std::string("cannot read ") + name;
         return false;
-    }
-    return true;
-}
-
-// A finite number in [low, high] at `key` of `object`.
-bool number_in(const nlohmann::json& object, const char* key, double low, double high, double* out = nullptr) {
-    if (!object.is_object() || !object.contains(key) || !object[key].is_number()) {
-        return false;
-    }
-    const double value = object[key].get<double>();
-    if (!std::isfinite(value) || value < low || value > high) {
-        return false;
-    }
-    if (out != nullptr) {
-        *out = value;
     }
     return true;
 }
@@ -993,51 +1132,22 @@ bool check_report(const std::filesystem::path& folder, ReportFiles* files, std::
         return false;
     }
 
-    // save.resume: every line well formed (a point, or the scene's state under one), the saved
-    // slot's point the report's.
-    std::istringstream lines(files->points);
-    std::array<bool, kSlots> seen{};
-    bool found = false;
-    int count = 0;
-    Point scene_state;  // the current point's scene lines, checked as they are read
-    for (std::string line; std::getline(lines, line);) {
-        if (line.empty()) {
-            continue;
-        }
-        if (line.compare(0, 7, "object ") == 0 || line.compare(0, 7, "script ") == 0) {
-            if (count == 0 || !read_scene_line(line, &scene_state)) {
-                *problem = "save.resume is not valid";
-                return false;
-            }
-            continue;
-        }
-        scene_state = Point{};
-        int line_slot;
-        Point point;
-        const int fields = std::sscanf(line.c_str(), "%d %u %d %d %f %f %f %f %f %f", &line_slot, &point.counter,
-                                       &point.scene, &point.entrance, &point.x, &point.y, &point.z, &point.yaw,
-                                       &point.facing, &point.camera_yaw);
-        const float values[] = {point.x, point.y, point.z, point.yaw, point.facing, point.camera_yaw};
-        bool sound = (fields == 8 || fields == 10) && ++count <= kSlots && line_slot >= 0 && line_slot < kSlots &&
-                     !seen[line_slot] && point.scene >= 0 && point.scene <= kMaxScene && point.entrance >= 0 &&
-                     point.entrance <= 255;
-        for (float value : values) {
-            sound = sound && std::isfinite(value) && std::fabs(value) <= kMaxCoordinate;
-        }
-        if (!sound) {
-            *problem = "save.resume is not valid";
-            return false;
-        }
-        seen[line_slot] = true;
-        if (count == 1 && line_slot != static_cast<int>(slot)) {
-            *problem = "save.resume does not start with the report's slot";  // the slot a load starts
-            return false;
-        }
-        if (line_slot == static_cast<int>(slot)) {
-            found = point.counter == static_cast<uint32_t>(counter) && point.scene == static_cast<int>(scene) &&
-                    std::fabs(point.x - x) < 0.01 && std::fabs(point.y - y) < 0.01 && std::fabs(point.z - z) < 0.01;
-        }
+    // save.resume: a valid points file (parse_points) starting with the report's slot, whose point
+    // is the report's.
+    std::array<Point, kSlots> points;
+    int first_slot;
+    std::string points_problem;
+    if (!parse_points(files->points, &points, &first_slot, &points_problem)) {
+        *problem = "save.resume: " + points_problem;
+        return false;
     }
+    if (first_slot != static_cast<int>(slot)) {
+        *problem = "save.resume does not start with the report's slot";  // the slot a load starts
+        return false;
+    }
+    const Point& point = points[first_slot];
+    const bool found = point.counter == static_cast<uint32_t>(counter) && point.scene == static_cast<int>(scene) &&
+                       std::fabs(point.x - x) < 0.01 && std::fabs(point.y - y) < 0.01 && std::fabs(point.z - z) < 0.01;
     if (!found) {
         *problem = "save.resume does not match report.json";
         return false;
@@ -1236,7 +1346,8 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
     if (++g_resume_frames <= kSettleFrames) {
         return;
     }
-    if (g_resume_frames == kSettleFrames + 1 && (!g_resuming.objects.empty() || !g_resuming.scripts.empty())) {
+    if (g_resume_frames == kSettleFrames + 1 &&
+        (!g_resuming.objects.empty() || !g_resuming.scripts.empty() || g_resuming.trigger_count > 0)) {
         restore_scene(rdram, g_resuming);
     }
     place(rdram, object, g_resuming);

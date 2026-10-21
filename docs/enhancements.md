@@ -88,9 +88,11 @@ from the pause menu keeps the spot too. The spot is kept in
 `conker_us.resume` next to the save; a checkpoint reached later takes over
 as usual. The game's own save only records finished events, so the spot also
 keeps what is under way in the scene: each of the scene's objects' state
-(a gate a conversation opened stays open) and the variables of the event
-scripts running (a conversation chain carries on where it was). Enemies and
-other characters are reset, as at a checkpoint. Neither sign is offered when replaying a chapter, where the
+(a gate a conversation opened stays open), the variables of the event
+scripts running (a conversation chain carries on where it was) and which of
+the scene's triggers have fired (a conversation that plays once does not
+play again). The file is JSON. Enemies and other characters are reset, as at
+a checkpoint. Neither sign is offered when replaying a chapter, where the
 game does not save. The signs are lettered with Rare's own letters, cut from
 the game's other green signs in your ROM. `CONKER_PAUSE_SAVE=0` turns them
 off.
@@ -156,9 +158,9 @@ or left and right change it:
   from anyone, so one is checked first and refused, with the reason on
   screen and in the log, unless: its files are regular files (no links) of
   the right sizes (`save.bin` exactly 2048 bytes), `report.json` is a
-  version 1 report with a scene, entrance and position in range, and every
-  line of `save.resume` (the points, and the scene state under each, within
-  its limits) is well formed, starts with the report's slot and
+  version 1 report with a scene, entrance and position in range, and
+  `save.resume` is a well-formed resume file (the points and their scene
+  state, within its limits) that starts with the report's slot and
   matches the JSON's slot, save number, scene and position. A report from
   another build is loaded, and the log says so. The save is played on a
   copy, `saves/debug/<report>.bin`, until the game is closed, so the
