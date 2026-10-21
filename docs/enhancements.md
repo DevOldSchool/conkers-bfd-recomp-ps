@@ -21,8 +21,10 @@ The OPTIONS page of the title menu has five rows under the sound setting.
   display's own shape (16:9, 16:10 or ultrawide). The HUD and menus stay in
   the middle, and the circle wipe that opens and closes a scene covers the
   whole width. Covering the screen is widescreen by default; a window is 4:3
-  by default, as on an N64. The game still decides what to draw for its own
-  4:3 view, so objects at the far sides can appear late. In the intro,
+  by default, as on an N64. The game decides what to draw for the widened
+  view too, so the level, props and characters at the sides are not left
+  out as they were past the edges of its 4:3 view
+  (`CONKER_WIDESCREEN_CULLING=0` keeps the 4:3 choice). In the intro,
   Conker is not drawn while he waits for his cue just past the edge of the
   4:3 view. Behind the pause menu the paused scene stays widescreen, but
   sharp: the game blurs only the 4:3 middle of the frame, so that blur is
