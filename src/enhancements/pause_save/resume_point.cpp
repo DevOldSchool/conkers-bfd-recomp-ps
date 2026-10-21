@@ -14,6 +14,13 @@
 // save the game makes on entering the area just after resuming, which keeps the point. The
 // cartridge save format is unchanged.
 //
+// The game's save holds finished events (the event flags) and what has been collected, but not
+// what is under way in the scene: a conversation partway through a chain (the event script's
+// variables) or what a script has done to the scene's objects (a gate it opened). On hardware that
+// is lost by design, as a save always restarts at a checkpoint. So the point also records the
+// scene's objects' states and rotations and the running event scripts' variables, and puts them
+// back as Conker is placed.
+//
 // Each of those saves is also kept as a snapshot in saves/snapshots/, named
 // scene<scene>-<YYYYMMDD>-<HHMMSS>: a .bin with the whole EEPROM, as conker_us.bin holds it, and a
 // .resume with the points, as conker_us.resume holds them (the saved slot's line first), so
@@ -103,6 +110,38 @@ constexpr int kSlots = 3;
 // resumed one: the point carries over to it.
 constexpr std::chrono::seconds kResumeSaveWindow{10};
 
+// The scene's objects: D_800DBEF0 records of 0xA0 bytes at D_800DBEF4 (a gate, a door, a spinning
+// pickup). The state byte drives the object: the gate in the cheese farm (scene 12) is 4 shut and
+// 7 open, and swings to match it. Byte 0x71 is the record's own index.
+constexpr uint32_t kObjectCount = 0x800DBEF0;
+constexpr uint32_t kObjects = 0x800DBEF4;
+constexpr uint32_t kObjectRecordSize = 0xA0;
+constexpr int kObjectRotation = 0x00;            // three floats, degrees
+constexpr int kObjectIndex = 0x71;
+constexpr int kObjectState = 0x73;
+constexpr int kMaxObjects = 512;
+// The running event scripts: a list {u16 count, head, tail} of nodes {u16 key (event id in the low
+// 10 bits), ..., u16 +6 variables' size, u16 +0xA their offset in the node, ..., next +0x18}.
+constexpr uint32_t kScriptCount = 0x800D2F48;
+constexpr uint32_t kScriptHead = 0x800D2F4C;
+constexpr int kScriptVariablesSize = 0x6;
+constexpr int kScriptVariablesOffset = 0xA;
+constexpr int kScriptNext = 0x18;
+constexpr uint16_t kScriptEvent = 0x3FF;
+constexpr int kMaxScripts = 64;
+constexpr size_t kMaxScriptVariables = 1024;
+
+struct SceneObject {
+    int index = 0;
+    int state = 0;
+    float rotation[3] = {};
+};
+
+struct ScriptVariables {
+    uint16_t key = 0;
+    std::vector<uint8_t> bytes;
+};
+
 struct Point {
     bool valid = false;
     uint32_t counter = 0;  // the save's sequence number
@@ -111,6 +150,8 @@ struct Point {
     float x = 0, y = 0, z = 0, yaw = 0;  // yaw in degrees
     bool has_view = false;               // facing and camera_yaw recorded (see Position)
     float facing = 0, camera_yaw = 0;
+    std::vector<SceneObject> objects;    // the scene as it was (see the top of the file)
+    std::vector<ScriptVariables> scripts;
 };
 
 Point g_pending;           // remembered, waiting for the save to be written
@@ -168,15 +209,70 @@ std::filesystem::path points_path() {
     return path;
 }
 
+int hex_digit(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    return c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+}
+
+// A line of the scene's state under a slot's point, added to `point`: "object <index> <state> <rotation
+// x> <y> <z>" or "script <key, hex> <variables, hex>". False when the line is neither, or out of range.
+bool read_scene_line(const std::string& line, Point* point) {
+    int index, state, consumed = 0;
+    SceneObject object;
+    if (std::sscanf(line.c_str(), "object %d %d %f %f %f%n", &index, &state, &object.rotation[0], &object.rotation[1],
+                    &object.rotation[2], &consumed) == 5 &&
+        consumed == static_cast<int>(line.size())) {
+        if (index < 0 || index >= kMaxObjects || state < 0 || state > 0xFF ||
+            point->objects.size() >= static_cast<size_t>(kMaxObjects)) {
+            return false;
+        }
+        for (float value : object.rotation) {
+            if (!std::isfinite(value) || std::fabs(value) > 1.0e6f) {
+                return false;
+            }
+        }
+        object.index = index;
+        object.state = state;
+        point->objects.push_back(object);
+        return true;
+    }
+    unsigned key;
+    char bytes[2 * kMaxScriptVariables + 2] = {};
+    char format[32];
+    std::snprintf(format, sizeof(format), "script %%x %%%zu[0-9a-fA-F]%%n", sizeof(bytes) - 1);
+    consumed = 0;
+    if (std::sscanf(line.c_str(), format, &key, bytes, &consumed) != 2 || consumed != static_cast<int>(line.size()) ||
+        key > 0xFFFF || point->scripts.size() >= static_cast<size_t>(kMaxScripts)) {
+        return false;
+    }
+    const size_t digits = std::strlen(bytes);
+    if (digits % 2 != 0 || digits > 2 * kMaxScriptVariables) {
+        return false;
+    }
+    ScriptVariables script;
+    script.key = static_cast<uint16_t>(key);
+    for (size_t i = 0; i < digits; i += 2) {
+        script.bytes.push_back(static_cast<uint8_t>(hex_digit(bytes[i]) * 16 + hex_digit(bytes[i + 1])));
+    }
+    point->scripts.push_back(std::move(script));
+    return true;
+}
+
 // One line per slot: "<slot> <counter> <scene> <entrance> <x> <y> <z> <yaw>", then "<facing> <camera
-// yaw>" if they were recorded (points saved before that have none). `first_slot` is set
-// to the slot of the first line, or -1 when there is none. Read with sscanf: a stream refuses a
-// float too small to be normal (a facing of 5.7e-39 degrees), and the line would be lost.
+// yaw>" if they were recorded, followed by the scene's state as it was (read_scene_line). `first_slot`
+// is set to the slot of the first point, or -1 when there is none. Read with sscanf: a stream refuses
+// a float too small to be normal (a facing of 5.7e-39 degrees), and the line would be lost.
 std::array<Point, kSlots> read_points(const std::filesystem::path& path, int* first_slot = nullptr) {
     std::array<Point, kSlots> points{};
     if (first_slot != nullptr) {
         *first_slot = -1;
     }
+    Point* last = nullptr;
     std::ifstream file(path);
     for (std::string line; std::getline(file, line);) {
         int slot;
@@ -188,9 +284,12 @@ std::array<Point, kSlots> read_points(const std::filesystem::path& path, int* fi
             point.valid = true;
             point.has_view = fields == 10;
             points[slot] = point;
+            last = &points[slot];
             if (first_slot != nullptr && *first_slot < 0) {
                 *first_slot = slot;
             }
+        } else if (last != nullptr) {
+            read_scene_line(line, last);
         }
     }
     return points;
@@ -212,6 +311,21 @@ void write_points(const std::array<Point, kSlots>& points, const std::filesystem
                 file << ' ' << p.facing << ' ' << p.camera_yaw;
             }
             file << '\n';
+            for (const SceneObject& object : p.objects) {
+                file << "object " << object.index << ' ' << object.state << ' ' << object.rotation[0] << ' '
+                     << object.rotation[1] << ' ' << object.rotation[2] << '\n';
+            }
+            for (const ScriptVariables& script : p.scripts) {
+                char key[8];
+                std::snprintf(key, sizeof(key), "%x", script.key);
+                file << "script " << key << ' ';
+                for (uint8_t byte : script.bytes) {
+                    char digits[3];
+                    std::snprintf(digits, sizeof(digits), "%02x", byte);
+                    file << digits;
+                }
+                file << '\n';
+            }
         }
     };
     if (first_slot >= 0 && first_slot < kSlots) {
@@ -237,6 +351,97 @@ float read_float(uint8_t* rdram, uint32_t address) {
     float value;
     std::memcpy(&value, &bits, sizeof(value));
     return value;
+}
+
+bool in_rdram(uint32_t address) { return (address & 0xFF800000) == 0x80000000; }
+
+// The scene's object records and how many there are; 0 when there is no scene.
+uint32_t scene_objects(uint8_t* rdram, int* count) {
+    const uint32_t table = static_cast<uint32_t>(MEM_W(0, kseg0(kObjects)));
+    *count = MEM_W(0, kseg0(kObjectCount));
+    if (!in_rdram(table) || *count <= 0 || *count > kMaxObjects) {
+        *count = 0;
+        return 0;
+    }
+    return table;
+}
+
+// Calls `visit(node)` for each running event script, while the list holds together.
+template <typename Visit>
+void for_each_script(uint8_t* rdram, Visit visit) {
+    const int count = MEM_HU(0, kseg0(kScriptCount));
+    uint32_t node = static_cast<uint32_t>(MEM_W(0, kseg0(kScriptHead)));
+    for (int i = 0; i < count && i < kMaxScripts && in_rdram(node); i++) {
+        visit(node);
+        node = static_cast<uint32_t>(MEM_W(0, kseg0(node + kScriptNext)));
+    }
+}
+
+// Records the scene as it is now (see the top of the file) in `point`.
+void capture_scene(uint8_t* rdram, Point* point) {
+    point->objects.clear();
+    point->scripts.clear();
+    int count;
+    const uint32_t table = scene_objects(rdram, &count);
+    for (int index = 0; index < count; index++) {
+        const uint32_t record = table + static_cast<uint32_t>(index) * kObjectRecordSize;
+        SceneObject object;
+        object.index = index;
+        object.state = MEM_BU(kObjectState, kseg0(record));
+        for (int i = 0; i < 3; i++) {
+            object.rotation[i] = read_float(rdram, record + kObjectRotation + 4 * i);
+        }
+        point->objects.push_back(object);
+    }
+    for_each_script(rdram, [&](uint32_t node) {
+        const uint32_t size = MEM_HU(kScriptVariablesSize, kseg0(node));
+        const uint32_t variables = node + MEM_HU(kScriptVariablesOffset, kseg0(node));
+        if (size == 0 || size > kMaxScriptVariables) {
+            return;
+        }
+        ScriptVariables script;
+        script.key = MEM_HU(0, kseg0(node));
+        for (uint32_t i = 0; i < size; i++) {
+            script.bytes.push_back(MEM_BU(static_cast<int>(i), kseg0(variables)));
+        }
+        point->scripts.push_back(std::move(script));
+    });
+}
+
+// Puts back the scene `point` recorded: each object's state and rotation (when the record is the
+// one recorded), and the variables of each event script running again (the same event, the same
+// size). The game then moves the objects to match their states, as it does when a script sets them.
+void restore_scene(uint8_t* rdram, const Point& point) {
+    int count;
+    const uint32_t table = scene_objects(rdram, &count);
+    int objects = 0, scripts = 0;
+    for (const SceneObject& object : point.objects) {
+        const uint32_t record = table + static_cast<uint32_t>(object.index) * kObjectRecordSize;
+        if (object.index >= count || MEM_BU(kObjectIndex, kseg0(record)) != (object.index & 0xFF)) {
+            continue;
+        }
+        MEM_B(kObjectState, kseg0(record)) = static_cast<int8_t>(object.state);
+        for (int i = 0; i < 3; i++) {
+            write_float(rdram, record + kObjectRotation + 4 * i, object.rotation[i]);
+        }
+        objects++;
+    }
+    for_each_script(rdram, [&](uint32_t node) {
+        const uint16_t key = MEM_HU(0, kseg0(node));
+        const uint32_t size = MEM_HU(kScriptVariablesSize, kseg0(node));
+        const uint32_t variables = node + MEM_HU(kScriptVariablesOffset, kseg0(node));
+        for (const ScriptVariables& script : point.scripts) {
+            if ((script.key & kScriptEvent) == (key & kScriptEvent) && script.bytes.size() == size) {
+                for (uint32_t i = 0; i < size; i++) {
+                    MEM_B(static_cast<int>(i), kseg0(variables)) = static_cast<int8_t>(script.bytes[i]);
+                }
+                scripts++;
+                break;
+            }
+        }
+    });
+    std::printf("[conker] resumed scene state: %d of %zu objects, %d of %zu event scripts\n", objects,
+                point.objects.size(), scripts, point.scripts.size());
 }
 
 // Puts Conker's object at the point, this frame and the last (so he does not sweep there).
@@ -461,6 +666,7 @@ void remember_position(uint8_t* rdram, int slot) {
     g_pending.has_view = current_position(rdram, &here) && here.has_view;
     g_pending.facing = here.facing;
     g_pending.camera_yaw = here.camera_yaw;
+    capture_scene(rdram, &g_pending);
     g_pending_slot = slot;
 }
 
@@ -693,7 +899,7 @@ namespace {
 constexpr const char* kReportFormat = "conker-recomp-debug-report";
 constexpr int kReportVersion = 1;
 constexpr uintmax_t kMaxReportJson = 256 * 1024;
-constexpr uintmax_t kMaxReportPoints = 4 * 1024;
+constexpr uintmax_t kMaxReportPoints = 512 * 1024;  // three slots of points with their scene state
 constexpr double kMaxCoordinate = 1.0e6;   // well past any level's size
 constexpr int kMaxScene = 255;
 
@@ -787,15 +993,25 @@ bool check_report(const std::filesystem::path& folder, ReportFiles* files, std::
         return false;
     }
 
-    // save.resume: every line well formed, the saved slot's point the report's.
+    // save.resume: every line well formed (a point, or the scene's state under one), the saved
+    // slot's point the report's.
     std::istringstream lines(files->points);
     std::array<bool, kSlots> seen{};
     bool found = false;
     int count = 0;
+    Point scene_state;  // the current point's scene lines, checked as they are read
     for (std::string line; std::getline(lines, line);) {
         if (line.empty()) {
             continue;
         }
+        if (line.compare(0, 7, "object ") == 0 || line.compare(0, 7, "script ") == 0) {
+            if (count == 0 || !read_scene_line(line, &scene_state)) {
+                *problem = "save.resume is not valid";
+                return false;
+            }
+            continue;
+        }
+        scene_state = Point{};
         int line_slot;
         Point point;
         const int fields = std::sscanf(line.c_str(), "%d %u %d %d %f %f %f %f %f %f", &line_slot, &point.counter,
@@ -1019,6 +1235,9 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
     }
     if (++g_resume_frames <= kSettleFrames) {
         return;
+    }
+    if (g_resume_frames == kSettleFrames + 1 && (!g_resuming.objects.empty() || !g_resuming.scripts.empty())) {
+        restore_scene(rdram, g_resuming);
     }
     place(rdram, object, g_resuming);
     if (g_view.has_view) {
