@@ -1,8 +1,8 @@
 // Experimental 60 fps: CONKER_60FPS=1 lets Rare's scheduler start a frame on every retrace instead
 // of every second one. Off by default; docs/investigations.md has what was measured. Native helpers
 // called from the [[patches.hook]] snippets for func_1501C880, func_800049E0, func_80004DB0,
-// func_80005020, the half steps in func_15116BAC, func_151169B4 and func_8000BF60, and the frame
-// counter in func_15043384, in config/us.toml.
+// func_80005020, the half steps in func_15116BAC, func_151169B4, func_151934B4 and func_8000BF60,
+// and the frame counters in func_15043384 and func_151934B4, in config/us.toml.
 //
 // The game logic already steps by the retraces its frame took: func_80004F00 copies the count since
 // the last frame started (D_8003B238) to D_800BE9E4, and the logic scales by it (D_800BE9A4 =
@@ -122,13 +122,14 @@ extern "C" void conker_60fps_scheduler_message(uint8_t* rdram, recomp_context* c
 
 // Integer steps written as (rate * ticks) >> 1, which lose the odd half: at one retrace a frame, a
 // rate of 1 never moves and 3 moves at two thirds of its speed. Called before the shift with the
-// product in a register; at one retrace it becomes rate * 2 * D_800BE9A0, so the step is the rate
-// on every second frame, as at 30 fps. func_15116BAC and func_151169B4 move an object's s16
-// position toward a target (with a sound, so doors and platforms); func_8000BF60 counts down the
-// title scene's fade of sound 0x22, which never reached 0.
+// product in a register; at one retrace it becomes rate + D_800BE9A0, which alternates 0 and 1, so
+// the steps of two frames, rate >> 1 and (rate + 1) >> 1, add up to the rate, as one 30 fps frame
+// would. func_15116BAC and func_151169B4 move an object's s16 position toward a target (with a
+// sound, so doors and platforms); func_151934B4 drops a falling object's height by its speed;
+// func_8000BF60 counts down the title scene's fade of sound 0x22, which never reached 0.
 extern "C" void conker_60fps_half_step(uint8_t* rdram, gpr* product) {
     if (enabled() && MEM_W(0, kseg0(kFrameTicks)) == 1) {
-        *product = static_cast<gpr>(static_cast<int32_t>(*product) * 2 * MEM_BU(0, kseg0(kHalfSteps)));
+        *product = static_cast<gpr>(static_cast<int32_t>(*product) + MEM_BU(0, kseg0(kHalfSteps)));
     }
 }
 
@@ -136,7 +137,8 @@ extern "C" void conker_60fps_half_step(uint8_t* rdram, gpr* product) {
 // increment with the old value in a register; at one retrace a frame it is lowered by one unless
 // this frame takes a step, so the counter keeps its 30 fps rate. func_15043384 (the HUD text pass)
 // counts D_80085CD0, whose (count >> 1) % 10 picks the frame of the wobbling joystick sprite (kind
-// 0x1A, D_80085AA8) beside the selected row of the OPTIONS and pause menus.
+// 0x1A, D_80085AA8) beside the selected row of the OPTIONS and pause menus. func_151934B4 adds 1 to
+// a falling object's speed (+0x94, up to 20), so it built up speed twice as fast.
 extern "C" void conker_60fps_frame_counter(uint8_t* rdram, gpr* count) {
     if (enabled() && MEM_W(0, kseg0(kFrameTicks)) == 1 && MEM_BU(0, kseg0(kHalfSteps)) == 0) {
         *count = static_cast<gpr>(static_cast<int32_t>(*count) - 1);

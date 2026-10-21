@@ -444,3 +444,15 @@ text = "{ void conker_60fps_half_step(uint8_t*, gpr*); conker_60fps_half_step(rd
 func = "func_15043384"
 before_vram = 0x150433CC
 text = "{ void conker_60fps_frame_counter(uint8_t*, gpr*); conker_60fps_frame_counter(rdram, &ctx->r14); }"
+
+# A falling object's speed goes up once a frame and its drop is (speed * ticks) >> 1: see
+# conker_60fps_frame_counter and conker_60fps_half_step.
+[[patches.hook]]
+func = "func_151934B4"
+before_vram = 0x1519357C
+text = "{ void conker_60fps_frame_counter(uint8_t*, gpr*); conker_60fps_frame_counter(rdram, &ctx->r12); }"
+
+[[patches.hook]]
+func = "func_151934B4"
+before_vram = 0x151935B0
+text = "{ void conker_60fps_half_step(uint8_t*, gpr*); conker_60fps_half_step(rdram, &ctx->r25); }"
