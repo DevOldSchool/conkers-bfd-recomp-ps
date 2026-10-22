@@ -323,6 +323,13 @@ func = "func_1502E4C4"
 before_vram = 0x1502E770
 text = "{ void conker_character_distance(uint8_t*, recomp_context*); conker_character_distance(rdram, ctx); }"
 
+# Swarms of bees likewise: func_151787AC tests them against the views within 2500 (D_800A71E4,
+# loaded into $f22 at 0x15178930), and their bees are drawn only while a swarm passes.
+[[patches.hook]]
+func = "func_151787AC"
+before_vram = 0x15178934
+text = "{ void conker_swarm_distance(uint8_t*, recomp_context*); conker_swarm_distance(rdram, ctx); }"
+
 # Display options on the title menu's OPTIONS page: rows for the display mode, 4:3/WIDESCREEN, the
 # resolution and FILL SCREEN/CENTERED. Around the page's call to the menu engine func_151E3344,
 # multiplayer options 12, 15, 16 and 19 are lent to the rows and given back; hooks inside the engine space the

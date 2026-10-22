@@ -90,8 +90,18 @@ as usual. The game's own save only records finished events, so the spot
 also keeps the scene as it was: the game's own tables of characters, scene
 objects, triggers and event progress, copied whole (so a gate a conversation
 opened stays open, a conversation that plays once does not play again, and a
-count a character keeps is kept), and the variables of the event scripts
-running. Words in them that hold memory addresses belong to the run of the
+count a character keeps is kept), the players' records (so the lives count
+is kept; loading a save otherwise starts it again), the variables of the
+event scripts running, and the swarms of bees in scene 12, where each one
+was and what it flew after (so a swarm already led to the sunflower stays
+there, and one following Conker goes on following him). Each character is
+put back over the same character, found by the number the scene gives it,
+since a scene does not always fill its character slots in the same order;
+characters the game had brought in while playing (scene 6's three wasps) are
+brought in again, and ones it had taken away are taken away. A save made
+during a cutscene (a debug report can be) keeps the scene as the cutscene
+found it, and the cutscene plays again from its start.
+Words in those tables that hold memory addresses belong to the run of the
 game that made them and are left as they are. The file is JSON. Neither
 sign is offered when replaying a chapter, where the game does not save. The signs are lettered with Rare's own letters, cut from
 the game's other green signs in your ROM. `CONKER_PAUSE_SAVE=0` turns them
@@ -212,7 +222,8 @@ The game fades each character out once the camera is more than its own
 distance away, 3000 units for most, though the scene around it is drawn to
 13000 or so; a character in plain view, such as the sunflower on the ledge
 past the stone steps in scene 12, only appeared on walking up to it.
-Characters are now drawn as far as the scene is. Only their drawing changes:
+Characters are now drawn as far as the scene is, and so are the swarms of
+bees in scene 12, which the game left out past 2500 units. Only their drawing changes:
 what they do does not depend on it. `CONKER_CHARACTER_DISTANCE=0` keeps the
 game's distances.
 

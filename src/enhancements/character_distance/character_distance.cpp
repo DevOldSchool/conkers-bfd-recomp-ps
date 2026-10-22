@@ -54,6 +54,20 @@ extern "C" void conker_character_distance(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
+// Swarms of bees (see kSwarms in pause_save/resume_point.cpp) are drawn with their bees only while
+// func_151787AC finds them in a view, within D_800A71E4 (2500) of the camera, so a swarm settled
+// around scene 12's sunflower vanished from across the clearing. Called at 0x15178934 with that
+// distance just loaded into $f22: it becomes the scene's far distance, as for the characters.
+extern "C" void conker_swarm_distance(uint8_t* rdram, recomp_context* ctx) {
+    if (!character_distance_enabled()) {
+        return;
+    }
+    const float far_distance = read_float(rdram, kSceneFar);
+    if (far_distance > ctx->f22.fl && far_distance < 1.0e6f) {
+        ctx->f22.fl = far_distance;
+    }
+}
+
 nlohmann::json conker::status::character_distance() {
     return enhancement("character_distance", "Characters seen from farther", character_distance_enabled(),
                        "CONKER_CHARACTER_DISTANCE");
