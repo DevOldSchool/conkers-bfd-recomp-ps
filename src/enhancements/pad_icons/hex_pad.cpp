@@ -33,13 +33,13 @@ constexpr int kTexelBytes = kW * kH;
 constexpr int kResourceBytes = kTexelBytes + 256 * 2;
 constexpr uint32_t kTlutRgba16 = 0x8000;  // G_TT_RGBA16, as RT64 hashes a TLUT draw
 
-// The hexagon: its middle, half its width (to the corners left and right), half its height and half
-// the length of its top and bottom edges; the plate is inside kPlate of that. Then the O: its
-// middle (the B's, and the plate's by its rings' symmetry), outer radius and stroke width, in
-// texels.
-constexpr float kCX = 32.0f, kCY = 34.0f, kHalfWidth = 31.0f, kHalfHeight = 27.0f, kHalfTop = 15.0f;
-constexpr float kPlate = 0.8f;
-constexpr float kOX = 34.0f, kOY = 33.0f, kOuter = 15.0f, kWidth = 8.5f;
+// The hexagon (its outline against the black round it): its middle, half its width (to the corners
+// left and right), half its height and half the length of its top and bottom edges; the plate is
+// inside kPlate of that. Then the O, in the hexagon's middle (Rare's B stands two texels right of
+// it): its middle, outer radius and stroke width, in texels.
+constexpr float kCX = 32.0f, kCY = 32.5f, kHalfWidth = 32.0f, kHalfHeight = 30.5f, kHalfTop = 17.5f;
+constexpr float kPlate = 0.65f;
+constexpr float kOX = 32.0f, kOY = 32.5f, kOuter = 15.0f, kWidth = 8.5f;
 
 using Rgb = std::array<float, 3>;
 using Grid = std::array<bool, N * N>;
@@ -163,7 +163,7 @@ std::vector<Texture> circle_hex_pad() {
             face[i] = green[i] > 0 && L[i] > 100 && box[i];
         }
     face = large_parts(face, 30);  // the letter, not greenish specks in the wood
-    const Grid near = dilate(face, 3);
+    const Grid near = dilate(face, 4);
     Grid letter{};
     for (int i = 0; i < N * N; i++) letter[i] = face[i] || (near[i] && box[i] && (L[i] < 70 || green[i] > -2));
     const Grid closed = erode(dilate(letter));
