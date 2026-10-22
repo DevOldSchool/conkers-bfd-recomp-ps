@@ -259,8 +259,9 @@ B is also on the left face button (X, Square) and Z on the left trigger,
 and the C pictures point the way to push the stick, which is swapped left to
 right (see above); switching the swap in the debug menu turns them round. The Xbox buttons are black with coloured letters, the
 PlayStation ones black with the DualShock 4's coloured symbols. With a
-PlayStation pad the B pads on the ground, wooden and stone, have an O where
-their B was, made from their textures in your ROM and shaded as the B is;
+PlayStation pad the B pads on the ground, wooden (octagonal and hexagonal)
+and stone, have an O where their B was, made from their textures in your
+ROM and shaded as the B is;
 an Xbox pad's B is B, and other pads keep the N64's, so they stay as they
 are.
 
