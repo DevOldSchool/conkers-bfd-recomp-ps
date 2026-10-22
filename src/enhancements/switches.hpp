@@ -30,5 +30,6 @@ Switch max_detail();
 Switch character_distance();
 Switch rumble_banner();
 Switch frame_rate();
+Switch pad_buttons();  // src/enhancements/pad_icons/choice.cpp
 
 }  // namespace conker::switches

@@ -130,7 +130,7 @@ button. Up and down choose a row, A or left and right change it:
   TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
   WIDESCREEN CULLING, SKIP INTRO, SKIP CUTSCENES, PAUSE SAVE AND LOAD, SAVE
   SNAPSHOTS, SURROUND DEFAULT, FULL DETAIL, CHARACTER DISTANCE, NO RUMBLE
-  PAK BANNER, CAMERA STICK SWAP and 60 FPS. A or left and right switch the
+  PAK BANNER, CAMERA STICK SWAP, PAD BUTTONS and 60 FPS. A or left and right switch the
   chosen one. SHARP TEXT and WIDESCREEN are the OPTIONS rows' settings and
   are kept in `display.cfg` as those rows keep them (a new shape applies once
   the game carries on); the rest last until the game is closed, and a debug
@@ -227,6 +227,42 @@ pak inserted. It is left out when controller 1's pad can rumble;
 C-left and C-right are swapped (also on J/L), so pushing left turns the view
 left. It has no variable; the debug menu's ENHANCEMENTS page switches it.
 
+## Your pad's buttons
+
+Where the game shows a button to press (in the menus and the tutorial's
+speech bubbles), it shows the N64's. With an Xbox or PlayStation pad as
+controller 1 they are drawn as that pad's buttons instead, in the style of
+Rare's pre-rendered ones, and change when another kind of pad is connected:
+
+| N64 | Xbox | PlayStation |
+| --- | --- | --- |
+| A | A | Cross |
+| B | B | Circle |
+| START | Menu | Options |
+| Z | RT | R2 |
+| L, R | LB, RB | L1, R1 |
+| C-left, C-right | right stick pushed right, left (left, right without the camera swap) | the same |
+| C-up, C-down | right stick pushed up, down | the same |
+
+B is also on the left face button (X, Square) and Z on the left trigger,
+and the C pictures point the way to push the stick, which is swapped left to
+right (see above); switching the swap in the debug menu turns them round. The Xbox buttons are black with coloured letters, the
+PlayStation ones black with the DualShock 4's coloured symbols. With a
+PlayStation pad the B pads on the ground, wooden and stone, have an O where
+their B was, made from their textures in your ROM and shaded as the B is;
+an Xbox pad's B is B, and other pads keep the N64's, so they stay as they
+are.
+
+With the keyboard alone or another pad (an N64 pad, a Switch Pro) the
+N64's buttons are shown, redrawn the same way, sharper than the game's small
+pictures; ORIGINAL TEXT in the OPTIONS menu keeps Rare's. `CONKER_PAD_ICONS=xbox`,
+`playstation` or `n64` picks a set whatever the pad, and `0` keeps Rare's
+pictures, as does PAD BUTTONS switched off in the debug menu. The pictures
+are drawn when the game starts (about a fifth of a
+second, for the connected pad's set only; `src/enhancements/pad_icons`), so
+none is stored; `CONKER_DUMP_PAD_ICONS=<dir>` writes the set in use out as a
+pack, and a texture pack can replace them.
+
 ## Sharper text
 
 The game's text font is enlarged 8 times with Super-xBR, a pixel-art
@@ -234,7 +270,10 @@ upscaler, from the glyphs in your ROM when the game starts: the same
 letters, smoother and less blurred than the N64's filtering. The game draws
 each glyph a little short of its edges, which its blur hides, so those
 rectangles are widened over each glyph's empty border and the sharper
-letters are not cut off (`src/platform/font_rects.cpp`).
+letters are not cut off (`src/platform/font_rects.cpp`). The bubbles'
+pictures, such as the "more..." under a thought bubble, are drawn starting
+on a whole texel: the game sometimes starts them half a texel into a row,
+which blends each row into the next so the word looks doubled.
 `CONKER_SHARP_FONT=0` keeps the original font.
 
 ## Sharper menus
@@ -256,7 +295,7 @@ row turns the sharper text and menus off together.
 RT64 replacement packs (a folder, `.rtz` or `.zip` with an `rt64.json`) in
 `conker-recomp-data/texture_packs` are loaded at start, in name order; where
 two replace the same texture, the later name wins, and any of them wins over
-the sharper text and menus. `CONKER_TEXTURE_PACKS=0` loads none.
+the sharper text and menus and your pad's buttons. `CONKER_TEXTURE_PACKS=0` loads none.
 `CONKER_DUMP_SHARP_FONT=<dir>` and `CONKER_DUMP_SHARP_MENUS=<dir>` write the
 sharper text and menus out as packs to edit; `tools/font_pack.py` writes the
 same pack outside the game, or with `--style traced` a version redrawn with

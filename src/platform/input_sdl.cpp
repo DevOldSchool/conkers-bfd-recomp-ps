@@ -101,9 +101,24 @@ std::string g_pad_name;                  // controller 1's, for controller_name(
 bool g_debug_menu_held = false;          // main thread only
 
 std::atomic<bool> g_has_rumble{false};  // the open pad can rumble
+std::atomic<PadKind> g_pad_kind{PadKind::None};
 std::atomic<bool> g_rumble_on{false};   // the game's motor state, applied by update()
 std::atomic<bool> g_camera_swapped{true};  // C-left and C-right (camera_swapped)
 bool g_rumble_applied = false;          // main thread only
+
+PadKind pad_kind(SDL_GameController* pad) {
+    switch (SDL_GameControllerGetType(pad)) {
+        case SDL_CONTROLLER_TYPE_XBOX360:
+        case SDL_CONTROLLER_TYPE_XBOXONE:
+            return PadKind::Xbox;
+        case SDL_CONTROLLER_TYPE_PS3:
+        case SDL_CONTROLLER_TYPE_PS4:
+        case SDL_CONTROLLER_TYPE_PS5:
+            return PadKind::PlayStation;
+        default:
+            return PadKind::Other;
+    }
+}
 
 void open_pad(int device_index) {
     if (g_pad != nullptr || !SDL_IsGameController(device_index)) {
@@ -125,6 +140,7 @@ void open_pad(int device_index) {
         g_pad_name = SDL_GameControllerName(g_pad) ? SDL_GameControllerName(g_pad) : "controller";
     }
     g_has_rumble.store(SDL_GameControllerHasRumble(g_pad) == SDL_TRUE);
+    g_pad_kind.store(pad_kind(g_pad));
     g_rumble_applied = false;
     std::printf("[conker] controller 1: %s (%s)\n", SDL_GameControllerName(g_pad),
                 g_has_rumble.load() ? "rumble pak" : "no rumble");
@@ -303,6 +319,7 @@ void handle_event(const SDL_Event& event) {
                 }
                 g_pad_id = -1;
                 g_has_rumble.store(false);
+                g_pad_kind.store(PadKind::None);
                 open_first_pad();
             }
             break;
@@ -405,6 +422,8 @@ std::string controller_name() {
     std::lock_guard lock(g_pad_name_mutex);
     return g_pad_name;
 }
+
+PadKind controller_kind() { return g_pad_kind.load(std::memory_order_relaxed); }
 
 bool take_debug_menu_press() { return g_debug_menu_presses.exchange(0, std::memory_order_relaxed) > 0; }
 
