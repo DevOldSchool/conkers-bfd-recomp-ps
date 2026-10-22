@@ -31,6 +31,12 @@ void read(uint16_t* buttons, float* x, float* y);
 // Controller 1's name, or "" when none is connected (keyboard only). Safe to call from any thread.
 std::string controller_name();
 
+// The kind of pad controller 1 is, for its button pictures (src/enhancements/pad_icons): None for
+// the keyboard alone, Other for pads that are neither Xbox nor PlayStation ones. Safe to call from
+// any thread.
+enum class PadKind { None, Xbox, PlayStation, Other };
+PadKind controller_kind();
+
 // True once for each press of the debug menu button: the pad's Back (Create/Share on a
 // PlayStation pad, View on an Xbox pad) or the ` key. Safe to call from any thread.
 bool take_debug_menu_press();

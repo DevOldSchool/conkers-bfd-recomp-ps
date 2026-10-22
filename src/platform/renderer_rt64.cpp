@@ -27,9 +27,12 @@
 // CONKER_TEXTURE_PACKS=0 loads none. Before them come the built-in sharper font and menus, made from
 // the ROM (src/enhancements/sharp_font/sharp_font.cpp, src/enhancements/sharp_menus/sharp_menus.cpp),
 // so a pack can replace them. They load with the first graphics task, once the game has loaded the
-// ROM. CONKER_DUMP_TEXTURES=<dir> writes each texture the game loads to <dir> once, as RT64's
-// <hash>.v5.png, .tmem and .tile.json files, to start a pack from. With any of them loaded, the rectangles the game draws text glyphs with are widened
-// so a replaced glyph is not cut off (src/platform/font_rects.cpp).
+// ROM. With an Xbox or PlayStation pad, its button pictures come after them
+// (src/enhancements/pad_icons/pad_icons.cpp), whatever the OPTIONS menu's text choice; the packs are
+// handed over again when the pad changes. CONKER_DUMP_TEXTURES=<dir> writes each texture the game
+// loads to <dir> once, as RT64's <hash>.v5.png, .tmem and .tile.json files, to start a pack from.
+// With any of them loaded, the rectangles the game draws text glyphs with are widened so a replaced
+// glyph is not cut off (src/platform/font_rects.cpp).
 #include "platform/renderer_rt64.hpp"
 #include "platform/render_debug.hpp"
 
@@ -42,12 +45,14 @@
 #include <string>
 #include <vector>
 
+#include "enhancements/pad_icons/pad_icons.hpp"
 #include "enhancements/sharp_font/sharp_font.hpp"
 #include "enhancements/sharp_menus/sharp_menus.hpp"
 #include "hle/rt64_application.h"
 #include "hle/rt64_state.h"
 #include "librecomp/game.hpp"
 #include "platform/font_rects.hpp"
+#include "platform/input.hpp"
 #include "render/rt64_texture_cache.h"
 #include "rhi/rt64_render_hooks.h"
 #include "platform/display_mode.hpp"
@@ -80,6 +85,7 @@ std::string g_graphics_api;
 struct Packs {
     std::shared_ptr<RT64::FileSystem> font;
     std::shared_ptr<RT64::FileSystem> menus;
+    std::shared_ptr<RT64::FileSystem> buttons[conker::pad_icons::kStyles][2];  // by Style and camera swap, made when first wanted
     std::vector<std::filesystem::path> user;
 };
 
@@ -111,9 +117,11 @@ Packs find_packs() {
     return packs;
 }
 
-// Hands RT64 the packs to use, the built-in ones only if `sharp` (the OPTIONS menu's choice), and
-// returns whether the font's glyphs may be replaced: the built-in font or any user pack is in.
-bool use_packs(RT64::Application& app, const Packs& packs, bool sharp, bool report) {
+// Hands RT64 the packs to use, the built-in font and menus only if `sharp` (the OPTIONS menu's
+// choice) and `pad`'s button pictures (the redrawn N64 ones also only if `sharp`; an Xbox or
+// PlayStation pad's always, as they say which button to press), and returns whether the font's
+// glyphs may be replaced: the built-in font or any user pack is in.
+bool use_packs(RT64::Application& app, Packs& packs, bool sharp, conker::pad_icons::Style pad, bool swapped, bool report) {
     std::vector<RT64::ReplacementDirectory> directories;
     std::vector<std::string> names;
     if (sharp && packs.font) {
@@ -123,6 +131,16 @@ bool use_packs(RT64::Application& app, const Packs& packs, bool sharp, bool repo
     if (sharp && packs.menus) {
         directories.emplace_back(packs.menus, "built-in sharp menus");
         names.push_back("built-in sharp menus");
+    }
+    if (pad == conker::pad_icons::Style::N64 && !sharp) pad = conker::pad_icons::Style::Original;
+    // The N64 set shows the C buttons themselves, so the camera swap does not change it.
+    if (pad == conker::pad_icons::Style::N64) swapped = true;
+    std::shared_ptr<RT64::FileSystem>& buttons = packs.buttons[int(pad)][swapped];
+    if (!buttons) buttons = conker::pad_icons::make_pack(pad, swapped);
+    if (buttons) {
+        const std::string name = std::string("built-in ") + conker::pad_icons::name(pad) + " buttons";
+        directories.emplace_back(buttons, name);
+        names.push_back(name);
     }
     for (const std::filesystem::path& pack : packs.user) {
         directories.emplace_back(pack);
@@ -267,10 +285,20 @@ public:
             packs_loaded_ = true;
             packs_ = find_packs();
             used_sharp_ = conker::display::sharp();
-            widen_font_rects_ = use_packs(*app_, packs_, used_sharp_, true);
-        } else if (conker::display::sharp() != used_sharp_ && (packs_.font || packs_.menus)) {
-            used_sharp_ = conker::display::sharp();
-            widen_font_rects_ = use_packs(*app_, packs_, used_sharp_, false);
+            used_pad_ = conker::pad_icons::style();
+            used_swap_ = conker::input::camera_swapped();
+            widen_font_rects_ = use_packs(*app_, packs_, used_sharp_, used_pad_, used_swap_, true);
+        } else {
+            const bool sharp = conker::display::sharp();
+            const conker::pad_icons::Style pad = conker::pad_icons::style();
+            const bool swap = conker::input::camera_swapped();
+            if (sharp != used_sharp_ || pad != used_pad_ || swap != used_swap_) {
+                const bool new_pad = pad != used_pad_;
+                used_sharp_ = sharp;
+                used_pad_ = pad;
+                used_swap_ = swap;
+                widen_font_rects_ = use_packs(*app_, packs_, used_sharp_, used_pad_, used_swap_, new_pad);
+            }
         }
         if (widen_font_rects_) {
             widen_font_rects(app_->core.RDRAM, task->t.data_ptr);
@@ -405,6 +433,8 @@ private:
     bool packs_loaded_ = false;      // the packs were found (with the first graphics task)
     Packs packs_;
     bool used_sharp_ = true;         // the built-in packs are in use
+    conker::pad_icons::Style used_pad_ = conker::pad_icons::Style::Original;  // the button pictures in use
+    bool used_swap_ = true;                                                  // and the camera swap they show
     bool widen_font_rects_ = false;  // the built-in font or a texture pack is in use
     mutable float reported_scale_ = 0.0f;
     mutable uint32_t reported_width_ = 0;

@@ -11,6 +11,8 @@ void read(uint16_t* buttons, float* x, float* y) {
 
 std::string controller_name() { return ""; }
 
+PadKind controller_kind() { return PadKind::None; }
+
 bool take_debug_menu_press() { return false; }
 
 bool has_rumble() { return false; }

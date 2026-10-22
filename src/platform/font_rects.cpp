@@ -9,6 +9,14 @@
 //
 // A glyph is recognised by its texture: a block of 224-byte buffers per font, D_80085990[bank],
 // with each glyph's width in D_80085994[bank] (source width + 1).
+//
+// The same function draws the speech and thought bubbles' pictures ("more...", the buttons) as
+// RGBA TEXRECTs one texel to a pixel, and it puts the text's sub-pixel position into where the
+// texture starts: under a thought bubble "more..." starts 0.53 texels into its first row, so with
+// bilinear filtering every row is blended half into the next and the word looks doubled. Such a
+// rectangle (RGBA, clamped, exactly one texel to a pixel) is made to start on a whole texel, which
+// moves the picture by under half a pixel and draws it crisp, as it is when it lands on a whole
+// pixel (in the speech bubbles).
 #include "platform/font_rects.hpp"
 
 #include <algorithm>
@@ -137,6 +145,13 @@ void widen_font_rects(uint8_t* rdram, uint32_t display_list) {
                 const uint32_t h2 = read32(rdram, here + 16), h2w1 = read32(rdram, here + 20);
                 if ((h1 >> 24) != 0xE1 || (h2 >> 24) != 0xF1) break;
                 const Tile& tile = tiles[(w1 >> 24) & 7];
+                if (tile.fmt == 0 && (tile.cms & 2) && (tile.cmt & 2) && h2w1 == 0x04000400) {  // RGBA, clamped, 1:1
+                    const int32_t s = static_cast<int16_t>(h1w1 >> 16), t = static_cast<int16_t>(h1w1 & 0xFFFF);
+                    const int32_t whole_s = (s + 16) & ~31, whole_t = (t + 16) & ~31;  // s10.5, to the nearest texel
+                    write32(rdram, here + 12, (static_cast<uint32_t>(whole_s & 0xFFFF) << 16) | static_cast<uint32_t>(whole_t & 0xFFFF));
+                    pc = here + 24;
+                    break;
+                }
                 if (tile.fmt != 4 || tile.siz != 1 || !(tile.cms & 2) || !(tile.cmt & 2)) break;  // I 8-bit, clamped
                 const Font* font = nullptr;
                 for (int i = 0; i < font_count; i++) {
