@@ -107,6 +107,13 @@ minutes. Compare pictures in N64 pixels: the emulator's 640x480 screenshot
 shows the 285x214 picture at x 40-609, y 25-452; an RT64 capture shows it
 across the whole window.
 
+The container follows the host CPU, linux/arm64 or linux/amd64, as the
+decomp's `./conker` does, and `CONKER_PLATFORM` picks one. Each platform's
+screenshots repeat exactly from run to run; the two platforms differ by at
+most one level per colour channel, so compare frames from the same one when
+counting pixels. On Windows, run the tool from WSL, where the decomp's
+`./conker` also has to run to build the image.
+
 Checked this way: speech-bubble shadows. Each bubble is drawn twice from the
 same 64x64 IA8 texture, first black at alpha 0x40 about 5 pixels right of and
 4 pixels above the bubble, then white on top. RT64 matches the emulator:

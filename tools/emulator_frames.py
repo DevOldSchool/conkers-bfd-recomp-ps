@@ -9,7 +9,9 @@ breakpoint is removed after the last press, and the emulator then runs at full s
 20 VIs/s, 7 while the breakpoint is set). Mupen numbers its --testshots by VI.
 
 Run `./conker mupen-trace --software-renderer ...` in the decomp once first, so the container
-image exists. From a worktree, point --decomp or CONKER_DECOMP at the decomp checkout. A new game (A at 3900, 4200, 4500, 4800 and 5100) shows the Panther King's
+image exists. From a worktree, point --decomp or CONKER_DECOMP at the decomp checkout. The image
+platform follows the host CPU (linux/arm64 or linux/amd64) unless CONKER_PLATFORM names one, as in
+the decomp's ./conker. A new game (A at 3900, 4200, 4500, 4800 and 5100) shows the Panther King's
 "MORE MILK, SIRE?" bubble around VI 12300 and Conker's "OH NO!" around VI 14160:
 
     tools/emulator_frames.py --out build/emu/newgame --press 3900:8:8000,4200:8:8000,4500:8:8000,4800:8:8000,5100:8:8000 --shots 12300,14160
@@ -18,6 +20,7 @@ Screenshots are 640x480 VI output; the 285x214 picture covers x 40-609, y 25-452
 """
 import argparse
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -82,6 +85,36 @@ say("done")
 '''
 
 
+IMAGE = "conkers-bfd-mupen-software"
+
+
+def docker_platform() -> str:
+    """The container platform, chosen like the decomp's ./conker: CONKER_PLATFORM, else the host CPU."""
+    chosen = os.environ.get("CONKER_PLATFORM")
+    if chosen is None:
+        chosen = "linux/arm64" if platform.machine().lower() in ("arm64", "aarch64") else "linux/amd64"
+    if chosen not in ("linux/amd64", "linux/arm64"):
+        sys.exit("CONKER_PLATFORM must be linux/amd64 or linux/arm64")
+    return chosen
+
+
+def newest_image(wanted: str) -> str:
+    """The most recently built software-renderer image for the platform; the tags are content hashes."""
+    tags = subprocess.run(["docker", "images", IMAGE, "--format", "{{.Tag}}"],
+                          check=True, capture_output=True, text=True).stdout.split()
+    images = []
+    for tag in tags:
+        if tag == "<none>":
+            continue
+        info = subprocess.run(["docker", "image", "inspect", "--format", "{{.Os}}/{{.Architecture}} {{.Created}}",
+                               f"{IMAGE}:{tag}"], check=True, capture_output=True, text=True).stdout.split()
+        if info[0] == wanted:
+            images.append((info[1], tag))
+    if not images:
+        sys.exit(f"no {wanted} {IMAGE} image: run ./conker mupen-trace --software-renderer in the decomp once")
+    return f"{IMAGE}:{max(images)[1]}"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--decomp", default=os.environ.get("CONKER_DECOMP", str(Path(__file__).resolve().parents[1].parent / "conkers-bfd-decomp")),
@@ -94,12 +127,8 @@ def main() -> int:
     decomp = Path(args.decomp).resolve()
     if not (decomp / "roms" / "baserom.us.z64").is_file():
         sys.exit(f"no decomp with a ROM at {decomp}: pass --decomp or set CONKER_DECOMP")
-    images = subprocess.run(["docker", "images", "conkers-bfd-mupen-software", "--format", "{{.Tag}} {{.CreatedAt}}"],
-                            check=True, capture_output=True, text=True).stdout.split("\n")
-    tags = sorted((line.split(" ", 1) for line in images if line and not line.startswith("<none>")),
-                  key=lambda t: t[1], reverse=True)
-    if not tags:
-        sys.exit("no conkers-bfd-mupen-software image: run ./conker mupen-trace --software-renderer in the decomp once")
+    container_platform = docker_platform()
+    image = newest_image(container_platform)
     work = decomp / "build" / "emulator-frames"
     work.mkdir(parents=True, exist_ok=True)
     (work / "driver.py").write_text(DRIVER)
@@ -109,11 +138,14 @@ def main() -> int:
     mounts = []
     for name, mode in (("scripts", ",readonly"), ("roms", ",readonly"), ("config", ",readonly"), ("build", "")):
         mounts += ["--mount", f"type=bind,source={decomp / name},target=/workspace/{name}{mode}"]
-    subprocess.run(["docker", "run", "--rm", "--platform", "linux/arm64", "--network", "none", "--read-only",
+    # Run as the host user so the screenshots are ours; Windows has no uids, and Docker Desktop's
+    # bind mounts don't need one.
+    user = ["--user", f"{os.getuid()}:{os.getgid()}"] if hasattr(os, "getuid") else []
+    subprocess.run(["docker", "run", "--rm", "--platform", container_platform, "--network", "none", "--read-only",
                     "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "512",
-                    "--user", f"{os.getuid()}:{os.getgid()}", "--tmpfs", "/tmp:rw,nosuid,nodev,size=1g",
+                    *user, "--tmpfs", "/tmp:rw,nosuid,nodev,size=1g",
                     "--tmpfs", "/workspace:rw,nosuid,nodev,size=256m,mode=1777", *mounts, "--workdir", "/workspace",
-                    f"conkers-bfd-mupen-software:{tags[0][0]}", "python3", "build/emulator-frames/driver.py",
+                    image, "python3", "build/emulator-frames/driver.py",
                     "--press", args.press, "--shots", args.shots, "--dir", "/workspace/build/emulator-frames/shots"],
                    check=True)
     out = Path(args.out)
