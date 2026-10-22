@@ -4,11 +4,11 @@
 //
 // Registers the game with librecomp, wires the ultramodern callbacks and starts the game thread.
 // Controller 1 is an SDL game controller or the keyboard in the RT64 build
-// (src/platform/input_sdl.cpp), plus any scripted Start presses (CONKER_PRESS_START). Graphics
-// depend on CONKER_RENDERER: the null renderer (default) runs headless and only logs graphics
-// tasks, RT64 opens a window and draws the display lists through Conker's F3DEX2CBFD microcode
-// support. Audio is rendered by the recompiled audio microcode and played through SDL2 in the RT64
-// build (src/platform/audio.cpp).
+// (src/platform/input_sdl.cpp), plus any scripted Start or A presses (CONKER_PRESS_START,
+// CONKER_PRESS_A). Graphics depend on CONKER_RENDERER: the null renderer (default) runs headless
+// and only logs graphics tasks, RT64 opens a window and draws the display lists through Conker's
+// F3DEX2CBFD microcode support. Audio is rendered by the recompiled audio microcode and played
+// through SDL2 in the RT64 build (src/platform/audio.cpp).
 #include <atomic>
 #include <csignal>
 #include <cstdio>
@@ -50,17 +50,27 @@ namespace {
 constexpr uint64_t kPressLength = 10;  // VIs
 
 std::atomic<uint64_t> vi_count{0};
-std::vector<uint64_t> start_presses;  // VI numbers, from CONKER_PRESS_START
+struct ScriptedPress {
+    uint64_t vi;
+    uint16_t button;
+    const char* name;
+};
+std::vector<ScriptedPress> scripted_presses;  // from CONKER_PRESS_START and CONKER_PRESS_A
 
-void parse_scripted_input() {
-    const char* spec = std::getenv("CONKER_PRESS_START");
+void parse_scripted_presses(const char* variable, uint16_t button, const char* name) {
+    const char* spec = std::getenv(variable);
     for (const char* p = spec; p != nullptr && *p != '\0';) {
         char* end;
         const unsigned long long vi = std::strtoull(p, &end, 0);
         if (end == p) break;
-        start_presses.push_back(vi);
+        scripted_presses.push_back({vi, button, name});
         p = (*end == ',') ? end + 1 : end;
     }
+}
+
+void parse_scripted_input() {
+    parse_scripted_presses("CONKER_PRESS_START", conker::input::kStart, "Start");
+    parse_scripted_presses("CONKER_PRESS_A", conker::input::kA, "A");
 }
 
 void poll_input() {}
@@ -184,16 +194,18 @@ uint64_t conker::current_vi() { return vi_count.load(); }
 
 uint16_t conker::scripted_buttons() {
     const uint64_t now = vi_count.load();
-    for (uint64_t vi : start_presses) {
-        if (now >= vi && now < vi + kPressLength) {
-            static std::atomic<uint64_t> last_reported{~0ull};
-            if (last_reported.exchange(vi) != vi) {
-                std::printf("[conker] scripted input: Start held from VI %llu\n", static_cast<unsigned long long>(now));
+    uint16_t buttons = 0;
+    for (const ScriptedPress& press : scripted_presses) {
+        if (now >= press.vi && now < press.vi + kPressLength) {
+            static std::atomic<const ScriptedPress*> last_reported{nullptr};
+            if (last_reported.exchange(&press) != &press) {
+                std::printf("[conker] scripted input: %s held from VI %llu\n", press.name,
+                            static_cast<unsigned long long>(now));
             }
-            return conker::input::kStart;
+            buttons |= press.button;
         }
     }
-    return 0;
+    return buttons;
 }
 
 int main(int argc, char** argv) {
