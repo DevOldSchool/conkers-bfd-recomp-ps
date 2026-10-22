@@ -1,11 +1,11 @@
-// The B pads are a 64x64 CI4 texture with a 16-colour RGBA16 palette, flat resource 1575: a
-// wooden octagon with a raised B painted in five shades of moss. For a PlayStation pad the B is
-// taken out, the wood under it refilled from the same ring of the plate elsewhere (its grain runs
-// in octagonal rings), and a circle painted in, in Rare's own colours: the moss mottled the way
-// theirs is, lightest on the edges facing up and right, with a dark band two texels wide in the
-// palette's dark browns where the B has one: its outline moved up and to the left (outside the top
-// and left of the letter, inside its bowls at their lower right). It is made from the player's ROM
-// when the game starts, so no part of Rare's texture is in this repository.
+// The octagonal wooden B pads are a 64x64 CI4 texture with a 16-colour RGBA16 palette, flat
+// resource 1575: a wooden octagon with a raised B painted in five shades of moss. For a PlayStation
+// pad the B is taken out, the wood under it refilled from the same ring of the plate elsewhere (its
+// grain runs in octagonal rings), and a circle painted in, in Rare's own colours: the moss mottled
+// the way theirs is, lightest on the edges facing up and right, with a dark band two texels wide in
+// the palette's dark browns where the B has one: its outline moved up and to the left (outside the
+// top and left of the letter, inside its bowls at their lower right). It is made from the player's
+// ROM when the game starts, so no part of Rare's texture is in this repository.
 #include "enhancements/pad_icons/b_pad.hpp"
 
 #include <algorithm>
