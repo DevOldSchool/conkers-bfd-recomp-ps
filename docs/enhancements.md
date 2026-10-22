@@ -297,8 +297,8 @@ RT64 replacement packs (a folder, `.rtz` or `.zip` with an `rt64.json`) in
 two replace the same texture, the later name wins, and any of them wins over
 the sharper text and menus and your pad's buttons. `CONKER_TEXTURE_PACKS=0` loads none.
 `CONKER_DUMP_SHARP_FONT=<dir>` and `CONKER_DUMP_SHARP_MENUS=<dir>` write the
-sharper text and menus out as packs to edit; `tools/font_pack.py` writes a
-font redrawn with crisp edges and a thin dark outline (`tools/font_trace.py`).
+sharper text and menus out as packs to edit; `tools/font_pack.py` writes the
+font's glyphs with their hashes as a template for new art.
 
 ## 60 fps (experimental)
 

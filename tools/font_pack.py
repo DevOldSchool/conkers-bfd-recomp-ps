@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Build an RT64 texture pack that replaces the game's font glyphs.
+"""Build an RT64 texture pack template for the game's font glyphs, and check their hashes.
 
 The game makes its Super-xBR pack itself from the ROM at start
-(src/enhancements/sharp_font/sharp_font.cpp; CONKER_DUMP_SHARP_FONT writes it out). This makes the
-other styles outside the game and checks the glyph hashes against a texture dump.
+(src/enhancements/sharp_font/sharp_font.cpp; CONKER_DUMP_SHARP_FONT writes it out). This writes
+the glyphs enlarged with each pixel repeated, as a starting point for new art, and checks the
+glyph hashes against a texture dump.
 
 The font is 95 grayscale RLE records at ROM 0x40F10..0x42450. At boot func_15015920 walks them and
 func_15015A38 decodes each into its own I8 buffer: a zero row above and below the glyph, a zero
@@ -17,8 +18,7 @@ itself, so the pack covers every glyph, including ones a run never showed:
     tools/font_pack.py --out conker-recomp-data/texture_packs/font
 
 Each replacement is the glyph --scale times larger, white with its intensity as alpha as RT64
-decodes I8 (R = G = B = A). By default it is redrawn with crisp edges and a thin dark outline
-(tools/font_trace.py); --style nearest simply repeats each pixel. RT64 loads PNG replacements
+decodes I8 (R = G = B = A), with each pixel repeated. RT64 loads PNG replacements
 without mipmaps, so the default of 8 suits pictures drawn at about 5x to 10x.
 font/glyphs.json in the pack lists each glyph's hash and metrics, so new art can be drawn for the
 same glyphs.
@@ -35,7 +35,6 @@ import struct
 import sys
 import zlib
 
-import font_trace
 
 FONT_START = 0x40F10
 FONT_END = 0x42450
@@ -231,8 +230,6 @@ def main():
                         type=pathlib.Path, help="US ROM (.z64); defaults as in tools/regenerate.sh")
     parser.add_argument("--out", type=pathlib.Path, help="pack directory to write")
     parser.add_argument("--scale", default=8, type=int, help="replacement size multiple")
-    parser.add_argument("--style", default="traced", choices=("traced", "nearest"),
-                        help="redrawn with crisp edges, or each pixel repeated")
     parser.add_argument("--dump", type=pathlib.Path, help="CONKER_DUMP_TEXTURES directory to check against")
     args = parser.parse_args()
 
@@ -249,11 +246,8 @@ def main():
     record = []
     for glyph in glyphs:
         name = f"glyph_{glyph['index']:02d}"
-        if args.style == "traced":
-            rows = font_trace.redraw(glyph["image"], args.scale)
-        else:
-            rows = [[(v, v, v, v) for v in row for _ in range(args.scale)]
-                    for row in glyph["image"] for _ in range(args.scale)]
+        rows = [[(v, v, v, v) for v in row for _ in range(args.scale)]
+                for row in glyph["image"] for _ in range(args.scale)]
         write_png(glyph_dir / f"{name}.png", rows)
         textures.append({"path": f"font/{name}.png", "hashes": {"rt64": glyph["hash"], "rice": ""},
                          "operation": "preload", "shift": "half"})
@@ -268,7 +262,7 @@ def main():
     }
     (args.out / "rt64.json").write_text(json.dumps(database, indent=4) + "\n")
     (glyph_dir / "glyphs.json").write_text(json.dumps(record, indent=4) + "\n")
-    print(f"{len(textures)} glyph replacements ({args.style}, {args.scale}x) written to {args.out}")
+    print(f"{len(textures)} glyph replacements ({args.scale}x) written to {args.out}")
     return 0
 
 
