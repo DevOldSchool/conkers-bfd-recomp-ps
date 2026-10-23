@@ -447,6 +447,14 @@ func = "sndp_play_sound"
 before_vram = 0x10017438
 text = "{ void conker_sound_started(uint8_t*, recomp_context*); conker_sound_started(rdram, ctx); }"
 
+# Once a frame, just before func_1501878C checks D_800BEAC0 to run or skip the world frame, a
+# DualSense plays a thump when Conker's animation becomes his landing. See
+# src/enhancements/haptics/haptics.cpp.
+[[patches.hook]]
+func = "func_1501878C"
+before_vram = 0x150188FC
+text = "{ void conker_haptics_frame(uint8_t*, recomp_context*); conker_haptics_frame(rdram, ctx); }"
+
 # Experimental 60 fps (CONKER_60FPS=1, off by default): Rare's scheduler is woken when a frame is
 # queued and when one is swapped, so the next frame starts in the same retrace and the logic steps
 # by one retrace instead of two. See src/enhancements/frame_rate/frame_rate.cpp.

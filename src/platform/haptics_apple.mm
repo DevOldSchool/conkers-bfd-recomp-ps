@@ -77,7 +77,26 @@ bool engines_ready() {
     return g_left != nil && g_right != nil;
 }
 
+// The same effect feels stronger in the left grip than the right (when alternating L2 and R2
+// shots), so the left plays it this much weaker.
+constexpr float kLeftGripGain = 0.7f;
+
+CHHapticPattern* pattern(const Haptic& haptic, float intensity) {
+    NSArray<CHHapticEventParameter*>* parameters = @[
+        [[CHHapticEventParameter alloc] initWithParameterID:CHHapticEventParameterIDHapticIntensity value:intensity],
+        [[CHHapticEventParameter alloc] initWithParameterID:CHHapticEventParameterIDHapticSharpness value:haptic.sharpness],
+    ];
+    CHHapticEvent* event = haptic.duration > 0.0f
+        ? [[CHHapticEvent alloc] initWithEventType:CHHapticEventTypeHapticContinuous parameters:parameters relativeTime:0
+                                          duration:haptic.duration]
+        : [[CHHapticEvent alloc] initWithEventType:CHHapticEventTypeHapticTransient parameters:parameters relativeTime:0];
+    return [[CHHapticPattern alloc] initWithEvents:@[event] parameters:@[] error:nil];
+}
+
 void play_on(CHHapticEngine* engine, CHHapticPattern* pattern) {
+    if (pattern == nil) {
+        return;
+    }
     NSError* error = nil;
     id<CHHapticPatternPlayer> player = [engine createPlayerWithPattern:pattern error:&error];
     if (player == nil) {
@@ -97,23 +116,11 @@ bool play_dualsense_haptic(const Haptic& haptic) {
     if (!engines_ready()) {
         return false;
     }
-    NSArray<CHHapticEventParameter*>* parameters = @[
-        [[CHHapticEventParameter alloc] initWithParameterID:CHHapticEventParameterIDHapticIntensity value:haptic.intensity],
-        [[CHHapticEventParameter alloc] initWithParameterID:CHHapticEventParameterIDHapticSharpness value:haptic.sharpness],
-    ];
-    CHHapticEvent* event = haptic.duration > 0.0f
-        ? [[CHHapticEvent alloc] initWithEventType:CHHapticEventTypeHapticContinuous parameters:parameters relativeTime:0
-                                          duration:haptic.duration]
-        : [[CHHapticEvent alloc] initWithEventType:CHHapticEventTypeHapticTransient parameters:parameters relativeTime:0];
-    CHHapticPattern* pattern = [[CHHapticPattern alloc] initWithEvents:@[event] parameters:@[] error:nil];
-    if (pattern == nil) {
-        return false;
-    }
     if (haptic.grip != Haptic::Grip::Right) {
-        play_on(g_left, pattern);
+        play_on(g_left, pattern(haptic, haptic.intensity * kLeftGripGain));
     }
     if (haptic.grip != Haptic::Grip::Left) {
-        play_on(g_right, pattern);
+        play_on(g_right, pattern(haptic, haptic.intensity));
     }
     return true;
 }

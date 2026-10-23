@@ -6,7 +6,8 @@
 // CONKER_HAPTICS=0 turns them off.
 //
 // The sounds so far were picked out with the log below in scene 6 (Windy's slingshot B pad), by
-// when they start.
+// when they start. Landings are felt from Conker's animation instead, since their sound depends
+// on what he lands on; conker_haptics_frame checks it once a frame (the hook in func_1501878C).
 //
 // CONKER_SOUND_LOG=1 prints each sound as it starts, with Conker's animation (the u16 at +0x84 of
 // his actor, *D_80088720), to find the ids of new ones.
@@ -51,10 +52,12 @@ constexpr SoundHaptic kSounds[] = {
     {1678, 1680, tap(1.0f, 0.9f, Grip::Trigger)},       // a shot (one of three, at random)
     {54, 54, buzz(0.35f, 0.2f, 0.25f, Grip::Trigger)},  // the elastic stretched again
     {17, 17, tap(0.4f, 1.0f, Grip::Trigger)},           // reloaded
-    // Conker landing from a jump or a fall. Footsteps (588-599 on stone) were tried and felt too
-    // strong for something so frequent.
-    {8, 8, tap(0.8f, 0.2f, Grip::Both)},
+    // Footsteps (588-599 on stone) were tried and felt too strong for something so frequent.
 };
+
+// Conker landing on his feet from a jump, on any ground.
+constexpr uint16_t kLandingAnimation = 0x36;
+constexpr Haptic kLanding = tap(0.8f, 0.2f, Grip::Both);
 
 std::atomic<bool> g_enabled{[] {
     const char* value = std::getenv("CONKER_HAPTICS");
@@ -62,6 +65,8 @@ std::atomic<bool> g_enabled{[] {
 }()};  // the debug menu switches it
 
 bool haptics_enabled() { return g_enabled.load(std::memory_order_relaxed); }
+
+uint16_t g_last_animation = 0;  // game thread only
 
 const bool g_log = [] {
     const char* value = std::getenv("CONKER_SOUND_LOG");
@@ -97,6 +102,16 @@ extern "C" void conker_sound_started(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     conker::input::play_haptic(it->haptic);
+}
+
+// Once a frame, from func_1501878C before it runs the world frame (or skips it while paused).
+extern "C" void conker_haptics_frame(uint8_t* rdram, recomp_context* /*ctx*/) {
+    const uint16_t animation = conker_animation(rdram);
+    if (animation == kLandingAnimation && g_last_animation != kLandingAnimation && haptics_enabled() &&
+        conker::input::has_haptics()) {
+        conker::input::play_haptic(kLanding);
+    }
+    g_last_animation = animation;
 }
 
 nlohmann::json conker::status::haptics() {
