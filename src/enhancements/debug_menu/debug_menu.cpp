@@ -276,6 +276,48 @@ void draw_text(uint8_t* rdram, recomp_context* ctx, int x, int y, uint8_t flags,
 
 const char* on_off(bool on) { return on ? "ON" : "OFF"; }
 
+// The chapter a scene belongs to, as the CHAPTERS menu names it, or "SCENE n" for the rest. Each
+// sub-chapter there (bank 8, one record per chapter) starts an event, and the event table at
+// D_80087430 (0x14-byte records: name, id, scene +8, entrance +0xA) gives that event's scene; the
+// scenes no sub-chapter starts in are placed by the named events the table puts in them. Scene 6
+// is Windy's, though IT'S WAR also starts there.
+std::string scene_label(int scene) {
+    switch (scene) {
+        case 0x29:
+            return "HUNGOVER";
+        case 0x00: case 0x06: case 0x2C:
+            return "WINDY";
+        case 0x07: case 0x0A: case 0x0B: case 0x12: case 0x17:
+            return "BATS TOWER";
+        case 0x01: case 0x0C: case 0x10:
+            return "BARN BOYS";
+        case 0x35: case 0x37:
+            return "SLOPRANO";
+        case 0x02: case 0x14: case 0x31: case 0x32: case 0x43:
+            return "UGA BUGA";
+        case 0x3C: case 0x41:
+            return "SPOOKY";
+        case 0x04: case 0x0E: case 0x13: case 0x1B: case 0x1C: case 0x1E: case 0x23: case 0x26: case 0x28: case 0x2F:
+            return "IT'S WAR";
+        case 0x36: case 0x38: case 0x39: case 0x3A: case 0x3B: case 0x40:
+            return "HEIST";
+        case 0x1A: case 0x24: case 0x2B: case 0x2D: case 0x30: case 0x33: case 0x34: case 0x3F:
+            return "MULTIPLAYER";
+        case 0x18:
+            return "THRONE ROOM";
+        case 0x1D:
+            return "TITLE";
+        case 0x21:
+            return "INTRO";
+        case 0x22:
+            return "GREGG";
+        case 0x25:
+            return "LOGOS";
+        default:
+            return "SCENE " + std::to_string(scene);
+    }
+}
+
 std::string position_line(uint8_t* rdram) {
     Position p;
     if (!conker::resume::current_position(rdram, &p)) {
@@ -379,8 +421,7 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
             }
             std::vector<std::string> rows;
             for (const conker::resume::Snapshot& snapshot : g_snapshots) {
-                std::snprintf(text, sizeof(text), "SCENE %-3d %s", snapshot.scene, snapshot.when.c_str());
-                rows.push_back(text);
+                rows.push_back(scene_label(snapshot.scene) + "  " + snapshot.when);
             }
             draw_rows(rdram, ctx, rows, g_entry, g_top);
             break;
