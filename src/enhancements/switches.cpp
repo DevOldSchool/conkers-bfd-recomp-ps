@@ -36,7 +36,7 @@ std::vector<Switch> all() {
         save_snapshots(),
         surround_default(),
         max_detail(),
-        character_distance(),
+        draw_distance(),
         rumble_banner(),
         haptics(),
         camera_stick(),
