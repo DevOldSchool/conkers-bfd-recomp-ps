@@ -50,6 +50,7 @@
 #include "json/json.hpp"
 #include "recomp.h"
 #include "ultramodern/ultramodern.hpp"
+#include "enhancements/frame_rate/frame_rate.hpp"
 #include "enhancements/status.hpp"
 #include "enhancements/switches.hpp"
 
@@ -1172,6 +1173,17 @@ void settle_camera(uint8_t* rdram) {
         return;
     }
     const uint32_t object = player_object(rdram);
+    // At 60 fps only every second frame counts, so the waits below last as long as at 30 and the
+    // camera's movement is measured over the same time; a held view is still held on every frame.
+    const bool step = conker::frame_rate::thirty_hz_step(rdram);
+    if (!step) {
+        if (g_camera_hold > 0 && object != 0) {
+            const float hx = read_float(rdram, object + kObjectX) - g_view.x;
+            const float hz = read_float(rdram, object + kObjectZ) - g_view.z;
+            place_view(rdram, object, g_view, hx * hx + hz * hz < 1.0f, true);
+        }
+        return;
+    }
     Camera camera;
     if (object == 0 || !current_camera(rdram, &camera)) {
         if (++g_camera_wait > kCameraWaitFrames) {
@@ -1769,6 +1781,16 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
     const uint32_t object = static_cast<uint32_t>(MEM_W(0, kseg0(kPlayerObject)));
     if (MEM_W(0, kseg0(kScene)) != g_resuming.scene || MEM_BU(0, kseg0(kTransition)) != 0 ||
         (object & 0xFF000000) != 0x80000000) {
+        return;
+    }
+    // At 60 fps only every second frame counts (see settle_camera); Conker is still held on the others.
+    if (!conker::frame_rate::thirty_hz_step(rdram)) {
+        if (g_resume_frames > kSettleFrames) {
+            place(rdram, object, g_resuming);
+            if (g_view.has_view) {
+                place_view(rdram, object, g_view, true, !g_camera_waits);
+            }
+        }
         return;
     }
     if (++g_resume_frames <= kSettleFrames) {

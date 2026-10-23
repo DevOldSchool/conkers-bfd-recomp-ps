@@ -536,3 +536,26 @@ text = "{ void conker_60fps_step_ticks(uint8_t*, gpr*); conker_60fps_step_ticks(
 func = "func_151DE8F0"
 before_vram = 0x151DED64
 text = "{ void conker_60fps_step_ticks(uint8_t*, gpr*); conker_60fps_step_ticks(rdram, &ctx->r14); }"
+
+# A falling effect entry's (ticks * speed) >> 4 step: see conker_60fps_full_step.
+[[patches.hook]]
+func = "func_1508F9F4"
+before_vram = 0x1508FC4C
+text = "{ void conker_60fps_full_step(uint8_t*, gpr*); conker_60fps_full_step(rdram, &ctx->r13); }"
+
+# The Doppler shift of moving sounds: see conker_60fps_doppler_distance and _easing.
+[[patches.hook]]
+func = "func_80011624"
+before_vram = 0x10011A24
+text = "{ void conker_60fps_doppler_distance(uint8_t*, recomp_context*); conker_60fps_doppler_distance(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_80011624"
+before_vram = 0x10011AA8
+text = "{ void conker_60fps_doppler_easing(uint8_t*, recomp_context*); conker_60fps_doppler_easing(rdram, ctx); }"
+
+# Per-player heading easing by a fixed share a frame: see conker_60fps_heading_easing.
+[[patches.hook]]
+func = "func_1501B320"
+before_vram = 0x1501B420
+text = "{ void conker_60fps_heading_easing(uint8_t*, recomp_context*); conker_60fps_heading_easing(rdram, ctx); }"
