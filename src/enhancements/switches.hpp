@@ -27,7 +27,7 @@ Switch pause_save();
 Switch save_snapshots();
 Switch surround_default();
 Switch max_detail();
-Switch character_distance();
+Switch draw_distance();
 Switch rumble_banner();
 Switch haptics();
 Switch frame_rate();

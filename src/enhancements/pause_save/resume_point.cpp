@@ -121,6 +121,11 @@ constexpr uint32_t kEepromSize = 0x800;          // 16 kbit
 constexpr uint32_t kSnapshotScratch = 0x807F9000;  // free RDRAM, see pause_save.cpp
 constexpr uint32_t kReportBlockScratch = 0x807F9800;  // 8 bytes after it
 constexpr int kSlots = 3;
+constexpr uint32_t kSlotSave = 0x20;             // a slot's save (D_800BE358) is at block 4 + slot * 16,
+constexpr uint32_t kSlotSaveSize = 0x80;         // 0x80 bytes (func_15006BEC): in it
+constexpr int kSavedSlot = 2;                    // the slot,
+constexpr int kSavedEvents = 7;                  // and the event flags, *D_800D2E4C's 0x1B bytes
+constexpr int kEventBytes = 0x1B;
 // A save the game makes this soon after resuming (it saves on entering some areas) is still the
 // resumed one: the point carries over to it.
 constexpr std::chrono::seconds kResumeSaveWindow{10};
@@ -1482,6 +1487,41 @@ void newest_first(std::vector<Snapshot>* list) {
     std::sort(list->begin(), list->end(), [](const Snapshot& a, const Snapshot& b) { return a.order > b.order; });
 }
 
+// The event flags `slot` holds in the save `bin`, or none when it is not a whole save or the slot's
+// bytes are not that slot's.
+std::vector<uint8_t> saved_events(const std::filesystem::path& bin, int slot) {
+    std::array<char, kEepromSize> image{};
+    std::ifstream file(bin, std::ios::binary);
+    if (slot < 0 || slot >= kSlots || !file.read(image.data(), image.size())) {
+        return {};
+    }
+    const char* save = image.data() + kSlotSave + slot * kSlotSaveSize;
+    if (static_cast<uint8_t>(save[kSavedSlot]) != slot) {
+        return {};
+    }
+    return std::vector<uint8_t>(save + kSavedEvents, save + kSavedEvents + kEventBytes);
+}
+
+// The saved slot: a snapshot's .resume has its point first, a report's report.json names it.
+int snapshot_slot(const std::filesystem::path& resume) {
+    std::ifstream file(resume);
+    const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    std::array<Point, kSlots> points;
+    int first;
+    std::string problem;
+    return parse_points(text, &points, &first, &problem) ? first : -1;
+}
+
+int report_slot(const std::filesystem::path& folder) {
+    std::ifstream file(folder / "report.json");
+    const nlohmann::json doc = nlohmann::json::parse(file, nullptr, false);
+    if (!doc.is_object() || !doc.contains("save") || !doc["save"].is_object() || !doc["save"].contains("slot") ||
+        !doc["save"]["slot"].is_number_integer()) {
+        return -1;
+    }
+    return doc["save"]["slot"].get<int>();
+}
+
 }  // namespace
 
 std::filesystem::path data_folder() {
@@ -1498,6 +1538,8 @@ std::vector<Snapshot> list_snapshots() {
         Snapshot snapshot;
         snapshot.path = entry.path();
         if (snapshot.path.extension() == ".bin" && parse_name(snapshot.path.stem().string(), &snapshot)) {
+            snapshot.events = saved_events(snapshot.path,
+                                           snapshot_slot(std::filesystem::path(snapshot.path).replace_extension(".resume")));
             snapshots.push_back(snapshot);
         }
     }
@@ -1513,6 +1555,7 @@ std::vector<Snapshot> list_reports() {
         report.path = entry.path() / "save.bin";
         if (entry.is_directory() && std::filesystem::exists(entry.path() / "report.json") &&
             parse_name(entry.path().filename().string(), &report)) {
+            report.events = saved_events(report.path, report_slot(entry.path()));
             reports.push_back(report);
         }
     }

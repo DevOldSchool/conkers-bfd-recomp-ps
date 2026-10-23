@@ -321,21 +321,44 @@ func = "func_1502C6E8"
 before_vram = 0x1502C8C4
 text = "{ void conker_max_detail(uint8_t*, recomp_context*); conker_max_detail(rdram, ctx); }"
 
-# Characters drawn as far as the scene is. func_1502E4C4 fades an actor out past its own distance
-# from the camera (u16 actor +0x10, mostly 3000) although the scene reaches much farther; that
-# distance is in $s0 at 0x1502E770 and is raised to the scene's far distance (D_800D9B1C). See
-# src/enhancements/character_distance/character_distance.cpp; CONKER_CHARACTER_DISTANCE=0 turns it off.
+# Characters, props, bees and scenery sprites drawn farther: each of their distance limits is raised
+# 2.5 times, but not past the scene's far distance (D_800D9B1C). See
+# src/enhancements/draw_distance/draw_distance.cpp; CONKER_DRAW_DISTANCE=0 turns it off.
+# func_1502E4C4 fades a character out past its own distance from the camera (u16 actor +0x10,
+# mostly 3000), which is in $s0 at 0x1502E770.
 [[patches.hook]]
 func = "func_1502E4C4"
 before_vram = 0x1502E770
 text = "{ void conker_character_distance(uint8_t*, recomp_context*); conker_character_distance(rdram, ctx); }"
 
-# Swarms of bees likewise: func_151787AC tests them against the views within 2500 (D_800A71E4,
-# loaded into $f22 at 0x15178930), and their bees are drawn only while a swarm passes.
+# func_151787AC tests swarms of bees against the views within 2500 (D_800A71E4, loaded into $f22
+# at 0x15178930), and their bees are drawn only while a swarm passes.
 [[patches.hook]]
 func = "func_151787AC"
 before_vram = 0x15178934
 text = "{ void conker_swarm_distance(uint8_t*, recomp_context*); conker_swarm_distance(rdram, ctx); }"
+
+# func_15112A80 draws a prop only within its own distance of the camera (u16 object +0x90, 4500 or
+# 5000 for most), which every way into 0x15112CF0 has in $s2.
+[[patches.hook]]
+func = "func_15112A80"
+before_vram = 0x15112CF0
+text = "{ void conker_prop_distance(uint8_t*, recomp_context*); conker_prop_distance(rdram, ctx); }"
+
+# The scenery sprites (sunflowers, grass, mushrooms: func_1517DE5C -> func_1517BBAC) are drawn
+# only within 1500 units of Conker ($a3 at 0x1517DEC4), fading in over the last 510; the limit is
+# widened with the view and raised just before the call (only widened when the scene has more
+# sprites than the game builds in a frame, or this is off). At 0x1517CCE4 the effect func_1517BBAC sets off at
+# a random sprite ($t9 nonzero skips it) is kept to the sprites within the game's own limit.
+[[patches.hook]]
+func = "func_1517DE5C"
+before_vram = 0x1517DF04
+text = "{ void conker_scenery_sprite_distance(uint8_t*, recomp_context*); conker_scenery_sprite_distance(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1517BBAC"
+before_vram = 0x1517CCE4
+text = "{ void conker_scenery_sprite_effect(uint8_t*, recomp_context*); conker_scenery_sprite_effect(rdram, ctx); }"
 
 # Display options on the title menu's OPTIONS page: rows for the display mode, 4:3/WIDESCREEN, the
 # resolution and FILL SCREEN/CENTERED. Around the page's call to the menu engine func_151E3344,
@@ -434,15 +457,6 @@ text = "{ void conker_sky_vertices(uint8_t*, recomp_context*); conker_sky_vertic
 func = "func_15110CFC"
 before_vram = 0x15111128
 text = "{ void conker_sky_tile_fits(uint8_t*, recomp_context*); conker_sky_tile_fits(rdram, ctx); }"
-
-# The scenery sprites (sunflowers, grass, mushrooms: func_1517DE5C -> func_1517BBAC) are drawn
-# only within 1500 units of Conker ($a3 at 0x1517DEC4), fading in over the last 510. Widened, the
-# picture's sides reach farther than that and showed the flowers missing or faint, so the distance
-# is widened with the view just before the call.
-[[patches.hook]]
-func = "func_1517DE5C"
-before_vram = 0x1517DF04
-text = "{ void conker_scenery_sprite_distance(uint8_t*, recomp_context*); conker_scenery_sprite_distance(rdram, ctx); }"
 
 # The title menu's "INSERT RUMBLE PAK" banner (message 0x8F) shows for a few seconds whenever the
 # menu comes up, pak or not, while the countdown D_8008FEFC is above 60. With a pad that can rumble

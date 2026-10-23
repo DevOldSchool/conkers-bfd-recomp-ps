@@ -139,7 +139,7 @@ button. Up and down choose a row, A or left and right change it:
   runs, each ON or OFF, starting as its `CONKER_*` variable set it: SHARP
   TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
   WIDESCREEN CULLING, SKIP INTRO, SKIP CUTSCENES, PAUSE SAVE AND LOAD, SAVE
-  SNAPSHOTS, SURROUND DEFAULT, FULL DETAIL, CHARACTER DISTANCE, NO RUMBLE
+  SNAPSHOTS, SURROUND DEFAULT, FULL DETAIL, DRAW DISTANCE, NO RUMBLE
   PAK BANNER, CAMERA STICK SWAP, PAD BUTTONS and 60 FPS. A or left and right switch the
   chosen one. SHARP TEXT and WIDESCREEN are the OPTIONS rows' settings and
   are kept in `display.cfg` as those rows keep them (a new shape applies once
@@ -216,16 +216,24 @@ is the easiest place to see it), and for cruder ones further out. He, and
 the few other characters with more than one model, keep their most detailed
 model at any distance. `CONKER_MAX_DETAIL=0` keeps the game's choice.
 
-## Characters seen from farther
+## Everything seen from farther
 
-The game fades each character out once the camera is more than its own
-distance away, 3000 units for most, though the scene around it is drawn to
-13000 or so; a character in plain view, such as the sunflower on the ledge
-past the stone steps in scene 12, only appeared on walking up to it.
-Characters are now drawn as far as the scene is, and so are the swarms of
-bees in scene 12, which the game left out past 2500 units. Only their drawing changes:
-what they do does not depend on it. `CONKER_CHARACTER_DISTANCE=0` keeps the
-game's distances.
+The game draws a scene out to its far distance, 10000 to 20000 units from
+the camera, where its fog closes in, but what stands in the scene had
+shorter limits of its own: characters faded out past 3000 units (the
+sunflower on the ledge past the stone steps in scene 12 only appeared on
+walking up to it), most of the props in scene 12 past 4500 or 5000, the
+swarms of bees in scene 12 past 2500, and the grass, flowers and mushrooms
+past 1500 units from Conker (the grass across the clearing in scene 57).
+Each of those limits is now two and a half times as far, though never
+past the scene's own far distance: enough that nothing pops in across the
+picture, while what is still left out is small and deep in the fog. Only
+their drawing changes: what the characters and props do does not depend on
+it, and the little effects the grass and flowers set off stay around Conker
+as before. A scene with more grass and flowers than the game builds in a
+frame (110) would keep their limit, so that farther ones never take the
+place of nearer ones; none has been seen. `CONKER_DRAW_DISTANCE=0`
+keeps the game's distances.
 
 ## No Rumble Pak banner with a rumbling pad
 
