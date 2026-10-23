@@ -318,6 +318,105 @@ std::string scene_label(int scene) {
     }
 }
 
+// The CHAPTERS menu's sub-chapters, in its order (its strings, archive entry [0x1C, 0, 2]): a
+// chapter's record in bank 8 names each sub-chapter's event, which unlocks it once its bit is set in
+// the event flags (func_1509D08C), and the event table gives the scene it starts in.
+struct SubChapter {
+    const char* chapter;
+    const char* name;
+    int event;
+    int scene;
+};
+
+constexpr SubChapter kSubChapters[] = {
+    {"HUNGOVER", "SCAREDY BIRDY", 0, 0x29},
+    {"HUNGOVER", "PAN HANDLED", 4, 0x29},
+    {"HUNGOVER", "GARGOYLE", 6, 0x29},
+    {"WINDY", "MRS BEE", 10, 0x06},
+    {"WINDY", "POO CABIN", 117, 0x2C},
+    {"WINDY", "PRUNED", 132, 0x00},
+    {"WINDY", "YEE HAA!", 133, 0x00},
+    {"WINDY", "SEWAGE SUCKS", 120, 0x2C},
+    {"WINDY", "GREAT BALLS OF POO", 28, 0x06},
+    {"WINDY", "WASPS' REVENGE", 11, 0x06},
+    {"WINDY", "MR BARREL", 39, 0x06},
+    {"BATS TOWER", "MRS CATFISH", 69, 0x07},
+    {"BATS TOWER", "BARRY'S MATE", 85, 0x0B},
+    {"BATS TOWER", "COGS' REVENGE", 81, 0x0B},
+    {"BATS TOWER", "THE COMBINATION", 70, 0x07},
+    {"BATS TOWER", "BLAST DOORS", 75, 0x12},
+    {"BATS TOWER", "CLANG'S LAIR", 77, 0x12},
+    {"BATS TOWER", "PISSTASTIC", 134, 0x0A},
+    {"BATS TOWER", "BRASS MONKEYS", 135, 0x0A},
+    {"BATS TOWER", "BULLFISH'S REVENGE", 73, 0x07},
+    {"BARN BOYS", "MARVIN", 45, 0x0C},
+    {"BARN BOYS", "MAD PITCHFORK", 60, 0x01},
+    {"BARN BOYS", "SUNNY DAYS", 54, 0x0C},
+    {"BARN BOYS", "BARRY + CO", 61, 0x01},
+    {"BARN BOYS", "BUFF YOU", 65, 0x01},
+    {"BARN BOYS", "HAYBOT WARS", 67, 0x10},
+    {"BARN BOYS", "FRYING TONIGHT", 68, 0x10},
+    {"BARN BOYS", "SLAM DUNK", 59, 0x0C},
+    {"SLOPRANO", "CORN OFF THE COB", 122, 0x35},
+    {"SLOPRANO", "SWEET MELODY", 123, 0x35},
+    {"SLOPRANO", "U-BEND BLUES", 124, 0x35},
+    {"SLOPRANO", "THE BLUFF", 126, 0x37},
+    {"UGA BUGA", "DRUNKEN GITS", 87, 0x02},
+    {"UGA BUGA", "SACRIFICE", 102, 0x43},
+    {"UGA BUGA", "PHLEGM", 94, 0x02},
+    {"UGA BUGA", "WORSHIP", 96, 0x02},
+    {"UGA BUGA", "ROCK SOLID", 107, 0x31},
+    {"UGA BUGA", "BOMB RUN", 98, 0x02},
+    {"UGA BUGA", "MUGGED", 130, 0x32},
+    {"UGA BUGA", "RAPTOR FOOD", 113, 0x14},
+    {"UGA BUGA", "BUGA THE KNUT", 114, 0x14},
+    {"SPOOKY", "MR DEATH", 166, 0x41},
+    {"SPOOKY", "COUNT BATULA", 169, 0x3C},
+    {"SPOOKY", "ZOMBIES", 171, 0x3C},
+    {"SPOOKY", "MR BARREL", 173, 0x3C},
+    {"IT'S WAR", "IT'S WAR", 197, 0x06},
+    {"IT'S WAR", "POWER'S OFF", 158, 0x13},
+    {"IT'S WAR", "TNT", 159, 0x13},
+    {"IT'S WAR", "THE ASSAULT", 138, 0x04},
+    {"IT'S WAR", "SOLE SURVIVOR", 139, 0x04},
+    {"IT'S WAR", "CASUALTY DEPT.", 164, 0x2F},
+    {"IT'S WAR", "SAVING PRIVATE RODENT", 147, 0x1C},
+    {"IT'S WAR", "CHEMICAL WARFARE", 154, 0x0E},
+    {"IT'S WAR", "THE TOWER", 155, 0x0E},
+    {"IT'S WAR", "LITTLE GIRL", 161, 0x23},
+    {"IT'S WAR", "THE EXPERIMENT", 162, 0x23},
+    {"IT'S WAR", "COUNTDOWN", 163, 0x23},
+    {"IT'S WAR", "PEACE AT LAST!", 141, 0x04},
+    {"HEIST", "THE WINDMILL'S DEAD", 42, 0x3B},
+    {"HEIST", "ENTER THE VERTEX", 177, 0x36},
+    {"HEIST", "THE VAULT", 182, 0x40},
+    {"HEIST", "END CUTSCENE", 199, 0x40},
+};
+
+// What a saved game was doing: of the sub-chapters its event flags have unlocked, the last that
+// starts in `scene`, else the last of the scene's chapter, else (a scene in no chapter) the last of
+// all; the scene's label when none is unlocked or the flags could not be read.
+std::string saved_label(int scene, const std::vector<uint8_t>& events) {
+    const std::string chapter = scene_label(scene);
+    const SubChapter* in_scene = nullptr;
+    const SubChapter* in_chapter = nullptr;
+    const SubChapter* last = nullptr;
+    for (const SubChapter& sub : kSubChapters) {
+        const size_t byte = sub.event >> 3;
+        if (byte >= events.size() || !(events[byte] >> (sub.event & 7) & 1)) {
+            continue;
+        }
+        last = &sub;
+        in_scene = sub.scene == scene ? &sub : in_scene;
+        in_chapter = chapter == sub.chapter ? &sub : in_chapter;
+    }
+    const SubChapter* chosen = in_scene != nullptr ? in_scene : in_chapter;
+    if (chosen == nullptr && chapter.rfind("SCENE ", 0) == 0) {
+        chosen = last;
+    }
+    return chosen != nullptr ? chosen->name : chapter;
+}
+
 std::string position_line(uint8_t* rdram) {
     Position p;
     if (!conker::resume::current_position(rdram, &p)) {
@@ -421,7 +520,7 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
             }
             std::vector<std::string> rows;
             for (const conker::resume::Snapshot& snapshot : g_snapshots) {
-                rows.push_back(scene_label(snapshot.scene) + "  " + snapshot.when);
+                rows.push_back(saved_label(snapshot.scene, snapshot.events) + "  " + snapshot.when);
             }
             draw_rows(rdram, ctx, rows, g_entry, g_top);
             break;
