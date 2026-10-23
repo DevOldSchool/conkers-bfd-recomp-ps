@@ -1,16 +1,19 @@
 // The square B pads (as in scene 18) are a 64x64 CI4 texture with a 16-colour RGBA16 palette, flat
-// resource 92: a dark wooden plate with a pale U-shaped rim along its sides and front, and inside
-// it a dark recess with a big raised B in pale pink-grey stone. The B is lit from below and the
-// right: a dimmer edge along its top and left, a near-white one along the bottoms of its bars and
-// the right of its bowls, and a dark line round it where it meets the recess.
+// resource 92. Across its top runs a wooden band, down to y 27; below it a pale metal plate, its
+// sides and front a U-shaped rim, between dark wooden panels. On it stands a big raised B in the
+// same pale pink-grey metal, lit from below: a dimmer edge along its top and left, a near-white line
+// along the bottoms of its bars and the right of its bowls, a thin dark line round it, and its
+// shadow falling upward, a dark band on the wood above it and the dark bottoms of its counters
+// (which show the wood or the plate behind them).
 //
-// For a PlayStation pad the B is taken out. The rim's inner edges follow the B's outline, so left
-// as they are they would draw its shape round the O: the whole recess below its dark back is
-// filled from its edges inward instead, each step copying the 5x5 patch of the rim's own stone that
-// best matches what is already round it, and the O's middle from the recess's dark back. Then an O
-// stands where the B was, edged texel for texel as the B is, with the B's own edge, face and
-// outline texels. It is made from the player's ROM when the game starts,
-// so no part of Rare's texture is in this repository.
+// For a PlayStation pad the B and its shadow are taken out: above y 27 the wooden band is filled in
+// from its own wood, below it the plate from the B's and the rim's metal, each from the edges
+// inward, each step copying the 3x3 patch of its own kind that best matches what is already round
+// it. Then an O stands where the B was, drawn as the B is: each texel of its ring copied from Rare's
+// lines of texels across the B's strokes, from the edge of the B that faces the same way, at the
+// same depth in; a thin dark line round it from the B's; and its shadow cast upward in the B's
+// shadow texels, over the wood above it and the bottom of its counter. It is made from the player's
+// ROM when the game starts, so no part of Rare's texture is in this repository.
 #include "enhancements/pad_icons/b_pad.hpp"
 
 #include <algorithm>
@@ -32,14 +35,17 @@ constexpr int N = 64;
 constexpr int kTexelBytes = N * N / 2;
 constexpr uint32_t kTlutRgba16 = 0x8000;  // G_TT_RGBA16, as RT64 hashes a TLUT draw
 
-// The B stands in x 15-47, y 11-53 (inclusive), inside the recess, which runs from the plate's
-// back (its dark part above y 10) to the rim's front; the rim's sides start at y 27. The O: its
-// middle (halfway between the rim's sides), outer radius and stroke width, in texels.
+// The B stands in x 15-47, y 11-53 (inclusive). The wood above y 27 is filled from y 3 in x 12-49,
+// the plate below it in x 14-47 down to y 54, the rim's metal left as it is. The O: its middle,
+// outer radius and stroke width, in texels, and how far its shadow falls: so many texels dark,
+// then so many of its edge.
 constexpr int kLeft = 15, kTop = 11, kRight = 47, kBottom = 53;
-constexpr int kRecessLeft = 14, kBackTop = 3, kRecessTop = 10, kRecessRight = 47, kRecessBottom = 54;
-constexpr int kRimTop = 27;
-constexpr float kOX = 30.5f, kOY = 32.5f, kOuter = 15.5f, kWidth = 7.5f;
-constexpr float kPale = 100;  // the least mean lightness of the B's stone
+constexpr int kWoodEnd = 27, kFillTop = 3, kWoodLeft = 12, kWoodRight = 49;
+constexpr int kPlateLeft = 14, kPlateRight = 47, kPlateBottom = 54;
+constexpr float kOX = 31.0f, kOY = 33.0f, kOuter = 14.0f, kWidth = 7.0f;
+constexpr int kShadow = 3, kShadowEdge = 3;
+constexpr float kPale = 100;     // the least mean lightness of the metal
+constexpr float kHighlight = 200;  // the B's near-white line, left out of the plate's metal
 
 using Rgb = std::array<float, 3>;
 using Grid = std::array<bool, N * N>;
@@ -104,6 +110,11 @@ uint64_t hash(const std::vector<uint8_t>& resource) {
     return RT64::TMEMHasher::hash(tmem.data(), load, N, N, kTlutRgba16, RT64::TMEMHasher::CurrentHashVersion);
 }
 
+// A line of the B's texels from the edge texel (x, y) into its stroke along (dx, dy).
+struct Line {
+    int x, y, dx, dy;
+};
+
 } // namespace
 
 std::optional<Texture> circle_square_pad() {
@@ -131,108 +142,104 @@ std::optional<Texture> circle_square_pad() {
             alpha[at(x, y)] = opaque[index] ? 255 : 0;
         }
 
-    // 1. The B: the pale stone in its box joined to its stem (the rim's stone touches it only
-    // below the box), closed over the odd dark texel in it. The rim's stone is the rest of the
-    // pale stone from its sides down.
-    Grid box{}, stone{}, rim{};
+    // 1. The B: the pale metal in its box joined to its stem (the rim's metal touches it only
+    // below the box), closed over the odd dark texel in it. The rim's metal is the rest of the
+    // pale metal on the plate.
+    Grid box{}, metal{}, rim{};
     for (int y = 0; y < N; y++)
         for (int x = 0; x < N; x++) {
-            const bool pale = lum(rgb[at(x, y)]) > kPale;
             box[at(x, y)] = x >= kLeft && x <= kRight && y >= kTop && y <= kBottom;
-            stone[at(x, y)] = box[at(x, y)] && pale;
-            rim[at(x, y)] = pale && y >= kRimTop;
+            metal[at(x, y)] = box[at(x, y)] && lum(rgb[at(x, y)]) > kPale;
         }
-    const Grid face = part_at(stone, kLeft + 2, (kTop + kBottom) / 2);
+    const Grid face = part_at(metal, kLeft + 2, (kTop + kBottom) / 2);
     Grid letter = erode(dilate(face));
     for (int i = 0; i < N * N; i++) {
         letter[i] = face[i] || (letter[i] && box[i]);
-        rim[i] = rim[i] && !letter[i];
+        rim[i] = lum(rgb[i]) > kPale && !letter[i] && i / N >= kWoodEnd;
     }
 
-    // 2. The rim's edges and the recess between them follow the B's outline, so all the recess
-    // below its dark back is filled, the rim's stone left as it is: from the edges inward, each
-    // step copying the 5x5 patch of the rim's stone that best matches what is already round it.
-    // The O's counter is filled the same way from the recess's dark back.
-    Grid hole{}, counter{};  // counter: the O's middle, up to under its inner edge
+    // 2. The B and its shadow taken out: above kWoodEnd the wood, below it the plate, each from
+    // the edges inward, each step copying the 3x3 patch of its own kind that best matches the
+    // known texels of its kind round it. The wood comes from the band clear of the B's shadow, the
+    // plate's metal from the B's face (but its near-white line) and the rim.
+    Grid hole{};
     for (int y = 0; y < N; y++)
         for (int x = 0; x < N; x++) {
             const int i = at(x, y);
-            hole[i] = letter[i] || (!rim[i] && x >= kRecessLeft && x <= kRecessRight && y >= kRecessTop && y <= kRecessBottom);
-            counter[i] = hole[i] && std::hypot(x + 0.5f - kOX, y + 0.5f - kOY) < kOuter - kWidth + 1.5f;
+            const bool plate = y >= kFillTop && y <= kPlateBottom && x >= kPlateLeft && x <= kPlateRight && !rim[i];
+            const bool wood = y >= kFillTop && y < kWoodEnd && x >= kWoodLeft && x <= kWoodRight;
+            hole[i] = letter[i] || plate || wood;
         }
-    constexpr int kHalf = 2;
-    auto patches_in = [&](auto inside) {
-        std::vector<int> patches;  // their middles
-        for (int y = kHalf; y < N - kHalf; y++)
-            for (int x = kHalf; x < N - kHalf; x++) {
-                bool all = true;
-                for (int j = -kHalf; j <= kHalf && all; j++)
-                    for (int i = -kHalf; i <= kHalf && all; i++) all = inside(x + i, y + j);
-                if (all) patches.push_back(at(x, y));
-            }
-        return patches;
-    };
-    const std::vector<int> stone_patches = patches_in([&](int x, int y) { return rim[at(x, y)]; });
-    const std::vector<int> back_patches = patches_in([](int x, int y) {
-        return x >= kRecessLeft && x <= kRecessRight && y >= kBackTop && y < kRecessTop;
-    });
-    if (stone_patches.empty() || back_patches.empty()) return std::nullopt;
-    std::mt19937 random(3);
-    auto mirror = [](int v) { return v < 0 ? -v - 1 : v >= N ? 2 * N - v - 1 : v; };
-    std::vector<Rgb> out = rgb;
-    // Fills `todo`, matching against what is not `unknown` (which `todo` is part of).
-    auto fill = [&](Grid todo, Grid unknown, const std::vector<int>& patches) {
-        for (;;) {
-            // The texel to fill beside known texels with the most known round it.
-            int best_i = -1;
-            float best_known = -1;
-            for (int y = 0; y < N; y++)
-                for (int x = 0; x < N; x++) {
-                    if (!todo[at(x, y)]) continue;
-                    bool front = false;
-                    const int n[4][2] = {{x - 1, y}, {x + 1, y}, {x, y - 1}, {x, y + 1}};
-                    for (const auto& p : n) front = front || (in(p[0], p[1]) && !unknown[at(p[0], p[1])]);
-                    if (!front) continue;
-                    float known = 0;
-                    for (int j = -kHalf; j <= kHalf; j++)
-                        for (int i = -kHalf; i <= kHalf; i++) known += !unknown[at(mirror(x + i), mirror(y + j))];
-                    if (known > best_known) best_known = known, best_i = at(x, y);
-                }
-            if (best_i < 0) break;
-            const int x = best_i % N, y = best_i / N;
-            std::vector<std::pair<float, int>> scores;
-            for (int p : patches) {
-                const int px = p % N, py = p / N;
-                float d = 0;
-                for (int j = -kHalf; j <= kHalf; j++)
-                    for (int i = -kHalf; i <= kHalf; i++) {
-                        if (!in(x + i, y + j) || unknown[at(x + i, y + j)]) continue;
-                        const Rgb& a = out[at(x + i, y + j)];
-                        const Rgb& b = rgb[at(px + i, py + j)];
-                        for (int c = 0; c < 3; c++) d += (a[c] - b[c]) * (a[c] - b[c]);
-                    }
-                scores.emplace_back(d, p);
-            }
-            std::partial_sort(scores.begin(), scores.begin() + std::min<size_t>(3, scores.size()), scores.end());
-            const int chosen = scores[random() % std::min<size_t>(3, scores.size())].second;
+    auto is_wood = [](int i) { return i / N < kWoodEnd; };
+    const Grid away = dilate(hole, 3);
+    const Grid face_metal = erode([&] {
+        Grid g{};
+        for (int i = 0; i < N * N; i++) g[i] = letter[i] && lum(rgb[i]) > kPale;
+        return g;
+    }());
+    constexpr int kHalf = 1;
+    std::vector<int> wood_patches, metal_patches;  // their middles
+    for (int y = kHalf; y < N - kHalf; y++)
+        for (int x = kHalf; x < N - kHalf; x++) {
+            bool wood = true, plate = true;
             for (int j = -kHalf; j <= kHalf; j++)
                 for (int i = -kHalf; i <= kHalf; i++) {
-                    if (!in(x + i, y + j) || !todo[at(x + i, y + j)]) continue;
-                    out[at(x + i, y + j)] = rgb[chosen + j * N + i];
-                    todo[at(x + i, y + j)] = unknown[at(x + i, y + j)] = false;
+                    const int t = at(x + i, y + j);
+                    wood = wood && is_wood(t) && y + j >= kFillTop && !away[t];
+                    plate = plate && ((face_metal[t] && lum(rgb[t]) < kHighlight) || rim[t]);
                 }
+            if (wood) wood_patches.push_back(at(x, y));
+            if (plate) metal_patches.push_back(at(x, y));
         }
-    };
-    Grid around;
-    for (int i = 0; i < N * N; i++) around[i] = hole[i] && !counter[i];
-    fill(around, hole, stone_patches);
-    fill(counter, counter, back_patches);
+    if (wood_patches.empty() || metal_patches.empty()) return std::nullopt;
+    std::mt19937 random(3);
+    std::vector<Rgb> out = rgb;
+    Grid known;
+    for (int i = 0; i < N * N; i++) known[i] = !hole[i];
+    for (;;) {
+        // The texel to fill beside known texels with the most known texels of its kind round it.
+        int best_i = -1, best_known = -1;
+        for (int y = 0; y < N; y++)
+            for (int x = 0; x < N; x++) {
+                if (known[at(x, y)]) continue;
+                bool front = false;
+                const int n[4][2] = {{x - 1, y}, {x + 1, y}, {x, y - 1}, {x, y + 1}};
+                for (const auto& p : n) front = front || (in(p[0], p[1]) && known[at(p[0], p[1])]);
+                if (!front) continue;
+                int count = 0;
+                for (int j = -kHalf; j <= kHalf; j++)
+                    for (int i = -kHalf; i <= kHalf; i++)
+                        count += in(x + i, y + j) && known[at(x + i, y + j)] && is_wood(at(x + i, y + j)) == is_wood(at(x, y));
+                if (count > best_known) best_known = count, best_i = at(x, y);
+            }
+        if (best_i < 0) break;
+        const int x = best_i % N, y = best_i / N;
+        const bool wood = is_wood(best_i);
+        std::vector<std::pair<float, int>> scores;
+        for (int p : wood ? wood_patches : metal_patches) {
+            float d = 0;
+            for (int j = -kHalf; j <= kHalf; j++)
+                for (int i = -kHalf; i <= kHalf; i++) {
+                    if (!in(x + i, y + j) || !known[at(x + i, y + j)] || is_wood(at(x + i, y + j)) != wood) continue;
+                    const Rgb& a = out[at(x + i, y + j)];
+                    const Rgb& b = rgb[p + j * N + i];
+                    for (int c = 0; c < 3; c++) d += (a[c] - b[c]) * (a[c] - b[c]);
+                }
+            scores.emplace_back(d, p);
+        }
+        std::partial_sort(scores.begin(), scores.begin() + std::min<size_t>(2, scores.size()), scores.end());
+        const int chosen = scores[random() % std::min<size_t>(2, scores.size())].second;
+        for (int j = -kHalf; j <= kHalf; j++)
+            for (int i = -kHalf; i <= kHalf; i++) {
+                const int t = at(x + i, y + j);
+                if (!in(x + i, y + j) || known[t] || is_wood(t) != wood) continue;
+                out[t] = rgb[chosen + j * N + i];
+                known[t] = true;
+            }
+    }
 
-    // 3. The O, raised and lit as the B is. Where its edge faces up or left it has the B's dimmer
-    // edge there, texel for texel in from the edge; where it faces down or right, the B's bright
-    // one, the brightest where it faces the light squarely. Each is copied from the B's own edge,
-    // in order round the O, so it runs on as the B's does. The rest is the B's own face: the same
-    // texel where the face was, else the nearest. Round it, inside and out, the B's dark outline.
+    // 3. The O's shadow, cast upward as the B's is: where the O moved up 1 to kShadow texels lies,
+    // the B's darkest shadow (just above it), then its lighter edge (further up).
     Grid o{};
     for (int y = 0; y < N; y++)
         for (int x = 0; x < N; x++) {
@@ -244,88 +251,92 @@ std::optional<Texture> circle_square_pad() {
                 }
             o[at(x, y)] = inside > 64 * 0.45f;
         }
-    // How many texels in from the stroke's nearer edge each of its texels is.
-    std::array<int, N * N> depth{};
-    Grid left = o;
-    for (int step = 1; std::find(left.begin(), left.end(), true) != left.end(); step++) {
-        const Grid next = erode(left);
-        for (int i = 0; i < N * N; i++)
-            if (left[i] && !next[i]) depth[i] = step;
-        left = next;
+    std::vector<Rgb> shadow, shadow_edge, line_above, line_below;
+    for (int y = 3; y <= 10; y++)
+        for (int x = 16; x <= 44; x++) (y >= 7 ? shadow : shadow_edge).push_back(rgb[at(x, y)]);
+    for (int y = 15; y <= 52; y++) line_above.push_back(rgb[at(kLeft - 1, y)]);  // left of the stem
+    for (int x = 18; x <= 36; x++) line_below.push_back(rgb[at(x, kBottom + 1)]);  // under the bottom bar
+    Grid dark{}, edge{};
+    for (int y = 0; y < N; y++)
+        for (int x = 0; x < N; x++)
+            for (int k = 1; k <= kShadow + kShadowEdge; k++)
+                if (in(x, y + k) && o[at(x, y + k)]) (k <= kShadow ? dark : edge)[at(x, y)] = true;
+    for (int i = 0; i < N * N; i++) {
+        if (o[i]) continue;
+        if (dark[i]) out[i] = shadow[random() % shadow.size()];
+        else if (edge[i]) out[i] = shadow_edge[random() % shadow_edge.size()];
     }
 
-    // The B's edge texels, by how far in from its edge, and the outline texel just outside: along
-    // its stem and across its top, the dim edge; down its bowls and across its bottom, the bright
-    // one, darkest first.
-    std::array<std::vector<Rgb>, 3> dim, shine;  // [0] is the outline
-    auto edge = [&](std::array<std::vector<Rgb>, 3>& to, int x, int y, int dx, int dy) {
-        for (int k = 0; k <= 2; k++) to[k].push_back(rgb[at(x + (k - 1) * dx, y + (k - 1) * dy)]);
-    };
-    for (int y = kTop + 1; y < kBottom; y++)
-        for (int x = kLeft; x < 30; x++)
-            if (letter[at(x, y)]) {
-                edge(dim, x, y, 1, 0);
-                break;
-            }
-    for (int x = 18; x < 38; x++)
-        for (int y = kTop - 1; y < 20; y++)
-            if (letter[at(x, y)]) {
-                edge(dim, x, y, 0, 1);
-                break;
-            }
-    for (int y = 14; y < 50; y++) {
-        if (y >= 30 && y < 39) continue;  // where the bowls meet
-        for (int x = kRight; x > 30; x--)
-            if (letter[at(x, y)]) {
-                edge(shine, x, y, -1, 0);
-                break;
-            }
-    }
-    for (int x = 18; x < 36; x++)
-        for (int y = kBottom; y > 40; y--)
-            if (letter[at(x, y)]) {
-                edge(shine, x, y, 0, -1);
-                break;
-            }
-    for (int k = 0; k <= 2; k++)
-        if (dim[k].empty() || shine[k].empty()) return std::nullopt;
-    for (int k = 1; k <= 2; k++)
-        std::stable_sort(shine[k].begin(), shine[k].end(), [](const Rgb& a, const Rgb& b) { return lum(a) < lum(b); });
-    Grid face_inside = erode(face, 2);
-    std::vector<int> core;  // the B's face away from its edges
-    for (int i = 0; i < N * N; i++)
-        if (face_inside[i]) core.push_back(i);
-    if (core.empty()) return std::nullopt;
-
-    const Grid outline = dilate(o);
+    // 4. The dark line round it, as round the B: browner under the edges facing down, as under
+    // its bottom bar, and as left of its stem elsewhere (but in the shadow).
     const float middle = kOuter - kWidth / 2;
+    const Grid around = dilate(o);
     for (int y = 0; y < N; y++)
         for (int x = 0; x < N; x++) {
             const int i = at(x, y);
-            if (!outline[i]) continue;
+            if (!around[i] || o[i] || dark[i]) continue;
             const float dx = x + 0.5f - kOX, dy = y + 0.5f - kOY, d = std::hypot(dx, dy);
-            const float lit = (d > middle ? 1.0f : -1.0f) * (dx + dy);  // its edge facing the lower right
-            const int along = int((std::atan2(dy, dx) + float(M_PI)) / (2 * float(M_PI)) * 97);
-            const int k = o[i] ? depth[i] : 0;
-            if (lit < 0 && k <= 2) {
-                out[i] = dim[k][along % dim[k].size()];
-            } else if (lit >= 0 && k == 0) {
-                out[i] = shine[0][along % shine[0].size()];
-            } else if (lit >= 0 && k <= 2) {
-                const std::vector<Rgb>& v = shine[k];
-                const float squarely = lit / (std::sqrt(2.0f) * d);
-                const int pick = int(squarely * (v.size() - 1)) + along % 7 - 3;
-                out[i] = v[std::clamp(pick, 0, int(v.size()) - 1)];
-            } else if (face_inside[i]) {
-                out[i] = rgb[i];
-            } else {
-                int nearest = core[0];
-                for (int c : core) {
-                    const int cx = c % N, cy = c / N, nx = nearest % N, ny = nearest / N;
-                    if ((cx - x) * (cx - x) + (cy - y) * (cy - y) < (nx - x) * (nx - x) + (ny - y) * (ny - y)) nearest = c;
-                }
-                out[i] = rgb[nearest];
-            }
+            const float down = (d > middle ? dy : -dy) / d;  // how much the O's edge there faces down
+            const std::vector<Rgb>& from = down > 0.3f ? line_below : line_above;
+            out[i] = from[random() % from.size()];
+        }
+
+    // 5. The ring: Rare's lines across the B's strokes, by the way the edge faces. Outer edges
+    // from the B's outside (its top bar's top, its bottom bar's bottom, its stem's left, its bowls'
+    // right), inner ones from its counters' (its bars' bottoms and tops over and under them, its
+    // stem's right, its bowls' insides). Near a diagonal the two facings are mixed texel by texel.
+    auto first = [&](int x, int y, int dx, int dy, int steps) -> std::optional<Line> {
+        for (int k = 0; k < steps; k++, x += dx, y += dy)
+            if (in(x, y) && letter[at(x, y)]) return Line{x, y, dx, dy};
+        return std::nullopt;
+    };
+    // [outer, inner][right, left, down, up]: the way the edge faces out of the stroke.
+    std::array<std::array<std::vector<Line>, 4>, 2> runs;
+    auto add = [](std::vector<Line>& to, std::optional<Line> line) {
+        if (line) to.push_back(*line);
+    };
+    // A scan from outside the stroke finds its edge texel; the line then runs on the way it went.
+    for (int x = 18; x < 38; x++) add(runs[0][3], first(x, 10, 0, 1, 10));
+    for (int x = 18; x < 36; x++) add(runs[0][2], first(x, 53, 0, -1, 12));
+    for (int y = 12; y < 52; y++)
+        if (y < 30 || y >= 36) add(runs[0][1], first(15, y, 1, 0, 15));
+    for (int y = 15; y < 49; y++)
+        if (y < 28 || y >= 39) add(runs[0][0], first(47, y, -1, 0, 17));
+    for (int x = 25; x < 36; x++) {
+        for (int y0 : {20, 42}) add(runs[1][2], first(x, y0, 0, -1, 12));  // bars' bottoms, from the counters
+        for (int y0 : {24, 40}) add(runs[1][3], first(x, y0, 0, 1, 12));   // bars' tops, from the counters
+    }
+    for (int y = 20; y < 46; y++) {
+        if (y >= 28 && y < 40) continue;
+        add(runs[1][0], first(29, y, -1, 0, 15));  // the stem's right side, from the counters
+        add(runs[1][1], first(29, y, 1, 0, 17));   // the bowls' insides, from the counters
+    }
+    for (const auto& side : runs)
+        for (const auto& run : side)
+            if (run.empty()) return std::nullopt;
+    for (int y = 0; y < N; y++)
+        for (int x = 0; x < N; x++) {
+            const int i = at(x, y);
+            if (!o[i]) continue;
+            const float dx = x + 0.5f - kOX, dy = y + 0.5f - kOY, r = std::hypot(dx, dy);
+            const float turn = std::atan2(dy, dx);
+            const bool outer = r >= middle;
+            const float a = outer ? turn : turn + float(M_PI);  // the way the nearer edge faces
+            const float depth = outer ? kOuter - r : r - (kOuter - kWidth);
+            const float radius = outer ? kOuter : kOuter - kWidth;
+            const float c = std::cos(a), s = std::sin(a);
+            const float weights[4] = {std::pow(std::max(c, 0.0f), 12.0f), std::pow(std::max(-c, 0.0f), 12.0f),
+                                      std::pow(std::max(s, 0.0f), 12.0f), std::pow(std::max(-s, 0.0f), 12.0f)};
+            const float total = weights[0] + weights[1] + weights[2] + weights[3];
+            double hashed = std::fmod(std::sin(x * 12.9898 + y * 78.233) * 43758.5453, 1.0);
+            float pick = float(hashed < 0 ? hashed + 1 : hashed) * total;
+            int facing = 0;
+            while (facing < 3 && pick >= weights[facing]) pick -= weights[facing++];
+            const std::vector<Line>& run = runs[outer ? 0 : 1][facing];
+            const Line& line = run[size_t((turn + float(M_PI)) * radius) % run.size()];
+            const int k = std::min(int(depth), 7);
+            const int sx = line.x + line.dx * k, sy = line.y + line.dy * k;
+            if (in(sx, sy)) out[i] = rgb[at(sx, sy)];
         }
 
     Texture texture{hash(resource), N, N, std::vector<uint8_t>(N * N * 4)};
