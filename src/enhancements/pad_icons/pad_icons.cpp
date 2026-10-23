@@ -114,6 +114,12 @@ std::shared_ptr<RT64::FileSystem> make_pack(Style style, bool camera_swapped) {
                       hex[i].height, hex[i].rgba.data());
         }
         if (hex.empty()) std::fprintf(stderr, "[conker] pad buttons: no hexagonal B pad textures in the ROM; left as they are\n");
+        if (const std::optional<Texture> square = circle_square_pad()) {
+            pack->add("pad_icons/playstation/circle_square_pad.png", square->hash, square->width, square->height,
+                      square->rgba.data());
+        } else {
+            std::fprintf(stderr, "[conker] pad buttons: no square B pad texture in the ROM; left as it is\n");
+        }
     }
     if (pack->files.empty()) return nullptr;
     pack->finish();
