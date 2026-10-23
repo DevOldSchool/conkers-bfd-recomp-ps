@@ -65,7 +65,14 @@ Includes are written from `src/`, as in `#include "runtime/memory.hpp"`.
   through `$s4`) are recompiled;
 * stack accesses with negative or unaligned offsets, tables without in-function
   entries and undecodable words no longer fail a function; writes to `$zero`
-  are discarded.
+  are discarded;
+* `div`, `divu`, `ddiv` and `ddivu` by zero give the VR4300's results (a
+  quotient of -1, or 1 for a negative signed dividend, and the dividend as the
+  remainder) instead of dividing on the host. Rare's hand-written geometry code
+  divides by zero without a check: `div $s3, $fp` at `0x150A3EE4` does so
+  during boot, as found in our own testing by logging every division by zero
+  in the recompiled game. A plain C division trapped there on x86 (SIGFPE, so
+  Windows and Linux builds would crash) and gave a quotient of 0 on ARM64.
 
 `tools/patches/n64modernruntime-running-thread.patch` (apply in
 `lib/N64ModernRuntime`) adds `ultramodern::set_running_thread_address`, a
