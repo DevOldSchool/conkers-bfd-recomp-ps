@@ -57,6 +57,8 @@ struct Snapshot {
     int scene = 0;
     std::string when;            // "YYYY-MM-DD HH:MM:SS"
     std::string order;           // sorts by when it was made
+    std::vector<uint8_t> events; // the saved slot's event flags (D_800D2E4C, a bit per event), or
+                                 // none when they could not be read
 };
 
 // The snapshots, newest first.
