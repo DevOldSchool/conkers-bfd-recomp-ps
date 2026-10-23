@@ -108,7 +108,7 @@ says how to turn it off. The details, and every setting, are in
 | [Characters at full detail](docs/enhancements.md#characters-at-full-detail) | Conker and others keep their most detailed model at any distance | `CONKER_MAX_DETAIL=0` |
 | [Characters seen from farther](docs/enhancements.md#characters-seen-from-farther) | Characters drawn as far as the scene, not faded out past 3000 units | `CONKER_CHARACTER_DISTANCE=0` |
 | [No Rumble Pak banner](docs/enhancements.md#no-rumble-pak-banner-with-a-rumbling-pad) | No "INSERT RUMBLE PAK" banner when the pad can rumble | `CONKER_RUMBLE_BANNER=1` shows it |
-| [DualSense haptics](docs/enhancements.md#dualsense-haptics) | Taps and buzzes in a DualSense's grips for some of Conker's sounds (slingshot, footsteps, landing), on macOS | `CONKER_HAPTICS=0` |
+| [DualSense haptics](docs/enhancements.md#dualsense-haptics) | Taps and buzzes in a DualSense's grips for some of Conker's sounds (slingshot, landing), on macOS | `CONKER_HAPTICS=0` |
 | [Camera on the right stick](docs/enhancements.md#camera-on-the-right-stick) | C-left and C-right swapped, so left turns the view left | Always on; the debug menu can switch it |
 | [Your pad's buttons](docs/enhancements.md#your-pads-buttons) | The game's N64 button pictures (menus, tutorial bubbles, B pads) drawn as an Xbox or PlayStation pad's, or redrawn sharper | `CONKER_PAD_ICONS=0`; the debug menu can switch it |
 | [Sharper text](docs/enhancements.md#sharper-text) | The font enlarged with Super-xBR from your ROM | `CONKER_SHARP_FONT=0` |

@@ -3,6 +3,8 @@
 // stops it. input_sdl.cpp calls these on the main thread.
 #include "platform/haptics_apple.hpp"
 
+#include <cstdio>
+
 #import <CoreHaptics/CoreHaptics.h>
 #import <GameController/GameController.h>
 
@@ -14,6 +16,7 @@ namespace {
 GCController* g_controller = nil;
 CHHapticEngine* g_left = nil;
 CHHapticEngine* g_right = nil;
+bool g_reported = false;  // a failure is printed once, not for every effect
 
 GCController* dualsense() {
     for (GCController* controller in GCController.controllers) {
@@ -27,6 +30,9 @@ GCController* dualsense() {
 CHHapticEngine* make_engine(GCController* controller, GCHapticsLocality locality) {
     CHHapticEngine* engine = [controller.haptics createEngineWithLocality:locality];
     if (engine == nil) {
+        if (!g_reported) {
+            std::fprintf(stderr, "[conker] haptics: no Core Haptics engine for %s\n", locality.UTF8String);
+        }
         return nil;
     }
     engine.playsHapticsOnly = YES;
@@ -36,7 +42,12 @@ CHHapticEngine* make_engine(GCController* controller, GCHapticsLocality locality
     engine.resetHandler = ^{
         [weak startAndReturnError:nil];
     };
-    if (![engine startAndReturnError:nil]) {
+    NSError* error = nil;
+    if (![engine startAndReturnError:&error]) {
+        if (!g_reported) {
+            std::fprintf(stderr, "[conker] haptics: Core Haptics engine for %s did not start: %s\n",
+                         locality.UTF8String, error.localizedDescription.UTF8String);
+        }
         return nil;
     }
     return engine;
@@ -45,6 +56,10 @@ CHHapticEngine* make_engine(GCController* controller, GCHapticsLocality locality
 bool engines_ready() {
     GCController* controller = dualsense();
     if (controller == nil) {
+        if (!g_reported) {
+            std::fprintf(stderr, "[conker] haptics: no DualSense among the GameController framework's pads\n");
+            g_reported = true;
+        }
         g_controller = nil;
         g_left = g_right = nil;
         return false;
@@ -53,6 +68,11 @@ bool engines_ready() {
         g_controller = controller;
         g_left = make_engine(controller, GCHapticsLocalityLeftHandle);
         g_right = make_engine(controller, GCHapticsLocalityRightHandle);
+        if (g_left != nil && g_right != nil) {
+            std::printf("[conker] haptics: Core Haptics engines started on %s's grips\n", controller.vendorName.UTF8String);
+        } else {
+            g_reported = true;
+        }
     }
     return g_left != nil && g_right != nil;
 }

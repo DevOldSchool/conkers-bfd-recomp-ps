@@ -49,10 +49,10 @@ void set_rumble(bool on);
 // A haptic effect on controller 1, on a pad whose motors can play shaped effects (a DualSense, on
 // macOS through Core Haptics), alongside the rumble pak's on and off. intensity and sharpness are
 // in [0, 1] (sharpness 0 is a soft thump, 1 a crisp tap); duration 0 is a single tap, longer a
-// steady buzz. has_haptics says whether the open pad plays them; both are safe to call from any
-// thread.
+// steady buzz. Grip::Trigger is the side of the trigger last pulled for Z (right until one is).
+// has_haptics says whether the open pad plays them; both are safe to call from any thread.
 struct Haptic {
-    enum class Grip { Left, Right, Both };
+    enum class Grip { Left, Right, Both, Trigger };
     float intensity = 1.0f;
     float sharpness = 0.5f;
     float duration = 0.0f;  // seconds

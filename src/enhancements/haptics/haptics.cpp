@@ -6,7 +6,7 @@
 // CONKER_HAPTICS=0 turns them off.
 //
 // The sounds so far were picked out with the log below in scene 6 (Windy's slingshot B pad), by
-// when they start; they are a first set to judge the idea by.
+// when they start.
 //
 // CONKER_SOUND_LOG=1 prints each sound as it starts, with Conker's animation (the u16 at +0x84 of
 // his actor, *D_80088720), to find the ids of new ones.
@@ -33,12 +33,10 @@ using conker::input::Haptic;
 using Grip = Haptic::Grip;
 
 // The effect of the sounds first to last (variants of one sound are numbered together).
-// alternate: each one goes to the other grip from the last (footsteps).
 struct SoundHaptic {
     uint16_t first;
     uint16_t last;
     Haptic haptic;
-    bool alternate = false;
 };
 
 constexpr Haptic tap(float intensity, float sharpness, Grip grip) { return {intensity, sharpness, 0.0f, grip}; }
@@ -47,14 +45,15 @@ constexpr Haptic buzz(float intensity, float sharpness, float duration, Grip gri
 }
 
 constexpr SoundHaptic kSounds[] = {
-    // Slingshot (Conker holds it in his right hand).
-    {1598, 1599, tap(0.5f, 0.6f, Grip::Right)},           // taken out from a B pad, put away
-    {1679, 1680, tap(1.0f, 0.9f, Grip::Right)},           // a shot (the two take turns)
-    {54, 54, buzz(0.35f, 0.2f, 0.25f, Grip::Right)},      // the elastic stretched again
-    {17, 17, tap(0.4f, 1.0f, Grip::Right)},               // reloaded
-    // Conker on his feet.
-    {588, 599, tap(0.35f, 0.4f, Grip::Left), true},       // footsteps on stone
-    {8, 8, tap(0.8f, 0.2f, Grip::Both)},                  // landing
+    // Slingshot: taken out with B in the right hand, then fired with either trigger, in whose
+    // grip the shot is felt.
+    {1598, 1599, tap(0.5f, 0.6f, Grip::Right)},         // taken out from a B pad, put away
+    {1678, 1680, tap(1.0f, 0.9f, Grip::Trigger)},       // a shot (one of three, at random)
+    {54, 54, buzz(0.35f, 0.2f, 0.25f, Grip::Trigger)},  // the elastic stretched again
+    {17, 17, tap(0.4f, 1.0f, Grip::Trigger)},           // reloaded
+    // Conker landing from a jump or a fall. Footsteps (588-599 on stone) were tried and felt too
+    // strong for something so frequent.
+    {8, 8, tap(0.8f, 0.2f, Grip::Both)},
 };
 
 std::atomic<bool> g_enabled{[] {
@@ -63,8 +62,6 @@ std::atomic<bool> g_enabled{[] {
 }()};  // the debug menu switches it
 
 bool haptics_enabled() { return g_enabled.load(std::memory_order_relaxed); }
-
-std::atomic<unsigned> g_alternations{0};  // alternating effects so far: even ones go left
 
 const bool g_log = [] {
     const char* value = std::getenv("CONKER_SOUND_LOG");
@@ -99,11 +96,7 @@ extern "C" void conker_sound_started(uint8_t* rdram, recomp_context* ctx) {
     if (it == std::end(kSounds)) {
         return;
     }
-    Haptic haptic = it->haptic;
-    if (it->alternate) {
-        haptic.grip = g_alternations.fetch_add(1, std::memory_order_relaxed) % 2 == 0 ? Grip::Left : Grip::Right;
-    }
-    conker::input::play_haptic(haptic);
+    conker::input::play_haptic(it->haptic);
 }
 
 nlohmann::json conker::status::haptics() {

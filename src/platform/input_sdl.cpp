@@ -118,6 +118,9 @@ std::atomic<bool> g_has_haptics{false};  // the open pad plays shaped effects
 std::mutex g_haptics_mutex;
 std::vector<Haptic> g_haptics;           // waiting for update(), under g_haptics_mutex
 constexpr size_t kMaxWaitingHaptics = 8;
+Haptic::Grip g_trigger_grip = Haptic::Grip::Right;  // main thread only: Grip::Trigger's side
+bool g_left_trigger_held = false;                   // main thread only
+bool g_right_trigger_held = false;                  // main thread only
 bool g_pad_virtual = false;              // main thread only: the open pad is CONKER_VIRTUAL_PAD's
 
 PadKind pad_kind(SDL_GameController* pad) {
@@ -162,8 +165,8 @@ void open_pad(int device_index) {
 #else
     g_has_haptics.store(g_pad_virtual);
 #endif
-    std::printf("[conker] controller 1: %s (%s)\n", SDL_GameControllerName(g_pad),
-                g_has_rumble.load() ? "rumble pak" : "no rumble");
+    std::printf("[conker] controller 1: %s (%s%s)\n", SDL_GameControllerName(g_pad),
+                g_has_rumble.load() ? "rumble pak" : "no rumble", g_has_haptics.load() ? ", haptics" : "");
     // CONKER_RUMBLE_TEST=1: one second of rumble on connecting, to check the pad without the game.
     const char* test = std::getenv("CONKER_RUMBLE_TEST");
     if (g_has_rumble.load() && test != nullptr && test[0] == '1') {
@@ -379,8 +382,13 @@ void update() {
         }
         debug_menu = debug_menu || SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_BACK);
         // Z sits under the right hand on modern pads (R2/RT); the left trigger stays Z as well.
-        if (SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > kTriggerThreshold) buttons |= kZ;
-        if (SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > kTriggerThreshold) buttons |= kZ;
+        const bool left_trigger = SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > kTriggerThreshold;
+        const bool right_trigger = SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > kTriggerThreshold;
+        if (left_trigger || right_trigger) buttons |= kZ;
+        if (left_trigger && !g_left_trigger_held) g_trigger_grip = Haptic::Grip::Left;
+        if (right_trigger && !g_right_trigger_held) g_trigger_grip = Haptic::Grip::Right;
+        g_left_trigger_held = left_trigger;
+        g_right_trigger_held = right_trigger;
 
         const Sint16 cx = SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_RIGHTX);
         const Sint16 cy = SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_RIGHTY);
@@ -438,7 +446,10 @@ void update() {
         haptics.swap(g_haptics);
     }
     if (g_pad != nullptr && g_has_haptics.load(std::memory_order_relaxed)) {
-        for (const Haptic& haptic : haptics) {
+        for (Haptic haptic : haptics) {
+            if (haptic.grip == Haptic::Grip::Trigger) {
+                haptic.grip = g_trigger_grip;
+            }
             if (g_pad_virtual) {
                 static const char* const kGrips[] = {"left", "right", "both"};
                 std::printf("[conker] virtual pad: VI %llu: haptic %.2f sharpness %.2f for %.2f s, %s\n",
