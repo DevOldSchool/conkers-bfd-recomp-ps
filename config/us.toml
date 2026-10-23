@@ -439,6 +439,14 @@ func = "func_151DE8F0"
 before_vram = 0x151DEDF8
 text = "{ void conker_rumble_banner(uint8_t*, recomp_context*); conker_rumble_banner(rdram, ctx); }"
 
+# Every sound effect starts in sndp_play_sound(player, sound, volume, flags); chosen sounds play a
+# haptic pattern on a DualSense. See src/enhancements/haptics/haptics.cpp; CONKER_SOUND_LOG=1 lists
+# the sounds as they start.
+[[patches.hook]]
+func = "sndp_play_sound"
+before_vram = 0x10017438
+text = "{ void conker_sound_started(uint8_t*, recomp_context*); conker_sound_started(rdram, ctx); }"
+
 # Experimental 60 fps (CONKER_60FPS=1, off by default): Rare's scheduler is woken when a frame is
 # queued and when one is swapped, so the next frame starts in the same retrace and the logic steps
 # by one retrace instead of two. See src/enhancements/frame_rate/frame_rate.cpp.

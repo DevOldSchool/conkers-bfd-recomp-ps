@@ -15,16 +15,20 @@
 // SDL's extended reports, which init() turns on; on macOS those pads go through Apple's
 // GameController framework instead, which rumbles without them.
 //
+// On macOS a DualSense also plays play_haptic's shaped effects, through Core Haptics in
+// src/platform/haptics_apple.mm. Elsewhere SDL has no way to send them yet, so they are dropped.
+//
 // CONKER_VIRTUAL_PAD=<file> attaches an SDL virtual game controller driven by a script, so the
 // whole pad path (hot-plug, mapping, deadzone) can be exercised without hardware. Each line is
 // "<vi> <length in VIs> <control>...", where a control is an SDL button name (a, b, x, start,
 // leftshoulder, dpup, ...) or "<axis>=<value>" (leftx, lefty, rightx, righty: -1 to 1, SDL's +y is
 // down; lefttrigger, righttrigger: 0 released to 1). '#' starts a comment. Real pads are then ignored.
-// The virtual pad can rumble and logs each change.
+// The virtual pad can rumble and logs each change, and logs each haptic effect.
 #include "platform/input.hpp"
 #include "platform/input_sdl.hpp"
 
 #include <atomic>
+#include <cstddef>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -35,6 +39,10 @@
 #include <vector>
 
 #include "runtime/game.hpp"
+
+#ifdef __APPLE__
+#include "platform/haptics_apple.hpp"
+#endif
 
 namespace conker::input {
 
@@ -106,6 +114,12 @@ std::atomic<bool> g_rumble_on{false};   // the game's motor state, applied by up
 std::atomic<bool> g_camera_swapped{true};  // C-left and C-right (camera_swapped)
 bool g_rumble_applied = false;          // main thread only
 
+std::atomic<bool> g_has_haptics{false};  // the open pad plays shaped effects
+std::mutex g_haptics_mutex;
+std::vector<Haptic> g_haptics;           // waiting for update(), under g_haptics_mutex
+constexpr size_t kMaxWaitingHaptics = 8;
+bool g_pad_virtual = false;              // main thread only: the open pad is CONKER_VIRTUAL_PAD's
+
 PadKind pad_kind(SDL_GameController* pad) {
     switch (SDL_GameControllerGetType(pad)) {
         case SDL_CONTROLLER_TYPE_XBOX360:
@@ -142,6 +156,12 @@ void open_pad(int device_index) {
     g_has_rumble.store(SDL_GameControllerHasRumble(g_pad) == SDL_TRUE);
     g_pad_kind.store(pad_kind(g_pad));
     g_rumble_applied = false;
+    g_pad_virtual = SDL_JoystickIsVirtual(device_index) == SDL_TRUE;
+#ifdef __APPLE__
+    g_has_haptics.store(SDL_GameControllerGetType(g_pad) == SDL_CONTROLLER_TYPE_PS5 || g_pad_virtual);
+#else
+    g_has_haptics.store(g_pad_virtual);
+#endif
     std::printf("[conker] controller 1: %s (%s)\n", SDL_GameControllerName(g_pad),
                 g_has_rumble.load() ? "rumble pak" : "no rumble");
     // CONKER_RUMBLE_TEST=1: one second of rumble on connecting, to check the pad without the game.
@@ -319,6 +339,7 @@ void handle_event(const SDL_Event& event) {
                 }
                 g_pad_id = -1;
                 g_has_rumble.store(false);
+                g_has_haptics.store(false);
                 g_pad_kind.store(PadKind::None);
                 open_first_pad();
             }
@@ -410,6 +431,26 @@ void update() {
         }
         g_rumble_applied = on;
     }
+
+    std::vector<Haptic> haptics;
+    {
+        std::lock_guard lock(g_haptics_mutex);
+        haptics.swap(g_haptics);
+    }
+    if (g_pad != nullptr && g_has_haptics.load(std::memory_order_relaxed)) {
+        for (const Haptic& haptic : haptics) {
+            if (g_pad_virtual) {
+                static const char* const kGrips[] = {"left", "right", "both"};
+                std::printf("[conker] virtual pad: VI %llu: haptic %.2f sharpness %.2f for %.2f s, %s\n",
+                            static_cast<unsigned long long>(conker::current_vi()), haptic.intensity, haptic.sharpness,
+                            haptic.duration, kGrips[static_cast<int>(haptic.grip)]);
+                continue;
+            }
+#ifdef __APPLE__
+            apple::play_dualsense_haptic(haptic);
+#endif
+        }
+    }
 }
 
 void read(uint16_t* buttons, float* x, float* y) {
@@ -430,6 +471,18 @@ bool take_debug_menu_press() { return g_debug_menu_presses.exchange(0, std::memo
 bool has_rumble() { return g_has_rumble.load(std::memory_order_relaxed); }
 
 void set_rumble(bool on) { g_rumble_on.store(on, std::memory_order_relaxed); }
+
+bool has_haptics() { return g_has_haptics.load(std::memory_order_relaxed); }
+
+void play_haptic(const Haptic& haptic) {
+    if (!has_haptics()) {
+        return;
+    }
+    std::lock_guard lock(g_haptics_mutex);
+    if (g_haptics.size() < kMaxWaitingHaptics) {
+        g_haptics.push_back(haptic);
+    }
+}
 
 bool camera_swapped() { return g_camera_swapped.load(std::memory_order_relaxed); }
 
