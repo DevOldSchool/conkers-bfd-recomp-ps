@@ -35,7 +35,8 @@
 //                      game as it is, made into a copy, so the player's save is not touched; the first
 //                      GPU fault makes one by itself
 //     LOAD REPORT      a list of those; A checks one (it may come from anyone) and starts its save,
-//                      where and as it was made, on a copy (saves/debug/)
+//                      where and as it was made, on a copy (saves/debug/); R starts it at its
+//                      checkpoint instead, as the game itself would
 //
 // The first page also shows where Conker is and where the camera looks, and opening the menu prints
 // them (with the camera's position, look-at point and forward vector). Without Conker (the title)
@@ -391,6 +392,9 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
                 rows.push_back(text);
             }
             draw_rows(rdram, ctx, rows, g_entry, g_top);
+            if (reports && count > 0) {
+                draw_text(rdram, ctx, kCenterX, kInfoY, kCentered, kOtherColor, "A WHERE IT WAS MADE   R AT ITS CHECKPOINT");
+            }
             break;
         }
     }
@@ -728,7 +732,8 @@ int32_t list_page(uint8_t* rdram, int vertical, uint16_t pressed) {
         move_in_list(vertical, count);
         return kMoveSound;
     }
-    if (!(pressed & conker::input::kA) || count == 0) {
+    const bool at_checkpoint = g_page == Page::Reports && (pressed & conker::input::kR);
+    if (!((pressed & conker::input::kA) || at_checkpoint) || count == 0) {
         return 0;
     }
     if (g_page == Page::Spots) {
@@ -740,7 +745,7 @@ int32_t list_page(uint8_t* rdram, int vertical, uint16_t pressed) {
         }
     } else if (g_page == Page::Reports) {
         std::string problem;
-        if (conker::resume::load_report(rdram, g_snapshots[g_entry].path, &problem)) {
+        if (conker::resume::load_report(rdram, g_snapshots[g_entry].path, &problem, at_checkpoint)) {
             close_menu(rdram);
         } else {
             std::transform(problem.begin(), problem.end(), problem.begin(), ::toupper);
