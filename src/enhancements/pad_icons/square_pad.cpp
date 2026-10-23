@@ -4,10 +4,12 @@
 // right: a dimmer edge along its top and left, a near-white one along the bottoms of its bars and
 // the right of its bowls, and a dark line round it where it meets the recess.
 //
-// For a PlayStation pad the B is taken out and the recess under it filled from its edges inward,
-// each step copying the 5x5 patch of the recess's own floor (clear of the B) that best matches what
-// is already round it. Then an O stands where the B was, edged texel for texel as the B is, with
-// the B's own edge, face and outline texels. It is made from the player's ROM when the game starts,
+// For a PlayStation pad the B is taken out. The rim's inner edges follow the B's outline, so left
+// as they are they would draw its shape round the O: the whole recess below its dark back is
+// filled from its edges inward instead, each step copying the 5x5 patch of the rim's own stone that
+// best matches what is already round it, and the O's middle from the recess's dark back. Then an O
+// stands where the B was, edged texel for texel as the B is, with the B's own edge, face and
+// outline texels. It is made from the player's ROM when the game starts,
 // so no part of Rare's texture is in this repository.
 #include "enhancements/pad_icons/b_pad.hpp"
 
@@ -31,10 +33,11 @@ constexpr int kTexelBytes = N * N / 2;
 constexpr uint32_t kTlutRgba16 = 0x8000;  // G_TT_RGBA16, as RT64 hashes a TLUT draw
 
 // The B stands in x 15-47, y 11-53 (inclusive), inside the recess, which runs from the plate's
-// back to the rim's front. The O: its middle (halfway between the rim's sides), outer radius and
-// stroke width, in texels.
+// back (its dark part above y 10) to the rim's front; the rim's sides start at y 27. The O: its
+// middle (halfway between the rim's sides), outer radius and stroke width, in texels.
 constexpr int kLeft = 15, kTop = 11, kRight = 47, kBottom = 53;
-constexpr int kRecessLeft = 14, kRecessTop = 3, kRecessRight = 47, kRecessBottom = 54;
+constexpr int kRecessLeft = 14, kBackTop = 3, kRecessTop = 10, kRecessRight = 47, kRecessBottom = 54;
+constexpr int kRimTop = 27;
 constexpr float kOX = 30.5f, kOY = 32.5f, kOuter = 15.5f, kWidth = 7.5f;
 constexpr float kPale = 100;  // the least mean lightness of the B's stone
 
@@ -129,79 +132,101 @@ std::optional<Texture> circle_square_pad() {
         }
 
     // 1. The B: the pale stone in its box joined to its stem (the rim's stone touches it only
-    // below the box), closed over the odd dark texel in it.
-    Grid box{}, stone{};
+    // below the box), closed over the odd dark texel in it. The rim's stone is the rest of the
+    // pale stone from its sides down.
+    Grid box{}, stone{}, rim{};
     for (int y = 0; y < N; y++)
         for (int x = 0; x < N; x++) {
+            const bool pale = lum(rgb[at(x, y)]) > kPale;
             box[at(x, y)] = x >= kLeft && x <= kRight && y >= kTop && y <= kBottom;
-            stone[at(x, y)] = box[at(x, y)] && lum(rgb[at(x, y)]) > kPale;
+            stone[at(x, y)] = box[at(x, y)] && pale;
+            rim[at(x, y)] = pale && y >= kRimTop;
         }
     const Grid face = part_at(stone, kLeft + 2, (kTop + kBottom) / 2);
     Grid letter = erode(dilate(face));
-    for (int i = 0; i < N * N; i++) letter[i] = face[i] || (letter[i] && box[i]);
-    Grid hole = dilate(letter);
-    for (int i = 0; i < N * N; i++) hole[i] = letter[i] || (hole[i] && box[i]);
+    for (int i = 0; i < N * N; i++) {
+        letter[i] = face[i] || (letter[i] && box[i]);
+        rim[i] = rim[i] && !letter[i];
+    }
 
-    // 2. The recess under it, from the edges inward, each step copying the 5x5 patch of the
-    // recess (clear of the B) that best matches what is already round it.
-    constexpr int kHalf = 2;
-    struct Patch {
-        int x, y;
-    };
-    std::vector<Patch> patches;
-    for (int y = kHalf; y < N - kHalf; y++)
-        for (int x = kHalf; x < N - kHalf; x++) {
-            bool clear = true;
-            for (int j = -kHalf; j <= kHalf && clear; j++)
-                for (int i = -kHalf; i <= kHalf && clear; i++) {
-                    const int px = x + i, py = y + j;
-                    clear = !hole[at(px, py)] && px >= kRecessLeft && px <= kRecessRight && py >= kRecessTop && py <= kRecessBottom;
-                }
-            if (clear) patches.push_back({x, y});
+    // 2. The rim's edges and the recess between them follow the B's outline, so all the recess
+    // below its dark back is filled, the rim's stone left as it is: from the edges inward, each
+    // step copying the 5x5 patch of the rim's stone that best matches what is already round it.
+    // The O's counter is filled the same way from the recess's dark back.
+    Grid hole{}, counter{};  // counter: the O's middle, up to under its inner edge
+    for (int y = 0; y < N; y++)
+        for (int x = 0; x < N; x++) {
+            const int i = at(x, y);
+            hole[i] = letter[i] || (!rim[i] && x >= kRecessLeft && x <= kRecessRight && y >= kRecessTop && y <= kRecessBottom);
+            counter[i] = hole[i] && std::hypot(x + 0.5f - kOX, y + 0.5f - kOY) < kOuter - kWidth + 1.5f;
         }
-    if (patches.empty()) return std::nullopt;
+    constexpr int kHalf = 2;
+    auto patches_in = [&](auto inside) {
+        std::vector<int> patches;  // their middles
+        for (int y = kHalf; y < N - kHalf; y++)
+            for (int x = kHalf; x < N - kHalf; x++) {
+                bool all = true;
+                for (int j = -kHalf; j <= kHalf && all; j++)
+                    for (int i = -kHalf; i <= kHalf && all; i++) all = inside(x + i, y + j);
+                if (all) patches.push_back(at(x, y));
+            }
+        return patches;
+    };
+    const std::vector<int> stone_patches = patches_in([&](int x, int y) { return rim[at(x, y)]; });
+    const std::vector<int> back_patches = patches_in([](int x, int y) {
+        return x >= kRecessLeft && x <= kRecessRight && y >= kBackTop && y < kRecessTop;
+    });
+    if (stone_patches.empty() || back_patches.empty()) return std::nullopt;
     std::mt19937 random(3);
     auto mirror = [](int v) { return v < 0 ? -v - 1 : v >= N ? 2 * N - v - 1 : v; };
     std::vector<Rgb> out = rgb;
-    for (;;) {
-        // The hole texel beside known floor with the most known floor round it.
-        int best_i = -1;
-        float best_known = -1;
-        for (int y = 0; y < N; y++)
-            for (int x = 0; x < N; x++) {
-                if (!hole[at(x, y)]) continue;
-                bool front = false;
-                const int n[4][2] = {{x - 1, y}, {x + 1, y}, {x, y - 1}, {x, y + 1}};
-                for (const auto& p : n) front = front || (in(p[0], p[1]) && !hole[at(p[0], p[1])]);
-                if (!front) continue;
-                float known = 0;
+    // Fills `todo`, matching against what is not `unknown` (which `todo` is part of).
+    auto fill = [&](Grid todo, Grid unknown, const std::vector<int>& patches) {
+        for (;;) {
+            // The texel to fill beside known texels with the most known round it.
+            int best_i = -1;
+            float best_known = -1;
+            for (int y = 0; y < N; y++)
+                for (int x = 0; x < N; x++) {
+                    if (!todo[at(x, y)]) continue;
+                    bool front = false;
+                    const int n[4][2] = {{x - 1, y}, {x + 1, y}, {x, y - 1}, {x, y + 1}};
+                    for (const auto& p : n) front = front || (in(p[0], p[1]) && !unknown[at(p[0], p[1])]);
+                    if (!front) continue;
+                    float known = 0;
+                    for (int j = -kHalf; j <= kHalf; j++)
+                        for (int i = -kHalf; i <= kHalf; i++) known += !unknown[at(mirror(x + i), mirror(y + j))];
+                    if (known > best_known) best_known = known, best_i = at(x, y);
+                }
+            if (best_i < 0) break;
+            const int x = best_i % N, y = best_i / N;
+            std::vector<std::pair<float, int>> scores;
+            for (int p : patches) {
+                const int px = p % N, py = p / N;
+                float d = 0;
                 for (int j = -kHalf; j <= kHalf; j++)
-                    for (int i = -kHalf; i <= kHalf; i++) known += !hole[at(mirror(x + i), mirror(y + j))];
-                if (known > best_known) best_known = known, best_i = at(x, y);
+                    for (int i = -kHalf; i <= kHalf; i++) {
+                        if (!in(x + i, y + j) || unknown[at(x + i, y + j)]) continue;
+                        const Rgb& a = out[at(x + i, y + j)];
+                        const Rgb& b = rgb[at(px + i, py + j)];
+                        for (int c = 0; c < 3; c++) d += (a[c] - b[c]) * (a[c] - b[c]);
+                    }
+                scores.emplace_back(d, p);
             }
-        if (best_i < 0) break;
-        const int x = best_i % N, y = best_i / N;
-        std::vector<std::pair<float, size_t>> scores;
-        for (size_t p = 0; p < patches.size(); p++) {
-            float d = 0;
+            std::partial_sort(scores.begin(), scores.begin() + std::min<size_t>(3, scores.size()), scores.end());
+            const int chosen = scores[random() % std::min<size_t>(3, scores.size())].second;
             for (int j = -kHalf; j <= kHalf; j++)
                 for (int i = -kHalf; i <= kHalf; i++) {
-                    if (!in(x + i, y + j) || hole[at(x + i, y + j)]) continue;
-                    const Rgb& a = out[at(x + i, y + j)];
-                    const Rgb& b = out[at(patches[p].x + i, patches[p].y + j)];
-                    for (int c = 0; c < 3; c++) d += (a[c] - b[c]) * (a[c] - b[c]);
+                    if (!in(x + i, y + j) || !todo[at(x + i, y + j)]) continue;
+                    out[at(x + i, y + j)] = rgb[chosen + j * N + i];
+                    todo[at(x + i, y + j)] = unknown[at(x + i, y + j)] = false;
                 }
-            scores.emplace_back(d, p);
         }
-        std::partial_sort(scores.begin(), scores.begin() + std::min<size_t>(3, scores.size()), scores.end());
-        const Patch& chosen = patches[scores[random() % std::min<size_t>(3, scores.size())].second];
-        for (int j = -kHalf; j <= kHalf; j++)
-            for (int i = -kHalf; i <= kHalf; i++) {
-                if (!in(x + i, y + j) || !hole[at(x + i, y + j)]) continue;
-                out[at(x + i, y + j)] = out[at(chosen.x + i, chosen.y + j)];
-                hole[at(x + i, y + j)] = false;
-            }
-    }
+    };
+    Grid around;
+    for (int i = 0; i < N * N; i++) around[i] = hole[i] && !counter[i];
+    fill(around, hole, stone_patches);
+    fill(counter, counter, back_patches);
 
     // 3. The O, raised and lit as the B is. Where its edge faces up or left it has the B's dimmer
     // edge there, texel for texel in from the edge; where it faces down or right, the B's bright
