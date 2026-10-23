@@ -38,6 +38,7 @@ std::vector<Switch> all() {
         max_detail(),
         character_distance(),
         rumble_banner(),
+        haptics(),
         camera_stick(),
         pad_buttons(),
         frame_rate(),
