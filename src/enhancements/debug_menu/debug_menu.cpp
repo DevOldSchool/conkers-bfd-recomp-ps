@@ -31,8 +31,9 @@
 //                      conker-recomp-data/debug_spots.txt
 //     LOAD SNAPSHOT    a list of saves/snapshots/; A starts one (resume_point.cpp)
 //     SAVE DEBUG REPORT  a folder in conker-recomp-data/debug_reports/ with report.json (build, scene,
-//                      position, facing, camera, enhancements, settings) and a save of the game as it
-//                      is, made into a copy, so the player's save is not touched
+//                      position, facing, camera, enhancements, settings, GPU faults) and a save of the
+//                      game as it is, made into a copy, so the player's save is not touched; the first
+//                      GPU fault makes one by itself
 //     LOAD REPORT      a list of those; A checks one (it may come from anyone) and starts its save,
 //                      where and as it was made, on a copy (saves/debug/)
 //
@@ -62,6 +63,7 @@
 #include "enhancements/switches.hpp"
 #include "build_version.h"
 #include "json/json.hpp"
+#include "platform/gpu_faults.hpp"
 #include "platform/input.hpp"
 #include "platform/render_debug.hpp"
 #include "ultramodern/ultramodern.hpp"
@@ -547,6 +549,7 @@ std::string report_json(uint8_t* rdram) {
     settings["display_cfg"] = display;
     report["settings"] = settings;
     report["system"] = conker::status::system();
+    report["gpu_faults"] = conker::gpu_faults::status();
     // The CONKER_* variables set. A path names its file only: the folders could name the user.
     nlohmann::json environment = nlohmann::json::object();
     for (char** variable = environ; *variable != nullptr; variable++) {
@@ -791,6 +794,16 @@ int32_t menu_frame(uint8_t* rdram, recomp_context* ctx) {
 // frames, draws the frame rate and position, takes a press of the debug menu button, and runs the
 // menu while it holds the game.
 extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
+    // After the first GPU fault, a report of where it happened (src/platform/gpu_faults.cpp); asked
+    // again next frame while a save is being written.
+    if (conker::gpu_faults::take_report_request()) {
+        const std::string name = conker::resume::request_report(rdram, report_json(rdram));
+        if (name.empty()) {
+            conker::gpu_faults::request_report_again();
+        } else {
+            std::printf("[conker] GPU fault: debug report %s\n", name.c_str());
+        }
+    }
     g_frames++;
     const Clock::time_point now = Clock::now();
     const double elapsed = std::chrono::duration<double>(now - g_fps_since).count();

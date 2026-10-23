@@ -155,6 +155,34 @@ solid, and clears each color target to black the first time it is drawn to in
 a frame: Conker never clears its frame, since the scene covers it, so without
 that the lines would be drawn over an old picture.
 
+`tools/patches/plume-gpu-errors.patch` (apply in `lib/rt64/src/contrib/plume`
+after `plume-wireframe.patch`) and `tools/patches/rt64-queue-names.patch`
+(apply in `lib/rt64`) report command buffers the GPU fails. RT64 never looked
+at whether one succeeded, so on macOS a GPU fault only showed in the system
+log. plume's command queues get a name (`setName`, Metal only), which RT64 sets
+to the worker's ("Workload Graphics", "Present Graphics", ...), and while
+`plume::renderCommandErrorCallback()` is set, Metal command buffers keep their
+encoders' execution status and call it with the queue, the error and the
+encoders that faulted (`src/platform/gpu_faults.cpp`).
+
+`tools/patches/rt64-metal-float-to-int.patch` (apply in `lib/rt64`) fixes the
+GPU faults those reports found. RT64's pixel shader picks a draw's LOD tile from
+`int(floor(log2(maxDst)))`, where `maxDst` is the largest texture-coordinate
+derivative. When the coordinates do not change across a pixel, `maxDst` is 0
+and `log2` gives -inf. D3D12 and Vulkan convert that to INT_MIN, which the clamp
+that follows brings back to tile 0, but on Metal converting an infinite or NaN
+float to an int is undefined, and some of the specialized pipelines the
+compiler made indexed `RDPTiles` with garbage: a read far outside the buffer
+("GPU Address Fault Error"), and after a handful of them macOS stopped running
+the game's GPU work, leaving the window black. Metal's shader validation showed
+it as "Invalid device load" in `PSMain` at offsets whose low bits were an
+`RDPTile` field and whose tile index was INT_MIN plus the draw's first tile. The
+patch keeps the value finite before converting it, and does the same for the
+mip level of replacement textures with mipmaps (a negative or infinite float
+converted to uint). RT64's build does not track the shaders' `.hlsli` includes,
+so an existing build needs `touch lib/rt64/src/shaders/RasterPS.hlsl` to
+rebuild them. A candidate for upstreaming.
+
 `tools/patches/rt64-wide-draw-rect.patch` (apply in `lib/rt64` after the
 patches above) fixes objects that vanish beside the original picture when it is
 widened. RT64 sizes each framebuffer pair's render target from the pair's draw
