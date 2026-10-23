@@ -190,6 +190,13 @@ func = "func_1501BBB8"
 before_vram = 0x1501BC18
 text = "{ void conker_debug_menu_pads(uint8_t*, recomp_context*); conker_debug_menu_pads(rdram, ctx); }"
 
+# func_150417AC stops drawing a text where the frame's display list is full (0x1504286C); the menu
+# then leaves out its text shadows, which cost as much as the text.
+[[patches.hook]]
+func = "func_150417AC"
+before_vram = 0x1504286C
+text = "{ void conker_debug_menu_text_full(uint8_t*, recomp_context*); conker_debug_menu_text_full(rdram, ctx); }"
+
 [[patches.hook]]
 func = "func_151EB06C"
 before_vram = 0x151EB128

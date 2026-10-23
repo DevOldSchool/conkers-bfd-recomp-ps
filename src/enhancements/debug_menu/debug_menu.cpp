@@ -101,8 +101,9 @@ constexpr int kPadSize = 6;                     // button (16 bits), stick x, st
 constexpr int kPadCount = 4;
 
 constexpr uint16_t kStartButton = 0x1000;
-constexpr uint8_t kLeft = 0x80;                 // text flags: left-aligned at x,
-constexpr uint8_t kCentered = 0x81;             // or centered on it
+constexpr uint8_t kShadow = 0x80;               // text flags: a black copy under it, one pixel down and right,
+constexpr uint8_t kLeft = kShadow;              // left-aligned at x,
+constexpr uint8_t kCentered = kShadow | 1;      // or centered on it
 constexpr int kCenterX = 0x92;                  // the middle of the 292-pixel picture
 constexpr int32_t kMoveSound = 0x62D;           // the pause lever's
 constexpr int32_t kSelectSound = 0x500;
@@ -137,6 +138,13 @@ bool g_set_pause = false;    // and set the pause flag to do it
 bool g_first_frame = false;  // holding, the frame it opened in (see conker_debug_menu_tick)
 bool g_pads_held = false;    // the game reads no pad until the buttons are let go
 bool g_close_requested = false;
+// Text is drawn into the frame's display list, whose size each scene sets (D_800BEBA4 commands,
+// from func_15015E80), and func_150417AC stops drawing glyphs once the list is that full. A glyph
+// costs about 8 commands, twice with its shadow, so in a scene with a small list (Sloprano's 4002)
+// a page of reports runs out: the last row gets its shadow but not itself, and shows black. The
+// first time the text runs out while the menu is open, the menu draws without shadows, at half
+// the cost, until it closes.
+bool g_shadows = true;
 Page g_page = Page::Main;
 int g_row = 0;           // on the first page
 int g_teleport_row = 0;
@@ -265,7 +273,7 @@ void draw_text(uint8_t* rdram, recomp_context* ctx, int x, int y, uint8_t flags,
     recomp_context saved = *ctx;
     ctx->r4 = x;
     ctx->r5 = y;
-    ctx->r6 = flags;
+    ctx->r6 = g_shadows ? flags : flags & ~kShadow;
     ctx->r7 = kseg0(kText);
     MEM_W(kOutgoingArg, ctx->r29) = 0;
     func_15042D94(rdram, ctx);
@@ -563,6 +571,7 @@ Repeat g_horizontal;
 void close_menu(uint8_t* rdram) {
     g_active = false;
     g_close_requested = false;
+    g_shadows = true;
     g_pads_held = true;
     if (g_holding) {
         g_holding = false;
@@ -995,6 +1004,13 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
 // Before func_151E51EC calls the screen's handler and func_151E84B0 its drawing: while the menu
 // holds the game, neither runs (the empty func_151DE6CC does, in their place).
 extern "C" int conker_debug_menu_holding_game() { return g_active && g_holding ? 1 : 0; }
+
+// At 0x1504286C, where func_150417AC stops drawing a text because the frame's display list is full.
+extern "C" void conker_debug_menu_text_full(uint8_t* /*rdram*/, recomp_context* /*ctx*/) {
+    if (g_active) {
+        g_shadows = false;
+    }
+}
 
 // In func_1501BBB8 once the pads are read (sp+0x38): while the menu is open, and until every
 // button is let go after it closes, the game gets empty pads.
