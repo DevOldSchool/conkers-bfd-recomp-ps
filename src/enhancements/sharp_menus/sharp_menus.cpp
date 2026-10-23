@@ -1,10 +1,14 @@
 // The menus' signs and headings are 32x32 RGBA32 tiles (src/enhancements/sharp_menus/menu_art.cpp),
 // drawn unfiltered, so at high resolutions they show as blocks. This enlarges each lettered sign
-// and heading, the joystick and the speakers four times with Super-xBR, keeping Rare's pixels and
-// soft edges, and hands the tiles to RT64 as a texture pack in memory, keyed by the hash RT64
-// computes for each tile as the game loads it (TMEMHasher). Tiles drawn side by side are enlarged
-// together, so no seams show between them. Other pictures (faces, the small statistics icons) are
-// left as they are: they lose their detail when enlarged.
+// and heading, the joystick, the speakers and the pause menu's digits four times with Super-xBR,
+// keeping Rare's pixels and soft edges, and hands the tiles to RT64 as a texture pack in memory,
+// keyed by the hash RT64 computes for each tile as the game loads it (TMEMHasher). Tiles drawn
+// side by side are enlarged together, so no seams show between them. The button prompts and the
+// multiplayer heads and player pieces are enlarged too; other pictures (the small statistics icons)
+// are left as they are: they lose their detail when enlarged.
+//
+// The speech and thought bubbles are not menu art but come from the same resources, and are
+// enlarged the same way (kBubbles below).
 //
 // The pause menu's SAVE and LOAD signs (src/enhancements/sharp_menus/pause_signs.cpp) are made at
 // four times the size with the others, and keyed by the hash of the game-size tiles the pause
@@ -18,10 +22,12 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <future>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -77,6 +83,18 @@ constexpr Title kTitles[] = {
     {2023, 1, "joystick 1"}, {2024, 1, "joystick 2"}, {2025, 1, "joystick 3"},
     {2026, 1, "joystick 4"}, {2027, 1, "joystick 5"}, {2028, 1, "joystick 6"},
     {2072, 2, "stereo"}, {2074, 2, "surround"}, {2029, 1, "mono"},
+    // The coloured digits and dollar sign of the pause menu's money and lives (the digit table
+    // D_80090074, drawn one tile per digit by func_151EADFC; the dollar sign by func_151EB06C)
+    {2226, 1, "digit 0"}, {2192, 1, "digit 1"}, {2219, 1, "digit 2"}, {2216, 1, "digit 3"},
+    {2178, 1, "digit 4"}, {2177, 1, "digit 5"}, {2210, 1, "digit 6"}, {2209, 1, "digit 7"},
+    {2176, 1, "digit 8"}, {2191, 1, "digit 9"}, {2038, 1, "dollar"},
+    // Button prompts: the A and B buttons dark and lit, START, the red button and the four arrows
+    {2164, 1, "A unlit"}, {2165, 1, "A lit"}, {2168, 1, "B unlit"}, {2169, 1, "B lit"},
+    {2206, 1, "START"}, {2207, 1, "red button"}, {2167, 1, "arrows"},
+    // The multiplayer heads
+    {2215, 1, "Tediz head"}, {2211, 1, "SHC head"}, {2220, 1, "Uga Buga head"}, {2203, 1, "Raptor head"},
+    // The multiplayer player pieces: one purple figure and a group of blue ones
+    {2171, 1, "purple figure"}, {2187, 1, "blue figures"},
 };
 
 // The small P1 to P4 badges (as on the multiplayer STATS screen) are the four 16x16 corners of one
@@ -85,6 +103,17 @@ constexpr Title kTitles[] = {
 // one's outline.
 constexpr int kSmallBadges = 2115;
 constexpr int kLargeBadges = 2196;
+
+// The speech and thought bubbles are 64x64 IA8 pictures, resources 4167 and 4168 (the literal
+// descriptors at 0x8009055C and 0x8009056C), each drawn stretched over the text; the shadow is the
+// same picture in black. They are stored as TMEM holds them: odd rows with the two four-byte halves
+// of each eight bytes exchanged.
+struct Bubble {
+    int resource;
+    const char* name;
+};
+constexpr Bubble kBubbles[] = {{4167, "speech_bubble"}, {4168, "thought_bubble"}};
+constexpr int kBubbleSize = 64;
 
 // RT64's hash for a tile loaded as the game loads them: LoadBlock to TMEM 0, which puts each
 // texel's red and green in the lower half and its blue and alpha in the upper half.
@@ -132,6 +161,35 @@ struct Replacement {
     uint64_t hash;
     std::vector<uint8_t> png;
 };
+
+// A bubble four times larger. RT64 reads an IA8 texel as its intensity in red, green and blue and
+// its alpha on its own, not premultiplied, and the bubbles are white even where they are clear, so
+// that filtering blends their edges towards white. The replacement keeps that: the four channels
+// are enlarged as they are and written as they are.
+std::optional<Replacement> bubble(const Bubble& bubble) {
+    const std::vector<uint8_t> stored = menu_art::load_resource(bubble.resource);
+    if (stored.size() != kBubbleSize * kBubbleSize) return std::nullopt;
+    menu_art::Image image(kBubbleSize, kBubbleSize);
+    for (int y = 0; y < kBubbleSize; y++) {
+        for (int x = 0; x < kBubbleSize; x++) {
+            const uint8_t texel = stored[size_t(y) * kBubbleSize + (x ^ ((y & 1) ? 4 : 0))];
+            float* p = image.at(x, y);
+            p[0] = p[1] = p[2] = float((texel >> 4) * 17);
+            p[3] = float((texel & 15) * 17);
+        }
+    }
+    const menu_art::Image big = menu_art::super_xbr(image, kScale);
+    std::vector<uint8_t> rgba(big.pixels.size());
+    for (size_t i = 0; i < rgba.size(); i++) rgba[i] = uint8_t(std::clamp(std::lround(big.pixels[i]), 0L, 255L));
+    RT64::LoadTile load{};
+    load.fmt = 3;  // G_IM_FMT_IA
+    load.siz = 1;  // G_IM_SIZ_8b
+    load.line = kBubbleSize / 8;
+    const uint64_t hash = RT64::TMEMHasher::hash(stored.data(), load, kBubbleSize, kBubbleSize, 0,
+                                                 RT64::TMEMHasher::CurrentHashVersion);
+    return Replacement{std::string("menus/") + bubble.name + ".png", hash,
+                       memory_pack::Pack::encode_png(big.width, big.height, rgba.data())};
+}
 
 // Each 32-pixel column of the enlarged `image`, as the replacement for the tile with that hash.
 std::vector<Replacement> split(const std::string& name, const menu_art::Image& image, const std::vector<uint64_t>& hashes) {
@@ -214,6 +272,9 @@ std::shared_ptr<RT64::FileSystem> make_pack() {
         for (Replacement& r : split("small_badges", *badges, {hash(*menu_art::load_tile(kSmallBadges))})) {
             pack->add(r.path, r.hash, std::move(r.png));
         }
+    }
+    for (const Bubble& b : kBubbles) {
+        if (std::optional<Replacement> r = bubble(b)) pack->add(r->path, r->hash, std::move(r->png));
     }
     if (const pause_signs::Signs* made_signs = signs.get()) {
         const char* names[2][2] = {{"save_unlit", "save_lit"}, {"load_unlit", "load_lit"}};

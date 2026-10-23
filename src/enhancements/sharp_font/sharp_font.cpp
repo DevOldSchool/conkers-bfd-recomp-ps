@@ -12,8 +12,8 @@
 // glyphs are not cut off.
 //
 // CONKER_DUMP_SHARP_FONT=<dir> writes the pack's files to <dir>, to edit by hand and load from
-// conker-recomp-data/texture_packs; tools/font_pack.py writes the same pack outside the game. Packs in
-// conker-recomp-data/texture_packs load after this one and win where they replace the same glyphs.
+// conker-recomp-data/texture_packs. Packs in conker-recomp-data/texture_packs load after this one
+// and win where they replace the same glyphs.
 // CONKER_SHARP_FONT=0 leaves the font as it is.
 #include "enhancements/sharp_font/sharp_font.hpp"
 

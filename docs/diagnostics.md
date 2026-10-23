@@ -29,7 +29,11 @@ These environment variables are read by both builds:
   around VI 65 instead of 3,670. VI numbers in input scripts written for a full
   intro (such as the ones below) are then about 3,600 too late.
 * `CONKER_PRESS_START=<vi>[,<vi>...]` holds Start on controller 1 for 10 VIs
-  from each listed VI count, on top of any real input.
+  from each listed VI count, on top of any real input. `CONKER_PRESS_A` does
+  the same for A, which the null build needs to get into a new game:
+  `CONKER_SKIP_INTRO=1 CONKER_PRESS_A=300,600,900,1200,1500` with no save
+  reaches the opening cutscene, whose first speech bubbles are up about
+  165 s in.
 * `CONKER_VIRTUAL_PAD=<file>` (RT64 build) attaches an SDL virtual game
   controller driven by a script, so the whole controller path can be tested
   without hardware. Each line is `<vi> <length in VIs> <control>...`, where a
@@ -98,6 +102,11 @@ These environment variables are read by both builds:
   delta (`D_800BE9A4`), Conker's position and the camera's eye. It works in
   either build and at either frame rate (`CONKER_60FPS`), for comparing the
   two over the same pad script.
+* `CONKER_SOUND_LOG=1` prints a line for each sound effect as it starts
+  (`sndp_play_sound`): the VI, the sound, its volume and Conker's animation,
+  and a line for each change of Conker's animation with his health, for
+  finding the sounds and moments to give haptic effects
+  (src/enhancements/haptics/haptics.cpp).
 * `CONKER_DUMP_TEXTURES=<dir>` (RT64 build) writes each texture the game
   loads to `<dir>` once, as RT64's `<hash>.v5.png`, `.tmem` and `.tile.json`
   files, the starting point for a texture pack. `tools/font_pack.py --dump
@@ -111,3 +120,74 @@ These environment variables are read by both builds:
 * `CONKER_AUDIO=0` (RT64 build) disables the SDL device; `CONKER_AUDIO_LATENCY_MS`
   (default 60) sets the extra buffering kept on top of what the game asks for;
   `CONKER_SILENT_AUDIO=1` skips the audio microcode entirely.
+
+## GPU faults (black screen, game still running)
+
+On macOS a command buffer that faults on the GPU (it read or wrote outside any
+resource) is thrown away, so its frame is lost and the picture stutters. After
+about six of them macOS refuses all of the process's GPU work for good: the
+window goes black while the game, its sound and its menus carry on, and only a
+restart brings the picture back. The system log shows it
+(`/usr/bin/log show --predicate 'processID == <pid>'`: "Caused GPU Address
+Fault Error", then "Ignored (for causing prior/excessive GPU errors)").
+
+The RT64 build logs each failed command buffer itself
+(`src/platform/gpu_faults.cpp`):
+
+```
+[conker] GPU fault 1 at VI 2982 (56.0 s, 19:10:43), scene 12: Workload Graphics queue, code 3, faulted encoders: Graphics Render Encoder x1: Caused GPU Address Fault Error ...
+[conker]   renderer changes before it (since the last fault):
+[conker]     VI 38 (1.0 s, 19:09:48): RT64 scale 3x: frame buffers discarded
+[conker] GPU: macOS is refusing the game's GPU work after 6 GPU fault(s) ...
+[conker] GPU fault: debug report scene12-20261022-191043
+```
+
+The queue names the RT64 worker that sent the work (Workload Graphics draws
+the game's frames, Present Graphics shows them, Texture Direct, Texture Copy
+and RT64 Stream Worker upload textures, Framebuffer Graphics handles frame
+buffers the CPU wrote). The renderer changes are the things that free or remake
+GPU resources: texture packs swapped, a new scale or shape, frame buffers
+discarded, the pause menu's frame copy holding the settings. The "refusing"
+line repeats every 30 s while it lasts. The first fault also makes a debug
+report, as SAVE DEBUG REPORT does, with these lines in `report.json` under
+`gpu_faults`. The code is Metal's `MTLCommandBufferError`: 3 a page fault, 2 a timeout, 4 a refused submission.
+
+To find the shader behind a fault, run with Metal's shader validation:
+`MTL_SHADER_VALIDATION=1 MTL_SHADER_VALIDATION_RESOURCE_USAGE=0
+MTL_SHADER_VALIDATION_REPORT_TO_STDERR=1`. Each bad access is then printed as
+"Invalid device load" with the shader function, the buffer's length, the
+offset and the draw. Without `RESOURCE_USAGE=0` validation tracks every resident
+resource on each submit, and RT64 keeps so many that no frame reaches the
+screen. `MTL_SHADER_VALIDATION_DUMP_PIPELINES=1` adds each pipeline's UID to the
+system log. The faults found this way so far were RT64's LOD tile choice
+(`tools/patches/rt64-metal-float-to-int.patch`, see `docs/recompilation.md`).
+A debug report that shows the fault can be replayed by script for this: with
+`CONKER_SKIP_INTRO=1` and the report alone in the run's `debug_reports`, the pad
+lines `600 8 back`, seven `dpdown`s and two `a`s load it from the title.
+
+## Emulator ground truth
+
+`tools/emulator_frames.py` takes screenshots from the decomp's
+software-rendered Mupen64Plus (Angrylion RDP, CXD4 RSP, the
+`./conker mupen-trace --software-renderer` container), with controller
+presses injected through its debugger, so a scene can be compared with RT64.
+Its docstring has a new-game script that reaches the opening's speech bubbles.
+The emulator runs at about 20 VIs a second, so that run takes about 18
+minutes. Compare pictures in N64 pixels: the emulator's 640x480 screenshot
+shows the 285x214 picture at x 40-609, y 25-452; an RT64 capture shows it
+across the whole window.
+
+The container follows the host CPU, linux/arm64 or linux/amd64, as the
+decomp's `./conker` does, and `CONKER_PLATFORM` picks one. Each platform's
+screenshots repeat exactly from run to run; the two platforms differ by at
+most one level per colour channel, so compare frames from the same one when
+counting pixels. On Windows, run the tool from WSL, where the decomp's
+`./conker` also has to run to build the image.
+
+Checked this way: speech-bubble shadows. Each bubble is drawn twice from the
+same 64x64 IA8 texture, first black at alpha 0x40 about 5 pixels right of and
+4 pixels above the bubble, then white on top. RT64 matches the emulator:
+the shadow shows only as a thin crescent along the top-right edge, darkening
+what is under it to 0.75. The soft fade around the rest of a bubble is
+its own edge under bilinear filtering (the texture is stretched about 3x
+across), not the shadow.

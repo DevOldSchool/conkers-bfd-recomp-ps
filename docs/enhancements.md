@@ -86,9 +86,24 @@ facing the same way, with the camera put back where it looked once it has
 settled behind him (saves made before this keep only the spot). Quitting
 from the pause menu keeps the spot too. The spot is kept in
 `conker_us.resume` next to the save; a checkpoint reached later takes over
-as usual. Enemies and other things the save does not record are reset, as at
-a checkpoint. Neither sign is offered when replaying a chapter, where the
-game does not save. The signs are lettered with Rare's own letters, cut from
+as usual. The game's own save only records finished events, so the spot
+also keeps the scene as it was: the game's own tables of characters, scene
+objects, triggers and event progress, copied whole (so a gate a conversation
+opened stays open, a conversation that plays once does not play again, and a
+count a character keeps is kept), the players' records (so the lives count
+is kept; loading a save otherwise starts it again), the variables of the
+event scripts running, and the swarms of bees in scene 12, where each one
+was and what it flew after (so a swarm already led to the sunflower stays
+there, and one following Conker goes on following him). Each character is
+put back over the same character, found by the number the scene gives it,
+since a scene does not always fill its character slots in the same order;
+characters the game had brought in while playing (scene 6's three wasps) are
+brought in again, and ones it had taken away are taken away. A save made
+during a cutscene (a debug report can be) keeps the scene as the cutscene
+found it, and the cutscene plays again from its start.
+Words in those tables that hold memory addresses belong to the run of the
+game that made them and are left as they are. The file is JSON. Neither
+sign is offered when replaying a chapter, where the game does not save. The signs are lettered with Rare's own letters, cut from
 the game's other green signs in your ROM. `CONKER_PAUSE_SAVE=0` turns them
 off.
 
@@ -102,10 +117,14 @@ from the debug menu. `CONKER_SAVE_SNAPSHOTS=0` stops keeping them.
 ## Debug menu
 
 View on an Xbox pad, Create (Share) on a PlayStation pad, or the `` ` `` key opens
-it during play. It is the game's pause with its own page in place of the
-lever, PAUSED and the HUD, so the game stops as it does for the pause menu,
-and it closes with B, Start or the same button. Up and down choose a row, A
-or left and right change it:
+it anywhere: in play, in the pause menu, on the title and the game's other
+menus, and in cutscenes. In play it is the game's pause with its own page in
+place of the lever, PAUSED and the HUD, so the game stops as it does for the
+pause menu. Where the pause cannot open, the menu stops the game itself with
+the same pause flag (the world, the cutscene and the sound stop; the screen's
+own menu waits underneath). The game reads no buttons while it is open, nor
+after it closes until they are let go. It closes with B, Start or the same
+button. Up and down choose a row, A or left and right change it:
 
 * WIREFRAME: the game's 3D triangles drawn as their edges on black; text,
   sprites and the HUD stay solid. Metal only for now.
@@ -116,6 +135,23 @@ or left and right change it:
   +X), so walking away from the camera they agree. The first page shows them
   too, and opening the menu prints them in the terminal, with the camera's
   position, the point it looks at and its forward vector.
+* ENHANCEMENTS: every enhancement that can be switched while the game
+  runs, each ON or OFF, starting as its `CONKER_*` variable set it: SHARP
+  TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
+  WIDESCREEN CULLING, SKIP INTRO, SKIP CUTSCENES, PAUSE SAVE AND LOAD, SAVE
+  SNAPSHOTS, SURROUND DEFAULT, FULL DETAIL, CHARACTER DISTANCE, NO RUMBLE
+  PAK BANNER, CAMERA STICK SWAP, PAD BUTTONS and 60 FPS. A or left and right switch the
+  chosen one. SHARP TEXT and WIDESCREEN are the OPTIONS rows' settings and
+  are kept in `display.cfg` as those rows keep them (a new shape applies once
+  the game carries on); the rest last until the game is closed, and a debug
+  report records them as they are. Each acts the next time the game comes to
+  it: SKIP INTRO only during the boot logos and the intro, PAUSE SAVE AND
+  LOAD at the next pause, SURROUND DEFAULT only when the game finds no saved
+  options, the banner when the title menu next comes up. The tiled sky's
+  room is set when a scene starts, so WIDESCREEN CULLING switched on in a
+  scene may leave out sky tiles at the sides until the next one. The OPTIONS
+  page's own rows (`CONKER_DISPLAY_OPTIONS`) and the debug menu are not
+  switched here.
 * TELEPORT: X, Y, Z, FACING and CAMERA YAW, set to where Conker is and
   changed with left and right by STEP (1, 10, 100 or 1000; held, they keep
   changing). GO puts him there facing that way, and the camera where it
@@ -149,19 +185,21 @@ or left and right change it:
   changed, and no snapshot is made. Where the game does not save (a chapter
   replayed from CHAPTERS), there is no save.
 * LOAD REPORT: the reports, newest first; A starts a report's save where and
-  as it was made, Conker's facing and the camera included. Reports can come
+  as it was made, Conker's facing and the camera included. It works from the
+  title menu too, so a report is a few seconds from starting the game
+  (`CONKER_SKIP_INTRO=1` skips the intro). Reports can come
   from anyone, so one is checked first and refused, with the reason on
   screen and in the log, unless: its files are regular files (no links) of
   the right sizes (`save.bin` exactly 2048 bytes), `report.json` is a
-  version 1 report with a scene, entrance and position in range, and every
-  line of `save.resume` is well formed, starts with the report's slot and
+  version 1 report with a scene, entrance and position in range, and
+  `save.resume` is a well-formed resume file (the points and their scene
+  state, within its limits) that starts with the report's slot and
   matches the JSON's slot, save number, scene and position. A report from
   another build is loaded, and the log says so. The save is played on a
   copy, `saves/debug/<report>.bin`, until the game is closed, so the
   player's own save is not touched (saves made meanwhile go to the copy).
 
-It opens wherever Start would open the pause menu. The settings last until
-the game is closed. `CONKER_DEBUG_MENU=0` turns it off.
+The settings last until the game is closed. `CONKER_DEBUG_MENU=0` turns it off.
 
 ## Surround by default
 
@@ -178,16 +216,77 @@ is the easiest place to see it), and for cruder ones further out. He, and
 the few other characters with more than one model, keep their most detailed
 model at any distance. `CONKER_MAX_DETAIL=0` keeps the game's choice.
 
+## Characters seen from farther
+
+The game fades each character out once the camera is more than its own
+distance away, 3000 units for most, though the scene around it is drawn to
+13000 or so; a character in plain view, such as the sunflower on the ledge
+past the stone steps in scene 12, only appeared on walking up to it.
+Characters are now drawn as far as the scene is, and so are the swarms of
+bees in scene 12, which the game left out past 2500 units. Only their drawing changes:
+what they do does not depend on it. `CONKER_CHARACTER_DISTANCE=0` keeps the
+game's distances.
+
 ## No Rumble Pak banner with a rumbling pad
 
 The title menu's "INSERT RUMBLE PAK" banner shows on an N64 even with the
 pak inserted. It is left out when controller 1's pad can rumble;
 `CONKER_RUMBLE_BANNER=1` shows it.
 
+## DualSense haptics
+
+A DualSense's motors play shaped taps and buzzes as well as the Rumble Pak's
+on and off, and some of the game's sound effects now play one: the
+slingshot coming out, each shot in the grip of the trigger that fired it,
+the elastic stretched again and the click when it is ready, a thump
+when Conker lands from a jump, on any ground, and a much heavier one when
+he splats after a long fall or is squashed flat. The game's own rumble is unchanged. More sounds are a
+line each in src/enhancements/haptics/haptics.cpp, found with
+`CONKER_SOUND_LOG=1` (see [diagnostics](diagnostics.md)). It works on macOS
+only so far, through Core Haptics, which reaches the pad over Bluetooth too.
+`CONKER_HAPTICS=0` turns it off.
+
 ## Camera on the right stick
 
 C-left and C-right are swapped (also on J/L), so pushing left turns the view
-left.
+left. It has no variable; the debug menu's ENHANCEMENTS page switches it.
+
+## Your pad's buttons
+
+Where the game shows a button to press (in the menus and the tutorial's
+speech bubbles), it shows the N64's. With an Xbox or PlayStation pad as
+controller 1 they are drawn as that pad's buttons instead, in the style of
+Rare's pre-rendered ones, and change when another kind of pad is connected:
+
+| N64 | Xbox | PlayStation |
+| --- | --- | --- |
+| A | A | Cross |
+| B | B | Circle |
+| START | Menu | Options |
+| Z | RT | R2 |
+| L, R | LB, RB | L1, R1 |
+| C-left, C-right | right stick pushed right, left (left, right without the camera swap) | the same |
+| C-up, C-down | right stick pushed up, down | the same |
+
+B is also on the left face button (X, Square) and Z on the left trigger,
+and the C pictures point the way to push the stick, which is swapped left to
+right (see above); switching the swap in the debug menu turns them round. The Xbox buttons are black with coloured letters, the
+PlayStation ones black with the DualShock 4's coloured symbols. With a
+PlayStation pad the B pads on the ground, wooden (octagonal and hexagonal)
+and stone, have an O where their B was, made from their textures in your
+ROM and shaded as the B is;
+an Xbox pad's B is B, and other pads keep the N64's, so they stay as they
+are.
+
+With the keyboard alone or another pad (an N64 pad, a Switch Pro) the
+N64's buttons are shown, redrawn the same way, sharper than the game's small
+pictures; ORIGINAL TEXT in the OPTIONS menu keeps Rare's. `CONKER_PAD_ICONS=xbox`,
+`playstation` or `n64` picks a set whatever the pad, and `0` keeps Rare's
+pictures, as does PAD BUTTONS switched off in the debug menu. The pictures
+are drawn when the game starts (about a fifth of a
+second, for the connected pad's set only; `src/enhancements/pad_icons`), so
+none is stored; `CONKER_DUMP_PAD_ICONS=<dir>` writes the set in use out as a
+pack, and a texture pack can replace them.
 
 ## Sharper text
 
@@ -196,7 +295,10 @@ upscaler, from the glyphs in your ROM when the game starts: the same
 letters, smoother and less blurred than the N64's filtering. The game draws
 each glyph a little short of its edges, which its blur hides, so those
 rectangles are widened over each glyph's empty border and the sharper
-letters are not cut off (`src/platform/font_rects.cpp`).
+letters are not cut off (`src/platform/font_rects.cpp`). The bubbles'
+pictures, such as the "more..." under a thought bubble, are drawn starting
+on a whole texel: the game sometimes starts them half a texel into a row,
+which blends each row into the next so the word looks doubled.
 `CONKER_SHARP_FONT=0` keeps the original font.
 
 ## Sharper menus
@@ -205,22 +307,23 @@ The menus' lettered signs and headings (GAME1, OPTIONS, PLAY, the chapter
 names, the multiplayer modes, PAUSED and the rest) are drawn unfiltered, so
 at high resolutions they show as blocks. They are enlarged 4 times with
 Super-xBR from your ROM when the game starts, each heading as one picture so
-no seams show between its tiles, and so are the menus' joystick and the
-OPTIONS speakers. The small P1 to P4 badges use the large badges' artwork.
-Other pictures such as faces are left as they are. `CONKER_SHARP_MENUS=0`
-keeps the original signs; the OPTIONS row turns the sharper text and menus
-off together.
+no seams show between its tiles, and so are the menus' joystick, the OPTIONS
+speakers, the button prompts, the multiplayer heads and player pieces and the
+pause menu's coloured digits and dollar sign. The small P1 to P4 badges use the
+large badges' artwork. The speech and thought bubbles, and their shadows,
+are enlarged the same way. Other pictures such as the small statistics icons are left
+as they are. `CONKER_SHARP_MENUS=0` keeps the original signs; the OPTIONS
+row turns the sharper text and menus off together.
 
 ## Texture packs
 
 RT64 replacement packs (a folder, `.rtz` or `.zip` with an `rt64.json`) in
 `conker-recomp-data/texture_packs` are loaded at start, in name order; where
 two replace the same texture, the later name wins, and any of them wins over
-the sharper text and menus. `CONKER_TEXTURE_PACKS=0` loads none.
+the sharper text and menus and your pad's buttons. `CONKER_TEXTURE_PACKS=0` loads none.
 `CONKER_DUMP_SHARP_FONT=<dir>` and `CONKER_DUMP_SHARP_MENUS=<dir>` write the
 sharper text and menus out as packs to edit; `tools/font_pack.py` writes the
-same pack outside the game, or with `--style traced` a version redrawn with
-crisp edges and a thin dark outline (`tools/font_trace.py`).
+font's glyphs with their hashes as a template for new art.
 
 ## 60 fps (experimental)
 

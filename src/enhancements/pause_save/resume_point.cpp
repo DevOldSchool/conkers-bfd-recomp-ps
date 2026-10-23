@@ -4,7 +4,7 @@
 // The game's save holds progress and the checkpoint to resume from (scene D_800BE3DF, entrance
 // D_800BE3E0), not where Conker stands. A save made from the pause menu (SAVE, or QUIT then Y)
 // also records the scene, entrance, position, Conker's facing and the camera's yaw in a file next
-// to the save, conker_us.resume, tagged with the save's sequence number. Starting that save (PLAY on
+// to the save, conker_us.resume (JSON, see parse_points), tagged with the save's sequence number. Starting that save (PLAY on
 // the title menu, or LOAD in the pause menu) then enters the recorded scene by that entrance, and
 // once the scene is running, Conker is moved to the recorded spot for the first few frames, facing
 // as he did, with the camera put back where it looked (as the debug menu's teleport does). (The spawn
@@ -13,6 +13,14 @@
 // a newer sequence number, so the game then resumes from that checkpoint as usual, except for the
 // save the game makes on entering the area just after resuming, which keeps the point. The
 // cartridge save format is unchanged.
+//
+// The game's save holds finished events (the event flags) and what has been collected, but not
+// what is under way in the scene: a conversation partway through a chain (the event script's
+// variables) or what a script has done to the scene's objects (a gate it opened). On hardware that
+// is lost by design, as a save always restarts at a checkpoint. So the point also records the
+// scene as whole tables of the game's own records (characters, scene objects, triggers, event
+// progress; see kTables) and the running event scripts' variables, and puts them back as Conker is
+// placed.
 //
 // Each of those saves is also kept as a snapshot in saves/snapshots/, named
 // scene<scene>-<YYYYMMDD>-<HHMMSS>: a .bin with the whole EEPROM, as conker_us.bin holds it, and a
@@ -25,6 +33,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -42,8 +51,13 @@
 #include "recomp.h"
 #include "ultramodern/ultramodern.hpp"
 #include "enhancements/status.hpp"
+#include "enhancements/switches.hpp"
 
 extern "C" void func_151E327C(uint8_t* rdram, recomp_context* ctx);
+extern "C" void func_15178DA4(uint8_t* rdram, recomp_context* ctx);
+extern "C" void func_15082A44(uint8_t* rdram, recomp_context* ctx);
+extern "C" void func_15060F28(uint8_t* rdram, recomp_context* ctx);
+extern "C" void func_1501D348(uint8_t* rdram, recomp_context* ctx);
 // librecomp's copy of the save (lib/N64ModernRuntime/librecomp/src/pi.cpp), read from and written
 // to RDRAM.
 void save_read(uint8_t* rdram, int32_t rdram_address, uint32_t offset, uint32_t count);
@@ -103,6 +117,119 @@ constexpr int kSlots = 3;
 // resumed one: the point carries over to it.
 constexpr std::chrono::seconds kResumeSaveWindow{10};
 
+// The scene's state is kept as whole tables of the game's own records, restored as they were saved
+// except for the words that hold addresses (see restorable), so nothing in them needs to be
+// understood one field at a time. A table is where its records are, how many there are and how big
+// one is:
+//   actors        the 25 characters at D_800CC2D0, 0x32C bytes each (Conker first, then the rest)
+//   objects       D_800DBEF0 scene objects of 0xA0 bytes at D_800DBEF4 (a gate, a door, a spinning
+//                 pickup; byte 0x73 is the state the object moves to: the cheese farm's gate in
+//                 scene 12 is 4 shut and 7 open)
+//   triggers      D_800D3094 zones of 0x34 bytes at D_800D3098 that start a cutscene or an event
+//                 when Conker enters them (func_150A11C4); byte 0x14 marks a one-shot trigger as
+//                 fired (Jack's conversation), and func_150A1DA0 skips it then
+//   event_status  D_800D2E70, a byte per event (1 running, 3 done)
+//   event_flags2  D_800D2E50, 16 bytes of event bits the save leaves out
+//   players       the 4 players' records of 0x1C bytes at D_800D213C (func_15085710 sets their
+//                 fields, func_150859AC reads them): byte 8 is the lives (D_800D2144 for Conker),
+//                 which the game puts back to its starting count when a save is loaded
+struct TableSpec {
+    const char* name;
+    uint32_t address;        // the records, or the pointer to them when `indirect`
+    bool indirect;
+    uint32_t count_address;  // a 32-bit count, or 0 for `fixed_count` records
+    int fixed_count;
+    uint32_t record_size;
+    int max_count;
+    int model_byte;          // actors: a slot is only restored if it holds the same model, or -1
+    int id_offset = -1;      // actors: a u16 naming the character in the scene, or -1 (see match_records)
+};
+constexpr TableSpec kTables[] = {
+    {"actors", 0x800CC2D0, false, 0, 25, 0x32C, 25, 0x4, 0x3A},
+    {"objects", 0x800DBEF4, true, 0x800DBEF0, 0, 0xA0, 512, -1},
+    {"triggers", 0x800D3098, true, 0x800D3094, 0, 0x34, 1024, -1},
+    {"event_status", 0x800D2E70, false, 0, 1, 0xCC, 1, -1},
+    {"event_flags2", 0x800D2E50, false, 0, 1, 0x10, 1, -1},
+    {"players", 0x800D213C, false, 0, 4, 0x1C, 4, -1},
+};
+constexpr uint32_t kActors = 0x800CC2D0;
+constexpr uint32_t kActorSize = 0x32C;
+constexpr int kActorCount = 25;
+constexpr int kActorPosition = 0x14;  // floats
+constexpr int kActorPlacement = 0x13F;  // u8, the scene placement it was made from, 0xFF for none
+// The scene's character placements: *D_800D20FC records of 0x30 bytes (+4 the model, +2 cleared by
+// a script before it makes one), D_800D2100 of them, and *D_800D210C a byte per placement, the slot
+// its character is in + 1 (0 while there is none; 0x80 is a flag of its own). func_15082A44(record,
+// placement, 0, 0, slot 0) makes a placement's character in a free slot, as the event scripts do
+// (0x15097980); func_15060F28(actor, 0) takes one away and frees its placement.
+// A cutscene (func_1501D348(scene, script, 0, 0, 0) starts one, as a trigger or an event script
+// does): D_800C35EA is 1 while one plays, D_800C35E8 its script in the scene.
+constexpr uint32_t kCutscenePlaying = 0x800C35EA;
+constexpr uint32_t kCutsceneScript = 0x800C35E8;
+constexpr uint32_t kPlacements = 0x800D20FC;
+constexpr uint32_t kPlacementCount = 0x800D2100;
+constexpr uint32_t kPlacementSlots = 0x800D210C;
+constexpr uint32_t kPlacementSize = 0x30;
+constexpr int kPlacementModel = 0x4;
+constexpr int kPlacementCleared = 0x2;
+// Swarms of bees, as Conker leads them to the sunflower in scene 12 (event 55): effect objects of
+// type 58 (see func_151670C0, which runs each type's list), in a list at D_800DCF38 of nodes
+// {..., next +0x8, ..., target +0x10, position +0x18 (three s32), the position last frame +0x28
+// (three s16), ..., +0x30 a speed, id +0x34}. The event's script points a swarm by its id
+// (func_15178B98) at a spot, three s16 at +0x10 (func_15178C34), or at a character's position,
+// its address at +0x10 and 0x8000 in the high half of +0x14 (func_15178BE4): Conker's while it
+// follows him, the sunflower's once it is delivered. The game makes them again from the start of
+// the event when a save is loaded, all at home; the point keeps them as they were (see
+// restore_swarms). The bees of type 58's list D_800DCF3C fly around their swarm (+0x14), at s16
+// +0x20, and are drawn only while it is in view (func_151787AC).
+constexpr uint32_t kSwarms = 0x800DCF38;
+constexpr uint32_t kBees = 0x800DCF3C;
+constexpr int kEffectNext = 0x8;
+constexpr int kSwarmTarget = 0x10;
+constexpr int kSwarmTargetFlag = 0x14;  // s16, -0x8000 when +0x10 holds an address
+constexpr int kSwarmPosition = 0x18;
+constexpr int kSwarmLastPosition = 0x28;
+constexpr int kSwarmSpeed = 0x30;
+constexpr int kSwarmId = 0x34;
+constexpr int kBeeSwarm = 0x14;
+constexpr int kBeePosition = 0x20;
+constexpr int kMaxSwarms = 32;
+constexpr int kMaxBees = 1024;
+// The running event scripts: a list {u16 count, head, tail} of nodes {u16 key (event id in the low
+// 10 bits), ..., u16 +6 variables' size, u16 +0xA their offset in the node, ..., next +0x18}. Their
+// variables are kept per event, as the nodes are allocated anywhere.
+constexpr uint32_t kScriptCount = 0x800D2F48;
+constexpr uint32_t kScriptHead = 0x800D2F4C;
+constexpr int kScriptVariablesSize = 0x6;
+constexpr int kScriptVariablesOffset = 0xA;
+constexpr int kScriptNext = 0x18;
+constexpr uint16_t kScriptEvent = 0x3FF;
+constexpr int kMaxScripts = 64;
+constexpr size_t kMaxScriptVariables = 1024;
+constexpr const char* kPointsFormat = "conker-recomp-resume";
+constexpr int kPointsVersion = 2;
+constexpr double kMaxCoordinate = 1.0e6;   // well past any level's size
+constexpr int kMaxScene = 255;
+
+struct TableState {
+    const TableSpec* spec = nullptr;
+    int count = 0;
+    std::vector<uint8_t> bytes;  // count * record_size, as the game holds them (big-endian words)
+};
+
+struct ScriptVariables {
+    uint16_t key = 0;
+    std::vector<uint8_t> bytes;
+};
+
+struct Swarm {
+    int id = 0;
+    int32_t position[3] = {};
+    int target_actor = -1;   // the character it flies after, or -1 for `target`
+    int16_t target[3] = {};
+    int16_t speed = 0;
+};
+
 struct Point {
     bool valid = false;
     uint32_t counter = 0;  // the save's sequence number
@@ -111,9 +238,17 @@ struct Point {
     float x = 0, y = 0, z = 0, yaw = 0;  // yaw in degrees
     bool has_view = false;               // facing and camera_yaw recorded (see Position)
     float facing = 0, camera_yaw = 0;
+    std::vector<TableState> tables;      // the scene as it was (see the top of the file)
+    std::vector<ScriptVariables> scripts;
+    bool has_swarms = false;             // recorded (an older point has none)
+    std::vector<Swarm> swarms;
+    int cutscene = -1;                   // the scene's cutscene to play again once placed, or -1
 };
 
 Point g_pending;           // remembered, waiting for the save to be written
+// The scene as the running cutscene found it (see note_cutscene), for a save made during it.
+Point g_cutscene_start;
+bool g_cutscene_was_playing = false;
 int g_pending_slot = -1;
 bool g_load_requested = false;
 Point g_resuming;          // being started, waiting for Conker to be placed
@@ -154,13 +289,12 @@ int g_snapshot_scene = 0;
 int g_snapshot_slot = 0;
 std::time_t g_snapshot_time = 0;
 
-bool snapshots_enabled() {
-    static const bool enabled = [] {
-        const char* value = std::getenv("CONKER_SAVE_SNAPSHOTS");
-        return value == nullptr || value[0] != '0';
-    }();
-    return enabled;
-}
+std::atomic<bool> g_snapshots_enabled{[] {
+    const char* value = std::getenv("CONKER_SAVE_SNAPSHOTS");
+    return value == nullptr || value[0] != '0';
+}()};  // the debug menu switches it
+
+bool snapshots_enabled() { return g_snapshots_enabled.load(std::memory_order_relaxed); }
 
 std::filesystem::path points_path() {
     std::filesystem::path path = ultramodern::get_save_file_path();
@@ -168,60 +302,323 @@ std::filesystem::path points_path() {
     return path;
 }
 
-// One line per slot: "<slot> <counter> <scene> <entrance> <x> <y> <z> <yaw>", then "<facing> <camera
-// yaw>" if they were recorded (points saved before that have none). `first_slot` is set
-// to the slot of the first line, or -1 when there is none. Read with sscanf: a stream refuses a
-// float too small to be normal (a facing of 5.7e-39 degrees), and the line would be lost.
+// A finite number in [low, high] at `key` of `object`.
+bool number_in(const nlohmann::json& object, const char* key, double low, double high, double* out = nullptr) {
+    if (!object.is_object() || !object.contains(key) || !object[key].is_number()) {
+        return false;
+    }
+    const double value = object[key].get<double>();
+    if (!std::isfinite(value) || value < low || value > high) {
+        return false;
+    }
+    if (out != nullptr) {
+        *out = value;
+    }
+    return true;
+}
+
+// A whole number in [low, high] at `key` of `object`.
+bool whole_in(const nlohmann::json& object, const char* key, double low, double high, double* out) {
+    return number_in(object, key, low, high, out) && *out == std::floor(*out);
+}
+
+int hex_digit(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    return c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+}
+
+// `digits` as exactly `size` bytes into `out`; false if it is anything else.
+bool from_hex(const std::string& digits, size_t size, std::vector<uint8_t>* out) {
+    if (digits.size() != 2 * size) {
+        return false;
+    }
+    out->clear();
+    out->reserve(size);
+    for (size_t i = 0; i < digits.size(); i += 2) {
+        const int high = hex_digit(digits[i]), low = hex_digit(digits[i + 1]);
+        if (high < 0 || low < 0) {
+            return false;
+        }
+        out->push_back(static_cast<uint8_t>(high * 16 + low));
+    }
+    return true;
+}
+
+// One point of the points file (see parse_points) into `point` and its slot into `slot`.
+bool parse_point(const nlohmann::json& entry, Point* point, int* slot) {
+    double value, counter, scene, entrance;
+    if (!whole_in(entry, "slot", 0, kSlots - 1, &value) || !whole_in(entry, "counter", 0, 4294967295.0, &counter) ||
+        !whole_in(entry, "scene", 0, kMaxScene, &scene) || !whole_in(entry, "entrance", 0, 255, &entrance)) {
+        return false;
+    }
+    *slot = static_cast<int>(value);
+    point->counter = static_cast<uint32_t>(counter);
+    point->scene = static_cast<int>(scene);
+    point->entrance = static_cast<int>(entrance);
+    float* const coordinates[] = {&point->x, &point->y, &point->z, &point->yaw};
+    const char* const names[] = {"x", "y", "z", "yaw"};
+    for (int i = 0; i < 4; i++) {
+        if (!number_in(entry, names[i], -kMaxCoordinate, kMaxCoordinate, &value)) {
+            return false;
+        }
+        *coordinates[i] = static_cast<float>(value);
+    }
+    point->has_view = entry.contains("facing") || entry.contains("camera_yaw");
+    if (point->has_view) {
+        double facing, camera_yaw;
+        if (!number_in(entry, "facing", -kMaxCoordinate, kMaxCoordinate, &facing) ||
+            !number_in(entry, "camera_yaw", -kMaxCoordinate, kMaxCoordinate, &camera_yaw)) {
+            return false;
+        }
+        point->facing = static_cast<float>(facing);
+        point->camera_yaw = static_cast<float>(camera_yaw);
+    }
+    if (entry.contains("tables")) {
+        const nlohmann::json& tables = entry["tables"];
+        if (!tables.is_array() || tables.size() > std::size(kTables)) {
+            return false;
+        }
+        for (const nlohmann::json& item : tables) {
+            if (!item.is_object() || !item.contains("name") || !item["name"].is_string() || !item.contains("bytes") ||
+                !item["bytes"].is_string()) {
+                return false;
+            }
+            const TableSpec* spec = nullptr;
+            for (const TableSpec& candidate : kTables) {
+                if (item["name"] == candidate.name) {
+                    spec = &candidate;
+                }
+            }
+            double count, record_size;
+            if (spec == nullptr || !whole_in(item, "count", 1, spec->max_count, &count) ||
+                !whole_in(item, "record_size", spec->record_size, spec->record_size, &record_size)) {
+                return false;
+            }
+            for (const TableState& seen : point->tables) {
+                if (seen.spec == spec) {
+                    return false;
+                }
+            }
+            TableState table;
+            table.spec = spec;
+            table.count = static_cast<int>(count);
+            if (!from_hex(item["bytes"].get_ref<const std::string&>(), static_cast<size_t>(table.count) * spec->record_size,
+                          &table.bytes)) {
+                return false;
+            }
+            point->tables.push_back(std::move(table));
+        }
+    }
+    if (entry.contains("scripts")) {
+        const nlohmann::json& scripts = entry["scripts"];
+        if (!scripts.is_array() || scripts.size() > static_cast<size_t>(kMaxScripts)) {
+            return false;
+        }
+        for (const nlohmann::json& item : scripts) {
+            double key;
+            if (!whole_in(item, "key", 0, 0xFFFF, &key) || !item.contains("variables") || !item["variables"].is_string()) {
+                return false;
+            }
+            const std::string& digits = item["variables"].get_ref<const std::string&>();
+            ScriptVariables script;
+            script.key = static_cast<uint16_t>(key);
+            if (digits.empty() || digits.size() > 2 * kMaxScriptVariables ||
+                !from_hex(digits, digits.size() / 2, &script.bytes)) {
+                return false;
+            }
+            point->scripts.push_back(std::move(script));
+        }
+    }
+    if (entry.contains("swarms")) {
+        const nlohmann::json& swarms = entry["swarms"];
+        if (!swarms.is_array() || swarms.size() > static_cast<size_t>(kMaxSwarms)) {
+            return false;
+        }
+        for (const nlohmann::json& item : swarms) {
+            Swarm swarm;
+            double id, speed;
+            if (!whole_in(item, "id", 0, 255, &id) || !whole_in(item, "speed", -32768, 32767, &speed) ||
+                !item.contains("position") || !item["position"].is_array() || item["position"].size() != 3) {
+                return false;
+            }
+            swarm.id = static_cast<int>(id);
+            swarm.speed = static_cast<int16_t>(speed);
+            for (int axis = 0; axis < 3; axis++) {
+                const nlohmann::json& value = item["position"][axis];
+                if (!value.is_number_integer() || value.get<double>() < -kMaxCoordinate ||
+                    value.get<double>() > kMaxCoordinate) {
+                    return false;
+                }
+                swarm.position[axis] = value.get<int32_t>();
+            }
+            double actor;
+            if (item.contains("target_actor")) {
+                if (!whole_in(item, "target_actor", 0, kActorCount - 1, &actor)) {
+                    return false;
+                }
+                swarm.target_actor = static_cast<int>(actor);
+            } else {
+                if (!item.contains("target") || !item["target"].is_array() || item["target"].size() != 3) {
+                    return false;
+                }
+                for (int axis = 0; axis < 3; axis++) {
+                    const nlohmann::json& value = item["target"][axis];
+                    if (!value.is_number_integer() || value.get<double>() < -32768 || value.get<double>() > 32767) {
+                        return false;
+                    }
+                    swarm.target[axis] = static_cast<int16_t>(value.get<int32_t>());
+                }
+            }
+            for (const Swarm& seen : point->swarms) {
+                if (seen.id == swarm.id) {
+                    return false;
+                }
+            }
+            point->swarms.push_back(swarm);
+        }
+        point->has_swarms = true;
+    }
+    if (entry.contains("cutscene")) {
+        double cutscene;
+        if (!whole_in(entry, "cutscene", 0, 255, &cutscene)) {
+            return false;
+        }
+        point->cutscene = static_cast<int>(cutscene);
+    }
+    point->valid = true;
+    return true;
+}
+
+// The points file, conker_us.resume (a snapshot's .resume, a report's save.resume), is JSON:
+// {"format": "conker-recomp-resume", "version": 2, "slots": [point, ...]}, at most one point per slot,
+// the saved slot's first. A point: "slot", "counter" (the save's sequence number), "scene", "entrance",
+// "x", "y", "z", "yaw" (degrees), "facing" and "camera_yaw" when they were recorded, and the scene as
+// it was: "tables" [{"name", "count", "record_size", "bytes", hex}] (see kTables), "scripts"
+// [{"key", "variables", hex}] and "swarms" [{"id", "position" [x, y, z], "target_actor" or "target"
+// [x, y, z], "speed"}] (see kSwarms), and "cutscene" when the save was made during one (see
+// note_cutscene). Everything is checked (a report's may come from anyone); false with
+// the reason in `problem`. `first_slot` is the first point's slot, or -1 when there is none.
+bool parse_points(const std::string& text, std::array<Point, kSlots>* points, int* first_slot, std::string* problem) {
+    *points = {};
+    *first_slot = -1;
+    const nlohmann::json doc = nlohmann::json::parse(text, nullptr, false);
+    if (!doc.is_object() || !doc.contains("format") || doc["format"] != kPointsFormat || !doc.contains("version") ||
+        doc["version"] != kPointsVersion || !doc.contains("slots") || !doc["slots"].is_array() ||
+        doc["slots"].size() > static_cast<size_t>(kSlots)) {
+        *problem = "not a version 2 resume file";
+        return false;
+    }
+    for (const nlohmann::json& entry : doc["slots"]) {
+        Point point;
+        int slot;
+        if (!parse_point(entry, &point, &slot) || (*points)[slot].valid) {
+            *problem = "a point is not valid";
+            *points = {};
+            *first_slot = -1;
+            return false;
+        }
+        (*points)[slot] = std::move(point);
+        if (*first_slot < 0) {
+            *first_slot = slot;
+        }
+    }
+    return true;
+}
+
 std::array<Point, kSlots> read_points(const std::filesystem::path& path, int* first_slot = nullptr) {
     std::array<Point, kSlots> points{};
-    if (first_slot != nullptr) {
-        *first_slot = -1;
-    }
+    int first;
     std::ifstream file(path);
-    for (std::string line; std::getline(file, line);) {
-        int slot;
-        Point point;
-        const int fields = std::sscanf(line.c_str(), "%d %u %d %d %f %f %f %f %f %f", &slot, &point.counter, &point.scene,
-                                       &point.entrance, &point.x, &point.y, &point.z, &point.yaw, &point.facing,
-                                       &point.camera_yaw);
-        if (fields >= 8 && slot >= 0 && slot < kSlots) {
-            point.valid = true;
-            point.has_view = fields == 10;
-            points[slot] = point;
-            if (first_slot != nullptr && *first_slot < 0) {
-                *first_slot = slot;
-            }
+    if (file) {
+        const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        std::string problem;
+        if (!parse_points(text, &points, &first, &problem)) {
+            std::printf("[conker] %s: %s; no resume points\n", path.string().c_str(), problem.c_str());
         }
+    }
+    if (first_slot != nullptr) {
+        *first_slot = file ? first : -1;
     }
     return points;
 }
 
 std::array<Point, kSlots> read_points() { return read_points(points_path()); }
 
-// `first_slot`'s line goes first, so a snapshot says which slot it saved.
+std::string to_hex(const std::vector<uint8_t>& bytes) {
+    std::string text;
+    for (uint8_t byte : bytes) {
+        char digits[3];
+        std::snprintf(digits, sizeof(digits), "%02x", byte);
+        text += digits;
+    }
+    return text;
+}
+
+// `first_slot`'s point goes first, so a snapshot says which slot it saved.
 void write_points(const std::array<Point, kSlots>& points, const std::filesystem::path& path, int first_slot = -1) {
-    std::filesystem::create_directories(path.parent_path());
-    std::ofstream file(path, std::ios::trunc);
-    file << std::fixed << std::setprecision(2);
-    auto write = [&](int slot) {
+    nlohmann::json slots = nlohmann::json::array();
+    auto add = [&](int slot) {
         const Point& p = points[slot];
-        if (p.valid) {
-            file << slot << ' ' << p.counter << ' ' << p.scene << ' ' << p.entrance << ' ' << p.x << ' ' << p.y << ' '
-                 << p.z << ' ' << p.yaw;
-            if (p.has_view) {
-                file << ' ' << p.facing << ' ' << p.camera_yaw;
-            }
-            file << '\n';
+        if (!p.valid) {
+            return;
         }
+        nlohmann::json entry = {{"slot", slot}, {"counter", p.counter}, {"scene", p.scene}, {"entrance", p.entrance},
+                                {"x", p.x},     {"y", p.y},             {"z", p.z},         {"yaw", p.yaw}};
+        if (p.has_view) {
+            entry["facing"] = p.facing;
+            entry["camera_yaw"] = p.camera_yaw;
+        }
+        nlohmann::json tables = nlohmann::json::array();
+        for (const TableState& table : p.tables) {
+            tables.push_back({{"name", table.spec->name},
+                              {"count", table.count},
+                              {"record_size", table.spec->record_size},
+                              {"bytes", to_hex(table.bytes)}});
+        }
+        nlohmann::json scripts = nlohmann::json::array();
+        for (const ScriptVariables& script : p.scripts) {
+            scripts.push_back({{"key", script.key}, {"variables", to_hex(script.bytes)}});
+        }
+        entry["tables"] = std::move(tables);
+        entry["scripts"] = std::move(scripts);
+        if (p.has_swarms) {
+            nlohmann::json swarms = nlohmann::json::array();
+            for (const Swarm& swarm : p.swarms) {
+                nlohmann::json item = {{"id", swarm.id},
+                                       {"position", {swarm.position[0], swarm.position[1], swarm.position[2]}},
+                                       {"speed", swarm.speed}};
+                if (swarm.target_actor >= 0) {
+                    item["target_actor"] = swarm.target_actor;
+                } else {
+                    item["target"] = {swarm.target[0], swarm.target[1], swarm.target[2]};
+                }
+                swarms.push_back(std::move(item));
+            }
+            entry["swarms"] = std::move(swarms);
+        }
+        if (p.cutscene >= 0) {
+            entry["cutscene"] = p.cutscene;
+        }
+        slots.push_back(std::move(entry));
     };
     if (first_slot >= 0 && first_slot < kSlots) {
-        write(first_slot);
+        add(first_slot);
     }
     for (int slot = 0; slot < kSlots; slot++) {
         if (slot != first_slot) {
-            write(slot);
+            add(slot);
         }
     }
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream(path, std::ios::trunc) << nlohmann::json{{"format", kPointsFormat}, {"version", kPointsVersion},
+                                                           {"slots", std::move(slots)}}
+                                                .dump(1)
+                                         << '\n';
 }
 
 void write_points(const std::array<Point, kSlots>& points) { write_points(points, points_path()); }
@@ -237,6 +634,369 @@ float read_float(uint8_t* rdram, uint32_t address) {
     float value;
     std::memcpy(&value, &bits, sizeof(value));
     return value;
+}
+
+bool in_rdram(uint32_t address) { return (address & 0xFF800000) == 0x80000000; }
+
+// Where `spec`'s records are and how many there are now; 0 when there are none (no scene).
+uint32_t table_records(uint8_t* rdram, const TableSpec& spec, int* count) {
+    const uint32_t records = spec.indirect ? static_cast<uint32_t>(MEM_W(0, kseg0(spec.address))) : spec.address;
+    *count = spec.count_address != 0 ? MEM_W(0, kseg0(spec.count_address)) : spec.fixed_count;
+    if (!in_rdram(records) || *count <= 0 || *count > spec.max_count ||
+        !in_rdram(records + static_cast<uint32_t>(*count) * spec.record_size - 1)) {
+        *count = 0;
+        return 0;
+    }
+    return records;
+}
+
+// A word that holds an address in RDRAM: it belongs to this run of the game (where things were
+// allocated). Addresses in the game's code are the same in every run, so they are not among them;
+// counting them in too (0x10, 0x15, 0x16 high bytes) once left out a byte field of 0x16, scene 12's
+// walking crate's state (actor +0x138), which then went back to where it started.
+bool is_address(uint32_t word) { return word >= 0x80000400 && word < 0x80800000; }
+
+// Whether the word saved as `then` goes back over the one there `now`: not an address of the saved
+// run, and not an empty field over something the game has since allocated.
+bool restorable(uint32_t then, uint32_t now) { return !is_address(then) && !(then == 0 && is_address(now)); }
+
+// Calls `visit(node)` for each running event script, while the list holds together.
+template <typename Visit>
+void for_each_script(uint8_t* rdram, Visit visit) {
+    const int count = MEM_HU(0, kseg0(kScriptCount));
+    uint32_t node = static_cast<uint32_t>(MEM_W(0, kseg0(kScriptHead)));
+    for (int i = 0; i < count && i < kMaxScripts && in_rdram(node); i++) {
+        visit(node);
+        node = static_cast<uint32_t>(MEM_W(0, kseg0(node + kScriptNext)));
+    }
+}
+
+// Calls `visit(node)` for each effect object in the list at `head` (kSwarms, kBees), at most `limit`.
+template <typename Visit>
+void for_each_effect(uint8_t* rdram, uint32_t head, int limit, Visit visit) {
+    uint32_t node = static_cast<uint32_t>(MEM_W(0, kseg0(head)));
+    for (int i = 0; i < limit && in_rdram(node); i++) {
+        const uint32_t next = static_cast<uint32_t>(MEM_W(0, kseg0(node + kEffectNext)));
+        visit(node);
+        node = next;
+    }
+}
+
+// The character whose position `address` is, or -1.
+int actor_at(uint32_t address) {
+    if (address < kActors + kActorPosition || address >= kActors + kActorCount * kActorSize) {
+        return -1;
+    }
+    const uint32_t offset = address - kActors - kActorPosition;
+    return offset % kActorSize == 0 ? static_cast<int>(offset / kActorSize) : -1;
+}
+
+// Records the swarms (see kSwarms) in `point`; none if one flies after anything but a character,
+// so that restore_swarms leaves them as the game makes them.
+void capture_swarms(uint8_t* rdram, Point* point) {
+    point->swarms.clear();
+    point->has_swarms = true;
+    for_each_effect(rdram, kSwarms, kMaxSwarms, [&](uint32_t node) {
+        Swarm swarm;
+        swarm.id = MEM_BU(kSwarmId, kseg0(node));
+        for (int axis = 0; axis < 3; axis++) {
+            swarm.position[axis] = MEM_W(kSwarmPosition + 4 * axis, kseg0(node));
+            swarm.target[axis] = MEM_H(kSwarmTarget + 2 * axis, kseg0(node));
+        }
+        swarm.speed = MEM_H(kSwarmSpeed, kseg0(node));
+        if (MEM_H(kSwarmTargetFlag, kseg0(node)) == -0x8000) {
+            swarm.target_actor = actor_at(static_cast<uint32_t>(MEM_W(kSwarmTarget, kseg0(node))));
+            if (swarm.target_actor < 0) {
+                point->has_swarms = false;
+            }
+        }
+        point->swarms.push_back(swarm);
+    });
+    if (!point->has_swarms) {
+        point->swarms.clear();
+    }
+}
+
+// Puts the swarms back as `point` recorded them, each by its id: where it was, what it flew after
+// and how fast, with its bees moved along with it (they would otherwise stream across the level
+// from the swarm's home). A swarm the point did not have (one already gone then) is taken away
+// with its bees (func_15178DA4); one the game has not made again cannot be. The character a swarm
+// flies after is the one saved in that slot, in whichever slot it is now (`actor_slots`, see
+// match_records; left as the game made it if that character is not here).
+void restore_swarms(uint8_t* rdram, recomp_context* ctx, const Point& point, const std::vector<int>& actor_slots,
+                    std::string* restored) {
+    int moved = 0;
+    std::vector<uint32_t> extra;
+    for_each_effect(rdram, kSwarms, kMaxSwarms, [&](uint32_t node) {
+        const int id = MEM_BU(kSwarmId, kseg0(node));
+        const auto saved = std::find_if(point.swarms.begin(), point.swarms.end(), [&](const Swarm& s) { return s.id == id; });
+        if (saved == point.swarms.end()) {
+            extra.push_back(node);
+            return;
+        }
+        int32_t shift[3];
+        for (int axis = 0; axis < 3; axis++) {
+            shift[axis] = saved->position[axis] - MEM_W(kSwarmPosition + 4 * axis, kseg0(node));
+            MEM_W(kSwarmPosition + 4 * axis, kseg0(node)) = saved->position[axis];
+            MEM_H(kSwarmLastPosition + 2 * axis, kseg0(node)) = static_cast<int16_t>(saved->position[axis]);
+        }
+        if (saved->target_actor >= 0) {
+            const int slot = saved->target_actor < static_cast<int>(actor_slots.size()) ? actor_slots[saved->target_actor]
+                                                                                       : saved->target_actor;
+            if (slot >= 0) {
+                MEM_W(kSwarmTarget, kseg0(node)) =
+                    static_cast<int32_t>(kActors + static_cast<uint32_t>(slot) * kActorSize + kActorPosition);
+                MEM_W(kSwarmTargetFlag, kseg0(node)) = static_cast<int32_t>(0x80000000u);
+            }
+        } else {
+            for (int axis = 0; axis < 3; axis++) {
+                MEM_H(kSwarmTarget + 2 * axis, kseg0(node)) = saved->target[axis];
+            }
+        }
+        MEM_H(kSwarmSpeed, kseg0(node)) = saved->speed;
+        for_each_effect(rdram, kBees, kMaxBees, [&](uint32_t bee) {
+            if (static_cast<uint32_t>(MEM_W(kBeeSwarm, kseg0(bee))) != node) {
+                return;
+            }
+            for (int axis = 0; axis < 3; axis++) {
+                const int32_t moved_to = MEM_H(kBeePosition + 2 * axis, kseg0(bee)) + shift[axis];
+                MEM_H(kBeePosition + 2 * axis, kseg0(bee)) = static_cast<int16_t>(std::clamp(moved_to, -32768, 32767));
+            }
+        });
+        moved++;
+    });
+    for (uint32_t node : extra) {
+        recomp_context saved = *ctx;
+        ctx->r4 = kseg0(node);
+        func_15178DA4(rdram, ctx);
+        *ctx = saved;
+    }
+    *restored += " swarms " + std::to_string(moved) + "/" + std::to_string(point.swarms.size());
+    if (!extra.empty()) {
+        *restored += " (" + std::to_string(extra.size()) + " taken away)";
+    }
+}
+
+// Records the scene as it is now (see the top of the file) in `point`.
+void capture_scene(uint8_t* rdram, Point* point) {
+    capture_swarms(rdram, point);
+    point->tables.clear();
+    point->scripts.clear();
+    for (const TableSpec& spec : kTables) {
+        TableState table;
+        const uint32_t records = table_records(rdram, spec, &table.count);
+        if (table.count == 0) {
+            continue;
+        }
+        table.spec = &spec;
+        const uint32_t size = static_cast<uint32_t>(table.count) * spec.record_size;
+        for (uint32_t i = 0; i < size; i++) {
+            table.bytes.push_back(MEM_BU(static_cast<int>(i), kseg0(records)));
+        }
+        point->tables.push_back(std::move(table));
+    }
+    for_each_script(rdram, [&](uint32_t node) {
+        const uint32_t size = MEM_HU(kScriptVariablesSize, kseg0(node));
+        const uint32_t variables = node + MEM_HU(kScriptVariablesOffset, kseg0(node));
+        if (size == 0 || size > kMaxScriptVariables) {
+            return;
+        }
+        ScriptVariables script;
+        script.key = MEM_HU(0, kseg0(node));
+        for (uint32_t i = 0; i < size; i++) {
+            script.bytes.push_back(MEM_BU(static_cast<int>(i), kseg0(variables)));
+        }
+        point->scripts.push_back(std::move(script));
+    });
+}
+
+// Calls one of the game's functions with `a0`, `a1` and zeros for the other arguments (a fifth on
+// the stack too), from a hook, leaving the hook's registers as they were.
+void call_game(uint8_t* rdram, recomp_context* ctx, void (*function)(uint8_t*, recomp_context*), uint32_t a0,
+               uint32_t a1) {
+    recomp_context saved = *ctx;
+    ctx->r29 -= 0x40;  // room for the fifth argument below the hook's caller
+    ctx->r4 = static_cast<gpr>(static_cast<int32_t>(a0));
+    ctx->r5 = static_cast<gpr>(static_cast<int32_t>(a1));
+    ctx->r6 = 0;
+    ctx->r7 = 0;
+    MEM_W(0x10, ctx->r29) = 0;
+    function(rdram, ctx);
+    *ctx = saved;
+}
+
+// Makes the scene's characters the ones the point had. The game makes some characters as the scene
+// is played (scene 6's three wasps, by an event script) and takes others away, while loading a save
+// makes the scene's starting ones; so a character the point had from a placement that has none now
+// is made (func_15082A44, as a script does), and one now from a placement the point had none from is
+// taken away (func_15060F28), Conker aside. match_records then finds each saved one its slot.
+void sync_characters(uint8_t* rdram, recomp_context* ctx, const TableState& actors, std::string* restored) {
+    const uint32_t placements = static_cast<uint32_t>(MEM_W(0, kseg0(kPlacements)));
+    const uint32_t slots = static_cast<uint32_t>(MEM_W(0, kseg0(kPlacementSlots)));
+    const int placement_count = MEM_BU(0, kseg0(kPlacementCount));
+    if (!in_rdram(placements) || !in_rdram(slots) || placement_count == 0) {
+        return;
+    }
+    std::vector<int> saved_model(placement_count, -1);  // per placement, the model the point had from it
+    for (int i = 0; i < actors.count; i++) {
+        const uint8_t* saved = actors.bytes.data() + static_cast<size_t>(i) * kActorSize;
+        const int placement = saved[kActorPlacement];
+        if ((saved[0] | saved[1] | saved[2] | saved[3]) != 0 && placement < placement_count) {
+            saved_model[placement] = saved[actors.spec->model_byte];
+        }
+    }
+    auto call = [&](void (*function)(uint8_t*, recomp_context*), uint32_t a0, uint32_t a1) {
+        call_game(rdram, ctx, function, a0, a1);
+    };
+    std::vector<bool> present(placement_count, false);
+    int removed = 0;
+    for (int slot = 0; slot < kActorCount; slot++) {
+        const uint32_t actor = kActors + static_cast<uint32_t>(slot) * kActorSize;
+        const int placement = MEM_BU(kActorPlacement, kseg0(actor));
+        if (MEM_W(0, kseg0(actor)) == 0 || placement >= placement_count) {
+            continue;
+        }
+        if (slot != 0 && saved_model[placement] < 0) {
+            call(func_15060F28, actor, 0);
+            removed++;
+        } else {
+            present[placement] = true;
+        }
+    }
+    int made = 0;
+    for (int placement = 0; placement < placement_count; placement++) {
+        const uint32_t record = placements + static_cast<uint32_t>(placement) * kPlacementSize;
+        if (saved_model[placement] < 0 || present[placement] || (MEM_BU(placement, kseg0(slots)) & 0x7F) != 0 ||
+            MEM_BU(kPlacementModel, kseg0(record)) != saved_model[placement]) {
+            continue;
+        }
+        MEM_B(kPlacementCleared, kseg0(record)) = 0;
+        call(func_15082A44, record, static_cast<uint32_t>(placement));
+        made++;
+    }
+    if (made != 0 || removed != 0) {
+        *restored += " characters made " + std::to_string(made) + ", taken away " + std::to_string(removed) + ";";
+    }
+}
+
+// Which record now each saved one goes back over, or -1 (and, for the actors, which slot each saved
+// one is in now, for restore_swarms). A scene does not always fill the character slots in the same
+// order: loaded again, scene 6's Tediz and the others after them came back shuffled, and put back
+// slot by slot five were left out and two Tediz stood twice. So a record that is in use (a nonzero
+// first word) goes back over the one with the same model and the same `id_offset` (the low half of
+// actor +0x38, 0xD8F000xx, one number per character of the scene), in its own slot if that is the
+// one; then any other record over the one in its own slot that holds the same model, as before, or
+// that is as empty (a slot freed while playing holds model 0xFF, one never used 0).
+std::vector<int> match_records(uint8_t* rdram, const TableSpec& spec, uint32_t records, const TableState& table) {
+    const int count = table.count;
+    std::vector<int> now_of(count, -1);
+    std::vector<bool> taken(count, false);
+    auto saved_at = [&](int index) { return table.bytes.data() + static_cast<size_t>(index) * spec.record_size; };
+    auto record_at = [&](int index) { return records + static_cast<uint32_t>(index) * spec.record_size; };
+    auto in_use = [&](int index) {
+        const uint8_t* saved = saved_at(index);
+        return (saved[0] | saved[1] | saved[2] | saved[3]) != 0;
+    };
+    auto fits = [&](int saved_index, int index, bool by_id) {
+        const uint8_t* saved = saved_at(saved_index);
+        const uint32_t record = record_at(index);
+        if (spec.model_byte >= 0 && MEM_BU(spec.model_byte, kseg0(record)) != saved[spec.model_byte]) {
+            return false;
+        }
+        return !by_id || MEM_HU(spec.id_offset, kseg0(record)) ==
+                             ((uint32_t{saved[spec.id_offset]} << 8) | saved[spec.id_offset + 1]);
+    };
+    auto take = [&](int saved_index, int index) {
+        now_of[saved_index] = index;
+        taken[index] = true;
+    };
+    if (spec.id_offset >= 0) {
+        for (int i = 0; i < count; i++) {
+            if (in_use(i) && fits(i, i, true)) {
+                take(i, i);
+            }
+        }
+        for (int i = 0; i < count; i++) {
+            for (int j = 0; j < count && now_of[i] < 0 && in_use(i); j++) {
+                if (!taken[j] && fits(i, j, true)) {
+                    take(i, j);
+                }
+            }
+        }
+    }
+    for (int i = 0; i < count; i++) {
+        const bool both_empty = spec.id_offset >= 0 && !in_use(i) && MEM_W(0, kseg0(record_at(i))) == 0;
+        if (now_of[i] < 0 && !taken[i] && (fits(i, i, false) || both_empty)) {
+            take(i, i);
+        }
+    }
+    return now_of;
+}
+
+// Puts back the scene `point` recorded: each table whose record count is the same as now (an actor
+// slot only if it holds the same model), word by word, except the words restorable leaves, and the variables of each event script running again (the same event, the
+// same size). The game then carries on from there: objects move to the states they had, a fired
+// trigger stays fired. Then the swarms (restore_swarms).
+void restore_scene(uint8_t* rdram, recomp_context* ctx, const Point& point) {
+    std::string restored;
+    std::vector<int> actor_slots;  // saved slot -> slot now (match_records), empty if not restored
+    for (const TableState& table : point.tables) {
+        if (table.spec->id_offset >= 0) {
+            sync_characters(rdram, ctx, table, &restored);
+        }
+    }
+    for (const TableState& table : point.tables) {
+        const TableSpec& spec = *table.spec;
+        int count;
+        const uint32_t records = table_records(rdram, spec, &count);
+        if (count != table.count) {
+            restored += std::string(" ") + spec.name + " (skipped, " + std::to_string(count) + " now, " +
+                        std::to_string(table.count) + " saved)";
+            continue;
+        }
+        const std::vector<int> now_of = match_records(rdram, spec, records, table);
+        if (spec.id_offset >= 0) {
+            actor_slots = now_of;
+        }
+        int records_restored = 0;
+        for (int index = 0; index < count; index++) {
+            if (now_of[index] < 0) {
+                continue;
+            }
+            const uint32_t record = records + static_cast<uint32_t>(now_of[index]) * spec.record_size;
+            const uint8_t* saved = table.bytes.data() + static_cast<size_t>(index) * spec.record_size;
+            for (uint32_t offset = 0; offset < spec.record_size; offset += 4) {
+                const uint32_t then = (uint32_t{saved[offset]} << 24) | (uint32_t{saved[offset + 1]} << 16) |
+                                      (uint32_t{saved[offset + 2]} << 8) | saved[offset + 3];
+                const uint32_t now = static_cast<uint32_t>(MEM_W(0, kseg0(record + offset)));
+                if (restorable(then, now)) {
+                    MEM_W(0, kseg0(record + offset)) = static_cast<int32_t>(then);
+                }
+            }
+            records_restored++;
+        }
+        restored += std::string(" ") + spec.name + " " + std::to_string(records_restored) + "/" + std::to_string(count);
+    }
+    int scripts = 0;
+    for_each_script(rdram, [&](uint32_t node) {
+        const uint16_t key = MEM_HU(0, kseg0(node));
+        const uint32_t size = MEM_HU(kScriptVariablesSize, kseg0(node));
+        const uint32_t variables = node + MEM_HU(kScriptVariablesOffset, kseg0(node));
+        for (const ScriptVariables& script : point.scripts) {
+            if ((script.key & kScriptEvent) == (key & kScriptEvent) && script.bytes.size() == size) {
+                for (uint32_t i = 0; i < size; i++) {
+                    MEM_B(static_cast<int>(i), kseg0(variables)) = static_cast<int8_t>(script.bytes[i]);
+                }
+                scripts++;
+                break;
+            }
+        }
+    });
+    if (point.has_swarms) {
+        restore_swarms(rdram, ctx, point, actor_slots, &restored);
+    }
+    std::printf("[conker] resumed scene state:%s, event scripts %d/%zu\n", restored.c_str(), scripts,
+                point.scripts.size());
 }
 
 // Puts Conker's object at the point, this frame and the last (so he does not sweep there).
@@ -445,22 +1205,51 @@ void settle_camera(uint8_t* rdram) {
 
 }  // namespace
 
-void remember_position(uint8_t* rdram, int slot) {
+// Records where Conker is and the scene as it is now in `point`; false when there is no Conker.
+bool capture_point(uint8_t* rdram, Point* point) {
     const uint32_t object = static_cast<uint32_t>(MEM_W(0, kseg0(kPlayerObject)));
-    if (slot < 0 || slot >= kSlots || (object & 0xFF000000) != 0x80000000) {
+    if ((object & 0xFF000000) != 0x80000000) {
+        return false;
+    }
+    *point = Point{};
+    point->valid = true;
+    point->scene = MEM_W(0, kseg0(kScene));
+    point->entrance = MEM_BU(0, kseg0(kEntrance));
+    point->x = read_float(rdram, object + kObjectX);
+    point->y = read_float(rdram, object + kObjectY);
+    point->z = read_float(rdram, object + kObjectZ);
+    point->yaw = read_float(rdram, object + kObjectYaw) * (180.0f / 3.14159265f);
+    Position here;
+    point->has_view = current_position(rdram, &here) && here.has_view;
+    point->facing = here.facing;
+    point->camera_yaw = here.camera_yaw;
+    capture_scene(rdram, point);
+    return true;
+}
+
+// A save made during a cutscene is the scene as the cutscene found it, which plays again from its
+// start once the save is resumed: the cutscene itself cannot be taken up partway. So the scene is
+// recorded on the first frame of every cutscene (from conker_resume_tick).
+void note_cutscene(uint8_t* rdram) {
+    const bool playing = MEM_BU(0, kseg0(kCutscenePlaying)) == 1;
+    if (playing && !g_cutscene_was_playing && !g_resuming.valid && capture_point(rdram, &g_cutscene_start)) {
+        g_cutscene_start.cutscene = MEM_BU(0, kseg0(kCutsceneScript));
+    } else if (!playing) {
+        g_cutscene_start.valid = false;
+    }
+    g_cutscene_was_playing = playing;
+}
+
+void remember_position(uint8_t* rdram, int slot) {
+    if (slot < 0 || slot >= kSlots) {
         return;
     }
-    g_pending.valid = true;
-    g_pending.scene = MEM_W(0, kseg0(kScene));
-    g_pending.entrance = MEM_BU(0, kseg0(kEntrance));
-    g_pending.x = read_float(rdram, object + kObjectX);
-    g_pending.y = read_float(rdram, object + kObjectY);
-    g_pending.z = read_float(rdram, object + kObjectZ);
-    g_pending.yaw = read_float(rdram, object + kObjectYaw) * (180.0f / 3.14159265f);
-    Position here;
-    g_pending.has_view = current_position(rdram, &here) && here.has_view;
-    g_pending.facing = here.facing;
-    g_pending.camera_yaw = here.camera_yaw;
+    if (MEM_BU(0, kseg0(kCutscenePlaying)) == 1 && g_cutscene_start.valid &&
+        g_cutscene_start.scene == MEM_W(0, kseg0(kScene))) {
+        g_pending = g_cutscene_start;
+    } else if (!capture_point(rdram, &g_pending)) {
+        return;
+    }
     g_pending_slot = slot;
 }
 
@@ -693,9 +1482,7 @@ namespace {
 constexpr const char* kReportFormat = "conker-recomp-debug-report";
 constexpr int kReportVersion = 1;
 constexpr uintmax_t kMaxReportJson = 256 * 1024;
-constexpr uintmax_t kMaxReportPoints = 4 * 1024;
-constexpr double kMaxCoordinate = 1.0e6;   // well past any level's size
-constexpr int kMaxScene = 255;
+constexpr uintmax_t kMaxReportPoints = 512 * 1024;  // three slots of points with their scene state
 
 // A report's files, read once: what is checked is what is loaded.
 struct ReportFiles {
@@ -724,21 +1511,6 @@ bool read_report_file(const std::filesystem::path& folder, const char* name, uin
     if (!file.read(out->data(), static_cast<std::streamsize>(size))) {
         *problem = std::string("cannot read ") + name;
         return false;
-    }
-    return true;
-}
-
-// A finite number in [low, high] at `key` of `object`.
-bool number_in(const nlohmann::json& object, const char* key, double low, double high, double* out = nullptr) {
-    if (!object.is_object() || !object.contains(key) || !object[key].is_number()) {
-        return false;
-    }
-    const double value = object[key].get<double>();
-    if (!std::isfinite(value) || value < low || value > high) {
-        return false;
-    }
-    if (out != nullptr) {
-        *out = value;
     }
     return true;
 }
@@ -787,41 +1559,22 @@ bool check_report(const std::filesystem::path& folder, ReportFiles* files, std::
         return false;
     }
 
-    // save.resume: every line well formed, the saved slot's point the report's.
-    std::istringstream lines(files->points);
-    std::array<bool, kSlots> seen{};
-    bool found = false;
-    int count = 0;
-    for (std::string line; std::getline(lines, line);) {
-        if (line.empty()) {
-            continue;
-        }
-        int line_slot;
-        Point point;
-        const int fields = std::sscanf(line.c_str(), "%d %u %d %d %f %f %f %f %f %f", &line_slot, &point.counter,
-                                       &point.scene, &point.entrance, &point.x, &point.y, &point.z, &point.yaw,
-                                       &point.facing, &point.camera_yaw);
-        const float values[] = {point.x, point.y, point.z, point.yaw, point.facing, point.camera_yaw};
-        bool sound = (fields == 8 || fields == 10) && ++count <= kSlots && line_slot >= 0 && line_slot < kSlots &&
-                     !seen[line_slot] && point.scene >= 0 && point.scene <= kMaxScene && point.entrance >= 0 &&
-                     point.entrance <= 255;
-        for (float value : values) {
-            sound = sound && std::isfinite(value) && std::fabs(value) <= kMaxCoordinate;
-        }
-        if (!sound) {
-            *problem = "save.resume is not valid";
-            return false;
-        }
-        seen[line_slot] = true;
-        if (count == 1 && line_slot != static_cast<int>(slot)) {
-            *problem = "save.resume does not start with the report's slot";  // the slot a load starts
-            return false;
-        }
-        if (line_slot == static_cast<int>(slot)) {
-            found = point.counter == static_cast<uint32_t>(counter) && point.scene == static_cast<int>(scene) &&
-                    std::fabs(point.x - x) < 0.01 && std::fabs(point.y - y) < 0.01 && std::fabs(point.z - z) < 0.01;
-        }
+    // save.resume: a valid points file (parse_points) starting with the report's slot, whose point
+    // is the report's.
+    std::array<Point, kSlots> points;
+    int first_slot;
+    std::string points_problem;
+    if (!parse_points(files->points, &points, &first_slot, &points_problem)) {
+        *problem = "save.resume: " + points_problem;
+        return false;
     }
+    if (first_slot != static_cast<int>(slot)) {
+        *problem = "save.resume does not start with the report's slot";  // the slot a load starts
+        return false;
+    }
+    const Point& point = points[first_slot];
+    const bool found = point.counter == static_cast<uint32_t>(counter) && point.scene == static_cast<int>(scene) &&
+                       std::fabs(point.x - x) < 0.01 && std::fabs(point.y - y) < 0.01 && std::fabs(point.z - z) < 0.01;
     if (!found) {
         *problem = "save.resume does not match report.json";
         return false;
@@ -1008,6 +1761,7 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
         *ctx = saved;
         return;
     }
+    note_cutscene(rdram);
     settle_camera(rdram);
     if (!g_resuming.valid) {
         return;
@@ -1020,12 +1774,22 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
     if (++g_resume_frames <= kSettleFrames) {
         return;
     }
+    if (g_resume_frames == kSettleFrames + 1 &&
+        (!g_resuming.tables.empty() || !g_resuming.scripts.empty() || g_resuming.has_swarms)) {
+        restore_scene(rdram, ctx, g_resuming);
+    }
     place(rdram, object, g_resuming);
     if (g_view.has_view) {
         place_view(rdram, object, g_view, true, !g_camera_waits);
     }
     if (g_resume_frames >= kSettleFrames + g_place_frames) {
         g_resuming.valid = false;
+        if (g_resuming.cutscene >= 0) {
+            g_camera_waits = false;  // the cutscene has the camera
+            std::printf("[conker] playing cutscene %d of scene %d again\n", g_resuming.cutscene, g_resuming.scene);
+            call_game(rdram, ctx, func_1501D348, static_cast<uint32_t>(g_resuming.scene),
+                      static_cast<uint32_t>(g_resuming.cutscene));
+        }
     }
 }
 
@@ -1067,4 +1831,8 @@ extern "C" void conker_report_marker_write(uint8_t* rdram, recomp_context* ctx) 
 
 nlohmann::json conker::status::save_snapshots() {
     return enhancement("save_snapshots", "Save snapshots", conker::resume::snapshots_enabled(), "CONKER_SAVE_SNAPSHOTS");
+}
+
+conker::switches::Switch conker::switches::save_snapshots() {
+    return {"SAVE SNAPSHOTS", conker::resume::snapshots_enabled, [](bool on) { conker::resume::g_snapshots_enabled.store(on); }};
 }

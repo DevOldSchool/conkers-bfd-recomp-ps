@@ -1,0 +1,157 @@
+diff --git a/plume_metal.cpp b/plume_metal.cpp
+index 3db0be4..2386fc1 100644
+--- a/plume_metal.cpp
++++ b/plume_metal.cpp
+@@ -15,6 +15,7 @@
+ #include <CoreFoundation/CoreFoundation.h>
+ 
+ #include <algorithm>
++#include <map>
+ #include <mutex>
+ 
+ #include "plume_metal.h"
+@@ -2261,9 +2262,20 @@ namespace plume {
+ 
+         MetalAutoreleasePool releasePool;
+         startedEncoding = false;
+-        mtl = queue->mtl->commandBufferWithUnretainedReferences();
++        if (renderCommandErrorCallback().load() != nullptr) {
++            // Keep the encoders' execution status, so a failed command buffer says which encoder faulted.
++            MTL::CommandBufferDescriptor *descriptor = MTL::CommandBufferDescriptor::alloc()->init();
++            descriptor->setRetainedReferences(false);
++            descriptor->setErrorOptions(MTL::CommandBufferErrorOptionEncoderExecutionStatus);
++            mtl = queue->mtl->commandBuffer(descriptor);
++            descriptor->release();
++        }
++        else {
++            mtl = queue->mtl->commandBufferWithUnretainedReferences();
++        }
++
+         mtl->retain();
+-        mtl->setLabel(MTLSTR("RT64 Command List"));
++        mtl->setLabel(NS::String::string(queue->name.c_str(), NS::UTF8StringEncoding));
+ 
+         // Reset fence waits and updates for new command list.
+         fenceSlots.updateDirtyBits = ~0;
+@@ -2292,7 +2304,50 @@ namespace plume {
+         }
+     }
+ 
++    // Reports the command buffer to the error callback if the GPU fails it, with the encoders that
++    // faulted (begin asks for their execution status).
++    static void reportCommandBufferErrors(MTL::CommandBuffer *cmdBuffer, const std::string &queueName) {
++        if (renderCommandErrorCallback().load() == nullptr) {
++            return;
++        }
++
++        cmdBuffer->addCompletedHandler([queueName](MTL::CommandBuffer *buffer) {
++            const RenderCommandErrorCallback callback = renderCommandErrorCallback().load();
++            if ((callback == nullptr) || (buffer->status() != MTL::CommandBufferStatusError)) {
++                return;
++            }
++
++            NS::Error *error = buffer->error();
++            std::string description = "no description";
++            std::map<std::string, int> faulted;
++            int64_t code = 0;
++            if (error != nullptr) {
++                code = error->code();
++                if (error->localizedDescription() != nullptr) {
++                    description = error->localizedDescription()->utf8String();
++                }
++
++                NS::Dictionary *userInfo = error->userInfo();
++                NS::Array *encoderInfos = (userInfo != nullptr) ? userInfo->object<NS::Array>(MTL::CommandBufferEncoderInfoErrorKey) : nullptr;
++                for (NS::UInteger i = 0; (encoderInfos != nullptr) && (i < encoderInfos->count()); i++) {
++                    MTL::CommandBufferEncoderInfo *info = encoderInfos->object<MTL::CommandBufferEncoderInfo>(i);
++                    if (info->errorState() == MTL::CommandEncoderErrorStateFaulted) {
++                        faulted[(info->label() != nullptr) ? info->label()->utf8String() : "unlabelled encoder"]++;
++                    }
++                }
++            }
++
++            std::string faultedEncoders;
++            for (const auto &[label, count] : faulted) {
++                faultedEncoders += (faultedEncoders.empty() ? "" : ", ") + label + " x" + std::to_string(count);
++            }
++
++            callback({ queueName.c_str(), code, description.c_str(), faultedEncoders.empty() ? "none reported" : faultedEncoders.c_str() });
++        });
++    }
++
+     void MetalCommandList::commit() {
++        reportCommandBufferErrors(mtl, queue->name);
+         mtl->commit();
+         mtl->release();
+         mtl = nullptr;
+@@ -3686,6 +3741,12 @@ namespace plume {
+         return std::make_unique<MetalSwapChain>(this, desc);
+     }
+ 
++    void MetalCommandQueue::setName(const std::string &name) {
++        MetalAutoreleasePool releasePool;
++        this->name = name;
++        mtl->setLabel(NS::String::string(name.c_str(), NS::UTF8StringEncoding));
++    }
++
+     void MetalCommandQueue::executeCommandLists(const RenderCommandList **commandLists, const uint32_t commandListCount, RenderCommandSemaphore **waitSemaphores, const uint32_t waitSemaphoreCount, RenderCommandSemaphore **signalSemaphores, const uint32_t signalSemaphoreCount, RenderCommandFence *signalFence) {
+         assert(commandLists != nullptr);
+         assert(commandListCount > 0);
+diff --git a/plume_metal.h b/plume_metal.h
+index 7f18d19..c142b30 100644
+--- a/plume_metal.h
++++ b/plume_metal.h
+@@ -543,8 +543,11 @@ namespace plume {
+         MTL::CommandQueue *mtl = nullptr;
+         MetalDevice *device = nullptr;
+ 
++        std::string name = "unnamed";
++
+         MetalCommandQueue(MetalDevice *device, RenderCommandListType type);
+         ~MetalCommandQueue() override;
++        void setName(const std::string &name) override;
+         std::unique_ptr<RenderCommandList> createCommandList() override;
+         std::unique_ptr<RenderSwapChain> createSwapChain(const RenderSwapChainDesc &desc) override;
+         void executeCommandLists(const RenderCommandList **commandLists, uint32_t commandListCount, RenderCommandSemaphore **waitSemaphores, uint32_t waitSemaphoreCount, RenderCommandSemaphore **signalSemaphores, uint32_t signalSemaphoreCount, RenderCommandFence *signalFence) override;
+diff --git a/plume_render_interface.h b/plume_render_interface.h
+index ad68807..3f70974 100644
+--- a/plume_render_interface.h
++++ b/plume_render_interface.h
+@@ -7,7 +7,9 @@
+ 
+ #pragma once
+ 
++#include <atomic>
+ #include <climits>
++#include <cstdint>
+ 
+ #include "plume_render_interface_types.h"
+ 
+@@ -199,8 +201,27 @@ namespace plume {
+         }
+     };
+ 
++    // A command buffer the GPU failed (Metal only): the name of the queue it was sent on, the error's
++    // code and description, and the labels of the encoders that faulted, each with how many there were.
++    struct RenderCommandError {
++        const char *queueName;
++        int64_t code;
++        const char *description;
++        const char *faultedEncoders;
++    };
++
++    // Called on a driver thread for each failed command buffer, when set.
++    using RenderCommandErrorCallback = void (*)(const RenderCommandError &error);
++
++    inline std::atomic<RenderCommandErrorCallback> &renderCommandErrorCallback() {
++        static std::atomic<RenderCommandErrorCallback> callback{ nullptr };
++        return callback;
++    }
++
+     struct RenderCommandQueue {
+         virtual ~RenderCommandQueue() { }
++        // Names the queue in error reports and GPU captures (Metal only; the other back ends ignore it).
++        virtual void setName(const std::string &name) { (void)name; }
+         virtual std::unique_ptr<RenderCommandList> createCommandList() = 0;
+         virtual std::unique_ptr<RenderSwapChain> createSwapChain(const RenderSwapChainDesc &desc) = 0;
+         virtual void executeCommandLists(const RenderCommandList **commandLists, uint32_t commandListCount, RenderCommandSemaphore **waitSemaphores = nullptr, uint32_t waitSemaphoreCount = 0, RenderCommandSemaphore **signalSemaphores = nullptr, uint32_t signalSemaphoreCount = 0, RenderCommandFence *signalFence = nullptr) = 0;

@@ -11,9 +11,17 @@ void read(uint16_t* buttons, float* x, float* y) {
 
 std::string controller_name() { return ""; }
 
+PadKind controller_kind() { return PadKind::None; }
+
 bool take_debug_menu_press() { return false; }
 
 bool has_rumble() { return false; }
 void set_rumble(bool /*on*/) {}
+
+bool has_haptics() { return false; }
+void play_haptic(const Haptic& /*haptic*/) {}
+
+bool camera_swapped() { return true; }
+void set_camera_swapped(bool /*swapped*/) {}
 
 } // namespace conker::input

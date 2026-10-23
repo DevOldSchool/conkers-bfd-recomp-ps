@@ -169,6 +169,34 @@ func = "func_151E51EC"
 before_vram = 0x151E5220
 text = "{ void conker_debug_menu_tick(uint8_t*, recomp_context*); conker_debug_menu_tick(rdram, ctx); }"
 
+# Where Start cannot open the pause (the title, the game's menus, a cutscene), the menu holds the
+# game itself: it sets the pause flag D_800BEAC1, so the world stops, draws from the tick above,
+# and keeps the screen's own handler (func_151E51EC's jalr at 0x151E52AC, $t9) and its drawing
+# (func_151E84B0's jalr at 0x151E84FC, $v1; the title's signs, say) from running by pointing them
+# at the empty func_151DE6CC. While it is open, and until the buttons are let go after, the pads
+# read by func_1501BBB8 (sp+0x38, after osContGetReadData) are emptied so the game sees no input.
+[[patches.hook]]
+func = "func_151E51EC"
+before_vram = 0x151E52AC
+text = "{ int conker_debug_menu_holding_game(void); if (conker_debug_menu_holding_game()) { ctx->r25 = 0x151DE6CC; } }"
+
+[[patches.hook]]
+func = "func_151E84B0"
+before_vram = 0x151E84FC
+text = "{ int conker_debug_menu_holding_game(void); if (conker_debug_menu_holding_game()) { ctx->r3 = 0x151DE6CC; } }"
+
+[[patches.hook]]
+func = "func_1501BBB8"
+before_vram = 0x1501BC18
+text = "{ void conker_debug_menu_pads(uint8_t*, recomp_context*); conker_debug_menu_pads(rdram, ctx); }"
+
+# func_150417AC stops drawing a text where the frame's display list is full (0x1504286C); the menu
+# then leaves out its text shadows, which cost as much as the text.
+[[patches.hook]]
+func = "func_150417AC"
+before_vram = 0x1504286C
+text = "{ void conker_debug_menu_text_full(uint8_t*, recomp_context*); conker_debug_menu_text_full(rdram, ctx); }"
+
 [[patches.hook]]
 func = "func_151EB06C"
 before_vram = 0x151EB128
@@ -293,6 +321,22 @@ func = "func_1502C6E8"
 before_vram = 0x1502C8C4
 text = "{ void conker_max_detail(uint8_t*, recomp_context*); conker_max_detail(rdram, ctx); }"
 
+# Characters drawn as far as the scene is. func_1502E4C4 fades an actor out past its own distance
+# from the camera (u16 actor +0x10, mostly 3000) although the scene reaches much farther; that
+# distance is in $s0 at 0x1502E770 and is raised to the scene's far distance (D_800D9B1C). See
+# src/enhancements/character_distance/character_distance.cpp; CONKER_CHARACTER_DISTANCE=0 turns it off.
+[[patches.hook]]
+func = "func_1502E4C4"
+before_vram = 0x1502E770
+text = "{ void conker_character_distance(uint8_t*, recomp_context*); conker_character_distance(rdram, ctx); }"
+
+# Swarms of bees likewise: func_151787AC tests them against the views within 2500 (D_800A71E4,
+# loaded into $f22 at 0x15178930), and their bees are drawn only while a swarm passes.
+[[patches.hook]]
+func = "func_151787AC"
+before_vram = 0x15178934
+text = "{ void conker_swarm_distance(uint8_t*, recomp_context*); conker_swarm_distance(rdram, ctx); }"
+
 # Display options on the title menu's OPTIONS page: rows for the display mode, 4:3/WIDESCREEN, the
 # resolution and FILL SCREEN/CENTERED. Around the page's call to the menu engine func_151E3344,
 # multiplayer options 12, 15, 16 and 19 are lent to the rows and given back; hooks inside the engine space the
@@ -391,6 +435,15 @@ func = "func_15110CFC"
 before_vram = 0x15111128
 text = "{ void conker_sky_tile_fits(uint8_t*, recomp_context*); conker_sky_tile_fits(rdram, ctx); }"
 
+# The scenery sprites (sunflowers, grass, mushrooms: func_1517DE5C -> func_1517BBAC) are drawn
+# only within 1500 units of Conker ($a3 at 0x1517DEC4), fading in over the last 510. Widened, the
+# picture's sides reach farther than that and showed the flowers missing or faint, so the distance
+# is widened with the view just before the call.
+[[patches.hook]]
+func = "func_1517DE5C"
+before_vram = 0x1517DF04
+text = "{ void conker_scenery_sprite_distance(uint8_t*, recomp_context*); conker_scenery_sprite_distance(rdram, ctx); }"
+
 # The title menu's "INSERT RUMBLE PAK" banner (message 0x8F) shows for a few seconds whenever the
 # menu comes up, pak or not, while the countdown D_8008FEFC is above 60. With a pad that can rumble
 # there is a pak, so the countdown is cleared just before func_151DE8F0 reads it. See
@@ -399,6 +452,22 @@ text = "{ void conker_sky_tile_fits(uint8_t*, recomp_context*); conker_sky_tile_
 func = "func_151DE8F0"
 before_vram = 0x151DEDF8
 text = "{ void conker_rumble_banner(uint8_t*, recomp_context*); conker_rumble_banner(rdram, ctx); }"
+
+# Every sound effect starts in sndp_play_sound(player, sound, volume, flags); chosen sounds play a
+# haptic pattern on a DualSense. See src/enhancements/haptics/haptics.cpp; CONKER_SOUND_LOG=1 lists
+# the sounds as they start.
+[[patches.hook]]
+func = "sndp_play_sound"
+before_vram = 0x10017438
+text = "{ void conker_sound_started(uint8_t*, recomp_context*); conker_sound_started(rdram, ctx); }"
+
+# Once a frame, just before func_1501878C checks D_800BEAC0 to run or skip the world frame, a
+# DualSense plays a thump when Conker's animation becomes his landing. See
+# src/enhancements/haptics/haptics.cpp.
+[[patches.hook]]
+func = "func_1501878C"
+before_vram = 0x150188FC
+text = "{ void conker_haptics_frame(uint8_t*, recomp_context*); conker_haptics_frame(rdram, ctx); }"
 
 # Experimental 60 fps (CONKER_60FPS=1, off by default): Rare's scheduler is woken when a frame is
 # queued and when one is swapped, so the next frame starts in the same retrace and the logic steps

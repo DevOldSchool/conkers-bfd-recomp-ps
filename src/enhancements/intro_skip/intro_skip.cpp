@@ -3,12 +3,14 @@
 // config/us.toml (func_151DE6D4, func_1501E05C, func_1501E1B4, func_1517F3A0).
 // CONKER_SKIP_INTRO=1 skips without a press, =0 turns it off.
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 
 #include "recomp.h"
 #include "enhancements/status.hpp"
+#include "enhancements/switches.hpp"
 
 namespace {
 
@@ -25,16 +27,18 @@ constexpr uint32_t kTitleSkipFlag = 0x8008FD84;  // D_8008FD84: skip the title s
 // always plays, as the runtime cold boots.
 enum class IntroSkip { Never, OnPress, Always };
 
-IntroSkip intro_skip_mode() {
-    static const IntroSkip mode = [] {
-        const char* value = std::getenv("CONKER_SKIP_INTRO");
-        if (value == nullptr || value[0] == '\0') {
-            return IntroSkip::OnPress;
-        }
-        return value[0] == '0' ? IntroSkip::Never : IntroSkip::Always;
-    }();
-    return mode;
+IntroSkip variable_mode() {
+    const char* value = std::getenv("CONKER_SKIP_INTRO");
+    if (value == nullptr || value[0] == '\0') {
+        return IntroSkip::OnPress;
+    }
+    return value[0] == '0' ? IntroSkip::Never : IntroSkip::Always;
 }
+
+// The debug menu switches it between Never and the variable's mode (OnPress if that is Never).
+std::atomic<IntroSkip> g_mode{variable_mode()};
+
+IntroSkip intro_skip_mode() { return g_mode.load(std::memory_order_relaxed); }
 
 // One skip per boot. An L press during the logos or the intro fades the screen to black, the
 // skips then run behind it, and it fades back in on the title menu. Only the game thread touches
@@ -169,4 +173,16 @@ nlohmann::json conker::status::intro_skip() {
     const char* name = mode == IntroSkip::Always ? "always" : mode == IntroSkip::Never ? "never" : "press";
     return enhancement("intro_skip", "Skip to the title menu", mode != IntroSkip::Never, "CONKER_SKIP_INTRO",
                        {{"mode", name}});
+}
+
+// Switched off part way through, a skip stops where it is and the screen is shown again.
+conker::switches::Switch conker::switches::intro_skip() {
+    return {"SKIP INTRO", [] { return intro_skip_mode() != IntroSkip::Never; },
+            [](bool on) {
+                const IntroSkip mode = variable_mode();
+                g_mode.store(!on ? IntroSkip::Never : mode == IntroSkip::Never ? IntroSkip::OnPress : mode);
+                if (!on && skip != Skip::Idle) {
+                    skip = Skip::Done;
+                }
+            }};
 }

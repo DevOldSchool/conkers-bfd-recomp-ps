@@ -25,6 +25,7 @@
 // resources. They are made from the ROM the first time they are needed
 // (src/enhancements/sharp_menus/pause_signs.cpp): CONT...'s and QUIT's frames lettered with letters
 // cut from the game's other green signs, so no ROM art is stored in the repository.
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -33,6 +34,7 @@
 #include "enhancements/pause_save/resume_point.hpp"
 #include "enhancements/sharp_menus/pause_signs.hpp"
 #include "enhancements/status.hpp"
+#include "enhancements/switches.hpp"
 
 extern "C" void func_15042D94(uint8_t* rdram, recomp_context* ctx);
 
@@ -88,13 +90,12 @@ constexpr double kSavedFadeSeconds = 1.0;
 
 using Clock = std::chrono::steady_clock;
 
-bool pause_save_enabled() {
-    static const bool enabled = [] {
-        const char* value = std::getenv("CONKER_PAUSE_SAVE");
-        return value == nullptr || value[0] != '0';
-    }();
-    return enabled;
-}
+std::atomic<bool> g_enabled{[] {
+    const char* value = std::getenv("CONKER_PAUSE_SAVE");
+    return value == nullptr || value[0] != '0';
+}()};  // the debug menu switches it
+
+bool pause_save_enabled() { return g_enabled.load(std::memory_order_relaxed); }
 
 // True while func_151DDC20 shows SAVE and LOAD (set up by conker_pause_save_layout).
 bool signs_shown(uint8_t* rdram, recomp_context* ctx) {
@@ -365,4 +366,8 @@ extern "C" void conker_pause_save_sprites_done(uint8_t* /*rdram*/, recomp_contex
 
 nlohmann::json conker::status::pause_save() {
     return enhancement("pause_save", "SAVE and LOAD in the pause menu", pause_save_enabled(), "CONKER_PAUSE_SAVE");
+}
+
+conker::switches::Switch conker::switches::pause_save() {
+    return {"PAUSE SAVE AND LOAD", pause_save_enabled, [](bool on) { g_enabled.store(on); }};
 }

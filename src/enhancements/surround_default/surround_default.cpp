@@ -1,10 +1,12 @@
 // Surround as the default sound option. Native helper called from the [[patches.hook]] snippet in
 // config/us.toml (func_151DD9E4). CONKER_SURROUND_DEFAULT=0 keeps the game's stereo default.
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 
 #include "recomp.h"
 #include "enhancements/status.hpp"
+#include "enhancements/switches.hpp"
 
 namespace {
 
@@ -16,13 +18,12 @@ constexpr uint32_t kSoundOption = 0x800E0BE9;
 constexpr int8_t kSurround = 1;
 constexpr int8_t kSoundOptionMax = 2;  // D_8008FE84[9]; the minimum, D_8008FE6C[9], is 0
 
-bool surround_default_enabled() {
-    static const bool enabled = [] {
-        const char* value = std::getenv("CONKER_SURROUND_DEFAULT");
-        return value == nullptr || value[0] != '0';
-    }();
-    return enabled;
-}
+std::atomic<bool> g_enabled{[] {
+    const char* value = std::getenv("CONKER_SURROUND_DEFAULT");
+    return value == nullptr || value[0] != '0';
+}()};  // the debug menu switches it
+
+bool surround_default_enabled() { return g_enabled.load(std::memory_order_relaxed); }
 
 }  // namespace
 
@@ -46,4 +47,8 @@ nlohmann::json conker::status::surround_default(uint8_t* rdram) {
     const char* names[] = {"stereo", "surround", "mono"};
     return enhancement("surround_default", "Surround by default", surround_default_enabled(), "CONKER_SURROUND_DEFAULT",
                        {{"sound_option", option >= 0 && option <= kSoundOptionMax ? names[option] : "unknown"}});
+}
+
+conker::switches::Switch conker::switches::surround_default() {
+    return {"SURROUND DEFAULT", surround_default_enabled, [](bool on) { g_enabled.store(on); }};
 }

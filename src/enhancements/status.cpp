@@ -26,6 +26,8 @@ namespace {
 
 constexpr const char* kSharpFont = "built-in sharp font";
 constexpr const char* kSharpMenus = "built-in sharp menus";
+constexpr const char* kPadButtons[][2] = {
+    {"built-in N64 buttons", "n64"}, {"built-in Xbox buttons", "xbox"}, {"built-in PlayStation buttons", "playstation"}};
 
 #if defined(__APPLE__)
 std::string sysctl_string(const char* name) {
@@ -56,6 +58,11 @@ nlohmann::json enhancements(uint8_t* rdram) {
     const std::vector<std::string> packs = conker::renderer::texture_packs();
     const bool sharp_font = std::find(packs.begin(), packs.end(), kSharpFont) != packs.end();
     const bool sharp_menus = std::find(packs.begin(), packs.end(), kSharpMenus) != packs.end();
+    // The pad's button pictures: which pad's, if any (src/enhancements/pad_icons).
+    nlohmann::json pad_buttons = "original";
+    for (const auto& [pack, pictures] : kPadButtons) {
+        if (std::find(packs.begin(), packs.end(), pack) != packs.end()) pad_buttons = pictures;
+    }
     // The OPTIONS menu's SHARP TEXT / ORIGINAL TEXT row switches both.
     const nlohmann::json sharp_options = {{"options_row", conker::display::sharp() ? "sharp" : "original"}};
     return nlohmann::json::array({
@@ -66,11 +73,15 @@ nlohmann::json enhancements(uint8_t* rdram) {
         save_snapshots(),
         surround_default(rdram),
         max_detail(),
+        character_distance(),
         rumble_banner(),
+        haptics(),
         frame_rate(),
         enhancement("sharp_font", "Sharper text", sharp_font, "CONKER_SHARP_FONT", sharp_options),
         enhancement("sharp_menus", "Sharper menus", sharp_menus, "CONKER_SHARP_MENUS", sharp_options),
-        enhancement("camera_stick", "Camera on the right stick", true, nullptr),
+        enhancement("camera_stick", "Camera on the right stick", conker::input::camera_swapped(), nullptr),
+        enhancement("pad_buttons", "Your pad's buttons", pad_buttons != "original", "CONKER_PAD_ICONS",
+                    {{"pictures", pad_buttons}}),
         debug_menu(),
     });
 }

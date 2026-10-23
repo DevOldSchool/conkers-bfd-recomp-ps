@@ -1,0 +1,12 @@
+diff --git a/src/render/rt64_render_worker.cpp b/src/render/rt64_render_worker.cpp
+index 0250645..2300ff4 100644
+--- a/src/render/rt64_render_worker.cpp
++++ b/src/render/rt64_render_worker.cpp
+@@ -14,6 +14,7 @@ namespace RT64 {
+         this->name = name;
+ 
+         commandQueue = device->createCommandQueue(commandListType);
++        commandQueue->setName(name);
+         commandList = commandQueue->createCommandList();
+         commandFence = device->createCommandFence();
+     }

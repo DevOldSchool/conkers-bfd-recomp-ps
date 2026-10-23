@@ -74,11 +74,15 @@ add_executable(ConkerRecomp
     "${CONKER_RSP_DIR}/aspMain.cpp"
     src/platform/audio.cpp
     src/platform/display_mode.cpp
+    src/platform/gpu_faults.cpp
     src/fixes/geometry_escape.cpp
     src/fixes/music_start.cpp
     src/enhancements/cutscene_skip/cutscene_skip.cpp
+    src/enhancements/character_distance/character_distance.cpp
     src/enhancements/debug_menu/debug_menu.cpp
+    src/enhancements/pad_icons/choice.cpp
     src/enhancements/status.cpp
+    src/enhancements/switches.cpp
     src/enhancements/display_options/display_options.cpp
     src/enhancements/display_options/widescreen_intro.cpp
     src/enhancements/display_options/widescreen_copies.cpp
@@ -89,6 +93,7 @@ add_executable(ConkerRecomp
     src/enhancements/pause_save/pause_save.cpp
     src/enhancements/pause_save/resume_point.cpp
     src/enhancements/rumble_banner/rumble_banner.cpp
+    src/enhancements/haptics/haptics.cpp
     src/enhancements/sharp_menus/menu_art.cpp
     src/enhancements/sharp_menus/pause_signs.cpp
     src/enhancements/surround_default/surround_default.cpp
@@ -126,7 +131,9 @@ if(CONKER_RENDERER STREQUAL "rt64")
         target_compile_definitions(plume PRIVATE PLUME_APPLE_RETINA_ENABLED)
     endif()
     target_sources(ConkerRecomp PRIVATE
-        src/platform/renderer_rt64.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/enhancements/sharp_menus/sharp_menus.cpp src/platform/window_sdl.cpp src/platform/input_sdl.cpp)
+        src/platform/renderer_rt64.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/enhancements/sharp_menus/sharp_menus.cpp src/platform/window_sdl.cpp src/platform/input_sdl.cpp
+        src/enhancements/pad_icons/pad_icons.cpp src/enhancements/pad_icons/b_pad.cpp src/enhancements/pad_icons/stone_pad.cpp src/enhancements/pad_icons/hex_pad.cpp
+        src/enhancements/pad_icons/button_art.cpp)
     target_include_directories(ConkerRecomp PRIVATE
         ${SDL2_INCLUDE_DIRS}
         "${CMAKE_SOURCE_DIR}/lib/rt64/src"
@@ -137,6 +144,13 @@ if(CONKER_RENDERER STREQUAL "rt64")
     )
     target_compile_definitions(ConkerRecomp PRIVATE CONKER_RENDERER_RT64=1 CONKER_AUDIO_SDL=1 HLSL_CPU FFX_GCC)
     target_link_libraries(ConkerRecomp PRIVATE rt64 ${SDL2_LIBRARIES})
+    if(APPLE)
+        # DualSense haptic effects through Apple's GameController framework and Core Haptics.
+        enable_language(OBJCXX)
+        target_sources(ConkerRecomp PRIVATE src/platform/haptics_apple.mm)
+        set_source_files_properties(src/platform/haptics_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+        target_link_libraries(ConkerRecomp PRIVATE "-framework GameController" "-framework CoreHaptics")
+    endif()
 else()
     target_sources(ConkerRecomp PRIVATE
         src/platform/renderer_null.cpp src/platform/window_headless.cpp src/platform/input_headless.cpp)

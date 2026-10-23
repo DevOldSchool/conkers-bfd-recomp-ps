@@ -9,6 +9,20 @@
 //
 // A glyph is recognised by its texture: a block of 224-byte buffers per font, D_80085990[bank],
 // with each glyph's width in D_80085994[bank] (source width + 1).
+//
+// The same function draws the speech and thought bubbles' pictures ("more...", the buttons) as
+// RGBA TEXRECTs one texel to a pixel, and it puts the text's sub-pixel position into where the
+// texture starts: under a thought bubble "more..." starts 0.53 texels into its first row, so with
+// bilinear filtering every row is blended half into the next and the word looks doubled. Such a
+// rectangle (RGBA, clamped, exactly one texel to a pixel) is made to start on a whole texel, which
+// moves the picture by under a pixel and draws it crisp, as it is when it lands on a whole pixel
+// (in the speech bubbles). It moves toward the texture's start, so no texel is lost.
+//
+// Those pictures are also drawn one texel short of their tile: a 32x32 picture as 31x31 pixels,
+// from its second column, and from half a row in, so its last row never shows. Most pictures have
+// an empty border there, but the control stick (resources 2024-2028) fills its tile, and its base
+// came out cut flat on the left and along the bottom. Such a rectangle is grown by up to a texel
+// on each side to cover its whole tile, the texture keeping its place on screen.
 #include "platform/font_rects.hpp"
 
 #include <algorithm>
@@ -52,8 +66,25 @@ struct Font {
 
 struct Tile {
     uint32_t fmt = 0, siz = 0, cms = 0, cmt = 0;
-    uint32_t lrs = 0, lrt = 0;  // 10.2
+    uint32_t uls = 0, ult = 0, lrs = 0, lrt = 0;  // 10.2
 };
+
+// Grows a one-to-one TEXRECT along one axis to its tile's edges, a texel at most on each side.
+// `start` is the texture coordinate at the first pixel (s10.5, on a whole texel), `first` and
+// `end` the rectangle's first and past-the-last pixel (10.2), `tile_first` and `tile_last` the
+// tile's first and last texel (10.2).
+void grow_to_tile(int32_t& start, uint32_t& first, uint32_t& end, uint32_t tile_first, uint32_t tile_last) {
+    const int32_t before = start - static_cast<int32_t>(tile_first) * 8;  // s10.5
+    if (before > 0 && before <= 32 && first >= static_cast<uint32_t>(before / 8)) {
+        first -= before / 8;
+        start -= before;
+    }
+    const int32_t reached = start + static_cast<int32_t>(end - first) * 8;
+    const int32_t after = static_cast<int32_t>(tile_last) * 8 + 32 - reached;
+    if (after > 0 && after <= 32 && end + after / 8 <= 0xFFF) {
+        end += after / 8;
+    }
+}
 
 // Moves one edge of a TEXRECT outward to reach `target` texels, at most kMaxWiden. `start` is the
 // texture coordinate at the rectangle's first pixel (s10.5), `per_pixel` its step (s5.10).
@@ -128,6 +159,8 @@ void widen_font_rects(uint8_t* rdram, uint32_t display_list) {
             }
             case 0xF2: {  // SETTILESIZE
                 Tile& tile = tiles[(w1 >> 24) & 7];
+                tile.uls = (w0 >> 12) & 0xFFF;
+                tile.ult = w0 & 0xFFF;
                 tile.lrs = (w1 >> 12) & 0xFFF;
                 tile.lrt = w1 & 0xFFF;
                 break;
@@ -137,6 +170,19 @@ void widen_font_rects(uint8_t* rdram, uint32_t display_list) {
                 const uint32_t h2 = read32(rdram, here + 16), h2w1 = read32(rdram, here + 20);
                 if ((h1 >> 24) != 0xE1 || (h2 >> 24) != 0xF1) break;
                 const Tile& tile = tiles[(w1 >> 24) & 7];
+                if (tile.fmt == 0 && (tile.cms & 2) && (tile.cmt & 2) && h2w1 == 0x04000400) {  // RGBA, clamped, 1:1
+                    const int32_t s = static_cast<int16_t>(h1w1 >> 16), t = static_cast<int16_t>(h1w1 & 0xFFFF);
+                    const auto whole = [](int32_t v) { return v >= 0 ? v & ~31 : -(-v & ~31); };  // s10.5, toward 0
+                    int32_t whole_s = whole(s), whole_t = whole(t);
+                    uint32_t ulx = (w1 >> 12) & 0xFFF, uly = w1 & 0xFFF, lrx = (w0 >> 12) & 0xFFF, lry = w0 & 0xFFF;
+                    grow_to_tile(whole_s, ulx, lrx, tile.uls, tile.lrs);
+                    grow_to_tile(whole_t, uly, lry, tile.ult, tile.lrt);
+                    write32(rdram, here, (w0 & 0xFF000000) | lrx << 12 | lry);
+                    write32(rdram, here + 4, (w1 & 0xFF000000) | ulx << 12 | uly);
+                    write32(rdram, here + 12, (static_cast<uint32_t>(whole_s & 0xFFFF) << 16) | static_cast<uint32_t>(whole_t & 0xFFFF));
+                    pc = here + 24;
+                    break;
+                }
                 if (tile.fmt != 4 || tile.siz != 1 || !(tile.cms & 2) || !(tile.cmt & 2)) break;  // I 8-bit, clamped
                 const Font* font = nullptr;
                 for (int i = 0; i < font_count; i++) {
