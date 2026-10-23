@@ -74,6 +74,7 @@ add_executable(ConkerRecomp
     "${CONKER_RSP_DIR}/aspMain.cpp"
     src/platform/audio.cpp
     src/platform/display_mode.cpp
+    src/platform/gpu_faults.cpp
     src/fixes/geometry_escape.cpp
     src/fixes/music_start.cpp
     src/enhancements/cutscene_skip/cutscene_skip.cpp

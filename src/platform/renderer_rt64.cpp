@@ -33,6 +33,9 @@
 // loads to <dir> once, as RT64's <hash>.v5.png, .tmem and .tile.json files, to start a pack from.
 // With any of them loaded, the rectangles the game draws text glyphs with are widened so a replaced
 // glyph is not cut off (src/platform/font_rects.cpp).
+//
+// Command buffers the GPU fails are logged with the RT64 worker that sent them and the renderer's
+// recent resource changes, noted here (src/platform/gpu_faults.cpp).
 #include "platform/renderer_rt64.hpp"
 #include "platform/render_debug.hpp"
 
@@ -52,10 +55,12 @@
 #include "hle/rt64_state.h"
 #include "librecomp/game.hpp"
 #include "platform/font_rects.hpp"
+#include "platform/gpu_faults.hpp"
 #include "platform/input.hpp"
 #include "render/rt64_texture_cache.h"
 #include "rhi/rt64_render_hooks.h"
 #include "platform/display_mode.hpp"
+#include "plume_render_interface.h"
 
 namespace conker::renderer {
 
@@ -148,11 +153,19 @@ bool use_packs(RT64::Application& app, Packs& packs, bool sharp, conker::pad_ico
     }
     if (directories.empty()) {
         app.textureCache->clearReplacementDirectories();
+        conker::gpu_faults::note("texture packs cleared");
         std::lock_guard lock(g_texture_packs_mutex);
         g_texture_packs.clear();
         return false;
     }
     const bool loaded = app.textureCache->loadReplacementDirectories(directories);
+    {
+        std::string event = "texture packs replaced:";
+        for (const std::string& name : names) {
+            event += (event.back() == ':' ? " " : ", ") + name;
+        }
+        conker::gpu_faults::note(event + (loaded ? "" : " (not loaded)"));
+    }
     if (report) {
         for (const std::string& name : names) {
             std::printf("[conker] %s%s\n", name.c_str(), loaded ? "" : " (not loaded)");
@@ -227,6 +240,11 @@ public:
         core.VI_V_BURST_REG = &vi->VI_V_BURST_REG;
         core.VI_X_SCALE_REG = &vi->VI_X_SCALE_REG;
         core.VI_Y_SCALE_REG = &vi->VI_Y_SCALE_REG;
+
+        conker::gpu_faults::start(rdram);
+        plume::renderCommandErrorCallback().store([](const plume::RenderCommandError& error) {
+            conker::gpu_faults::report(error.queueName, error.code, error.description, error.faultedEncoders);
+        });
 
         RT64::ApplicationConfiguration app_config;
         app_config.useConfigurationFile = false;
@@ -348,6 +366,9 @@ public:
             // picture.
             if (reported_scale_ != 0.0f) {
                 app_->updateUserConfig(true);
+                char event[64];
+                std::snprintf(event, sizeof(event), "RT64 scale %gx: frame buffers discarded", scale);
+                conker::gpu_faults::note(event);
             }
         }
         // The window's size reaches RT64 a frame after a new scale, so report either change.
@@ -356,6 +377,9 @@ public:
             reported_width_ = width;
             reported_height_ = height;
             std::printf("[conker] RT64 renders at %gx for a %ux%u window\n", scale, width, height);
+            char event[64];
+            std::snprintf(event, sizeof(event), "RT64 renders at %gx for a %ux%u window", scale, width, height);
+            conker::gpu_faults::note(event);
         }
         return scale;
     }
@@ -390,6 +414,7 @@ private:
         if (tasks_without_copy_ < kHoldTasks) {
             if (!holding_) {
                 holding_ = true;
+                conker::gpu_faults::note("pause frame copy: display settings held");
                 if (applied_wide_) {
                     app_->userConfig.aspectRatio = RT64::UserConfiguration::AspectRatio::Manual;
                     app_->userConfig.aspectTarget = expanded_aspect();
@@ -400,6 +425,7 @@ private:
         }
         if (holding_) {
             holding_ = false;
+            conker::gpu_faults::note("pause frame copy over: display settings let go");
             applied_scale_ = -1;  // apply whatever is asked for now
         }
         const conker::display::Mode mode = conker::display::current();
@@ -427,6 +453,8 @@ private:
         app_->enhancementConfig.presentation.expandCropSides = kUndrawnColumns;
         app_->updateUserConfig(true);  // see get_resolution_scale
         app_->updateEnhancementConfig();
+        conker::gpu_faults::note("display applied: scale " + std::to_string(scale) + (wide ? ", widescreen" : ", 4:3") +
+                                 (native ? ", native size" : ", filled") + "; frame buffers discarded");
     }
 
     std::unique_ptr<RT64::Application> app_;

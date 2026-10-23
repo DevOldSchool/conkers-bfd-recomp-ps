@@ -116,6 +116,50 @@ These environment variables are read by both builds:
   (default 60) sets the extra buffering kept on top of what the game asks for;
   `CONKER_SILENT_AUDIO=1` skips the audio microcode entirely.
 
+## GPU faults (black screen, game still running)
+
+On macOS a command buffer that faults on the GPU (it read or wrote outside any
+resource) is thrown away, so its frame is lost and the picture stutters. After
+about six of them macOS refuses all of the process's GPU work for good: the
+window goes black while the game, its sound and its menus carry on, and only a
+restart brings the picture back. The system log shows it
+(`/usr/bin/log show --predicate 'processID == <pid>'`: "Caused GPU Address
+Fault Error", then "Ignored (for causing prior/excessive GPU errors)").
+
+The RT64 build logs each failed command buffer itself
+(`src/platform/gpu_faults.cpp`):
+
+```
+[conker] GPU fault 1 at VI 2982 (56.0 s, 19:10:43), scene 12: Workload Graphics queue, code 3, faulted encoders: Graphics Render Encoder x1: Caused GPU Address Fault Error ...
+[conker]   renderer changes before it (since the last fault):
+[conker]     VI 38 (1.0 s, 19:09:48): RT64 scale 3x: frame buffers discarded
+[conker] GPU: macOS is refusing the game's GPU work after 6 GPU fault(s) ...
+[conker] GPU fault: debug report scene12-20261022-191043
+```
+
+The queue names the RT64 worker that sent the work (Workload Graphics draws
+the game's frames, Present Graphics shows them, Texture Direct, Texture Copy
+and RT64 Stream Worker upload textures, Framebuffer Graphics handles frame
+buffers the CPU wrote). The renderer changes are the things that free or remake
+GPU resources: texture packs swapped, a new scale or shape, frame buffers
+discarded, the pause menu's frame copy holding the settings. The "refusing"
+line repeats every 30 s while it lasts. The first fault also makes a debug
+report, as SAVE DEBUG REPORT does, with these lines in `report.json` under
+`gpu_faults`. The code is Metal's `MTLCommandBufferError`: 3 a page fault, 2 a timeout, 4 a refused submission.
+
+To find the shader behind a fault, run with Metal's shader validation:
+`MTL_SHADER_VALIDATION=1 MTL_SHADER_VALIDATION_RESOURCE_USAGE=0
+MTL_SHADER_VALIDATION_REPORT_TO_STDERR=1`. Each bad access is then printed as
+"Invalid device load" with the shader function, the buffer's length, the
+offset and the draw. Without `RESOURCE_USAGE=0` validation tracks every resident
+resource on each submit, and RT64 keeps so many that no frame reaches the
+screen. `MTL_SHADER_VALIDATION_DUMP_PIPELINES=1` adds each pipeline's UID to the
+system log. The faults found this way so far were RT64's LOD tile choice
+(`tools/patches/rt64-metal-float-to-int.patch`, see `docs/recompilation.md`).
+A debug report that shows the fault can be replayed by script for this: with
+`CONKER_SKIP_INTRO=1` and the report alone in the run's `debug_reports`, the pad
+lines `600 8 back`, seven `dpdown`s and two `a`s load it from the title.
+
 ## Emulator ground truth
 
 `tools/emulator_frames.py` takes screenshots from the decomp's
