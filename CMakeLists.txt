@@ -78,7 +78,7 @@ add_executable(ConkerRecomp
     src/fixes/geometry_escape.cpp
     src/fixes/music_start.cpp
     src/enhancements/cutscene_skip/cutscene_skip.cpp
-    src/enhancements/character_distance/character_distance.cpp
+    src/enhancements/draw_distance/draw_distance.cpp
     src/enhancements/debug_menu/debug_menu.cpp
     src/enhancements/pad_icons/choice.cpp
     src/enhancements/status.cpp
