@@ -72,8 +72,9 @@ std::vector<Snapshot> list_reports();
 // the player's save: the game plays on a copy, saves/debug/<report>.bin, until it is closed. A report
 // may come from anyone, so it is checked first (files, sizes, report.json's fields and ranges, and
 // save.resume against them); when it is refused, or a save is still being written, false with the
-// reason in `problem`.
-bool load_report(uint8_t* rdram, const std::filesystem::path& path, std::string* problem);
+// reason in `problem`. `at_checkpoint` starts the save at its checkpoint instead, as the game itself
+// does, without the report's position and scene: to tell what the restore does from what the game does.
+bool load_report(uint8_t* rdram, const std::filesystem::path& path, std::string* problem, bool at_checkpoint = false);
 
 // Makes a debug report: a folder in debug_reports/ with report.json (`report`, a JSON object, with
 // "save" added) and a save of the game as it is now (save.bin, save.resume), made by the game's own
@@ -85,5 +86,9 @@ std::string request_report(uint8_t* rdram, const std::string& report);
 // Makes `path` the save (conker_us.bin and conker_us.resume) and starts its slot where it was
 // saved, as LOAD does. False while a save is being written, or when the file cannot be read.
 bool load_snapshot(uint8_t* rdram, const std::filesystem::path& path);
+
+// How black the screen is kept while a save load_snapshot or load_report started is loading, 0
+// (clear) to 0xFF; it fades in once Conker is placed. For the game's viewport fade (intro_skip.cpp).
+int32_t load_cover();
 
 }  // namespace conker::resume

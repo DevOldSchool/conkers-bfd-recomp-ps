@@ -9,6 +9,7 @@
 #include <cstdlib>
 
 #include "recomp.h"
+#include "enhancements/pause_save/resume_point.hpp"
 #include "enhancements/status.hpp"
 #include "enhancements/switches.hpp"
 
@@ -148,10 +149,11 @@ extern "C" void conker_skip_fade_wait(uint8_t* /*rdram*/, recomp_context* ctx) {
 
 // func_1517F3A0 draws a viewport's fade: a full-screen rectangle in the fade colour, with $v0 the
 // opacity from func_1517EF00. While the skip runs it is drawn at least as dark as skip_fade, in
-// black, so the scenes it passes through stay hidden. Only the drawing changes; game logic that
-// asks func_1517EF00 about the fade sees the game's own value.
+// black, so the scenes it passes through stay hidden; so too while a save the debug menu started
+// loads (conker::resume::load_cover). Only the drawing changes; game logic that asks func_1517EF00
+// about the fade sees the game's own value.
 extern "C" void conker_skip_fade_alpha(uint8_t* rdram, recomp_context* ctx) {
-    const int32_t alpha = skip_fade(rdram);
+    const int32_t alpha = std::max(skip_fade(rdram), conker::resume::load_cover());
     fade_forced = alpha > static_cast<int32_t>(ctx->r2);
     if (fade_forced) {
         ctx->r2 = alpha;

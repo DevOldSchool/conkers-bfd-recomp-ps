@@ -58,6 +58,7 @@ extern "C" void func_15178DA4(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_15082A44(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_15060F28(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_1501D348(uint8_t* rdram, recomp_context* ctx);
+extern "C" void func_1509B5AC(uint8_t* rdram, recomp_context* ctx);
 // librecomp's copy of the save (lib/N64ModernRuntime/librecomp/src/pi.cpp), read from and written
 // to RDRAM.
 void save_read(uint8_t* rdram, int32_t rdram_address, uint32_t offset, uint32_t count);
@@ -101,9 +102,16 @@ constexpr int kSettleFrames = 10;                // frames the scene runs before
 constexpr int kPlaceFrames = 4;                  // frames he is then held at the resumed spot
 constexpr int kTeleportFrames = 8;               // frames he is held after a teleport (debug menu)
 constexpr uint32_t kSaveCounters = 0x800BE400;   // D_800BE3F8 + 8, 16 bytes per slot
+constexpr int kSlotRecord = 6;                   // D_800BE3F8 + 0xE: the record holding the slot
+constexpr uint32_t kRecordSlots = 0x800BE3D8;    // D_800BE3D8: the slot each record holds, or -1
+constexpr int kRecords = 4;                      // save records (see note_records)
+constexpr uint32_t kFirstRecordBlock = 4;
+constexpr uint32_t kRecordBlocks = 16;
+constexpr uint32_t kRecordSize = 0x80;
+constexpr uint32_t kRecordChecksumStart = 0xCC;
 constexpr uint32_t kSaveSlot = 0x8008FDA8;       // D_8008FDA8: the game slot in play
 constexpr uint32_t kEepromAction = 0x80082BB4;   // D_80082BB4: request for func_1501C57C
-constexpr uint32_t kEepromSlot = 0x800BE3EC;     // D_800BE3EC: its slot argument
+constexpr uint32_t kEepromSlot = 0x800BE3EC;     // D_800BE3EC: its argument (a slot to save, a record to load)
 constexpr int8_t kEepromLoad = 1;
 constexpr int8_t kEepromSave = 2;
 constexpr uint32_t kChapterReplay = 0x800BE616;  // D_800BE616: playing from CHAPTERS, saves off
@@ -271,6 +279,7 @@ int g_camera_hold = 0;             // frames left to hold it
 float g_last_eye[3] = {};
 constexpr int kCameraStillFrames = 10;
 constexpr int kCameraWaitFrames = 150;  // about 5 s
+bool g_at_checkpoint = false;  // start the next save at its checkpoint, not its point (load_report)
 int g_resumed_slot = -1;   // the slot last started at its point, and when
 std::chrono::steady_clock::time_point g_resumed_at;
 // A debug report being made (request_report). Its save is the game's own, run as SAVE runs it, but
@@ -289,6 +298,32 @@ struct PendingReport {
     std::array<Point, kSlots> points{};
 };
 PendingReport g_report;
+// A save the debug menu starts (load_snapshot, load_report) is started behind a black screen: the
+// game's viewport fade, held black (conker_skip_fade_alpha in intro_skip.cpp draws it), from the
+// press until the scene it goes to is running with Conker placed and its circle wipe opens on him
+// (update_cover). Otherwise the wipe's small circle shows the scene's entrance, and Conker jumping
+// to the point, before it opens. The fade is not drawn while the pause closes, so the game is
+// only started once it has been drawn for a few frames: the game never clears its colour buffers,
+// and while the scene changes the old scene would show at the widescreen sides of the closed
+// circle wipe, a different frame in each of the two buffers.
+enum class Cover { None, Black, FadingIn };
+Cover g_cover = Cover::None;
+bool g_cover_drawn = false;    // drawn black since the last frame (load_cover)
+int g_cover_black = 0;         // frames it has been drawn black
+bool g_cover_started = false;  // the game was started behind it (func_151E327C)
+bool g_cover_changed = false;  // and its scene change has begun
+int g_cover_frames = 0;        // frames since, with everything in place
+std::chrono::steady_clock::time_point g_cover_since;
+// The circle wipe that opens a scene, for viewport 0: how closed it is (D_800DDDC8, 1 closed to 0
+// open), and its change per tick (D_800DDDD8): -0.004 as the scene starts, 0 while it holds a small
+// circle around Conker, -0.009 as it opens.
+constexpr uint32_t kWipe = 0x800DDDC8;
+constexpr uint32_t kWipeSpeed = 0x800DDDD8;
+constexpr float kWipeOpening = -0.006f;
+constexpr int kCoverBlackFrames = 3;               // frames drawn black before the game is started
+constexpr int kCoverFrames = 4;                    // frames everything stays in place before the fade
+constexpr std::chrono::milliseconds kCoverFade{330};  // as the intro skip's
+constexpr std::chrono::seconds kCoverLimit{5};     // shown by then whatever happens
 bool g_snapshot_pending = false;  // a save to keep once the EEPROM write is done
 int g_snapshot_scene = 0;
 int g_snapshot_slot = 0;
@@ -938,13 +973,46 @@ std::vector<int> match_records(uint8_t* rdram, const TableSpec& spec, uint32_t r
     return now_of;
 }
 
+// Starts the saved event scripts that are not running. Entering a scene starts only its own list
+// (func_1509B4A0); one a trigger, a cutscene or another script started during play (Bats Tower's
+// lever, event 0x55) would otherwise be lost, and what it runs never happens.
+// Each is started as the script VM's command starts one (func_1509F850: func_1509B5AC(event, 0)),
+// which runs its first step now, before the characters are matched to the save, so the ones it
+// makes are matched like the rest; its key's flags are put back as they were, and its variables
+// further on. Returns how many were started.
+int start_scripts(uint8_t* rdram, recomp_context* ctx, const Point& point) {
+    int started = 0;
+    for (const ScriptVariables& script : point.scripts) {
+        const uint16_t event = script.key & kScriptEvent;
+        uint32_t found = 0;
+        const auto find = [&](uint32_t node) {
+            if ((MEM_HU(0, kseg0(node)) & kScriptEvent) == event) {
+                found = node;
+            }
+        };
+        for_each_script(rdram, find);
+        if (found != 0) {
+            continue;
+        }
+        call_game(rdram, ctx, func_1509B5AC, event, 0);
+        for_each_script(rdram, find);
+        if (found != 0) {
+            MEM_H(0, kseg0(found)) = static_cast<int16_t>(script.key);
+            started++;
+        }
+    }
+    return started;
+}
+
 // Puts back the scene `point` recorded: each table whose record count is the same as now (an actor
 // slot only if it holds the same model), word by word, except the words restorable leaves, and the variables of each event script running again (the same event, the
 // same size). The game then carries on from there: objects move to the states they had, a fired
-// trigger stays fired. Then the swarms (restore_swarms).
+// trigger stays fired. Then the swarms (restore_swarms). The saved scripts not running are started
+// first (start_scripts).
 void restore_scene(uint8_t* rdram, recomp_context* ctx, const Point& point) {
     std::string restored;
     std::vector<int> actor_slots;  // saved slot -> slot now (match_records), empty if not restored
+    const int started = start_scripts(rdram, ctx, point);
     for (const TableState& table : point.tables) {
         if (table.spec->id_offset >= 0) {
             sync_characters(rdram, ctx, table, &restored);
@@ -1000,8 +1068,8 @@ void restore_scene(uint8_t* rdram, recomp_context* ctx, const Point& point) {
     if (point.has_swarms) {
         restore_swarms(rdram, ctx, point, actor_slots, &restored);
     }
-    std::printf("[conker] resumed scene state:%s, event scripts %d/%zu\n", restored.c_str(), scripts,
-                point.scripts.size());
+    std::printf("[conker] resumed scene state:%s, event scripts %d/%zu (%d started)\n", restored.c_str(), scripts,
+                point.scripts.size(), started);
 }
 
 // Puts Conker's object at the point, this frame and the last (so he does not sweep there).
@@ -1208,7 +1276,46 @@ void settle_camera(uint8_t* rdram) {
     }
 }
 
+// Once a frame while the cover is black: takes it away once the started save's scene is running
+// with Conker placed. The circle wipe that opens a scene holds a small circle around him for about
+// a second, which the cover keeps hidden; it goes as the wipe opens, so the wipe shows him. Where
+// there is no wipe, it fades in.
+void update_cover(uint8_t* rdram) {
+    if (g_cover != Cover::Black) {
+        return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    const bool changing = MEM_BU(0, kseg0(kTransition)) != 0;
+    g_cover_changed = g_cover_changed || (g_cover_started && changing);
+    const bool in_place = g_cover_changed && !changing && !g_load_requested && !g_resuming.valid &&
+                          player_object(rdram) != 0;
+    g_cover_frames = in_place ? g_cover_frames + 1 : 0;
+    const bool wipe_opening = read_float(rdram, kWipeSpeed) < kWipeOpening;
+    if (in_place && wipe_opening) {
+        g_cover = Cover::None;
+    } else if ((g_cover_frames >= kCoverFrames && read_float(rdram, kWipe) == 0.0f) || now - g_cover_since > kCoverLimit) {
+        g_cover = Cover::FadingIn;
+        g_cover_since = now;
+    }
+}
+
 }  // namespace
+
+int32_t load_cover() {
+    if (g_cover == Cover::Black) {
+        g_cover_drawn = true;
+        return 0xFF;
+    }
+    if (g_cover != Cover::FadingIn) {
+        return 0;
+    }
+    const auto elapsed = std::chrono::steady_clock::now() - g_cover_since;
+    if (elapsed >= kCoverFade) {
+        g_cover = Cover::None;
+        return 0;
+    }
+    return static_cast<int32_t>(0xFF - 0xFF * elapsed / kCoverFade);
+}
 
 // Records where Conker is and the scene as it is now in `point`; false when there is no Conker.
 bool capture_point(uint8_t* rdram, Point* point) {
@@ -1258,12 +1365,21 @@ void remember_position(uint8_t* rdram, int slot) {
     g_pending_slot = slot;
 }
 
+// A load reads a record, not a slot (func_15006590(D_800BE3EC) reads blocks 4 + 16 * record): the
+// one the slot is noted in, as the title menu asks for it (func_150076BC(D_800BE3F8[slot] +0xE)).
+// Asking for the slot's own number read whatever record had that number, often an older save of
+// the slot (see note_records).
 void request_load(uint8_t* rdram, int slot) {
     if (slot < 0 || slot >= kSlots) {
         return;
     }
+    const int record = MEM_B(kSlotRecord, kseg0(kSaveCounters + static_cast<uint32_t>(slot) * 16));
+    if (record < 0 || record >= kRecords) {
+        std::printf("[conker] slot %d has no save to load\n", slot);
+        return;
+    }
     MEM_B(0, kseg0(kEepromAction)) = kEepromLoad;
-    MEM_B(0, kseg0(kEepromSlot)) = static_cast<int8_t>(slot);
+    MEM_B(0, kseg0(kEepromSlot)) = static_cast<int8_t>(record);
     g_load_requested = true;
 }
 
@@ -1627,7 +1743,7 @@ bool check_report(const std::filesystem::path& folder, ReportFiles* files, std::
 
 }  // namespace
 
-bool load_report(uint8_t* rdram, const std::filesystem::path& path, std::string* problem) {
+bool load_report(uint8_t* rdram, const std::filesystem::path& path, std::string* problem, bool at_checkpoint) {
     if (MEM_B(0, kseg0(kEepromAction)) != 0 || MEM_W(0, kseg0(kEepromWriting)) != 0 || g_snapshot_pending ||
         g_report.active) {
         *problem = "saving, try again";
@@ -1665,24 +1781,80 @@ bool load_report(uint8_t* rdram, const std::filesystem::path& path, std::string*
     int slot;
     const std::array<Point, kSlots> report_points = read_points(points_path(), &slot);
     start_save(rdram, report_points, slot);
-    std::printf("[conker] loading debug report %s, slot %d, playing on %s until the game is closed\n",
-                folder.string().c_str(), MEM_B(0, kseg0(kSaveSlot)), copy.string().c_str());
+    g_at_checkpoint = at_checkpoint;
+    std::printf("[conker] loading debug report %s%s, slot %d, playing on %s until the game is closed\n",
+                folder.string().c_str(), at_checkpoint ? " at its checkpoint" : "", MEM_B(0, kseg0(kSaveSlot)),
+                copy.string().c_str());
     return true;
 }
 
 namespace {
 
 // Starts `slot` of the save just put in place, as LOAD does (the first point's slot if there is one).
+// The save keeps each slot in one of four 0x80-byte records (EEPROM blocks 4 + 16 * record), written
+// in turn, the newest a slot's: {u16 checksum, slot, u32 sequence number, event flags, ...}. Reading
+// the EEPROM at boot, the game notes which record holds each slot and its sequence number
+// (D_800BE3F8 + 16 * slot: +8 and +0xE), and which slot each record holds (D_800BE3D8[record]); LOAD
+// reads the slot from the record noted (func_15006590), and SAVE writes to one no slot holds. A save
+// put in place afterwards (a snapshot, a report's copy) has records of its own, so they are noted
+// again from it, as the game notes them: each slot's newest record whose checksum holds. Without
+// this the game read the slot from the record the booted save had it in, an older save of the same
+// slot in the copy, whose event flags lagged behind its point's scene (in Bats Tower the cog girls
+// and later the dogfish never came out). Returns the slot's sequence number, or -1 when it has none.
+int64_t note_records(uint8_t* rdram, int slot) {
+    save_read(rdram, static_cast<int32_t>(kSnapshotScratch), 0, kEepromSize);
+    const auto byte = [&](uint32_t offset) { return MEM_BU(static_cast<int>(offset), kseg0(kSnapshotScratch)); };
+    int newest[kSlots] = {-1, -1, -1};
+    uint32_t counters[kSlots] = {};
+    for (int record = 0; record < kRecords; record++) {
+        const uint32_t base = (kFirstRecordBlock + static_cast<uint32_t>(record) * kRecordBlocks) * 8;
+        uint32_t sum = kRecordChecksumStart;
+        for (uint32_t i = 2; i < kRecordSize; i++) {
+            sum = (sum + (static_cast<uint32_t>(byte(base + i)) << (i & 3))) & 0xFFFF;
+        }
+        const int owner = byte(base + 2);
+        const uint32_t counter = (static_cast<uint32_t>(byte(base + 3)) << 24) | (byte(base + 4) << 16) |
+                                 (byte(base + 5) << 8) | byte(base + 6);
+        if (sum != ((static_cast<uint32_t>(byte(base)) << 8) | byte(base + 1)) || owner >= kSlots) {
+            continue;
+        }
+        if (newest[owner] < 0 || counter > counters[owner]) {
+            newest[owner] = record;
+            counters[owner] = counter;
+        }
+    }
+    for (int record = 0; record < kRecords; record++) {
+        MEM_B(record, kseg0(kRecordSlots)) = -1;
+    }
+    for (int s = 0; s < kSlots; s++) {
+        const uint32_t entry = kSaveCounters + static_cast<uint32_t>(s) * 16;
+        MEM_W(0, kseg0(entry)) = newest[s] < 0 ? -1 : static_cast<int32_t>(counters[s]);
+        MEM_B(kSlotRecord, kseg0(entry)) = static_cast<int8_t>(newest[s]);
+        if (newest[s] >= 0) {
+            MEM_B(newest[s], kseg0(kRecordSlots)) = static_cast<int8_t>(s);
+        }
+    }
+    return newest[slot] < 0 ? -1 : counters[slot];
+}
+
 void start_save(uint8_t* rdram, const std::array<Point, kSlots>& points, int slot) {
     if (slot < 0) {
         slot = MEM_B(0, kseg0(kSaveSlot)) >= 0 ? MEM_B(0, kseg0(kSaveSlot)) : 0;
-    } else {
-        // The slot's sequence number as the game last read or wrote it, which starting the save
-        // checks the point against (conker_resume_start): the snapshot's.
-        MEM_W(0, kseg0(kSaveCounters + static_cast<uint32_t>(slot) * 16)) = static_cast<int32_t>(points[slot].counter);
+    }
+    const int64_t counter = note_records(rdram, slot);
+    if (counter != points[slot].counter && points[slot].valid) {
+        std::printf("[conker] slot %d's newest save is %lld, its point is for %u: starting at its checkpoint\n", slot,
+                    static_cast<long long>(counter), points[slot].counter);
     }
     MEM_B(0, kseg0(kSaveSlot)) = static_cast<int8_t>(slot);
     request_load(rdram, slot);
+    g_cover = Cover::Black;
+    g_cover_drawn = false;
+    g_cover_black = 0;
+    g_cover_started = false;
+    g_cover_changed = false;
+    g_cover_frames = 0;
+    g_cover_since = std::chrono::steady_clock::now();
 }
 
 }  // namespace
@@ -1739,6 +1911,11 @@ extern "C" void conker_resume_saved(uint8_t* /*rdram*/, recomp_context* ctx) {
 // very save.
 extern "C" void conker_resume_start(uint8_t* rdram, recomp_context* ctx) {
     const int slot = MEM_B(0, kseg0(kSaveSlot));
+    if (g_at_checkpoint) {
+        g_at_checkpoint = false;
+        std::printf("[conker] starting slot %d at its checkpoint\n", slot);
+        return;
+    }
     if (slot < 0 || slot >= kSlots) {
         return;
     }
@@ -1797,8 +1974,15 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
             finish_report(no_save("the game did not make one"));
         }
     }
-    if (g_load_requested && MEM_B(0, kseg0(kEepromAction)) == 0) {
+    if (g_cover_drawn) {
+        g_cover_drawn = false;
+        g_cover_black++;
+    }
+    const bool cover_ready = g_cover != Cover::Black || g_cover_black >= kCoverBlackFrames ||
+                             std::chrono::steady_clock::now() - g_cover_since > kCoverLimit;
+    if (g_load_requested && MEM_B(0, kseg0(kEepromAction)) == 0 && cover_ready) {
         g_load_requested = false;
+        g_cover_started = true;
         recomp_context saved = *ctx;
         func_151E327C(rdram, ctx);
         *ctx = saved;
@@ -1806,6 +1990,7 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
     }
     note_cutscene(rdram);
     settle_camera(rdram);
+    update_cover(rdram);
     if (!g_resuming.valid) {
         return;
     }
