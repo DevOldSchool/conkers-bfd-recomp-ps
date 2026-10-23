@@ -104,7 +104,8 @@ These environment variables are read by both builds:
   two over the same pad script.
 * `CONKER_SOUND_LOG=1` prints a line for each sound effect as it starts
   (`sndp_play_sound`): the VI, the sound, its volume and Conker's animation,
-  for finding the sounds to give haptic effects
+  and a line for each change of Conker's animation with his health, for
+  finding the sounds and moments to give haptic effects
   (src/enhancements/haptics/haptics.cpp).
 * `CONKER_DUMP_TEXTURES=<dir>` (RT64 build) writes each texture the game
   loads to `<dir>` once, as RT64's `<hash>.v5.png`, `.tmem` and `.tile.json`

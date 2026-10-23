@@ -227,8 +227,9 @@ pak inserted. It is left out when controller 1's pad can rumble;
 A DualSense's motors play shaped taps and buzzes as well as the Rumble Pak's
 on and off, and some of the game's sound effects now play one: the
 slingshot coming out, each shot in the grip of the trigger that fired it,
-the elastic stretched again and the click when it is ready, and a thump
-when Conker lands from a jump, on any ground. The game's own rumble is unchanged. More sounds are a
+the elastic stretched again and the click when it is ready, a thump
+when Conker lands from a jump, on any ground, and a much heavier one when
+he splats after a long fall or is squashed flat. The game's own rumble is unchanged. More sounds are a
 line each in src/enhancements/haptics/haptics.cpp, found with
 `CONKER_SOUND_LOG=1` (see [diagnostics](diagnostics.md)). It works on macOS
 only so far, through Core Haptics, which reaches the pad over Bluetooth too.
