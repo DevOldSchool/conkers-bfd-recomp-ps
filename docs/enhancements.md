@@ -286,12 +286,12 @@ too.
 
 While Conker sits at the mounted machine gun, as in the wasps' hive, a
 DualSense's triggers (both are Z) pull heavy past the first fifth of
-their travel, and the pad rumbles in both grips, since the gun is held
-with both hands: a rumble that grows as holding Z winds the barrels up,
-then a hard thump for every round over the steady rumble of the spinning
-barrels, until it stops firing. The triggers only resist; they don't
-shake. On macOS a DualSense's rumble goes through Core Haptics; any other
-pad that can rumble plays it on its motors, without the trigger
+their travel, and every round the gun fires thumps in both grips, since
+the gun is held with both hands. Nothing shakes while the barrels wind
+up, and each thump is short enough to leave a gap before the next, so
+the rounds are felt one by one. The triggers only resist; they don't
+shake. On macOS a DualSense's thumps go through Core Haptics; any other
+pad that can rumble plays them on its motors, without the trigger
 resistance. `CONKER_ADAPTIVE_TRIGGERS=0` turns both off, and ADAPTIVE
 TRIGGERS on the debug menu's ENHANCEMENTS page switches it.
 
