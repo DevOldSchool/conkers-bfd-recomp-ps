@@ -1,5 +1,5 @@
 // The B pads on the ground (Conker's context-sensitive spots), wooden (octagonal, hexagonal and
-// square), stone, teal (set in a floor) and grey stone, drawn for a PlayStation pad from Rare's own textures in the ROM. An Xbox pad's B is B, so
+// square), stone, teal (set in a floor), grey stone and the rug, drawn for a PlayStation pad from Rare's own textures in the ROM. An Xbox pad's B is B, so
 // its pads stay as they are.
 #pragma once
 
@@ -35,5 +35,8 @@ std::vector<Texture> circle_oval_pad();
 
 // The grey stone B pad with a raised O where its B was (src/enhancements/pad_icons/rock_pad.cpp).
 std::optional<Texture> circle_rock_pad();
+
+// The rug B pad with an O written where its B was (src/enhancements/pad_icons/rug_pad.cpp).
+std::optional<Texture> circle_rug_pad();
 
 } // namespace conker::pad_icons
