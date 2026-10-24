@@ -59,6 +59,19 @@ constexpr SoundHaptic kSounds[] = {
     // Footsteps (588-599 on stone) were tried and felt too strong for something so frequent.
 };
 
+// The shotgun (Spooky's mansion, with the red laser sight; out with B): the blast, felt as the
+// mounted gun's rounds are, a hard hit in both grips and a short heavy rumble. Only while Conker
+// holds the shotgun (his animations 0x221 to 0x237), in case the sounds are used elsewhere. Found
+// in scene 60 with B then Z (debug reports scene60-20261024-221903 and -222712): fired as Z is
+// pressed, sound 755 or 756 with animation 0x222, 0x236 or 0x237; zoomed in with R held, fired
+// as Z is let go, with 0x227 or 0x237. The pump after it is 688.
+bool shotgun_blast(uint16_t sound, uint16_t animation) {
+    const bool blast = sound == 755 || sound == 756;
+    return blast && animation >= 0x221 && animation <= 0x237;
+}
+
+constexpr Haptic kShotgun[] = {tap(1.0f, 0.5f, Grip::Both), buzz(1.0f, 0.1f, 0.15f, Grip::Both)};
+
 // Conker landing on his feet from a jump, on any ground.
 constexpr uint16_t kLandingAnimation = 0x36;
 constexpr Haptic kLanding = tap(0.8f, 0.2f, Grip::Both);
@@ -104,6 +117,12 @@ extern "C" void conker_sound_started(uint8_t* rdram, recomp_context* ctx) {
                     static_cast<unsigned long long>(conker::current_vi()), sound, volume, conker_animation(rdram));
     }
     if (!haptics_enabled() || !conker::input::has_haptics()) {
+        return;
+    }
+    if (shotgun_blast(sound, conker_animation(rdram))) {
+        for (const Haptic& haptic : kShotgun) {
+            conker::input::play_haptic(haptic);
+        }
         return;
     }
     const auto it = std::find_if(std::begin(kSounds), std::end(kSounds), [sound](const SoundHaptic& entry) {
