@@ -65,6 +65,7 @@ endif()
 add_executable(ConkerRecomp
     src/main.cpp
     src/runtime/game.cpp
+    src/runtime/heap_check.cpp
     src/runtime/memory.cpp
     src/runtime/overlays.cpp
     src/runtime/rsp.cpp
@@ -88,6 +89,7 @@ add_executable(ConkerRecomp
     src/enhancements/display_options/widescreen_intro.cpp
     src/enhancements/display_options/widescreen_copies.cpp
     src/enhancements/display_options/widescreen_culling.cpp
+    src/enhancements/display_options/widescreen_frame.cpp
     src/enhancements/frame_rate/frame_rate.cpp
     src/enhancements/intro_skip/intro_skip.cpp
     src/enhancements/max_detail/max_detail.cpp
@@ -95,6 +97,7 @@ add_executable(ConkerRecomp
     src/enhancements/pause_save/resume_point.cpp
     src/enhancements/rumble_banner/rumble_banner.cpp
     src/enhancements/haptics/haptics.cpp
+    src/enhancements/adaptive_triggers/adaptive_triggers.cpp
     src/enhancements/sharp_menus/menu_art.cpp
     src/enhancements/sharp_menus/pause_signs.cpp
     src/enhancements/surround_default/surround_default.cpp
@@ -133,7 +136,7 @@ if(CONKER_RENDERER STREQUAL "rt64")
     endif()
     target_sources(ConkerRecomp PRIVATE
         src/platform/renderer_rt64.cpp src/platform/object_picker_rt64.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/enhancements/sharp_menus/sharp_menus.cpp src/platform/window_sdl.cpp src/platform/hang_watch.cpp src/platform/input_sdl.cpp
-        src/enhancements/pad_icons/pad_icons.cpp src/enhancements/pad_icons/b_pad.cpp src/enhancements/pad_icons/stone_pad.cpp src/enhancements/pad_icons/hex_pad.cpp src/enhancements/pad_icons/square_pad.cpp src/enhancements/pad_icons/oval_pad.cpp
+        src/enhancements/pad_icons/pad_icons.cpp src/enhancements/pad_icons/b_pad.cpp src/enhancements/pad_icons/stone_pad.cpp src/enhancements/pad_icons/hex_pad.cpp src/enhancements/pad_icons/square_pad.cpp src/enhancements/pad_icons/oval_pad.cpp src/enhancements/pad_icons/rock_pad.cpp
         src/enhancements/pad_icons/button_art.cpp)
     target_include_directories(ConkerRecomp PRIVATE
         ${SDL2_INCLUDE_DIRS}
@@ -146,9 +149,10 @@ if(CONKER_RENDERER STREQUAL "rt64")
     target_compile_definitions(ConkerRecomp PRIVATE CONKER_RENDERER_RT64=1 CONKER_AUDIO_SDL=1 HLSL_CPU FFX_GCC)
     target_link_libraries(ConkerRecomp PRIVATE rt64 ${SDL2_LIBRARIES})
     if(APPLE)
-        # DualSense haptic effects through Apple's GameController framework and Core Haptics.
+        # DualSense haptic effects and adaptive triggers through Apple's GameController framework
+        # and Core Haptics.
         enable_language(OBJCXX)
-        target_sources(ConkerRecomp PRIVATE src/platform/haptics_apple.mm)
+        target_sources(ConkerRecomp PRIVATE src/platform/haptics_apple.mm src/platform/adaptive_triggers_apple.mm)
         set_source_files_properties(src/platform/haptics_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
         target_link_libraries(ConkerRecomp PRIVATE "-framework GameController" "-framework CoreHaptics")
     endif()

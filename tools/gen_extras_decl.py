@@ -22,7 +22,7 @@ def main() -> int:
     parser.add_argument("--runtime", type=Path, default=Path(__file__).resolve().parents[1] / "lib" / "N64ModernRuntime")
     src_dir = Path(__file__).resolve().parents[1] / "src"
     hook_sources = sorted((src_dir / "fixes").rglob("*.cpp")) + sorted((src_dir / "enhancements").rglob("*.cpp"))
-    parser.add_argument("--extras", type=Path, nargs="+", default=[src_dir / "runtime" / "ultra_extras.cpp", *hook_sources])
+    parser.add_argument("--extras", type=Path, nargs="+", default=[src_dir / "runtime" / "ultra_extras.cpp", src_dir / "runtime" / "heap_check.cpp", *hook_sources])
     args = parser.parse_args()
 
     called: set[str] = set()

@@ -84,6 +84,12 @@ priority, return queue, addresses, size) and makes PI DMA completion send that
 `OSIoMesg` pointer to the return queue, as libultra's PI manager does, instead
 of a null message.
 
+`tools/patches/n64modernruntime-keep-rdram.patch` (apply in
+`lib/N64ModernRuntime`) stops `recomp::start` from unmapping the game's memory
+on quit. The game's own threads are never stopped, so one still running after
+that faulted on freed memory (`fatal signal 11` at a valid N64 address as the
+window closed). The process is exiting, so the OS frees it.
+
 `tools/patches/rt64-f3dex2cbfd.patch` (apply in `lib/rt64`) adds Rare's
 F3DEX2CBFD microcode: GBI database entries for the eight variants, a
 `GBI_F3DEX2CBFD` command table on top of F3DEX2 and the RSP state for its
@@ -208,6 +214,20 @@ and that object was clipped away: the plank bridge on the left pillar in scene
 41 disappeared once all of it was left of the 4:3 picture. With a widened
 aspect ratio such a triangle now counts its rows at the scissor's nearest
 column.
+
+`tools/patches/rt64-near-draw-rect.patch` (apply in `lib/rt64` after the
+patches above) fixes the bottom of the picture going missing when the camera
+stands over level geometry, as in the Uga Buga tunnel (scene 2). The same draw
+rect counted each triangle by its vertices' screen positions, but a vertex
+behind the camera (w <= 0) divides to the wrong side of the screen, so a floor
+triangle running from under the camera to in front of it seemed to end well
+above the bottom edge. When no other triangle in the pair reached lower, the
+target ended there (row 167-186 of 216) and the rows below kept whatever the
+frame buffer held before: black after a load, older frames otherwise. The
+triangles themselves were drawn; only the target was too short. A triangle with
+a vertex behind the camera now counts the screen bounds of the part in front of
+it (clipped at a small positive w), and the backface test, which the flipped
+positions make meaningless, no longer leaves it out of the rect.
 
 RT64's CMake turns plume's Retina support off, which would size the Metal
 swap chain in points and leave macOS to upscale it 2x on a Retina screen. Our

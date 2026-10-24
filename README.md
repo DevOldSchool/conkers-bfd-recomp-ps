@@ -45,6 +45,7 @@ git submodule update --init --recursive
 (cd lib/N64Recomp && git apply ../../tools/patches/n64recomp.patch)
 (cd lib/N64ModernRuntime && git apply ../../tools/patches/n64modernruntime-running-thread.patch)
 (cd lib/N64ModernRuntime && git apply ../../tools/patches/n64modernruntime-pi-dma-message.patch)
+(cd lib/N64ModernRuntime && git apply ../../tools/patches/n64modernruntime-keep-rdram.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-f3dex2cbfd.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-native-size.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-edge-rects.patch)
@@ -54,6 +55,7 @@ git submodule update --init --recursive
 (cd lib/rt64 && git apply ../../tools/patches/rt64-queue-names.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-metal-float-to-int.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-object-picking.patch)
+(cd lib/rt64 && git apply ../../tools/patches/rt64-near-draw-rect.patch)
 (cd lib/rt64/src/contrib/plume && git apply ../../../../../tools/patches/plume-wireframe.patch)
 (cd lib/rt64/src/contrib/plume && git apply ../../../../../tools/patches/plume-gpu-errors.patch)
 tools/regenerate.sh
@@ -113,6 +115,7 @@ says how to turn it off. The details, and every setting, are in
 | [Everything seen from farther](docs/enhancements.md#everything-seen-from-farther) | Characters, props, bees, grass and flowers drawn two and a half times as far before they are left out | `CONKER_DRAW_DISTANCE=0` |
 | [No Rumble Pak banner](docs/enhancements.md#no-rumble-pak-banner-with-a-rumbling-pad) | No "INSERT RUMBLE PAK" banner when the pad can rumble | `CONKER_RUMBLE_BANNER=1` shows it |
 | [Pad haptics](docs/enhancements.md#pad-haptics) | Taps and buzzes in the pad's grips (and an Xbox pad's triggers) for some of Conker's sounds (slingshot, landing) | `CONKER_HAPTICS=0` |
+| [Peeing and the machine gun in the triggers](docs/enhancements.md#peeing-and-the-machine-gun-in-the-triggers) | A DualSense's triggers push back harder the further Z sends Conker's pee; at the mounted gun they pull heavy and every round thumps in both grips | `CONKER_ADAPTIVE_TRIGGERS=0` |
 | [Camera on the right stick](docs/enhancements.md#camera-on-the-right-stick) | C-left and C-right swapped, so left turns the view left | Always on; the debug menu can switch it |
 | [Your pad's buttons](docs/enhancements.md#your-pads-buttons) | The game's N64 button pictures (menus, tutorial bubbles, B pads) drawn as an Xbox or PlayStation pad's, or redrawn sharper | `CONKER_PAD_ICONS=0`; the debug menu can switch it |
 | [Sharper text](docs/enhancements.md#sharper-text) | The font enlarged with Super-xBR from your ROM | `CONKER_SHARP_FONT=0` |

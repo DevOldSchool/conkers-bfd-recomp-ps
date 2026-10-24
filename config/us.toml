@@ -76,6 +76,13 @@ func = "func_800095A0"
 before_vram = 0x100095D4
 text = "{ void osAiGetLength_recomp(uint8_t*, recomp_context*); uint64_t saved_v0 = ctx->r2; osAiGetLength_recomp(rdram, ctx); ctx->r3 = ctx->r2; ctx->r2 = saved_v0; }"
 
+# func_80004250 walks the heap once a frame; check the list first and report damage (a write past
+# the end of a block) before the walk follows it. See src/runtime/heap_check.cpp.
+[[patches.hook]]
+func = "func_80004250"
+before_vram = 0x10004250
+text = "{ void conker_heap_check(uint8_t*, recomp_context*); conker_heap_check(rdram, ctx); }"
+
 # func_8000853C returns a sequence player's state to the music manager, which frees the record of
 # a player it sees stopped. A sequence that was started this frame is still stopped until the
 # audio thread's next render, which on hardware always comes first; the recompiled game can get
@@ -410,6 +417,20 @@ func = "func_151D5E90"
 before_vram = 0x151D6180
 text = "{ void conker_widescreen_copy_end(uint8_t*, recomp_context*); conker_widescreen_copy_end(rdram, ctx); }"
 
+# Widescreen: the metal frame of the turret's first-person view reaches the sides of the widened
+# picture. func_15154D80 draws one 2D sprite record; the tiles of the frame's top and bottom plates
+# are laid out again from edge to edge. See
+# src/enhancements/display_options/widescreen_frame.cpp.
+[[patches.hook]]
+func = "func_15154D80"
+before_vram = 0x15154D80
+text = "{ void conker_widescreen_frame_begin(uint8_t*, recomp_context*); conker_widescreen_frame_begin(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_15154D80"
+before_vram = 0x1515547C
+text = "{ void conker_widescreen_frame_end(uint8_t*, recomp_context*); conker_widescreen_frame_end(rdram, ctx); }"
+
 # In widescreen the intro (scene 0x21) does not draw Conker while he waits for his cue just past
 # the right edge of the 4:3 view, nor what he holds: func_1502C974, which draws an actor, and
 # func_150311C4, which draws an attachment (the chainsaw, a glove) on its parent actor, return
@@ -476,13 +497,15 @@ func = "sndp_play_sound"
 before_vram = 0x10017438
 text = "{ void conker_sound_started(uint8_t*, recomp_context*); conker_sound_started(rdram, ctx); }"
 
-# Once a frame, just before func_1501878C checks D_800BEAC0 to run or skip the world frame, a
-# DualSense plays a thump when Conker's animation becomes his landing. See
-# src/enhancements/haptics/haptics.cpp.
+# Once a frame, just before func_1501878C checks D_800BEAC0 to run or skip the world frame: a
+# DualSense plays a thump when Conker's animation becomes his landing
+# (src/enhancements/haptics/haptics.cpp), and its triggers take the feel of what Conker is doing
+# with Z (src/enhancements/adaptive_triggers/adaptive_triggers.cpp; CONKER_ADAPTIVE_TRIGGERS=0
+# leaves them free).
 [[patches.hook]]
 func = "func_1501878C"
 before_vram = 0x150188FC
-text = "{ void conker_haptics_frame(uint8_t*, recomp_context*); conker_haptics_frame(rdram, ctx); }"
+text = "{ void conker_haptics_frame(uint8_t*, recomp_context*); void conker_adaptive_triggers(uint8_t*, recomp_context*); conker_haptics_frame(rdram, ctx); conker_adaptive_triggers(rdram, ctx); }"
 
 # Experimental 60 fps (CONKER_60FPS=1, off by default): Rare's scheduler is woken when a frame is
 # queued and when one is swapped, so the next frame starts in the same retrace and the logic steps

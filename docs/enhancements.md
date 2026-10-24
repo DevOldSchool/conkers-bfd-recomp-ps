@@ -25,7 +25,10 @@ The OPTIONS page of the title menu has five rows under the sound setting.
   view too, so the level, props and characters at the sides are not left
   out as they were past the edges of its 4:3 view
   (`CONKER_WIDESCREEN_CULLING=0` keeps the 4:3 choice); the tiled sky gets
-  vertex buffers big enough for the extra tiles. In the intro,
+  vertex buffers big enough for the extra tiles. The metal frame of the
+  turret's first-person view reaches the sides, its plates carrying on with
+  more bolts (in 4:3 too it now closes the pixel of scene the game leaves
+  past each end). In the intro,
   Conker is not drawn while he waits for his cue just past the edge of the
   4:3 view. Behind the pause menu the paused scene stays widescreen, but
   sharp: the game blurs only the 4:3 middle of the frame, so that blur is
@@ -94,7 +97,11 @@ count a character keeps is kept), the players' records (so the lives count
 is kept; loading a save otherwise starts it again), the variables of the
 event scripts running, and the swarms of bees in scene 12, where each one
 was and what it flew after (so a swarm already led to the sunflower stays
-there, and one following Conker goes on following him). Each character is
+there, and one following Conker goes on following him), what a script has
+left B doing for Conker away from any B pad and how long he has left drunk
+(so after drinking at Rock Solid he is still drunk: he hiccups and staggers,
+and B pees).
+Each character is
 put back over the same character, found by the number the scene gives it,
 since a scene does not always fill its character slots in the same order;
 characters the game had brought in while playing (scene 6's three wasps) are
@@ -282,6 +289,28 @@ the trigger that fired it. `CONKER_HAPTICS=0` turns it off, and
 `CONKER_HAPTICS_MOTORS=1` plays them on the motors on a DualSense on macOS
 too.
 
+## Peeing and the machine gun in the triggers
+
+A DualSense's triggers (both are Z) take the feel of the two things
+Conker does by holding Z:
+
+- **Peeing, drunk.** Once B starts the stream, the triggers resist
+  lightly, then harder as holding Z sends it further, firmest when it
+  reaches as far as it goes, and they ease off again as it falls back.
+  They go free when he stops.
+- **The mounted machine gun**, as in the wasps' hive: the triggers pull
+  heavy past the first fifth of their travel, and every round the gun
+  fires thumps in both grips, since the gun is held with both hands.
+  Nothing shakes while the barrels wind up, and each thump is short
+  enough to leave a gap before the next, so the rounds are felt one by
+  one.
+
+The triggers only resist; they don't shake. On macOS a DualSense's
+thumps go through Core Haptics; any other pad that can rumble plays them
+on its motors, without the trigger resistance. `CONKER_ADAPTIVE_TRIGGERS=0`
+turns it all off, and ADAPTIVE TRIGGERS on the debug menu's ENHANCEMENTS
+page switches it.
+
 ## Camera on the right stick
 
 C-left and C-right are swapped (also on J/L), so pushing left turns the view
@@ -309,7 +338,7 @@ and the C pictures point the way to push the stick, which is swapped left to
 right (see above); switching the swap in the debug menu turns them round. The Xbox buttons are black with coloured letters, the
 PlayStation ones black with the DualShock 4's coloured symbols. With a
 PlayStation pad the B pads on the ground, wooden (octagonal, hexagonal and
-square), stone and teal, have an O where their B was, made from their textures in your
+square), stone, teal and grey stone, have an O where their B was, made from their textures in your
 ROM and shaded as the B is;
 an Xbox pad's B is B, and other pads keep the N64's, so they stay as they
 are.

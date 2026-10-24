@@ -5,6 +5,14 @@ the last 64 recompiled function entries on that thread and the image slide;
 `tools/symbolicate.sh build/host/ConkerRecomp <log>` maps the host backtrace
 to generated C lines and N64 instruction addresses.
 
+The game's heap is checked once a frame, just before the game's own walk of it
+(`func_80004250`, where a damaged heap crashes). The first damage found, such as a
+block's link overwritten by a write past the end of the block before it, is
+printed as `[conker] heap damaged ...` with the blocks around it and the bytes
+either side, and RDRAM is written to `conker-recomp-data/heap-<time>.rdram`
+(big-endian, for `tools/cbfd_dl.py` or offline decoding).
+`CONKER_HEAP_CHECK=0` turns the check off.
+
 These environment variables are read by both builds:
 
 * `CONKER_DUMP_DL=<task>[,<task>...]` prints every command of the listed
