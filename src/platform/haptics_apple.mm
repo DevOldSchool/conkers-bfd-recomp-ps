@@ -1,6 +1,6 @@
-// Haptic effects on a DualSense through Apple's GameController framework and Core Haptics: one
-// engine per grip, made the first time an effect plays on a pad and restarted when the system
-// stops it. input_sdl.cpp calls these on the main thread.
+// Haptic effects, and the rumble pak's rumble, on a DualSense through Apple's GameController
+// framework and Core Haptics: one engine per grip, made the first time an effect plays on a pad and
+// restarted when the system stops it. input_sdl.cpp calls these on the main thread.
 #include "platform/haptics_apple.hpp"
 
 #include <cstdio>
@@ -16,6 +16,8 @@ namespace {
 GCController* g_controller = nil;
 CHHapticEngine* g_left = nil;
 CHHapticEngine* g_right = nil;
+id<CHHapticAdvancedPatternPlayer> g_left_rumble = nil;   // the rumble pak's, while it plays
+id<CHHapticAdvancedPatternPlayer> g_right_rumble = nil;
 bool g_reported = false;  // a failure is printed once, not for every effect
 
 GCController* dualsense() {
@@ -62,10 +64,12 @@ bool engines_ready() {
         }
         g_controller = nil;
         g_left = g_right = nil;
+        g_left_rumble = g_right_rumble = nil;
         return false;
     }
     if (controller != g_controller || g_left == nil || g_right == nil) {
         g_controller = controller;
+        g_left_rumble = g_right_rumble = nil;
         g_left = make_engine(controller, GCHapticsLocalityLeftHandle);
         g_right = make_engine(controller, GCHapticsLocalityRightHandle);
         if (g_left != nil && g_right != nil) {
@@ -110,7 +114,59 @@ void play_on(CHHapticEngine* engine, CHHapticPattern* pattern) {
     }
 }
 
+// The rumble pak's motor: the lowest sharpness, a deep rumble like a motor's, held until stopped.
+constexpr float kRumbleSharpness = 0.0f;
+
+id<CHHapticAdvancedPatternPlayer> start_rumble(CHHapticEngine* engine, float intensity) {
+    NSArray<CHHapticEventParameter*>* parameters = @[
+        [[CHHapticEventParameter alloc] initWithParameterID:CHHapticEventParameterIDHapticIntensity value:intensity],
+        [[CHHapticEventParameter alloc] initWithParameterID:CHHapticEventParameterIDHapticSharpness value:kRumbleSharpness],
+    ];
+    CHHapticEvent* event = [[CHHapticEvent alloc] initWithEventType:CHHapticEventTypeHapticContinuous
+                                                         parameters:parameters relativeTime:0
+                                                           duration:GCHapticDurationInfinite];
+    CHHapticPattern* rumble = [[CHHapticPattern alloc] initWithEvents:@[event] parameters:@[] error:nil];
+    if (rumble == nil) {
+        return nil;
+    }
+    id<CHHapticAdvancedPatternPlayer> player = [engine createAdvancedPlayerWithPattern:rumble error:nil];
+    if (player == nil) {
+        return nil;
+    }
+    if (![player startAtTime:CHHapticTimeImmediate error:nil]) {
+        if (![engine startAndReturnError:nil] || ![player startAtTime:CHHapticTimeImmediate error:nil]) {
+            return nil;
+        }
+    }
+    return player;
+}
+
+void stop_rumble(__strong id<CHHapticAdvancedPatternPlayer>& player) {
+    if (player != nil) {
+        [player stopAtTime:CHHapticTimeImmediate error:nil];
+        player = nil;
+    }
+}
+
 }  // namespace
+
+bool set_dualsense_rumble(bool on) {
+    if (!on) {
+        stop_rumble(g_left_rumble);
+        stop_rumble(g_right_rumble);
+        return true;
+    }
+    if (!engines_ready()) {
+        return false;
+    }
+    if (g_left_rumble == nil) {
+        g_left_rumble = start_rumble(g_left, kLeftGripGain);
+    }
+    if (g_right_rumble == nil) {
+        g_right_rumble = start_rumble(g_right, 1.0f);
+    }
+    return g_left_rumble != nil || g_right_rumble != nil;
+}
 
 bool play_dualsense_haptic(const Haptic& haptic) {
     if (!engines_ready()) {

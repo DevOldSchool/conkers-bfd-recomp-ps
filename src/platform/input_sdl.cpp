@@ -13,7 +13,9 @@
 // Pro pad) counts as a rumble pak in controller 1, and the game's motor on/off drives both of its
 // motors at full strength, like the pak's single motor. Rumble on Bluetooth PlayStation pads needs
 // SDL's extended reports, which init() turns on; on macOS those pads go through Apple's
-// GameController framework instead, which rumbles without them.
+// GameController framework instead, which rumbles without them. There a DualSense plays the pak
+// through Core Haptics as a deep rumble in both grips (src/platform/haptics_apple.mm), since SDL's
+// rumble on its voice coils is a thin buzz.
 //
 // play_haptic's shaped effects play on every pad that can rumble. On macOS a DualSense plays them
 // through Core Haptics in src/platform/haptics_apple.mm. Other pads, and every pad on Windows and
@@ -124,6 +126,7 @@ std::atomic<PadKind> g_pad_kind{PadKind::None};
 std::atomic<bool> g_rumble_on{false};   // the game's motor state, applied by update()
 std::atomic<bool> g_camera_swapped{true};  // C-left and C-right (camera_swapped)
 bool g_rumble_applied = false;          // main thread only
+bool g_pak_rumble_applied = false;      // main thread only: the pak's rumble playing through Core Haptics
 
 std::atomic<bool> g_has_haptics{false};  // the open pad plays shaped effects
 
@@ -199,6 +202,12 @@ void open_pad(int device_index) {
     g_has_rumble.store(SDL_GameControllerHasRumble(g_pad) == SDL_TRUE);
     g_pad_kind.store(pad_kind(g_pad));
     g_rumble_applied = false;
+#ifdef __APPLE__
+    if (g_pak_rumble_applied) {
+        apple::set_dualsense_rumble(false);
+    }
+#endif
+    g_pak_rumble_applied = false;
     g_pad_virtual = SDL_JoystickIsVirtual(device_index) == SDL_TRUE;
     g_has_trigger_rumble = SDL_GameControllerHasRumbleTriggers(g_pad) == SDL_TRUE;
     g_trigger_rumble_applied = false;
@@ -513,7 +522,8 @@ MotorEffect motor_effect(const Haptic& haptic, bool on_trigger, Uint64 now) {
 Uint16 motor_strength(float level) { return static_cast<Uint16>(std::clamp(level, 0.0f, 1.0f) * 65535.0f + 0.5f); }
 
 // Sets the motors from the rumble pak and the haptic effects still playing, the strongest of them
-// for each motor. The pak's motor is on or off and drives both grip motors at full strength. A
+// for each motor. The pak's motor is on or off and drives both grip motors at full strength (on a
+// DualSense through Core Haptics, its own rumble in both grips instead). A
 // motor set for an effect stops by itself when the next effect ends, so a late update cuts an
 // effect short rather than holding it; the pak's is held kRumbleHoldMs, so a stalled game stops it.
 // SDL only renews the expiry when the strength is unchanged, so this costs nothing per frame.
@@ -537,7 +547,19 @@ void apply_rumble(Uint64 now) {
         if (effect.low > 0.0f || effect.high > 0.0f) next_end = std::min(next_end, effect.end_ms);
         if (effect.left_trigger > 0.0f || effect.right_trigger > 0.0f) next_trigger_end = std::min(next_trigger_end, effect.end_ms);
     }
-    const bool pak = g_rumble_on.load(std::memory_order_relaxed);
+    bool pak = g_rumble_on.load(std::memory_order_relaxed);
+#ifdef __APPLE__
+    // A DualSense played through Core Haptics takes the pak as a deep rumble in both grips: SDL's
+    // own rumble on it is a thin buzz.
+    if (g_haptics_via == HapticsVia::CoreHaptics) {
+        if (pak != g_pak_rumble_applied && apple::set_dualsense_rumble(pak)) {
+            g_pak_rumble_applied = pak;
+        }
+        if (g_pak_rumble_applied == pak) {
+            pak = false;
+        }
+    }
+#endif
     const Uint16 low_strength = pak ? kRumbleStrength : motor_strength(low);
     const Uint16 high_strength = pak ? kRumbleStrength : motor_strength(high);
     const Uint32 hold = pak ? kRumbleHoldMs : static_cast<Uint32>(next_end - now);
