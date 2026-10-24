@@ -32,6 +32,7 @@ nlohmann::json frame_rate();
 nlohmann::json rumble_banner();
 nlohmann::json haptics();
 nlohmann::json adaptive_triggers();
+nlohmann::json gun_controls();
 nlohmann::json surround_default(uint8_t* rdram);
 nlohmann::json display_options();
 nlohmann::json pause_save();

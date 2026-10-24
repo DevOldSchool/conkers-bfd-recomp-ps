@@ -192,10 +192,12 @@ func = "func_151E84B0"
 before_vram = 0x151E84FC
 text = "{ int conker_debug_menu_holding_game(void); if (conker_debug_menu_holding_game()) { ctx->r3 = 0x151DE6CC; } }"
 
+# The same place first rewrites controller 1's pad for twin-stick aiming while Conker holds the
+# shotgun (src/enhancements/gun_controls/gun_controls.cpp).
 [[patches.hook]]
 func = "func_1501BBB8"
 before_vram = 0x1501BC18
-text = "{ void conker_debug_menu_pads(uint8_t*, recomp_context*); conker_debug_menu_pads(rdram, ctx); }"
+text = "{ void conker_gun_controls(uint8_t*, recomp_context*); void conker_debug_menu_pads(uint8_t*, recomp_context*); conker_gun_controls(rdram, ctx); conker_debug_menu_pads(rdram, ctx); }"
 
 # func_150417AC stops drawing a text where the frame's display list is full (0x1504286C); the menu
 # then leaves out its text shadows, which cost as much as the text.

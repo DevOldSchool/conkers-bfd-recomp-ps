@@ -122,6 +122,9 @@ struct Port {
     std::atomic<uint16_t> buttons{0};
     std::atomic<float> stick_x{0.0f};
     std::atomic<float> stick_y{0.0f};
+    std::atomic<float> right_x{0.0f};  // the right stick, for right_stick()
+    std::atomic<float> right_y{0.0f};
+    std::atomic<bool> has_pad{false};  // a pad is reading the port, not the keyboard alone
     std::atomic<bool> has_rumble{false};  // the pad can rumble
     std::atomic<bool> rumble_on{false};   // the game's motor state, applied by update()
 };
@@ -649,10 +652,24 @@ float axis(SDL_GameController* pad, SDL_GameControllerAxis which) {
     return static_cast<float>(SDL_GameControllerGetAxis(pad, which)) / 32767.0f;
 }
 
-// Adds a pad's buttons to `buttons`, and its stick to x and y when outside the deadzone. A trigger
-// counts as Z once pulled past z_at; left_trigger and right_trigger say which are.
-void read_pad(SDL_GameController* pad, float z_at, uint16_t& buttons, float& x, float& y, bool& left_trigger,
-              bool& right_trigger) {
+// A stick's position past the radial deadzone, rescaled so full deflection still reaches the
+// edge; inside it, x and y are left as they are. SDL's +y is down, so y is negated.
+void deadzone(SDL_GameController* pad, SDL_GameControllerAxis axis_x, SDL_GameControllerAxis axis_y, float& x, float& y) {
+    const float px = axis(pad, axis_x);
+    const float py = -axis(pad, axis_y);
+    const float magnitude = std::sqrt(px * px + py * py);
+    if (magnitude > kStickDeadzone) {
+        const float scale = std::fmin((magnitude - kStickDeadzone) / (1.0f - kStickDeadzone), 1.0f) / magnitude;
+        x = px * scale;
+        y = py * scale;
+    }
+}
+
+// Adds a pad's buttons to `buttons`, and its left stick to x and y and its right stick to right_x
+// and right_y when outside the deadzone. A trigger counts as Z once pulled past z_at;
+// left_trigger and right_trigger say which are.
+void read_pad(SDL_GameController* pad, float z_at, uint16_t& buttons, float& x, float& y, float& right_x,
+              float& right_y, bool& left_trigger, bool& right_trigger) {
     for (const PadButton& b : kPadButtons) {
         if (SDL_GameControllerGetButton(pad, b.button)) {
             buttons |= b.n64;
@@ -673,15 +690,8 @@ void read_pad(SDL_GameController* pad, float z_at, uint16_t& buttons, float& x, 
     if (cy > kCButtonThreshold) buttons |= kCDown;
     if (cy < -kCButtonThreshold) buttons |= kCUp;
 
-    // Radial deadzone, rescaled so full deflection still reaches the edge. SDL's +y is down.
-    const float px = axis(pad, SDL_CONTROLLER_AXIS_LEFTX);
-    const float py = -axis(pad, SDL_CONTROLLER_AXIS_LEFTY);
-    const float magnitude = std::sqrt(px * px + py * py);
-    if (magnitude > kStickDeadzone) {
-        const float scale = std::fmin((magnitude - kStickDeadzone) / (1.0f - kStickDeadzone), 1.0f) / magnitude;
-        x = px * scale;
-        y = py * scale;
-    }
+    deadzone(pad, SDL_CONTROLLER_AXIS_LEFTX, SDL_CONTROLLER_AXIS_LEFTY, x, y);
+    deadzone(pad, SDL_CONTROLLER_AXIS_RIGHTX, SDL_CONTROLLER_AXIS_RIGHTY, right_x, right_y);
 }
 
 // C-left and C-right back the N64's way round when camera_swapped is off.
@@ -693,10 +703,13 @@ uint16_t unswap_camera(uint16_t buttons) {
     return static_cast<uint16_t>((buttons & ~(kCLeft | kCRight)) | ((c & kCLeft) ? kCRight : 0) | ((c & kCRight) ? kCLeft : 0));
 }
 
-void store(Port& port, uint16_t buttons, float x, float y) {
+void store(Port& port, uint16_t buttons, float x, float y, float right_x, float right_y) {
     port.buttons.store(unswap_camera(buttons), std::memory_order_relaxed);
     port.stick_x.store(x, std::memory_order_relaxed);
     port.stick_y.store(y, std::memory_order_relaxed);
+    port.right_x.store(right_x, std::memory_order_relaxed);
+    port.right_y.store(right_y, std::memory_order_relaxed);
+    port.has_pad.store(port.pad != nullptr, std::memory_order_relaxed);
 }
 
 // --- haptic effects on the rumble motors ---
@@ -882,6 +895,8 @@ void update() {
     uint16_t buttons = 0;
     float x = 0.0f;
     float y = 0.0f;
+    float right_x = 0.0f;
+    float right_y = 0.0f;
     bool debug_menu = false;
 
     // Keys held with Cmd or Alt are shortcuts (Cmd+Enter toggles full screen), not game input.
@@ -908,13 +923,13 @@ void update() {
         }
         bool left_trigger = false;
         bool right_trigger = false;
-        read_pad(g_port1.pad, z_at, buttons, x, y, left_trigger, right_trigger);
+        read_pad(g_port1.pad, z_at, buttons, x, y, right_x, right_y, left_trigger, right_trigger);
         if (left_trigger && !g_left_trigger_held) g_trigger_grip = Haptic::Grip::Left;
         if (right_trigger && !g_right_trigger_held) g_trigger_grip = Haptic::Grip::Right;
         g_left_trigger_held = left_trigger;
         g_right_trigger_held = right_trigger;
     }
-    store(g_port1, buttons, x, y);
+    store(g_port1, buttons, x, y, right_x, right_y);
     if (debug_menu && !g_debug_menu_held) {
         g_debug_menu_presses.fetch_add(1, std::memory_order_relaxed);
     }
@@ -937,10 +952,13 @@ void update() {
             uint16_t port_buttons = 0;
             float port_x = 0.0f;
             float port_y = 0.0f;
+            float port_right_x = 0.0f;
+            float port_right_y = 0.0f;
             bool left_trigger = false;
             bool right_trigger = false;
-            read_pad(port.pad, kTriggerZ, port_buttons, port_x, port_y, left_trigger, right_trigger);
-            store(port, port_buttons, port_x, port_y);
+            read_pad(port.pad, kTriggerZ, port_buttons, port_x, port_y, port_right_x, port_right_y, left_trigger,
+                     right_trigger);
+            store(port, port_buttons, port_x, port_y, port_right_x, port_right_y);
         }
         apply_pak_rumble(i, port_now);
     }
@@ -1004,6 +1022,17 @@ void read(uint16_t* buttons, float* x, float* y, int port) {
     *buttons = g_ports[port].buttons.load(std::memory_order_relaxed);
     *x = g_ports[port].stick_x.load(std::memory_order_relaxed);
     *y = g_ports[port].stick_y.load(std::memory_order_relaxed);
+}
+
+bool right_stick(float* x, float* y, int port) {
+    *x = 0.0f;
+    *y = 0.0f;
+    if (port < 0 || port >= kPorts || !g_ports[port].has_pad.load(std::memory_order_relaxed)) {
+        return false;
+    }
+    *x = g_ports[port].right_x.load(std::memory_order_relaxed);
+    *y = g_ports[port].right_y.load(std::memory_order_relaxed);
+    return true;
 }
 
 bool connected(int port) { return port == 0 || (port > 0 && port < kPorts && g_ports[port].connected.load(std::memory_order_relaxed)); }

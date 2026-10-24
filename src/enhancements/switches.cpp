@@ -41,6 +41,7 @@ std::vector<Switch> all() {
         haptics(),
         adaptive_triggers(),
         camera_stick(),
+        gun_controls(),
         pad_buttons(),
         frame_rate(),
     };
