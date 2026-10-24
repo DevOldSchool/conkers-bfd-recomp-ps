@@ -209,6 +209,20 @@ and that object was clipped away: the plank bridge on the left pillar in scene
 aspect ratio such a triangle now counts its rows at the scissor's nearest
 column.
 
+`tools/patches/rt64-near-draw-rect.patch` (apply in `lib/rt64` after the
+patches above) fixes the bottom of the picture going missing when the camera
+stands over level geometry, as in the Uga Buga tunnel (scene 2). The same draw
+rect counted each triangle by its vertices' screen positions, but a vertex
+behind the camera (w <= 0) divides to the wrong side of the screen, so a floor
+triangle running from under the camera to in front of it seemed to end well
+above the bottom edge. When no other triangle in the pair reached lower, the
+target ended there (row 167-186 of 216) and the rows below kept whatever the
+frame buffer held before: black after a load, older frames otherwise. The
+triangles themselves were drawn; only the target was too short. A triangle with
+a vertex behind the camera now counts the screen bounds of the part in front of
+it (clipped at a small positive w), and the backface test, which the flipped
+positions make meaningless, no longer leaves it out of the rect.
+
 RT64's CMake turns plume's Retina support off, which would size the Metal
 swap chain in points and leave macOS to upscale it 2x on a Retina screen. Our
 `CMakeLists.txt` defines `PLUME_APPLE_RETINA_ENABLED` for the `plume` target
