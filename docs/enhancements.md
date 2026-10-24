@@ -282,18 +282,27 @@ the trigger that fired it. `CONKER_HAPTICS=0` turns it off, and
 `CONKER_HAPTICS_MOTORS=1` plays them on the motors on a DualSense on macOS
 too.
 
-## Machine gun in the triggers and grips
+## Peeing and the machine gun in the triggers
 
-While Conker sits at the mounted machine gun, as in the wasps' hive, a
-DualSense's triggers (both are Z) pull heavy past the first fifth of
-their travel, and every round the gun fires thumps in both grips, since
-the gun is held with both hands. Nothing shakes while the barrels wind
-up, and each thump is short enough to leave a gap before the next, so
-the rounds are felt one by one. The triggers only resist; they don't
-shake. On macOS a DualSense's thumps go through Core Haptics; any other
-pad that can rumble plays them on its motors, without the trigger
-resistance. `CONKER_ADAPTIVE_TRIGGERS=0` turns both off, and ADAPTIVE
-TRIGGERS on the debug menu's ENHANCEMENTS page switches it.
+A DualSense's triggers (both are Z) take the feel of the two things
+Conker does by holding Z:
+
+- **Peeing, drunk.** Once B starts the stream, the triggers resist
+  lightly, then harder as holding Z sends it further, firmest when it
+  reaches as far as it goes, and they ease off again as it falls back.
+  They go free when he stops.
+- **The mounted machine gun**, as in the wasps' hive: the triggers pull
+  heavy past the first fifth of their travel, and every round the gun
+  fires thumps in both grips, since the gun is held with both hands.
+  Nothing shakes while the barrels wind up, and each thump is short
+  enough to leave a gap before the next, so the rounds are felt one by
+  one.
+
+The triggers only resist; they don't shake. On macOS a DualSense's
+thumps go through Core Haptics; any other pad that can rumble plays them
+on its motors, without the trigger resistance. `CONKER_ADAPTIVE_TRIGGERS=0`
+turns it all off, and ADAPTIVE TRIGGERS on the debug menu's ENHANCEMENTS
+page switches it.
 
 ## Camera on the right stick
 
