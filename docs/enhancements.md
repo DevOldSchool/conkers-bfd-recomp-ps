@@ -97,9 +97,10 @@ count a character keeps is kept), the players' records (so the lives count
 is kept; loading a save otherwise starts it again), the variables of the
 event scripts running, and the swarms of bees in scene 12, where each one
 was and what it flew after (so a swarm already led to the sunflower stays
-there, and one following Conker goes on following him), and what a script
-has left B doing for Conker away from any B pad (so after drinking at Rock
-Solid he can still pee; his drunken stagger and hiccups don't come back).
+there, and one following Conker goes on following him), what a script has
+left B doing for Conker away from any B pad and how long he has left drunk
+(so after drinking at Rock Solid he is still drunk: he hiccups and staggers,
+and B pees).
 Each character is
 put back over the same character, found by the number the scene gives it,
 since a scene does not always fill its character slots in the same order;
