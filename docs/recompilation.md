@@ -229,6 +229,23 @@ a vertex behind the camera now counts the screen bounds of the part in front of
 it (clipped at a small positive w), and the backface test, which the flipped
 positions make meaningless, no longer leaves it out of the rect.
 
+`tools/patches/rt64-grey-from-green.patch` (apply in `lib/rt64` after the
+patches above) brings back the black and white of cutscenes such as the Tediz
+war briefing in scene 6. The game greys those frames on the CPU after the RDP
+has drawn them: at the swap, the scheduler (`func_80005020`) runs the
+colour-framebuffer effects (`func_1515FDA0`) when the frame's scheduler task
+has flag `0x40`, and effect type 2 (`func_150AF790`) has `func_150B1DB0` copy
+each RGBA5551 pixel's green bits into red and blue. RT64 shows the frame it drew
+on the GPU, so the CPU's change in RDRAM never reached the screen and the
+cutscene stayed in colour; the pause menu's copy of the frame read the CPU's
+grey back at the N64's resolution instead. The patch adds a `GreyFromGreen`
+framebuffer operation, which draws a copy of a colour target back over it with
+green in all three channels (`GreyFromGreenPS.hlsl`), and
+`State::requestGreyFromGreen`, which queues it after the last pair that draws
+to an image in the display lists about to be processed.
+`src/fixes/grey_frames.cpp` asks for it when a task is handed to RT64, by the
+same rules `func_1515FDA0` applies at the swap, and skips the CPU pass.
+
 RT64's CMake turns plume's Retina support off, which would size the Metal
 swap chain in points and leave macOS to upscale it 2x on a Retina screen. Our
 `CMakeLists.txt` defines `PLUME_APPLE_RETINA_ENABLED` for the `plume` target

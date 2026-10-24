@@ -51,6 +51,7 @@
 #include "enhancements/pad_icons/pad_icons.hpp"
 #include "enhancements/sharp_font/sharp_font.hpp"
 #include "enhancements/sharp_menus/sharp_menus.hpp"
+#include "fixes/grey_frames.hpp"
 #include "hle/rt64_application.h"
 #include "hle/rt64_state.h"
 #include "librecomp/game.hpp"
@@ -270,6 +271,7 @@ public:
         }
         start_texture_dump(*app_);
         install_object_picker();
+        conker::grey_frames::use_gpu(true);
         {
             std::lock_guard lock(g_texture_packs_mutex);
             g_gpu_name = app_->device->getDescription().name;
@@ -326,6 +328,10 @@ public:
         update_object_picker();
         app_->state->rsp->reset();
         app_->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
+        // A frame the game greys on the CPU at its swap is greyed by RT64 after its last draw (src/fixes/grey_frames.cpp).
+        if (const uint32_t grey = conker::grey_frames::frame_to_grey(app_->core.RDRAM, task->t.data_ptr)) {
+            app_->state->requestGreyFromGreen(grey);
+        }
         app_->processDisplayLists(app_->core.RDRAM, task->t.data_ptr & 0x3FFFFFF, 0, true);
     }
 
