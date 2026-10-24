@@ -282,6 +282,18 @@ the trigger that fired it. `CONKER_HAPTICS=0` turns it off, and
 `CONKER_HAPTICS_MOTORS=1` plays them on the motors on a DualSense on macOS
 too.
 
+## Machine gun in the triggers
+
+On a DualSense the triggers (both are Z) take the feel of the mounted
+machine gun while Conker sits at it, as in the wasps' hive: a heavy pull
+while he only aims, a hum that climbs as holding Z winds the barrels up,
+then a hard kick for every round once it fires, over the whirr of the
+spinning barrels, until it stops firing. The pad's own adaptive triggers do
+it, so other pads are unaffected; on macOS the effects go through Apple's
+GameController framework, which reads the pad. `CONKER_ADAPTIVE_TRIGGERS=0`
+leaves the triggers free, and ADAPTIVE TRIGGERS on the debug menu's
+ENHANCEMENTS page switches it.
+
 ## Camera on the right stick
 
 C-left and C-right are swapped (also on J/L), so pushing left turns the view

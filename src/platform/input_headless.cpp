@@ -21,6 +21,9 @@ void set_rumble(bool /*on*/) {}
 bool has_haptics() { return false; }
 void play_haptic(const Haptic& /*haptic*/) {}
 
+bool has_adaptive_triggers() { return false; }
+void set_trigger_effect(const TriggerEffect& /*effect*/) {}
+
 bool camera_swapped() { return true; }
 void set_camera_swapped(bool /*swapped*/) {}
 
