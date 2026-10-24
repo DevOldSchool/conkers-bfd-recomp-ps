@@ -196,6 +196,55 @@ A debug report that shows the fault can be replayed by script for this: with
 `CONKER_SKIP_INTRO=1` and the report alone in the run's `debug_reports`, the pad
 lines `600 8 back`, eight `dpdown`s and two `a`s load it from the title.
 
+## Save/load check
+
+`tools/save_check.py` checks the pause-menu save/load restore (`docs/enhancements.md`,
+SAVE and LOAD) over the debug reports in `conker-recomp-data/debug_reports/`, a
+report at a time, each in a folder of its own under `build/save-check/`
+(`--out`), several at once (`--jobs`). It starts the null build
+(`build/host/ConkerRecomp`, `--binary`; the ROM is `--rom`) with
+`CONKER_SAVE_CHECK=<report>`, which loads the report a few seconds after boot
+as LOAD REPORT does, writes the scene as the game loaded it just before the
+restore (`capture-pre.resume`), as the restore left it (`capture-0.resume`) and
+again after each of the `--at` times (`0,6,30` seconds unless set), in the
+resume file's format with the running scripts' keys added, then makes a debug
+report (a save made by the game from the restored scene) and quits
+(`CONKER_SAVE_CHECK_OUT`, `_AT`, `_REPORT=1` and `_CHECKPOINT=1`, which starts
+the save at its checkpoint instead, drive it by hand; `result.json` says how it
+ended). `--no-run` only compares what an earlier run left.
+
+The comparison, in `<out>/summary.md` (details in `details.json`), pairs each
+saved character with the one the restore found for it (by model and id, as
+`match_records` does) and reads, per table and offset:
+
+* **lost**: a word not put back in the restore's own frame, not an address.
+  Any is a restore that did not happen (a table skipped for its count, a
+  character not matched).
+* **undone**: a word put back, which the game then changed to what the fresh
+  scene had before the restore and left so by the last capture: a restore the
+  game overrides (the lives were one, swarms another). **settled** is one the
+  game changed to anything else and left so, mostly characters walking to a
+  spot; it is noise unless an offset shows in most reports.
+* **missing** or **extra** characters, duplicate ids, characters that stand
+  more than a unit from where they were saved.
+* saved event scripts not running (in the restore's frame, or by the next
+  capture), or running with other variables; swarms missing or elsewhere;
+  Conker's kept actions and drunkenness.
+* the save the game wrote from the restored scene against the one loaded: the
+  slot's record byte by byte (`func_15006BEC`'s layout: event flags, the
+  checkpoint, the money, bits of `D_800C3A60`), the play time left out.
+* actor fields that follow the slots: where the fresh load put the characters
+  in other slots than the save had them, a byte whose saved value names a
+  slot and whose fresh value names that character's slot now (as the link byte
+  `+0x65` does) is listed, since restored as saved it would point at the wrong
+  character.
+
+A report whose `save.resume` is not a version 2 file is refused, as LOAD
+REPORT refuses it. Reports made in a session that had loaded another report
+can carry what that load lost; the check tells restore fidelity (the report's
+own scene comes back) on any report, but what happens in play afterwards is
+only meaningful on reports made from unbroken play.
+
 ## Emulator ground truth
 
 `tools/emulator_frames.py` takes screenshots from the decomp's

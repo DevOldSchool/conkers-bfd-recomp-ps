@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "recomp.h"
+
 namespace conker::resume {
 
 // conker-recomp-data: where the reports, spots and display settings are, wherever the save file is
@@ -90,5 +92,21 @@ bool load_snapshot(uint8_t* rdram, const std::filesystem::path& path);
 // How black the screen is kept while a save load_snapshot or load_report started is loading, 0
 // (clear) to 0xFF; it fades in once Conker is placed. For the game's viewport fade (intro_skip.cpp).
 int32_t load_cover();
+
+// For the save/load checks (save_check.cpp, tools/save_check.py).
+namespace check {
+
+// Writes the scene as it is now to `path` as a one-slot points file (the running slot's point, as a
+// save made now would record it) with "script_keys", every running event script's key, "frame",
+// the count of frames since the last restore (-1 before one), and "restore", the summary the last
+// restore printed. False when there is no Conker.
+bool write_capture(uint8_t* rdram, const std::filesystem::path& path);
+
+// Once a frame from conker_resume_tick, and once a restore has put the scene back (restored).
+void tick(uint8_t* rdram, recomp_context* ctx);
+void restoring(uint8_t* rdram);  // just before, with the scene as the game loaded it
+void restored(uint8_t* rdram, const std::string& summary);
+
+}  // namespace check
 
 }  // namespace conker::resume

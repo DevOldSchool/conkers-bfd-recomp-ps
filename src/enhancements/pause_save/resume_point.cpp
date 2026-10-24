@@ -106,6 +106,15 @@ constexpr int kCameraBehind = 0x390;             // Conker's facing - the camera
 constexpr int kOrbitRadians = 0x39C;             // and the two turns in radians
 constexpr int kOrbitTargetRadians = 0x3A0;
 constexpr uint32_t kScene = 0x800BE9F0;          // D_800BE9F0: the scene being played
+// D_800BE3DF, D_800BE3E0: the checkpoint the save restarts from (scene, entrance), set by the event
+// scripts (func_1509F850) and read back from the save (func_15006590). A scene started as the game
+// is started (func_15007B3C, when func_1509C2A4 says so) takes the entrance it is entered by as the
+// checkpoint's: right for PLAY, which enters the checkpoint scene by the checkpoint entrance, but a
+// resumed save enters its point's scene by the point's entrance, so the checkpoint entrance was
+// overwritten with that, and the next save carried it (a death or a QUIT then restarted there). So
+// the checkpoint is noted as the save holds it and put back once the scene is running.
+constexpr uint32_t kCheckpointScene = 0x800BE3DF;
+constexpr uint32_t kCheckpointEntrance = 0x800BE3E0;
 constexpr uint32_t kEntrance = 0x800DD2C0;       // D_800DD2C0: the entrance it was entered by
 constexpr int kObjectPreviousX = 0x2C;           // last frame's position
 constexpr uint32_t kTransition = 0x800BE615;     // D_800BE615: scene change pending, 0 when none
@@ -167,15 +176,19 @@ struct TableSpec {
     int max_count;
     int model_byte;          // actors: a slot is only restored if it holds the same model, or -1
     int id_offset = -1;      // actors: a u16 naming the character in the scene, or -1 (see match_records)
+    bool by_place = false;   // objects: records are paired by index and position (see match_objects)
 };
 constexpr TableSpec kTables[] = {
     {"actors", 0x800CC2D0, false, 0, 25, 0x32C, 25, 0x4, 0x3A},
-    {"objects", 0x800DBEF4, true, 0x800DBEF0, 0, 0xA0, 512, -1},
+    {"objects", 0x800DBEF4, true, 0x800DBEF0, 0, 0xA0, 512, -1, -1, true},
     {"triggers", 0x800D3098, true, 0x800D3094, 0, 0x34, 1024, -1},
     {"event_status", 0x800D2E70, false, 0, 1, 0xCC, 1, -1},
     {"event_flags2", 0x800D2E50, false, 0, 1, 0x10, 1, -1},
     {"players", 0x800D213C, false, 0, 4, 0x1C, 4, -1},
 };
+// A scene object (kTables, "objects"): its own index, u8 +0x71, the one stable name it has (its
+// flags, u8 +0x4F, change as it is shown and hidden, and its position as it moves).
+constexpr int kObjectIndex = 0x71;
 constexpr uint32_t kActors = 0x800CC2D0;
 constexpr uint32_t kActorSize = 0x32C;
 constexpr int kActorCount = 25;
@@ -298,6 +311,7 @@ float g_last_eye[3] = {};
 constexpr int kCameraStillFrames = 10;
 constexpr int kCameraWaitFrames = 150;  // about 5 s
 bool g_at_checkpoint = false;  // start the next save at its checkpoint, not its point (load_report)
+int g_checkpoint[2] = {-1, -1};  // the resumed save's checkpoint (scene, entrance), to put back; -1 none
 int g_resumed_slot = -1;   // the slot last started at its point, and when
 std::chrono::steady_clock::time_point g_resumed_at;
 // A debug report being made (request_report). Its save is the game's own, run as SAVE runs it, but
@@ -1034,6 +1048,39 @@ std::vector<int> match_records(uint8_t* rdram, const TableSpec& spec, uint32_t r
     return now_of;
 }
 
+// Which object now each saved one goes back over, or -1. The scene's object table is not always
+// the same length as when it was saved: a pickup taken before the save is made again by a fresh
+// load (scene 49 had 19 objects saved and 20 loaded), and put back by index the whole table was
+// skipped, its gates with it. So a saved object goes back over the one with its own index, at its
+// own place in the table first; one the scene does not have now is left out, and an object the
+// save did not have is left as the scene made it.
+std::vector<int> match_objects(uint8_t* rdram, const TableSpec& spec, uint32_t records, int count_now,
+                               const TableState& table) {
+    std::vector<int> now_of(table.count, -1);
+    std::vector<bool> taken(count_now, false);
+    auto saved_at = [&](int index) { return table.bytes.data() + static_cast<size_t>(index) * spec.record_size; };
+    auto fits = [&](int saved_index, int index) {
+        const uint8_t* saved = saved_at(saved_index);
+        const uint32_t record = records + static_cast<uint32_t>(index) * spec.record_size;
+        return MEM_BU(kObjectIndex, kseg0(record)) == saved[kObjectIndex];
+    };
+    for (int i = 0; i < table.count; i++) {
+        if (i < count_now && fits(i, i)) {
+            now_of[i] = i;
+            taken[i] = true;
+        }
+    }
+    for (int i = 0; i < table.count; i++) {
+        for (int j = 0; j < count_now && now_of[i] < 0; j++) {
+            if (!taken[j] && fits(i, j)) {
+                now_of[i] = j;
+                taken[j] = true;
+            }
+        }
+    }
+    return now_of;
+}
+
 // The link (kActorLink) a restored character gets, from the one saved (`saved`), the one the scene
 // gave it now (`now`) and where each saved character went (`now_of`, saved slot -> slot now). The
 // slots are shuffled between loads, so a saved link names the slot its character was in then:
@@ -1099,17 +1146,22 @@ void restore_scene(uint8_t* rdram, recomp_context* ctx, const Point& point) {
         const TableSpec& spec = *table.spec;
         int count;
         const uint32_t records = table_records(rdram, spec, &count);
-        if (count != table.count) {
+        if (count != table.count && !spec.by_place) {
             restored += std::string(" ") + spec.name + " (skipped, " + std::to_string(count) + " now, " +
                         std::to_string(table.count) + " saved)";
             continue;
         }
-        const std::vector<int> now_of = match_records(rdram, spec, records, table);
+        if (count == 0) {
+            restored += std::string(" ") + spec.name + " (skipped, none now)";
+            continue;
+        }
+        const std::vector<int> now_of = spec.by_place ? match_objects(rdram, spec, records, count, table)
+                                                      : match_records(rdram, spec, records, table);
         if (spec.id_offset >= 0) {
             actor_slots = now_of;
         }
         int records_restored = 0;
-        for (int index = 0; index < count; index++) {
+        for (int index = 0; index < table.count; index++) {
             if (now_of[index] < 0) {
                 continue;
             }
@@ -1129,7 +1181,10 @@ void restore_scene(uint8_t* rdram, recomp_context* ctx, const Point& point) {
             }
             records_restored++;
         }
-        restored += std::string(" ") + spec.name + " " + std::to_string(records_restored) + "/" + std::to_string(count);
+        restored += std::string(" ") + spec.name + " " + std::to_string(records_restored) + "/" + std::to_string(table.count);
+        if (count != table.count) {
+            restored += " (" + std::to_string(count) + " now)";
+        }
     }
     int scripts = 0;
     for_each_script(rdram, [&](uint32_t node) {
@@ -1166,8 +1221,11 @@ void restore_scene(uint8_t* rdram, recomp_context* ctx, const Point& point) {
             restored += kept;
         }
     }
-    std::printf("[conker] resumed scene state:%s, event scripts %d/%zu (%d started)\n", restored.c_str(), scripts,
-                point.scripts.size(), started);
+    char tail[64];
+    std::snprintf(tail, sizeof(tail), ", event scripts %d/%zu (%d started)", scripts, point.scripts.size(), started);
+    restored += tail;
+    std::printf("[conker] resumed scene state:%s\n", restored.c_str());
+    check::restored(rdram, restored);
 }
 
 // Puts Conker's object at the point, this frame and the last (so he does not sweep there).
@@ -1829,9 +1887,12 @@ bool check_report(const std::filesystem::path& folder, ReportFiles* files, std::
         *problem = "save.resume does not start with the report's slot";  // the slot a load starts
         return false;
     }
+    // A report made during a cutscene has the scene as the cutscene found it (note_cutscene), so its
+    // point is where Conker was then, not where the report found him.
     const Point& point = points[first_slot];
+    const bool where = std::fabs(point.x - x) < 0.01 && std::fabs(point.y - y) < 0.01 && std::fabs(point.z - z) < 0.01;
     const bool found = point.counter == static_cast<uint32_t>(counter) && point.scene == static_cast<int>(scene) &&
-                       std::fabs(point.x - x) < 0.01 && std::fabs(point.y - y) < 0.01 && std::fabs(point.z - z) < 0.01;
+                       (where || point.cutscene >= 0);
     if (!found) {
         *problem = "save.resume does not match report.json";
         return false;
@@ -1957,6 +2018,59 @@ void start_save(uint8_t* rdram, const std::array<Point, kSlots>& points, int slo
 
 }  // namespace
 
+namespace check {
+void restoring_hook(uint8_t* rdram);  // save_check.cpp
+void restored_hook(uint8_t* rdram);
+void count_frame();
+namespace {
+int g_frames_since_restore = -1;
+std::string g_restore_summary;
+}  // namespace
+
+bool write_capture(uint8_t* rdram, const std::filesystem::path& path) {
+    Point point;
+    if (!capture_point(rdram, &point)) {
+        return false;
+    }
+    const int slot = std::clamp<int>(MEM_B(0, kseg0(kSaveSlot)), 0, kSlots - 1);
+    point.counter = save_counter(rdram, slot);
+    std::array<Point, kSlots> points{};
+    points[slot] = std::move(point);
+    write_points(points, path, slot);
+    // Added to the file: the running scripts, whatever their variables, and where this is in time.
+    std::ifstream in(path);
+    nlohmann::json doc = nlohmann::json::parse(in, nullptr, false);
+    in.close();
+    if (!doc.is_object()) {
+        return false;
+    }
+    nlohmann::json keys = nlohmann::json::array();
+    for_each_script(rdram, [&](uint32_t node) { keys.push_back(MEM_HU(0, kseg0(node))); });
+    doc["script_keys"] = std::move(keys);
+    doc["frame"] = g_frames_since_restore;
+    doc["restore"] = g_restore_summary;
+    doc["cutscene_playing"] = MEM_BU(0, kseg0(kCutscenePlaying)) == 1;
+    doc["transition"] = MEM_BU(0, kseg0(kTransition));
+    std::ofstream(path, std::ios::trunc) << doc.dump(1) << '\n';
+    return true;
+}
+
+void restoring(uint8_t* rdram) { restoring_hook(rdram); }
+
+void restored(uint8_t* rdram, const std::string& summary) {
+    g_frames_since_restore = 0;
+    g_restore_summary = summary;
+    restored_hook(rdram);
+}
+
+void count_frame() {
+    if (g_frames_since_restore >= 0) {
+        g_frames_since_restore++;
+    }
+}
+
+}  // namespace check
+
 }  // namespace conker::resume
 
 using namespace conker::resume;
@@ -2021,6 +2135,8 @@ extern "C" void conker_resume_start(uint8_t* rdram, recomp_context* ctx) {
     if (!point.valid || point.counter != save_counter(rdram, slot)) {
         return;
     }
+    g_checkpoint[0] = MEM_B(0, kseg0(kCheckpointScene));
+    g_checkpoint[1] = MEM_BU(0, kseg0(kCheckpointEntrance));
     ctx->r5 = point.scene;
     ctx->r6 = point.entrance;
     g_resuming = point;
@@ -2058,6 +2174,7 @@ extern "C" void conker_resume_start(uint8_t* rdram, recomp_context* ctx) {
 // resumed once its scene is running.
 extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
     data_folder();  // fixed from the first frame, before any report is loaded
+    check::tick(rdram, ctx);
     if (g_snapshot_pending && MEM_B(0, kseg0(kEepromAction)) == 0 && MEM_W(0, kseg0(kEepromWriting)) == 0) {
         g_snapshot_pending = false;
         write_snapshot(rdram);
@@ -2100,9 +2217,16 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
     if (++g_resume_frames <= kSettleFrames) {
         return;
     }
-    if (g_resume_frames == kSettleFrames + 1 &&
-        (!g_resuming.tables.empty() || !g_resuming.scripts.empty() || g_resuming.has_swarms)) {
-        restore_scene(rdram, ctx, g_resuming);
+    if (g_resume_frames == kSettleFrames + 1) {
+        if (g_checkpoint[0] >= 0) {
+            MEM_B(0, kseg0(kCheckpointScene)) = static_cast<int8_t>(g_checkpoint[0]);
+            MEM_B(0, kseg0(kCheckpointEntrance)) = static_cast<int8_t>(g_checkpoint[1]);
+            g_checkpoint[0] = g_checkpoint[1] = -1;
+        }
+        if (!g_resuming.tables.empty() || !g_resuming.scripts.empty() || g_resuming.has_swarms) {
+            check::restoring(rdram);
+            restore_scene(rdram, ctx, g_resuming);
+        }
     }
     place(rdram, object, g_resuming);
     if (g_view.has_view) {

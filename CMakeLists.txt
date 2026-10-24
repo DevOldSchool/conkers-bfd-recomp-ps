@@ -95,6 +95,7 @@ add_executable(ConkerRecomp
     src/enhancements/max_detail/max_detail.cpp
     src/enhancements/pause_save/pause_save.cpp
     src/enhancements/pause_save/resume_point.cpp
+    src/enhancements/pause_save/save_check.cpp
     src/enhancements/rumble_banner/rumble_banner.cpp
     src/enhancements/haptics/haptics.cpp
     src/enhancements/adaptive_triggers/adaptive_triggers.cpp
