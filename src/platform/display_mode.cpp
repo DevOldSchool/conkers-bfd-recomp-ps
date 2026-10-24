@@ -30,6 +30,8 @@ std::atomic<int> g_wide_screen_max{kMinScale};
 std::atomic<int> g_screen_width{0};  // 0 until set_limits
 std::atomic<int> g_screen_height{0};
 std::atomic<bool> g_requested{false};
+std::atomic<uint32_t> g_mode_requests{0};
+std::atomic<uint32_t> g_settled_requests{0};  // g_mode_requests when the window last settled
 std::atomic<uint32_t> g_frame_copies{0};
 std::atomic<bool> g_rendered_widescreen{false};
 std::atomic<bool> g_sharp{true};
@@ -126,8 +128,15 @@ void request(Mode mode) {
     }
     std::printf("[conker] display mode: %s\n", name(mode));
     save();
+    g_mode_requests.fetch_add(1);  // before the window can take the request
     g_requested.store(true);
 }
+
+bool window_changing() { return g_settled_requests.load() != g_mode_requests.load(); }
+
+uint32_t mode_requests() { return g_mode_requests.load(); }
+
+void set_window_settled(uint32_t requests) { g_settled_requests.store(requests); }
 
 void set_limits(const Limits& limits) {
     g_window_max.store(std::max(limits.window_max, kMinScale));

@@ -170,6 +170,17 @@ resource on each submit, and RT64 keeps so many that no frame reaches the
 screen. `MTL_SHADER_VALIDATION_DUMP_PIPELINES=1` adds each pipeline's UID to the
 system log. The faults found this way so far were RT64's LOD tile choice
 (`tools/patches/rt64-metal-float-to-int.patch`, see `docs/recompilation.md`).
+A freeze that clears up by itself is the main thread stuck: the window stops
+answering, and the game waits on it. After 3 s the log says `main thread stuck`
+and, on macOS, `sample` writes every thread's stack to
+`conker-recomp-data/debug_reports/hang-<date>-<time>.txt`; `main thread running
+again after N s` follows (src/platform/hang_watch.cpp). Before this, such
+freezes showed only in the system log, as spindump's "slow hid response (N)":
+`/usr/bin/log show --predicate 'process == "spindump" AND eventMessage CONTAINS
+"[<pid>]"'`. The ones seen came while switching between a window and full
+screen with RT64 changing its multiple at the same moment; RT64 now keeps its
+multiple until the window has settled in the new mode.
+
 A debug report that shows the fault can be replayed by script for this: with
 `CONKER_SKIP_INTRO=1` and the report alone in the run's `debug_reports`, the pad
 lines `600 8 back`, eight `dpdown`s and two `a`s load it from the title.
