@@ -109,9 +109,13 @@ Each character is
 put back over the same character, found by the number the scene gives it,
 since a scene does not always fill its character slots in the same order;
 characters the game had brought in while playing (scene 6's three wasps) are
-brought in again, and ones it had taken away are taken away. A save made
-during a cutscene (a debug report can be) keeps the scene as the cutscene
-found it, and the cutscene plays again from its start.
+brought in again, and ones it had taken away are taken away. Each scene
+object is put back over the one with its own index, so a pickup taken before the save, which a fresh load makes again, does not
+stop the rest of the table (a gate) from being put back. The checkpoint the
+save restarts from is kept too: starting a scene as the game is started
+would otherwise take the entrance the spot came in by as the checkpoint's. A
+save made during a cutscene (a debug report can be) keeps the scene as the
+cutscene found it, and the cutscene plays again from its start.
 Words in those tables that hold memory addresses belong to the run of the
 game that made them and are left as they are. The file is JSON. Neither
 sign is offered when replaying a chapter, where the game does not save. The signs are lettered with Rare's own letters, cut from
