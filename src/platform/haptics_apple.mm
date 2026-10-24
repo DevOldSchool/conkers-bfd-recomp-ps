@@ -16,8 +16,9 @@ namespace {
 GCController* g_controller = nil;
 CHHapticEngine* g_left = nil;
 CHHapticEngine* g_right = nil;
-id<CHHapticAdvancedPatternPlayer> g_left_rumble = nil;   // the rumble pak's, while it plays
-id<CHHapticAdvancedPatternPlayer> g_right_rumble = nil;
+id<CHHapticPatternPlayer> g_left_rumble = nil;   // the rumble pak's, while it plays
+id<CHHapticPatternPlayer> g_right_rumble = nil;
+bool g_rumble_failed = false;  // Core Haptics refused the rumble: SDL rumbles the pad instead
 bool g_reported = false;  // a failure is printed once, not for every effect
 
 GCController* dualsense() {
@@ -117,7 +118,7 @@ void play_on(CHHapticEngine* engine, CHHapticPattern* pattern) {
 // The rumble pak's motor: the lowest sharpness, a deep rumble like a motor's, held until stopped.
 constexpr float kRumbleSharpness = 0.0f;
 
-id<CHHapticAdvancedPatternPlayer> start_rumble(CHHapticEngine* engine, float intensity) {
+id<CHHapticPatternPlayer> start_rumble(CHHapticEngine* engine, float intensity) {
     NSArray<CHHapticEventParameter*>* parameters = @[
         [[CHHapticEventParameter alloc] initWithParameterID:CHHapticEventParameterIDHapticIntensity value:intensity],
         [[CHHapticEventParameter alloc] initWithParameterID:CHHapticEventParameterIDHapticSharpness value:kRumbleSharpness],
@@ -129,7 +130,7 @@ id<CHHapticAdvancedPatternPlayer> start_rumble(CHHapticEngine* engine, float int
     if (rumble == nil) {
         return nil;
     }
-    id<CHHapticAdvancedPatternPlayer> player = [engine createAdvancedPlayerWithPattern:rumble error:nil];
+    id<CHHapticPatternPlayer> player = [engine createPlayerWithPattern:rumble error:nil];
     if (player == nil) {
         return nil;
     }
@@ -141,7 +142,7 @@ id<CHHapticAdvancedPatternPlayer> start_rumble(CHHapticEngine* engine, float int
     return player;
 }
 
-void stop_rumble(__strong id<CHHapticAdvancedPatternPlayer>& player) {
+void stop_rumble(__strong id<CHHapticPatternPlayer>& player) {
     if (player != nil) {
         [player stopAtTime:CHHapticTimeImmediate error:nil];
         player = nil;
@@ -151,21 +152,34 @@ void stop_rumble(__strong id<CHHapticAdvancedPatternPlayer>& player) {
 }  // namespace
 
 bool set_dualsense_rumble(bool on) {
-    if (!on) {
-        stop_rumble(g_left_rumble);
-        stop_rumble(g_right_rumble);
-        return true;
-    }
-    if (!engines_ready()) {
+    // Core Haptics raises an exception for what it can't do on a pad's engine (an advanced player,
+    // for one); a rumble that won't play must not take the game down.
+    @try {
+        if (!on) {
+            stop_rumble(g_left_rumble);
+            stop_rumble(g_right_rumble);
+            return true;
+        }
+        if (g_rumble_failed || !engines_ready()) {
+            return false;
+        }
+        if (g_left_rumble == nil) {
+            g_left_rumble = start_rumble(g_left, kLeftGripGain);
+        }
+        if (g_right_rumble == nil) {
+            g_right_rumble = start_rumble(g_right, 1.0f);
+        }
+        g_rumble_failed = g_left_rumble == nil && g_right_rumble == nil;
+        return !g_rumble_failed;
+    } @catch (NSException* exception) {
+        if (!g_reported) {
+            std::fprintf(stderr, "[conker] haptics: rumble failed: %s\n", exception.reason.UTF8String);
+            g_reported = true;
+        }
+        g_left_rumble = g_right_rumble = nil;
+        g_rumble_failed = true;
         return false;
     }
-    if (g_left_rumble == nil) {
-        g_left_rumble = start_rumble(g_left, kLeftGripGain);
-    }
-    if (g_right_rumble == nil) {
-        g_right_rumble = start_rumble(g_right, 1.0f);
-    }
-    return g_left_rumble != nil || g_right_rumble != nil;
 }
 
 bool play_dualsense_haptic(const Haptic& haptic) {
