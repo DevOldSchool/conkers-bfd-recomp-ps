@@ -57,6 +57,7 @@
 #include "platform/font_rects.hpp"
 #include "platform/gpu_faults.hpp"
 #include "platform/input.hpp"
+#include "platform/object_picker_rt64.hpp"
 #include "render/rt64_texture_cache.h"
 #include "rhi/rt64_render_hooks.h"
 #include "platform/display_mode.hpp"
@@ -268,6 +269,7 @@ public:
             return;
         }
         start_texture_dump(*app_);
+        install_object_picker();
         {
             std::lock_guard lock(g_texture_packs_mutex);
             g_gpu_name = app_->device->getDescription().name;
@@ -321,6 +323,7 @@ public:
         if (widen_font_rects_) {
             widen_font_rects(app_->core.RDRAM, task->t.data_ptr);
         }
+        update_object_picker();
         app_->state->rsp->reset();
         app_->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
         app_->processDisplayLists(app_->core.RDRAM, task->t.data_ptr & 0x3FFFFFF, 0, true);

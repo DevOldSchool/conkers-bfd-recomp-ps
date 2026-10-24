@@ -22,6 +22,7 @@
 // and RT64 widens the picture to the window's or screen's shape (src/platform/renderer_rt64.cpp).
 #include "platform/window.hpp"
 
+#include "enhancements/object_inspector/object_inspector.hpp"
 #include "platform/display_mode.hpp"
 #include "platform/input_sdl.hpp"
 
@@ -195,7 +196,7 @@ void apply_mode(Mode mode) {
         }
     }
     g_settle_until = SDL_GetTicks64() + kSettleMs;
-    SDL_ShowCursor(mode == Mode::Windowed ? SDL_ENABLE : SDL_DISABLE);
+    SDL_ShowCursor(mode == Mode::Windowed || conker::inspector::active() ? SDL_ENABLE : SDL_DISABLE);
     if (mode != Mode::Windowed) {
         g_screen_mode = mode;
     }
@@ -347,9 +348,43 @@ ultramodern::renderer::WindowHandle create_window(void* /*gfx_data*/) {
 #endif
 }
 
+namespace {
+
+// The mouse, for the object inspector (src/enhancements/object_inspector): its place as a fraction of
+// the window, clicks and the wheel (down, or towards you, looks further behind). The cursor shows on
+// a full screen too while the inspector is on.
+void follow_mouse(const SDL_Event& event) {
+    const Uint32 window = SDL_GetWindowID(g_window);
+    int w, h;
+    SDL_GetWindowSize(g_window, &w, &h);
+    if (event.type == SDL_MOUSEMOTION && event.motion.windowID == window && w > 0 && h > 0) {
+        conker::inspector::mouse_moved(float(event.motion.x) / w, float(event.motion.y) / h);
+    } else if (event.type == SDL_MOUSEBUTTONDOWN && event.button.windowID == window && w > 0 && h > 0) {
+        conker::inspector::mouse_moved(float(event.button.x) / w, float(event.button.y) / h);
+        conker::inspector::mouse_clicked(event.button.button == SDL_BUTTON_LEFT ? 1 : event.button.button == SDL_BUTTON_RIGHT ? 3 : 0);
+    } else if (event.type == SDL_MOUSEWHEEL && event.wheel.windowID == window) {
+        const int steps = event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? event.wheel.y : -event.wheel.y;
+        conker::inspector::mouse_wheel(steps);
+    } else if (event.type == SDL_WINDOWEVENT && event.window.windowID == window && event.window.event == SDL_WINDOWEVENT_LEAVE) {
+        conker::inspector::mouse_left();
+    }
+}
+
+void show_cursor_for_inspector() {
+    static bool shown = false;
+    const bool wanted = conker::inspector::active();
+    if (wanted != shown) {
+        shown = wanted;
+        SDL_ShowCursor(wanted || conker::display::current() == Mode::Windowed ? SDL_ENABLE : SDL_DISABLE);
+    }
+}
+
+} // namespace
+
 void update_gfx(void* /*gfx_data*/) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        follow_mouse(event);
         if (event.type == SDL_QUIT) {
             ultramodern::quit();
         }
@@ -365,6 +400,7 @@ void update_gfx(void* /*gfx_data*/) {
     if (Mode mode; conker::display::take_request(&mode)) {
         apply_mode(mode);
     }
+    show_cursor_for_inspector();
     keep_frame();
     conker::input::update();
 }

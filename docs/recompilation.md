@@ -183,6 +183,20 @@ converted to uint). RT64's build does not track the shaders' `.hlsli` includes,
 so an existing build needs `touch lib/rt64/src/shaders/RasterPS.hlsl` to
 rebuild them. A candidate for upstreaming.
 
+`tools/patches/rt64-object-picking.patch` (apply in `lib/rt64` after the
+others) is for the debug menu's INSPECT (`src/enhancements/object_inspector`).
+While `RT64::SetDrawTagging` is on, a G_SPNOOP whose low 24 bits are
+`RT64_DRAW_TAG_PUSH` or `RT64_DRAW_TAG_POP` pushes or pops a draw tag (its
+second word), and each draw call records the innermost tag and the addresses
+of the display list its triangles came from, of the command that drew the
+first of them and of that command's vertices (`DrawCall::drawTag`, `drawList`,
+`drawCommand`, `drawVertices`); a change of tag or display list ends the draw
+call. `RT64::SetWorkloadHook` sees each workload
+with its draw calls complete, before it is handed to the renderer, so a hook
+can set their highlight colours (RT64's debugger tint), and
+`RT64::GetPresentedPicture` gives the window rectangle the last frame was
+presented in and its widening, to take the mouse to frame buffer pixels.
+
 `tools/patches/rt64-wide-draw-rect.patch` (apply in `lib/rt64` after the
 patches above) fixes objects that vanish beside the original picture when it is
 widened. RT64 sizes each framebuffer pair's render target from the pair's draw

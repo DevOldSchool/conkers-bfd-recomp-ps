@@ -25,6 +25,10 @@
 //     SHOW FPS         the frames the game draws per second, in the corner, on every screen
 //     SHOW POSITION    Conker's scene, position and facing, and the camera's yaw and pitch, under
 //                      it, during play
+//     INSPECT          the mouse points at something to name it (an actor and its model, an
+//                      attachment, a prop, the function that drew it), the wheel looks behind it, a
+//                      left click picks it out, highlighted and reported in the console, a right
+//                      click lets it go (src/enhancements/object_inspector)
 //     ENHANCEMENTS     every enhancement that can be switched while the game runs, on and off
 //                      (src/enhancements/switches.hpp), until the game is closed
 //     TELEPORT         X, Y, Z, facing and camera yaw to move him to, and spots kept in
@@ -59,6 +63,7 @@
 #include <vector>
 
 #include "recomp.h"
+#include "enhancements/object_inspector/object_inspector.hpp"
 #include "enhancements/pause_save/resume_point.hpp"
 #include "enhancements/status.hpp"
 #include "enhancements/switches.hpp"
@@ -93,6 +98,8 @@ constexpr uint32_t kPauseClosing = 0x8008FEEC;  // D_8008FEEC/F0: set to 10 and 
 constexpr uint32_t kPauseClose = 0x8008FEF0;    // as A or B on CONT... does
 constexpr uint32_t kTextColor = 0x800CBD60;     // D_800CBD60: RGBA given to the next text record
 constexpr uint32_t kTextScale = 0x800CBD80;     // D_800CBD80: its scale (func_150432BC)
+constexpr uint32_t kTextPlace = 0x800CBD70;     // D_800CBD70/72: x, y, and D_800CBD74 the flags, which
+constexpr uint32_t kTextFlags = 0x800CBD74;     // func_15042D94 leaves set for the game's next text
 constexpr uint32_t kText = 0x807FB000;          // free RDRAM (see pause_save.cpp): the format string
 constexpr int kTextSize = 0x40;                 // a text record holds 63 characters
 constexpr int kOutgoingArg = 0x10;              // the caller's frame: first stack argument
@@ -127,7 +134,7 @@ constexpr int kSteps[] = {1, 10, 100, 1000};
 using Clock = std::chrono::steady_clock;
 
 enum class Page { Main, Enhancements, Teleport, Spots, Snapshots, Reports };
-enum MainRow { kWireframe, kShowFps, kShowPosition, kEnhancements, kTeleport, kLoadSnapshot, kSaveReport, kLoadReport, kMainRows };
+enum MainRow { kWireframe, kShowFps, kShowPosition, kInspect, kEnhancements, kTeleport, kLoadSnapshot, kSaveReport, kLoadReport, kMainRows };
 enum TeleportRow { kX, kY, kZ, kFacing, kCameraYaw, kStep, kGo, kResetToCurrent, kRemember, kSpotList, kTeleportRows };
 
 bool g_open_requested = false;
@@ -256,7 +263,8 @@ std::string describe(const Position& p) {
 
 // --- drawing -------------------------------------------------------------------------------------
 
-// func_15042D94(x, y, flags, format), as the game queues its HUD text.
+// func_15042D94(x, y, flags, format), as the game queues its HUD text. It leaves x, y and the flags
+// set for the game's next text, so they are put back: the OPTIONS rows lost their centering.
 void draw_text(uint8_t* rdram, recomp_context* ctx, int x, int y, uint8_t flags, uint32_t color, const std::string& text,
                float scale = kSmall) {
     const size_t length = std::min<size_t>(text.size(), kTextSize - 1);
@@ -267,6 +275,8 @@ void draw_text(uint8_t* rdram, recomp_context* ctx, int x, int y, uint8_t flags,
     MEM_B(static_cast<int>(length), kseg0(kText)) = 0;
     const int32_t previous_color = MEM_W(0, kseg0(kTextColor));
     const int32_t previous_scale = MEM_W(0, kseg0(kTextScale));
+    const int32_t previous_place = MEM_W(0, kseg0(kTextPlace));
+    const uint8_t previous_flags = MEM_BU(0, kseg0(kTextFlags));
     MEM_W(0, kseg0(kTextColor)) = static_cast<int32_t>(color);
     uint32_t scale_bits;
     std::memcpy(&scale_bits, &scale, sizeof(scale_bits));
@@ -281,6 +291,8 @@ void draw_text(uint8_t* rdram, recomp_context* ctx, int x, int y, uint8_t flags,
     *ctx = saved;
     MEM_W(0, kseg0(kTextColor)) = previous_color;
     MEM_W(0, kseg0(kTextScale)) = previous_scale;
+    MEM_W(0, kseg0(kTextPlace)) = previous_place;  // the OPTIONS rows are centered by the flags left here
+    MEM_B(0, kseg0(kTextFlags)) = previous_flags;
 }
 
 const char* on_off(bool on) { return on ? "ON" : "OFF"; }
@@ -472,7 +484,8 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
             draw_title(rdram, ctx, "DEBUG MENU");
             draw_rows(rdram, ctx,
                       {std::string("WIREFRAME  ") + on_off(g_wireframe), std::string("SHOW FPS  ") + on_off(g_show_fps),
-                       std::string("SHOW POSITION  ") + on_off(g_show_position), "ENHANCEMENTS", "TELEPORT",
+                       std::string("SHOW POSITION  ") + on_off(g_show_position),
+                       std::string("INSPECT  ") + on_off(conker::inspector::active()), "ENHANCEMENTS", "TELEPORT",
                        "LOAD SNAPSHOT", "SAVE DEBUG REPORT", "LOAD REPORT"},
                       g_row);
             break;
@@ -741,6 +754,9 @@ int32_t main_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_horiz
         case kShowPosition:
             g_show_position = !g_show_position;
             break;
+        case kInspect:
+            conker::inspector::set_active(!conker::inspector::active());
+            break;
         case kEnhancements:
             if (!(pressed & conker::input::kA)) {
                 return 0;
@@ -974,6 +990,17 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
     if (g_show_position && !g_active) {
         draw_text(rdram, ctx, kOverlayX, y, kLeft, 0xFFFFFFFF, position_line(rdram));
         draw_text(rdram, ctx, kOverlayX, y + kLineHeight, kLeft, 0xFFFFFFFF, camera_line(rdram));
+        y += 2 * kLineHeight;
+    }
+    if (conker::inspector::active()) {
+        conker::inspector::report_pick(rdram);
+        for (int line = 0; line < 4 && !g_active; line++) {
+            const std::string text = conker::inspector::overlay_line(rdram, line);
+            if (!text.empty()) {
+                draw_text(rdram, ctx, kOverlayX, y, kLeft, line == 3 ? 0xFF80FFFF : 0x80FFFFFF, text);
+                y += kLineHeight;
+            }
+        }
     }
 
     if (g_active && MEM_BU(0, kseg0(kPauseOpen)) == 0) {
@@ -1088,5 +1115,6 @@ extern "C" void conker_debug_menu_frame(uint8_t* rdram, recomp_context* ctx) {
 
 nlohmann::json conker::status::debug_menu() {
     return enhancement("debug_menu", "Debug menu", debug_menu_enabled(), "CONKER_DEBUG_MENU",
-                       {{"wireframe", g_wireframe}, {"show_fps", g_show_fps}, {"show_position", g_show_position}});
+                       {{"wireframe", g_wireframe}, {"show_fps", g_show_fps}, {"show_position", g_show_position},
+                        {"inspect", conker::inspector::active()}});
 }

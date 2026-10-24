@@ -80,6 +80,7 @@ add_executable(ConkerRecomp
     src/enhancements/cutscene_skip/cutscene_skip.cpp
     src/enhancements/draw_distance/draw_distance.cpp
     src/enhancements/debug_menu/debug_menu.cpp
+    src/enhancements/object_inspector/object_inspector.cpp
     src/enhancements/pad_icons/choice.cpp
     src/enhancements/status.cpp
     src/enhancements/switches.cpp
@@ -131,7 +132,7 @@ if(CONKER_RENDERER STREQUAL "rt64")
         target_compile_definitions(plume PRIVATE PLUME_APPLE_RETINA_ENABLED)
     endif()
     target_sources(ConkerRecomp PRIVATE
-        src/platform/renderer_rt64.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/enhancements/sharp_menus/sharp_menus.cpp src/platform/window_sdl.cpp src/platform/input_sdl.cpp
+        src/platform/renderer_rt64.cpp src/platform/object_picker_rt64.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/enhancements/sharp_menus/sharp_menus.cpp src/platform/window_sdl.cpp src/platform/input_sdl.cpp
         src/enhancements/pad_icons/pad_icons.cpp src/enhancements/pad_icons/b_pad.cpp src/enhancements/pad_icons/stone_pad.cpp src/enhancements/pad_icons/hex_pad.cpp src/enhancements/pad_icons/square_pad.cpp src/enhancements/pad_icons/oval_pad.cpp
         src/enhancements/pad_icons/button_art.cpp)
     target_include_directories(ConkerRecomp PRIVATE

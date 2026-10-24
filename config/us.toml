@@ -414,15 +414,16 @@ text = "{ void conker_widescreen_copy_end(uint8_t*, recomp_context*); conker_wid
 # the right edge of the 4:3 view, nor what he holds: func_1502C974, which draws an actor, and
 # func_150311C4, which draws an attachment (the chainsaw, a glove) on its parent actor, return
 # their display list pointer unchanged. See src/enhancements/display_options/widescreen_intro.cpp.
+# Both also start with the object inspector's draw tags (below).
 [[patches.hook]]
 func = "func_1502C974"
 before_vram = 0x1502C974
-text = "{ int conker_widescreen_hide_actor(uint8_t*, gpr); if (conker_widescreen_hide_actor(rdram, ctx->r5)) { ctx->r2 = ctx->r4; return; } }"
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x1502C974)) { func_1502C974(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } int conker_widescreen_hide_actor(uint8_t*, gpr); if (conker_widescreen_hide_actor(rdram, ctx->r5)) { ctx->r2 = ctx->r4; return; } }"
 
 [[patches.hook]]
 func = "func_150311C4"
 before_vram = 0x150311C4
-text = "{ int conker_widescreen_hide_attachment(uint8_t*, gpr); if (conker_widescreen_hide_attachment(rdram, ctx->r6)) { ctx->r2 = ctx->r4; return; } }"
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x150311C4)) { func_150311C4(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } int conker_widescreen_hide_attachment(uint8_t*, gpr); if (conker_widescreen_hide_attachment(rdram, ctx->r6)) { ctx->r2 = ctx->r4; return; } }"
 
 # In widescreen the game culls to the widened view rather than its 4:3 view: func_1501B22C, which
 # builds a camera's view planes, gets a horizontal field of view opened to the rendered picture's
@@ -521,3 +522,202 @@ text = "{ void conker_60fps_half_step(uint8_t*, gpr*); conker_60fps_half_step(rd
 func = "func_8000BF60"
 before_vram = 0x1000C2BC
 text = "{ void conker_60fps_half_step(uint8_t*, gpr*); conker_60fps_half_step(rdram, &ctx->r25); }"
+
+# The object inspector's draw tags (src/enhancements/object_inspector/object_inspector.cpp). While it
+# is on, each of these drawing functions ($a0 the frame's display list, returned in $v0) is run by
+# its own hook between a start marker conker_inspect_enter writes and an end marker
+# conker_inspect_leave writes, which RT64 reads as the tag of what was drawn in between. Besides
+# func_1502C974 and func_150311C4 above: a prop, the actor and attachment loops, text, and the
+# functions func_15019464 draws a view with.
+
+# An actor of kind 2.
+[[patches.hook]]
+func = "func_1502C408"
+before_vram = 0x1502C408
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x1502C408)) { func_1502C408(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+# The effect quad after actor 0.
+[[patches.hook]]
+func = "func_150368C4"
+before_vram = 0x150368C4
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x150368C4)) { func_150368C4(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+# func_151674F8 draws a layer's objects through callbacks (jalr, $a0 the display list, $v0 back): a
+# start marker before each call names the object ($a1) or the callback, an end marker after it.
+[[patches.hook]]
+func = "func_151674F8"
+before_vram = 0x15167784
+text = "{ void conker_inspect_push(uint8_t*, recomp_context*, uint32_t, uint32_t, int); conker_inspect_push(rdram, ctx, 0x15167784, (uint32_t)ctx->r2, 0); }"
+
+[[patches.hook]]
+func = "func_151674F8"
+before_vram = 0x1516778C
+text = "{ void conker_inspect_pop(uint8_t*, recomp_context*, uint32_t); conker_inspect_pop(rdram, ctx, 0x15167784); }"
+
+[[patches.hook]]
+func = "func_151674F8"
+before_vram = 0x151677F8
+text = "{ void conker_inspect_push(uint8_t*, recomp_context*, uint32_t, uint32_t, int); conker_inspect_push(rdram, ctx, 0x151677F8, (uint32_t)ctx->r25, 1); }"
+
+[[patches.hook]]
+func = "func_151674F8"
+before_vram = 0x15167800
+text = "{ void conker_inspect_pop(uint8_t*, recomp_context*, uint32_t); conker_inspect_pop(rdram, ctx, 0x151677F8); }"
+
+[[patches.hook]]
+func = "func_151674F8"
+before_vram = 0x151678B0
+text = "{ void conker_inspect_push(uint8_t*, recomp_context*, uint32_t, uint32_t, int); conker_inspect_push(rdram, ctx, 0x151678B0, (uint32_t)ctx->r25, 1); }"
+
+[[patches.hook]]
+func = "func_151674F8"
+before_vram = 0x151678B8
+text = "{ void conker_inspect_pop(uint8_t*, recomp_context*, uint32_t); conker_inspect_pop(rdram, ctx, 0x151678B0); }"
+
+[[patches.hook]]
+func = "func_151674F8"
+before_vram = 0x15167918
+text = "{ void conker_inspect_push(uint8_t*, recomp_context*, uint32_t, uint32_t, int); conker_inspect_push(rdram, ctx, 0x15167918, (uint32_t)ctx->r2, 0); }"
+
+[[patches.hook]]
+func = "func_151674F8"
+before_vram = 0x15167920
+text = "{ void conker_inspect_pop(uint8_t*, recomp_context*, uint32_t); conker_inspect_pop(rdram, ctx, 0x15167918); }"
+
+# A menu or HUD sprite tile loaded by func_1510D0EC ($a0 the resource, $v0 its tile in RDRAM): the
+# inspector remembers which resource each tile holds, to name the sprites it finds.
+[[patches.hook]]
+func = "func_1510D0EC"
+before_vram = 0x1510D0EC
+text = "{ int conker_inspect_sprite_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_sprite_enter(rdram, ctx, (uint32_t)ctx->r4)) { func_1510D0EC(rdram, ctx); conker_inspect_sprite_loaded(rdram, ctx); return; } }"
+
+# A prop, from func_151135C4's loop over the prop table.
+[[patches.hook]]
+func = "func_151137D4"
+before_vram = 0x151137D4
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x151137D4)) { func_151137D4(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+# The attachments.
+[[patches.hook]]
+func = "func_15030E08"
+before_vram = 0x15030E08
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x15030E08)) { func_15030E08(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+# The actors.
+[[patches.hook]]
+func = "func_1502BAD0"
+before_vram = 0x1502BAD0
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x1502BAD0)) { func_1502BAD0(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+# A line of text.
+[[patches.hook]]
+func = "func_150417AC"
+before_vram = 0x150417AC
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x150417AC)) { func_150417AC(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+# The level.
+[[patches.hook]]
+func = "func_1510B9D0"
+before_vram = 0x1510B9D0
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x1510B9D0)) { func_1510B9D0(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_1515D6D0"
+before_vram = 0x1515D6D0
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x1515D6D0)) { func_1515D6D0(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_1510FEA0"
+before_vram = 0x1510FEA0
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x1510FEA0)) { func_1510FEA0(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_151674F8"
+before_vram = 0x151674F8
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x151674F8)) { func_151674F8(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_1517F4D8"
+before_vram = 0x1517F4D8
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x1517F4D8)) { func_1517F4D8(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+# The viewport fade.
+[[patches.hook]]
+func = "func_1517F3A0"
+before_vram = 0x1517F3A0
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x1517F3A0)) { func_1517F3A0(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_15180580"
+before_vram = 0x15180580
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x15180580)) { func_15180580(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_1507DB6C"
+before_vram = 0x1507DB6C
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x1507DB6C)) { func_1507DB6C(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_151135C4"
+before_vram = 0x151135C4
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x151135C4)) { func_151135C4(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_151D6778"
+before_vram = 0x151D6778
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x151D6778)) { func_151D6778(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_15186794"
+before_vram = 0x15186794
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x15186794)) { func_15186794(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_15035FE8"
+before_vram = 0x15035FE8
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x15035FE8)) { func_15035FE8(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_15018E88"
+before_vram = 0x15018E88
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x15018E88)) { func_15018E88(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_15018F08"
+before_vram = 0x15018F08
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x15018F08)) { func_15018F08(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_15188D00"
+before_vram = 0x15188D00
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x15188D00)) { func_15188D00(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_1508FD38"
+before_vram = 0x1508FD38
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x1508FD38)) { func_1508FD38(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_15096934"
+before_vram = 0x15096934
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x15096934)) { func_15096934(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_15172F70"
+before_vram = 0x15172F70
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x15172F70)) { func_15172F70(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_15181EE0"
+before_vram = 0x15181EE0
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x15181EE0)) { func_15181EE0(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_1517F564"
+before_vram = 0x1517F564
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x1517F564)) { func_1517F564(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+[[patches.hook]]
+func = "func_1517E28C"
+before_vram = 0x1517E28C
+text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x1517E28C)) { func_1517E28C(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
