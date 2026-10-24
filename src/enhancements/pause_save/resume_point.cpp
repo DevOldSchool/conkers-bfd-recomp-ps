@@ -142,9 +142,9 @@ constexpr int kEventBytes = 0x1B;
 constexpr std::chrono::seconds kResumeSaveWindow{10};
 
 // The scene's state is kept as whole tables of the game's own records, restored as they were saved
-// except for the words that hold addresses (see restorable), so nothing in them needs to be
-// understood one field at a time. A table is where its records are, how many there are and how big
-// one is:
+// except for the words that hold addresses (see restorable) and a character's link to another
+// (restored_link), so nothing else in them needs to be understood one field at a time. A table is
+// where its records are, how many there are and how big one is:
 //   actors        the 25 characters at D_800CC2D0, 0x32C bytes each (Conker first, then the rest)
 //   objects       D_800DBEF0 scene objects of 0xA0 bytes at D_800DBEF4 (a gate, a door, a spinning
 //                 pickup; byte 0x73 is the state the object moves to: the cheese farm's gate in
@@ -181,6 +181,11 @@ constexpr uint32_t kActorSize = 0x32C;
 constexpr int kActorCount = 25;
 constexpr int kActorPosition = 0x14;  // floats
 constexpr int kActorPlacement = 0x13F;  // u8, the scene placement it was made from, 0xFF for none
+// u8, the slot + 1 of the character this one keeps to, 0 for none: a child the game makes for a
+// character (func_15083AC8) records its parent there, and in Count Batula's mansion (scene 60) the
+// bat that circles over the grinder keeps to Batula's perch. A slot number, so it changes with the
+// slots (see restored_link).
+constexpr int kActorLink = 0x65;
 // The scene's character placements: *D_800D20FC records of 0x30 bytes (+4 the model, +2 cleared by
 // a script before it makes one), D_800D2100 of them, and *D_800D210C a byte per placement, the slot
 // its character is in + 1 (0 while there is none; 0x80 is a flag of its own). func_15082A44(record,
@@ -1029,6 +1034,22 @@ std::vector<int> match_records(uint8_t* rdram, const TableSpec& spec, uint32_t r
     return now_of;
 }
 
+// The link (kActorLink) a restored character gets, from the one saved (`saved`), the one the scene
+// gave it now (`now`) and where each saved character went (`now_of`, saved slot -> slot now). The
+// slots are shuffled between loads, so a saved link names the slot its character was in then:
+// restored as it was, scene 60's bat, saved in slot 5 keeping to Batula's perch in slot 4, came
+// back in slot 18 keeping to slot 4, a villager by then, and circled him as a giant bat; and every
+// save made after that kept it. So the link the scene set up when it made the character is kept
+// (which also mends those saves), and otherwise the saved one follows its character to its slot
+// now (a child made during play, say), or is cleared when that character was not restored.
+int restored_link(int saved, int now, const std::vector<int>& now_of) {
+    if (now != 0 || saved == 0) {
+        return now;
+    }
+    const int slot = saved <= static_cast<int>(now_of.size()) ? now_of[saved - 1] : -1;
+    return slot >= 0 ? slot + 1 : 0;
+}
+
 // Starts the saved event scripts that are not running. Entering a scene starts only its own list
 // (func_1509B4A0); one a trigger, a cutscene or another script started during play (Bats Tower's
 // lever, event 0x55) would otherwise be lost, and what it runs never happens.
@@ -1094,6 +1115,7 @@ void restore_scene(uint8_t* rdram, recomp_context* ctx, const Point& point) {
             }
             const uint32_t record = records + static_cast<uint32_t>(now_of[index]) * spec.record_size;
             const uint8_t* saved = table.bytes.data() + static_cast<size_t>(index) * spec.record_size;
+            const int link_now = MEM_BU(kActorLink, kseg0(record));
             for (uint32_t offset = 0; offset < spec.record_size; offset += 4) {
                 const uint32_t then = (uint32_t{saved[offset]} << 24) | (uint32_t{saved[offset + 1]} << 16) |
                                       (uint32_t{saved[offset + 2]} << 8) | saved[offset + 3];
@@ -1101,6 +1123,9 @@ void restore_scene(uint8_t* rdram, recomp_context* ctx, const Point& point) {
                 if (restorable(then, now)) {
                     MEM_W(0, kseg0(record + offset)) = static_cast<int32_t>(then);
                 }
+            }
+            if (spec.id_offset >= 0) {
+                MEM_B(kActorLink, kseg0(record)) = static_cast<int8_t>(restored_link(saved[kActorLink], link_now, now_of));
             }
             records_restored++;
         }
