@@ -9,4 +9,8 @@ namespace conker::input::apple {
 // Plays the effect on the connected DualSense; false when there is none. Main thread.
 bool play_dualsense_haptic(const Haptic& haptic);
 
+// Starts or stops the rumble pak's rumble on both grips of the connected DualSense: a deep, steady
+// rumble rather than SDL's buzz. false when there is no DualSense to play it. Main thread.
+bool set_dualsense_rumble(bool on);
+
 }  // namespace conker::input::apple

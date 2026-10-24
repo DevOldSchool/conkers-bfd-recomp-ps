@@ -30,6 +30,7 @@ Switch max_detail();
 Switch draw_distance();
 Switch rumble_banner();
 Switch haptics();
+Switch adaptive_triggers();
 Switch frame_rate();
 Switch pad_buttons();  // src/enhancements/pad_icons/choice.cpp
 
