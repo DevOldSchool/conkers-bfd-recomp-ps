@@ -1,0 +1,342 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -546,6 +546,7 @@ build_pixel_shader(  rt64 "src/shaders/RtCopyDepthToColorPS.hlsl" "src/shaders/R
+ build_pixel_shader(  rt64 "src/shaders/RtCopyDepthToColorPS.hlsl" "src/shaders/RtCopyDepthToColor4XPS.hlsl" "-D SAMPLES_4X")
+ build_pixel_shader(  rt64 "src/shaders/RtCopyDepthToColorPS.hlsl" "src/shaders/RtCopyDepthToColor8XPS.hlsl" "-D SAMPLES_8X")
+ build_pixel_shader(  rt64 "src/shaders/TextureCopyPS.hlsl")
++build_pixel_shader(  rt64 "src/shaders/GreyFromGreenPS.hlsl")
+ build_compute_shader(rt64 "src/shaders/TextureDecodeCS.hlsl")
+ build_pixel_shader(  rt64 "src/shaders/TextureResolvePS.hlsl" "src/shaders/TextureResolveSamples2XPS.hlsl" "-D SAMPLES_2X")
+ build_pixel_shader(  rt64 "src/shaders/TextureResolvePS.hlsl" "src/shaders/TextureResolveSamples4XPS.hlsl" "-D SAMPLES_4X")
+diff --git a/src/render/rt64_shader_library.h b/src/render/rt64_shader_library.h
+--- a/src/render/rt64_shader_library.h
++++ b/src/render/rt64_shader_library.h
+@@ -53,6 +53,7 @@ namespace RT64 {
+         ShaderRecord rtCopyDepthToColorMS;
+         ShaderRecord textureDecode;
+         ShaderRecord textureCopy;
++        ShaderRecord greyFromGreen;
+         ShaderRecord textureResolve;
+         ShaderRecord videoInterfaceLinear;
+         ShaderRecord videoInterfaceNearest;
+diff --git a/src/render/rt64_shader_library.cpp b/src/render/rt64_shader_library.cpp
+--- a/src/render/rt64_shader_library.cpp
++++ b/src/render/rt64_shader_library.cpp
+@@ -40,6 +40,7 @@
+ #include "shaders/RtCopyDepthToColor4XPS.hlsl.spirv.h"
+ #include "shaders/RtCopyDepthToColor8XPS.hlsl.spirv.h"
+ #include "shaders/TextureCopyPS.hlsl.spirv.h"
++#include "shaders/GreyFromGreenPS.hlsl.spirv.h"
+ #include "shaders/TextureDecodeCS.hlsl.spirv.h"
+ #include "shaders/TextureResolveSamples2XPS.hlsl.spirv.h"
+ #include "shaders/TextureResolveSamples4XPS.hlsl.spirv.h"
+@@ -86,6 +87,7 @@
+ #   include "shaders/RtCopyDepthToColor4XPS.hlsl.dxil.h"
+ #   include "shaders/RtCopyDepthToColor8XPS.hlsl.dxil.h"
+ #   include "shaders/TextureCopyPS.hlsl.dxil.h"
++#   include "shaders/GreyFromGreenPS.hlsl.dxil.h"
+ #   include "shaders/TextureDecodeCS.hlsl.dxil.h"
+ #   include "shaders/TextureResolveSamples2XPS.hlsl.dxil.h"
+ #   include "shaders/TextureResolveSamples4XPS.hlsl.dxil.h"
+@@ -131,6 +133,7 @@
+ #   include "shaders/RtCopyDepthToColor4XPS.hlsl.metal.h"
+ #   include "shaders/RtCopyDepthToColor8XPS.hlsl.metal.h"
+ #   include "shaders/TextureCopyPS.hlsl.metal.h"
++#   include "shaders/GreyFromGreenPS.hlsl.metal.h"
+ #   include "shaders/TextureDecodeCS.hlsl.metal.h"
+ #   include "shaders/TextureResolveSamples2XPS.hlsl.metal.h"
+ #   include "shaders/TextureResolveSamples4XPS.hlsl.metal.h"
+@@ -569,6 +572,26 @@ namespace RT64 {
+             textureCopy.pipeline = device->createGraphicsPipeline(pipelineDesc);
+         }
+ 
++        // Grey From Green.
++        {
++            TextureCopyDescriptorSet descriptorSet;
++            layoutBuilder.begin();
++            layoutBuilder.addPushConstant(0, 0, sizeof(interop::TextureCopyCB), RenderShaderStageFlag::PIXEL);
++            layoutBuilder.addDescriptorSet(descriptorSet);
++            layoutBuilder.end();
++            greyFromGreen.pipelineLayout = layoutBuilder.create(device);
++
++            std::unique_ptr<RenderShader> pixelShader = device->createShader(CREATE_SHADER_INPUTS(GreyFromGreenPSBlobDXIL, GreyFromGreenPSBlobSPIRV, GreyFromGreenPSBlobMSL, "PSMain", shaderFormat));
++            RenderGraphicsPipelineDesc pipelineDesc;
++            pipelineDesc.pipelineLayout = greyFromGreen.pipelineLayout.get();
++            pipelineDesc.renderTargetBlend[0] = RenderBlendDesc::Copy();
++            pipelineDesc.renderTargetFormat[0] = RenderTarget::colorBufferFormat(usesHDR);
++            pipelineDesc.renderTargetCount = 1;
++            pipelineDesc.vertexShader = fullScreenVertexShader.get();
++            pipelineDesc.pixelShader = pixelShader.get();
++            greyFromGreen.pipeline = device->createGraphicsPipeline(pipelineDesc);
++        }
++
+         // Texture Decode.
+         {
+             TextureDecodeDescriptorSet descriptorSet;
+diff --git a/src/render/rt64_render_target.h b/src/render/rt64_render_target.h
+--- a/src/render/rt64_render_target.h
++++ b/src/render/rt64_render_target.h
+@@ -33,6 +33,12 @@ namespace RT64 {
+         std::unique_ptr<RenderTargetCopyDescriptorSet> targetCopyDescSet;
+         std::unique_ptr<TextureCopyDescriptorSet> textureCopyDescSet;
+         std::unique_ptr<TextureCopyDescriptorSet> textureResolveDescSet;
++        std::unique_ptr<RenderTexture> greyTexture;
++        std::unique_ptr<RenderTextureView> greyTextureView;
++        std::unique_ptr<TextureCopyDescriptorSet> greyDescSet;
++        std::unique_ptr<TextureCopyDescriptorSet> greyResolvedDescSet;
++        uint32_t greyTextureWidth = 0;
++        uint32_t greyTextureHeight = 0;
+         std::unique_ptr<BoxFilterDescriptorSet> filterDescSet;
+         std::unique_ptr<FramebufferWriteDescriptorTextureSet> fbWriteDescSet;
+         uint32_t addressForName = 0;
+@@ -60,6 +66,7 @@ namespace RT64 {
+         void copyFromTarget(RenderWorker *worker, RenderTarget *src, uint32_t x, uint32_t y, uint32_t width, uint32_t height, const ShaderLibrary *shaderLibrary);
+         void resolveFromTarget(RenderWorker *worker, RenderTarget *src, const ShaderLibrary *shaderLibrary);
+         void copyFromChanges(RenderWorker *worker, const FramebufferChange &fbChange, uint32_t fbWidth, uint32_t fbHeight, uint32_t rowStart, const ShaderLibrary *shaderLibrary);
++        void greyFromGreen(RenderWorker *worker, const ShaderLibrary *shaderLibrary);
+         void clearColorTarget(RenderWorker *worker);
+         void clearDepthTarget(RenderWorker *worker);
+         void downsampleTarget(RenderWorker *worker, const ShaderLibrary *shaderLibrary);
+diff --git a/src/render/rt64_render_target.cpp b/src/render/rt64_render_target.cpp
+--- a/src/render/rt64_render_target.cpp
++++ b/src/render/rt64_render_target.cpp
+@@ -322,6 +322,76 @@ namespace RT64 {
+         markForResolve();
+     }
+ 
++    // Puts the green channel in all three for the whole target: a copy of it is drawn back over it.
++    void RenderTarget::greyFromGreen(RenderWorker *worker, const ShaderLibrary *shaderLibrary) {
++        assert(worker != nullptr);
++        if (isEmpty() || (format != colorBufferFormat(usesHDR))) {
++            return;
++        }
++
++        TextureCopyDescriptorSet *sourceDescSet = nullptr;
++        RenderTexture *sourceTexture = nullptr;
++        if (usesResolve()) {
++            resolveTarget(worker, shaderLibrary);
++            if (greyResolvedDescSet == nullptr) {
++                greyResolvedDescSet = std::make_unique<TextureCopyDescriptorSet>(worker->device);
++                greyResolvedDescSet->setTexture(greyResolvedDescSet->gInput, resolvedTexture.get(), RenderTextureLayout::SHADER_READ, resolvedTextureView.get());
++            }
++
++            sourceDescSet = greyResolvedDescSet.get();
++            sourceTexture = resolvedTexture.get();
++        }
++        else {
++            if ((greyTexture == nullptr) || (greyTextureWidth != width) || (greyTextureHeight != height)) {
++                greyDescSet.reset();
++                greyTextureView.reset();
++                greyTexture = worker->device->createTexture(RenderTextureDesc::Texture2D(width, height, 1, format));
++                greyTextureView = greyTexture->createTextureView(RenderTextureViewDesc::Texture2D(format));
++                greyDescSet = std::make_unique<TextureCopyDescriptorSet>(worker->device);
++                greyDescSet->setTexture(greyDescSet->gInput, greyTexture.get(), RenderTextureLayout::SHADER_READ, greyTextureView.get());
++                greyTextureWidth = width;
++                greyTextureHeight = height;
++            }
++
++            RenderTextureBarrier copyBarriers[] = {
++                RenderTextureBarrier(texture.get(), RenderTextureLayout::COPY_SOURCE),
++                RenderTextureBarrier(greyTexture.get(), RenderTextureLayout::COPY_DEST)
++            };
++
++            worker->commandList->barriers(RenderBarrierStage::COPY, copyBarriers, uint32_t(std::size(copyBarriers)));
++            worker->commandList->copyTexture(greyTexture.get(), texture.get());
++            sourceDescSet = greyDescSet.get();
++            sourceTexture = greyTexture.get();
++        }
++
++        RenderTextureBarrier drawBarriers[] = {
++            RenderTextureBarrier(texture.get(), RenderTextureLayout::COLOR_WRITE),
++            RenderTextureBarrier(sourceTexture, RenderTextureLayout::SHADER_READ)
++        };
++
++        worker->commandList->barriers(RenderBarrierStage::GRAPHICS, drawBarriers, uint32_t(std::size(drawBarriers)));
++        setupColorFramebuffer(worker);
++        worker->commandList->setFramebuffer(textureFramebuffer.get());
++
++        interop::TextureCopyCB textureCopyCB;
++        textureCopyCB.uvScroll.x = 0.0f;
++        textureCopyCB.uvScroll.y = 0.0f;
++        textureCopyCB.uvScale.x = float(width);
++        textureCopyCB.uvScale.y = float(height);
++
++        const ShaderRecord &greyFromGreen = shaderLibrary->greyFromGreen;
++        worker->commandList->setPipeline(greyFromGreen.pipeline.get());
++        worker->commandList->setGraphicsPipelineLayout(greyFromGreen.pipelineLayout.get());
++        worker->commandList->setVertexBuffers(0, nullptr, 0, nullptr);
++        worker->commandList->setViewports(RenderViewport(0.0f, 0.0f, float(width), float(height)));
++        worker->commandList->setScissors(RenderRect(0, 0, width, height));
++        worker->commandList->setGraphicsDescriptorSet(sourceDescSet->get(), 0);
++        worker->commandList->setGraphicsPushConstants(0, &textureCopyCB);
++        worker->commandList->drawInstanced(3, 1, 0, 0);
++
++        markForResolve();
++    }
++
+     void RenderTarget::clearColorTarget(RenderWorker *worker) {
+         assert(worker != nullptr);
+ 
+diff --git a/src/hle/rt64_framebuffer_manager.h b/src/hle/rt64_framebuffer_manager.h
+--- a/src/hle/rt64_framebuffer_manager.h
++++ b/src/hle/rt64_framebuffer_manager.h
+@@ -27,7 +27,8 @@ namespace RT64 {
+             None,
+             WriteChanges,
+             CreateTileCopy,
+-            ReinterpretTile
++            ReinterpretTile,
++            GreyFromGreen
+         };
+ 
+         Type type;
+@@ -44,6 +45,10 @@ namespace RT64 {
+                 uint64_t id;
+             } writeChanges;
+ 
++            struct {
++                uint32_t address;
++            } greyFromGreen;
++
+             struct {
+                 uint64_t srcId;
+                 uint8_t srcSiz;
+@@ -178,6 +183,7 @@ namespace RT64 {
+         Framebuffer *find(uint32_t address) const;
+         Framebuffer *findMostRecentContaining(uint32_t addressStart, uint32_t addressEnd);
+         void writeChanges(RenderWorker *renderWorker, const FramebufferChangePool &fbChangePool, const FramebufferOperation &op, RenderTargetManager &targetManager, const ShaderLibrary *shaderLibrary);
++        void greyFromGreen(RenderWorker *renderWorker, const FramebufferOperation &op, RenderTargetManager &targetManager, const ShaderLibrary *shaderLibrary);
+         void clearUsedTileCopies();
+         uint64_t getUsedTimestamp() const;
+         uint64_t findTileCopyId(uint32_t width, uint32_t height);
+diff --git a/src/hle/rt64_framebuffer_manager.cpp b/src/hle/rt64_framebuffer_manager.cpp
+--- a/src/hle/rt64_framebuffer_manager.cpp
++++ b/src/hle/rt64_framebuffer_manager.cpp
+@@ -102,6 +102,15 @@ namespace RT64 {
+         }
+     }
+ 
++    void FramebufferManager::greyFromGreen(RenderWorker *renderWorker, const FramebufferOperation &op, RenderTargetManager &targetManager, const ShaderLibrary *shaderLibrary) {
++        auto it = framebuffers.find(op.greyFromGreen.address);
++        if ((it != framebuffers.end()) && (it->second.lastWriteType == Framebuffer::Type::Color)) {
++            RenderTargetKey targetKey(it->second.addressStart, it->second.width, it->second.siz, it->second.lastWriteType);
++            RenderTarget &target = targetManager.get(targetKey);
++            target.greyFromGreen(renderWorker, shaderLibrary);
++        }
++    }
++
+     void FramebufferManager::createTileCopySetup(RenderWorker *renderWorker, const FramebufferOperation &op, hlslpp::float2 resolutionScale, RenderTargetManager &targetManager, std::unordered_set<RenderTarget *> *resizedTargets) {
+         TileCopy &tileCopy = tileCopies[op.createTileCopy.id];
+         auto fbIt = framebuffers.find(op.createTileCopy.address);
+@@ -936,6 +945,10 @@ namespace RT64 {
+                 reinterpretTileSetup(renderWorker, op, resolutionScale, targetManager.usesHDR);
+                 break;
+             }
++            case FramebufferOperation::Type::GreyFromGreen: {
++                // No setup required.
++                break;
++            }
+             default:
+                 assert(false && "Unknown operation type");
+                 break;
+@@ -972,6 +985,10 @@ namespace RT64 {
+                 reinterpretTileRecord(renderWorker, op, *textureCache, resolutionScale, submissionFrame, shaderLibrary->usesHDR, cmdListReinterpretations, cmdListDiscards);
+                 break;
+             }
++            case FramebufferOperation::Type::GreyFromGreen: {
++                greyFromGreen(renderWorker, op, targetManager, shaderLibrary);
++                break;
++            }
+             default:
+                 assert(false && "Unknown operation type");
+                 break;
+diff --git a/src/hle/rt64_state.h b/src/hle/rt64_state.h
+--- a/src/hle/rt64_state.h
++++ b/src/hle/rt64_state.h
+@@ -88,6 +88,11 @@ namespace RT64 {
+         SpriteCommand activeSpriteCommand;
+         bool addLightsOnFlush;
+         std::vector<FramebufferOperation> drawFbOperations;
++
++        // Colour image to put through GreyFromGreen after its last draw in the display lists being processed (0: none).
++        // Set with requestGreyFromGreen before processDisplayLists; used and cleared at their full sync.
++        uint32_t greyFromGreenAddress = 0;
++        void requestGreyFromGreen(uint32_t address);
+         std::vector<uint32_t> drawFbDiscards;
+         std::vector<DisplayList *> returnAddressStack;
+ 
+diff --git a/src/hle/rt64_state.cpp b/src/hle/rt64_state.cpp
+--- a/src/hle/rt64_state.cpp
++++ b/src/hle/rt64_state.cpp
+@@ -813,6 +813,22 @@ namespace RT64 {
+             FramebufferPair &lastFbPair = workload.fbPairs[workload.fbPairCount - 1];
+             flushFramebufferOperations(lastFbPair);
+         }
++
++        // The colour image asked for is greyed after the last pair that draws to it.
++        if (greyFromGreenAddress != 0) {
++            for (int32_t f = int32_t(workload.fbPairCount) - 1; f >= 0; f--) {
++                FramebufferPair &fbPair = workload.fbPairs[f];
++                if (fbPair.colorImage.address == greyFromGreenAddress) {
++                    FramebufferOperation greyOp;
++                    greyOp.type = FramebufferOperation::Type::GreyFromGreen;
++                    greyOp.greyFromGreen.address = greyFromGreenAddress;
++                    fbPair.endFbOperations.emplace_back(greyOp);
++                    break;
++                }
++            }
++
++            greyFromGreenAddress = 0;
++        }
+         
+         // Copy the current state's extended parameters into the workload.
+         workload.extended.ditherNoiseStrength = extended.ditherNoiseStrength;
+@@ -2718,6 +2734,10 @@ namespace RT64 {
+         framebufferRenderer->advanceFrame(false);
+     }
+ 
++    void State::requestGreyFromGreen(uint32_t address) {
++        greyFromGreenAddress = address;
++    }
++
+     void State::flushFramebufferOperations(FramebufferPair &fbPair) {
+         if (!drawFbOperations.empty()) {
+             fbPair.startFbOperations.insert(fbPair.startFbOperations.end(), drawFbOperations.begin(), drawFbOperations.end());
+diff --git a/src/gui/rt64_debugger_inspector.cpp b/src/gui/rt64_debugger_inspector.cpp
+--- a/src/gui/rt64_debugger_inspector.cpp
++++ b/src/gui/rt64_debugger_inspector.cpp
+@@ -905,6 +905,10 @@ namespace RT64 {
+                                         textPixelFormat("Pixel Format:", fbTile.fmt);
+                                         break;
+                                     }
++                                    case FramebufferOperation::Type::GreyFromGreen:
++                                        ImGui::Text("GreyFromGreen");
++                                        ImGui::Text("Address: 0x%08X", fbOp.greyFromGreen.address);
++                                        break;
+                                     case FramebufferOperation::Type::ReinterpretTile:
+                                         ImGui::Text("ReinterpretTile");
+                                         ImGui::Text("Source Tile ID: %" PRIu64, fbOp.reinterpretTile.srcId);
+diff --git a/src/shaders/GreyFromGreenPS.hlsl b/src/shaders/GreyFromGreenPS.hlsl
+new file mode 100644
+--- /dev/null
++++ b/src/shaders/GreyFromGreenPS.hlsl
+@@ -0,0 +1,18 @@
++//
++// RT64
++//
++
++#include "shared/rt64_texture_copy.h"
++
++// A copy of a colour target with its green channel in all three: Conker's black and white
++// (a CPU pass over the frame on the N64 that copies each pixel's green bits into red and blue).
++
++[[vk::push_constant]] ConstantBuffer<TextureCopyCB> gConstants : register(b0);
++
++Texture2D<float4> gInput : register(t1);
++
++float4 PSMain(in float4 pos : SV_Position, in float2 uv : TEXCOORD0) : SV_TARGET {
++    uint2 pixelPos = gConstants.uvScroll + uv.xy * gConstants.uvScale;
++    float4 color = gInput.Load(uint3(pixelPos, 0));
++    return float4(color.ggg, color.a);
++}

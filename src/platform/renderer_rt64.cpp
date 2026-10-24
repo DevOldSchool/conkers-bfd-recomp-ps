@@ -51,6 +51,7 @@
 #include "enhancements/pad_icons/pad_icons.hpp"
 #include "enhancements/sharp_font/sharp_font.hpp"
 #include "enhancements/sharp_menus/sharp_menus.hpp"
+#include "fixes/frame_effects.hpp"
 #include "hle/rt64_application.h"
 #include "hle/rt64_state.h"
 #include "librecomp/game.hpp"
@@ -270,6 +271,7 @@ public:
         }
         start_texture_dump(*app_);
         install_object_picker();
+        conker::frame_effects::use_gpu(true);
         {
             std::lock_guard lock(g_texture_packs_mutex);
             g_gpu_name = app_->device->getDescription().name;
@@ -326,10 +328,36 @@ public:
         update_object_picker();
         app_->state->rsp->reset();
         app_->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
+        // The effects the game makes on the CPU over a frame at its swap are made by RT64 after the
+        // frame's last draw (src/fixes/frame_effects.cpp).
+        if (const uint32_t frame = conker::frame_effects::frame_effects(app_->core.RDRAM, task->t.data_ptr, &frame_effects_)) {
+            request_frame_effects(frame);
+        }
         app_->processDisplayLists(app_->core.RDRAM, task->t.data_ptr & 0x3FFFFFF, 0, true);
     }
 
     void send_dummy_workload(uint32_t /*fb_address*/) override {}
+
+    void request_frame_effects(uint32_t frame) {
+        using conker::frame_effects::Type;
+        for (const conker::frame_effects::Effect& effect : frame_effects_) {
+            RT64::FramebufferOperation op;
+            if (effect.type == Type::Grey) {
+                app_->state->requestGreyFromGreen(frame);
+                continue;
+            }
+            if (effect.type == Type::Mosaic) {
+                op.type = RT64::FramebufferOperation::Type::FrameMosaic;
+                op.frameMosaic = {frame, effect.mosaic.left, effect.mosaic.top, effect.mosaic.right, effect.mosaic.bottom,
+                                  effect.mosaic.step};
+            } else {
+                op.type = RT64::FramebufferOperation::Type::FrameLens;
+                op.frameLens = {frame, effect.lens.center_x, effect.lens.center_y, effect.lens.source_x,
+                                effect.lens.source_y, effect.lens.radius, effect.lens.strength};
+            }
+            app_->state->requestFrameEffect(op);
+        }
+    }
 
     void update_screen() override {
         apply_display_scale();
@@ -472,6 +500,7 @@ private:
     conker::pad_icons::Style used_pad_ = conker::pad_icons::Style::Original;  // the button pictures in use
     bool used_swap_ = true;                                                  // and the camera swap they show
     bool widen_font_rects_ = false;  // the built-in font or a texture pack is in use
+    std::vector<conker::frame_effects::Effect> frame_effects_;  // the effects on the task's frame
     mutable float reported_scale_ = 0.0f;
     mutable uint32_t reported_width_ = 0;
     mutable uint32_t reported_height_ = 0;
