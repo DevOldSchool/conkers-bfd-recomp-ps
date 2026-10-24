@@ -278,8 +278,9 @@ pak inserted. It is left out when controller 1's pad can rumble;
 A pad that can rumble plays taps and buzzes as well as the Rumble Pak's
 on and off, and some of the game's sound effects now play one: the
 slingshot coming out, each shot in the grip of the trigger that fired it,
-the elastic stretched again and the click when it is ready, a thump
-when Conker lands from a jump, on any ground, and a much heavier one when
+the elastic stretched again and the click when it is ready, a hard hit
+and a short heavy rumble in both grips for each shotgun blast, zoomed or
+not, a thump when Conker lands from a jump, on any ground, and a much heavier one when
 he splats after a long fall or is squashed flat. The game's own rumble is unchanged. More sounds are a
 line each in src/enhancements/haptics/haptics.cpp, found with
 `CONKER_SOUND_LOG=1` (see [diagnostics](diagnostics.md)).
