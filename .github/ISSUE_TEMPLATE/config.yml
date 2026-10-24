@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Decompilation questions
+    url: https://github.com/DevOldSchool/conkers-bfd-decomp
+    about: Questions about the matching decomp itself belong in its repository.

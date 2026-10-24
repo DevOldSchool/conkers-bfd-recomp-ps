@@ -1,0 +1,88 @@
+# Checks that need no ROM, so they run on every push to main and every pull request, forks included.
+# The ROM builds are a separate workflow (docs/ci-plan.md).
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tree:
+    name: No ROM data or personal information
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Optional: names that must not appear, one regular expression a line. Secrets are not given to
+      # pull requests from forks, so there the check runs without them.
+      - name: Load private patterns
+        env:
+          PATTERNS: ${{ secrets.PRIVATE_PATTERNS }}
+        run: |
+          if [ -n "$PATTERNS" ]; then
+            printf '%s\n' "$PATTERNS" > "$RUNNER_TEMP/private-patterns"
+            echo "CONKER_PRIVATE_PATTERNS=$RUNNER_TEMP/private-patterns" >> "$GITHUB_ENV"
+          fi
+
+      - name: Check files and commit messages
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          if [ -n "$PR_BASE" ]; then
+            range="$PR_BASE..$PR_HEAD"
+          elif [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            range="$PUSH_BEFORE..$GITHUB_SHA"
+          else
+            range="$GITHUB_SHA~1..$GITHUB_SHA"
+          fi
+          python3 tools/check_tree.py --commits "$range"
+
+      - name: Check documentation links
+        run: python3 tools/check_links.py
+
+  lint:
+    name: Lint tools
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ruff
+        run: pipx run --spec ruff==0.6.9 ruff check tools
+      - name: shellcheck
+        run: shellcheck --severity=warning tools/*.sh
+
+  patches:
+    name: Patches apply, N64Recomp builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only what the patches and N64Recomp need: rt64's other submodules are large and unused here.
+      - name: Check out submodules
+        run: |
+          git submodule update --init --depth 1 lib/N64ModernRuntime lib/rt64
+          git submodule update --init --recursive lib/N64Recomp
+          git -C lib/rt64 submodule update --init --depth 1 src/contrib/plume
+
+      - name: Apply patches
+        run: tools/apply_patches.sh
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Build N64Recomp and RSPRecomp
+        run: |
+          cmake -S lib/N64Recomp -B build/N64Recomp -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/N64Recomp --target N64Recomp RSPRecomp
