@@ -6,7 +6,8 @@
 // whenever it is outside the deadzone.
 //
 // Pad (SDL's Xbox-style names): south A, west and east B, LT Z, LB L, RT and RB R, Start Start,
-// D-pad D-pad, left stick the analog stick, right stick the C buttons. Keyboard: see kKeys and
+// D-pad D-pad, left stick the analog stick, right stick the C buttons (turned round on both axes in
+// a multiplayer match, D_800BE616). Keyboard: see kKeys and
 // the README.
 // Back (Create/Share on a PlayStation pad, View on an Xbox pad) and the ` key open the debug menu
 // (src/enhancements/debug_menu); they are not N64 buttons.
@@ -56,6 +57,7 @@
 #include <vector>
 
 #include "runtime/game.hpp"
+#include "runtime/memory.hpp"
 
 #ifdef __APPLE__
 #include "platform/haptics_apple.hpp"
@@ -640,14 +642,24 @@ void drive_virtual_pad() {
     }
 }
 
+constexpr uint32_t kMultiplayer = 0x800BE616;  // D_800BE616: nonzero during a multiplayer match
+
+// Whether a multiplayer match is being played. Read on the main thread while the game thread runs;
+// a stale byte only delays the change by a frame.
+bool in_multiplayer() {
+    const uint8_t* rdram = conker::memory::current_rdram();
+    return rdram != nullptr && rdram[conker::memory::rdram_offset(kMultiplayer) ^ 3] != 0;
+}
+
 float axis(SDL_GameController* pad, SDL_GameControllerAxis which) {
     return static_cast<float>(SDL_GameControllerGetAxis(pad, which)) / 32767.0f;
 }
 
 // Adds a pad's buttons to `buttons`, and its stick to x and y when outside the deadzone. A trigger
-// counts as Z once pulled past z_at; left_trigger and right_trigger say which are.
-void read_pad(SDL_GameController* pad, float z_at, uint16_t& buttons, float& x, float& y, bool& left_trigger,
-              bool& right_trigger) {
+// counts as Z once pulled past z_at; left_trigger and right_trigger say which are. invert_c turns the
+// right stick round on both axes (multiplayer matches).
+void read_pad(SDL_GameController* pad, float z_at, bool invert_c, uint16_t& buttons, float& x, float& y,
+              bool& left_trigger, bool& right_trigger) {
     for (const PadButton& b : kPadButtons) {
         if (SDL_GameControllerGetButton(pad, b.button)) {
             buttons |= b.n64;
@@ -662,11 +674,16 @@ void read_pad(SDL_GameController* pad, float z_at, uint16_t& buttons, float& x, 
     const Sint16 cx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX);
     const Sint16 cy = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTY);
     // Conker turns the camera the opposite way to the C button pressed (C-left swings it to the
-    // right), so the horizontal axis is swapped: pushing the stick left turns the view left.
-    if (cx > kCButtonThreshold) buttons |= kCLeft;
-    if (cx < -kCButtonThreshold) buttons |= kCRight;
-    if (cy > kCButtonThreshold) buttons |= kCDown;
-    if (cy < -kCButtonThreshold) buttons |= kCUp;
+    // right), so the horizontal axis is swapped: pushing the stick left turns the view left. A
+    // multiplayer match's camera wants both axes the other way round.
+    const bool right = cx > kCButtonThreshold;
+    const bool left = cx < -kCButtonThreshold;
+    const bool down = cy > kCButtonThreshold;
+    const bool up = cy < -kCButtonThreshold;
+    if (invert_c ? left : right) buttons |= kCLeft;
+    if (invert_c ? right : left) buttons |= kCRight;
+    if (invert_c ? up : down) buttons |= kCDown;
+    if (invert_c ? down : up) buttons |= kCUp;
 
     // Radial deadzone, rescaled so full deflection still reaches the edge. SDL's +y is down.
     const float px = axis(pad, SDL_CONTROLLER_AXIS_LEFTX);
@@ -857,6 +874,7 @@ void handle_event(const SDL_Event& event) {
 
 void update() {
     drive_virtual_pad();
+    const bool multiplayer = in_multiplayer();
 
     uint16_t buttons = 0;
     float x = 0.0f;
@@ -887,7 +905,7 @@ void update() {
         }
         bool left_trigger = false;
         bool right_trigger = false;
-        read_pad(g_port1.pad, z_at, buttons, x, y, left_trigger, right_trigger);
+        read_pad(g_port1.pad, z_at, multiplayer, buttons, x, y, left_trigger, right_trigger);
         if (left_trigger && !g_left_trigger_held) g_trigger_grip = Haptic::Grip::Left;
         if (right_trigger && !g_right_trigger_held) g_trigger_grip = Haptic::Grip::Right;
         g_left_trigger_held = left_trigger;
@@ -907,7 +925,7 @@ void update() {
             float port_y = 0.0f;
             bool left_trigger = false;
             bool right_trigger = false;
-            read_pad(port.pad, kTriggerZ, port_buttons, port_x, port_y, left_trigger, right_trigger);
+            read_pad(port.pad, kTriggerZ, multiplayer, port_buttons, port_x, port_y, left_trigger, right_trigger);
             store(port, port_buttons, port_x, port_y);
         }
         apply_pak_rumble(port);
