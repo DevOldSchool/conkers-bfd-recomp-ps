@@ -15,18 +15,24 @@
 // SDL's extended reports, which init() turns on; on macOS those pads go through Apple's
 // GameController framework instead, which rumbles without them.
 //
-// On macOS a DualSense also plays play_haptic's shaped effects, through Core Haptics in
-// src/platform/haptics_apple.mm. Elsewhere SDL has no way to send them yet, so they are dropped.
+// play_haptic's shaped effects play on every pad that can rumble. On macOS a DualSense plays them
+// through Core Haptics in src/platform/haptics_apple.mm. Other pads, and every pad on Windows and
+// Linux, play them on their rumble motors (motor_effect): the heavy low-frequency motor in the left
+// grip, the light high-frequency one in the right, and on pads with motors in the triggers (Xbox One
+// and Series pads, where SDL can reach them) a Grip::Trigger effect plays in that trigger instead.
+// CONKER_HAPTICS_MOTORS=1 plays them on the motors on a DualSense on macOS and on the virtual pad too.
 //
 // CONKER_VIRTUAL_PAD=<file> attaches an SDL virtual game controller driven by a script, so the
 // whole pad path (hot-plug, mapping, deadzone) can be exercised without hardware. Each line is
 // "<vi> <length in VIs> <control>...", where a control is an SDL button name (a, b, x, start,
 // leftshoulder, dpup, ...) or "<axis>=<value>" (leftx, lefty, rightx, righty: -1 to 1, SDL's +y is
 // down; lefttrigger, righttrigger: 0 released to 1). '#' starts a comment. Real pads are then ignored.
-// The virtual pad can rumble and logs each change, and logs each haptic effect.
+// The virtual pad can rumble and logs each change, and logs each haptic effect (or, with
+// CONKER_HAPTICS_MOTORS=1, the motor strengths it plays as).
 #include "platform/input.hpp"
 #include "platform/input_sdl.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cmath>
@@ -115,6 +121,29 @@ std::atomic<bool> g_camera_swapped{true};  // C-left and C-right (camera_swapped
 bool g_rumble_applied = false;          // main thread only
 
 std::atomic<bool> g_has_haptics{false};  // the open pad plays shaped effects
+
+// How the open pad plays haptic effects (main thread only).
+enum class HapticsVia { CoreHaptics, Motors, Log };
+HapticsVia g_haptics_via = HapticsVia::Motors;
+bool g_has_trigger_rumble = false;       // main thread only: SDL_GameControllerHasRumbleTriggers
+bool g_trigger_rumble_applied = false;   // main thread only
+
+// An effect playing on the rumble motors, each strength in [0, 1], until end_ms (SDL_GetTicks64).
+struct MotorEffect {
+    Uint64 end_ms;
+    float low;
+    float high;
+    float left_trigger;
+    float right_trigger;
+};
+std::vector<MotorEffect> g_motor_effects;  // main thread only
+constexpr float kSharpTap = 0.04f;         // s: a tap on the motors at sharpness 1, which spin up fast
+constexpr float kSoftTap = 0.09f;          // s: at sharpness 0, a thump the heavy motor needs longer for
+
+const bool g_force_motors = [] {
+    const char* value = std::getenv("CONKER_HAPTICS_MOTORS");
+    return value != nullptr && value[0] == '1';
+}();
 std::mutex g_haptics_mutex;
 std::vector<Haptic> g_haptics;           // waiting for update(), under g_haptics_mutex
 constexpr size_t kMaxWaitingHaptics = 8;
@@ -160,13 +189,24 @@ void open_pad(int device_index) {
     g_pad_kind.store(pad_kind(g_pad));
     g_rumble_applied = false;
     g_pad_virtual = SDL_JoystickIsVirtual(device_index) == SDL_TRUE;
+    g_has_trigger_rumble = SDL_GameControllerHasRumbleTriggers(g_pad) == SDL_TRUE;
+    g_trigger_rumble_applied = false;
+    g_motor_effects.clear();
+    g_haptics_via = HapticsVia::Motors;
 #ifdef __APPLE__
-    g_has_haptics.store(SDL_GameControllerGetType(g_pad) == SDL_CONTROLLER_TYPE_PS5 || g_pad_virtual);
-#else
-    g_has_haptics.store(g_pad_virtual);
+    if (SDL_GameControllerGetType(g_pad) == SDL_CONTROLLER_TYPE_PS5 && !g_force_motors) {
+        g_haptics_via = HapticsVia::CoreHaptics;
+    }
 #endif
-    std::printf("[conker] controller 1: %s (%s%s)\n", SDL_GameControllerName(g_pad),
-                g_has_rumble.load() ? "rumble pak" : "no rumble", g_has_haptics.load() ? ", haptics" : "");
+    if (g_pad_virtual && !g_force_motors) {
+        g_haptics_via = HapticsVia::Log;
+    }
+    g_has_haptics.store(g_has_rumble.load() || g_pad_virtual);
+    static const char* const kVia[] = {"Core Haptics", "motors", "logged"};
+    std::printf("[conker] controller 1: %s (%s%s%s%s)\n", SDL_GameControllerName(g_pad),
+                g_has_rumble.load() ? "rumble pak" : "no rumble", g_has_haptics.load() ? ", haptics on " : "",
+                g_has_haptics.load() ? kVia[static_cast<int>(g_haptics_via)] : "",
+                g_has_trigger_rumble ? ", trigger motors" : "");
     // CONKER_RUMBLE_TEST=1: one second of rumble on connecting, to check the pad without the game.
     const char* test = std::getenv("CONKER_RUMBLE_TEST");
     if (g_has_rumble.load() && test != nullptr && test[0] == '1') {
@@ -232,12 +272,32 @@ bool load_script(const char* path) {
     return true;
 }
 
+// The rumble pak's on and off print as such; haptic effects on the motors print their strengths.
 int SDLCALL virtual_pad_rumble(void* /*userdata*/, Uint16 low, Uint16 high) {
-    static bool last = false;
-    const bool on = low != 0 || high != 0;
-    if (on != last) {
-        last = on;
-        std::printf("[conker] virtual pad: VI %llu: rumble %s\n", static_cast<unsigned long long>(conker::current_vi()), on ? "on" : "off");
+    static Uint16 last_low = 0;
+    static Uint16 last_high = 0;
+    if (low == last_low && high == last_high) {
+        return 0;
+    }
+    last_low = low;
+    last_high = high;
+    const unsigned long long vi = conker::current_vi();
+    if (low == high && (low == 0 || low == 0xFFFF)) {
+        std::printf("[conker] virtual pad: VI %llu: rumble %s\n", vi, low != 0 ? "on" : "off");
+    } else {
+        std::printf("[conker] virtual pad: VI %llu: rumble low %.2f high %.2f\n", vi, low / 65535.0f, high / 65535.0f);
+    }
+    return 0;
+}
+
+int SDLCALL virtual_pad_rumble_triggers(void* /*userdata*/, Uint16 left, Uint16 right) {
+    static Uint16 last_left = 0;
+    static Uint16 last_right = 0;
+    if (left != last_left || right != last_right) {
+        last_left = left;
+        last_right = right;
+        std::printf("[conker] virtual pad: VI %llu: trigger rumble left %.2f right %.2f\n",
+                    static_cast<unsigned long long>(conker::current_vi()), left / 65535.0f, right / 65535.0f);
     }
     return 0;
 }
@@ -256,6 +316,7 @@ void attach_virtual_pad() {
     desc.axis_mask = (1u << SDL_CONTROLLER_AXIS_MAX) - 1;
     desc.name = "Conker virtual pad";
     desc.Rumble = virtual_pad_rumble;
+    desc.RumbleTriggers = virtual_pad_rumble_triggers;
     const int index = SDL_JoystickAttachVirtualEx(&desc);
     g_virtual = index < 0 ? nullptr : SDL_JoystickOpen(index);
     if (g_virtual == nullptr) {
@@ -300,6 +361,95 @@ void drive_virtual_pad() {
 
 float axis(SDL_GameControllerAxis which) {
     return static_cast<float>(SDL_GameControllerGetAxis(g_pad, which)) / 32767.0f;
+}
+
+// --- haptic effects on the rumble motors ---
+// A tap lasts long enough for the motor to spin up, longer the softer it is. A Grip::Both effect
+// leans on the light motor the sharper it is and on the heavy one the softer: both run at full
+// strength at sharpness 0.5. `on_trigger` is a Grip::Trigger effect, resolved to haptic.grip's side.
+MotorEffect motor_effect(const Haptic& haptic, bool on_trigger, Uint64 now) {
+    const float sharpness = std::clamp(haptic.sharpness, 0.0f, 1.0f);
+    const float intensity = std::clamp(haptic.intensity, 0.0f, 1.0f);
+    const float seconds = haptic.duration > 0.0f ? haptic.duration : kSoftTap + (kSharpTap - kSoftTap) * sharpness;
+    MotorEffect effect{now + static_cast<Uint64>(seconds * 1000.0f + 0.5f), 0.0f, 0.0f, 0.0f, 0.0f};
+    if (on_trigger && g_has_trigger_rumble) {
+        (haptic.grip == Haptic::Grip::Left ? effect.left_trigger : effect.right_trigger) = intensity;
+        return effect;
+    }
+    switch (haptic.grip) {
+        case Haptic::Grip::Left:
+            effect.low = intensity;
+            break;
+        case Haptic::Grip::Right:
+            effect.high = intensity;
+            break;
+        default:
+            effect.low = intensity * std::fmin(1.0f, 2.0f * (1.0f - sharpness));
+            effect.high = intensity * std::fmin(1.0f, 2.0f * sharpness);
+            break;
+    }
+    return effect;
+}
+
+Uint16 motor_strength(float level) { return static_cast<Uint16>(std::clamp(level, 0.0f, 1.0f) * 65535.0f + 0.5f); }
+
+// Sets the motors from the rumble pak and the haptic effects still playing, the strongest of them
+// for each motor. The pak's motor is on or off and drives both grip motors at full strength. A
+// motor set for an effect stops by itself when the next effect ends, so a late update cuts an
+// effect short rather than holding it; the pak's is held kRumbleHoldMs, so a stalled game stops it.
+// SDL only renews the expiry when the strength is unchanged, so this costs nothing per frame.
+void apply_rumble(Uint64 now) {
+    std::erase_if(g_motor_effects, [now](const MotorEffect& effect) { return effect.end_ms <= now; });
+    if (g_pad == nullptr || !g_has_rumble.load(std::memory_order_relaxed)) {
+        g_motor_effects.clear();
+        return;
+    }
+    float low = 0.0f;
+    float high = 0.0f;
+    float left_trigger = 0.0f;
+    float right_trigger = 0.0f;
+    Uint64 next_end = now + kRumbleHoldMs;
+    Uint64 next_trigger_end = now + kRumbleHoldMs;
+    for (const MotorEffect& effect : g_motor_effects) {
+        low = std::fmax(low, effect.low);
+        high = std::fmax(high, effect.high);
+        left_trigger = std::fmax(left_trigger, effect.left_trigger);
+        right_trigger = std::fmax(right_trigger, effect.right_trigger);
+        if (effect.low > 0.0f || effect.high > 0.0f) next_end = std::min(next_end, effect.end_ms);
+        if (effect.left_trigger > 0.0f || effect.right_trigger > 0.0f) next_trigger_end = std::min(next_trigger_end, effect.end_ms);
+    }
+    const bool pak = g_rumble_on.load(std::memory_order_relaxed);
+    const Uint16 low_strength = pak ? kRumbleStrength : motor_strength(low);
+    const Uint16 high_strength = pak ? kRumbleStrength : motor_strength(high);
+    const Uint32 hold = pak ? kRumbleHoldMs : static_cast<Uint32>(next_end - now);
+    const bool on = low_strength != 0 || high_strength != 0;
+    int result = 0;
+    if (on) {
+        result = SDL_GameControllerRumble(g_pad, low_strength, high_strength, hold);
+    } else if (g_rumble_applied) {
+        result = SDL_GameControllerRumble(g_pad, 0, 0, 0);
+    }
+    g_rumble_applied = on;
+
+    if (g_has_trigger_rumble) {
+        const Uint16 left_strength = motor_strength(left_trigger);
+        const Uint16 right_strength = motor_strength(right_trigger);
+        const bool triggers_on = left_strength != 0 || right_strength != 0;
+        int trigger_result = 0;
+        if (triggers_on) {
+            trigger_result = SDL_GameControllerRumbleTriggers(g_pad, left_strength, right_strength,
+                                                              static_cast<Uint32>(next_trigger_end - now));
+        } else if (g_trigger_rumble_applied) {
+            trigger_result = SDL_GameControllerRumbleTriggers(g_pad, 0, 0, 0);
+        }
+        g_trigger_rumble_applied = triggers_on;
+        result = result != 0 ? result : trigger_result;
+    }
+    static bool reported = false;
+    if (result != 0 && !reported) {
+        reported = true;
+        std::fprintf(stderr, "[conker] controller 1 rumble failed: %s\n", SDL_GetError());
+    }
 }
 
 } // namespace
@@ -423,34 +573,19 @@ void update() {
     g_stick_x.store(x, std::memory_order_relaxed);
     g_stick_y.store(y, std::memory_order_relaxed);
 
-    // SDL only renews the expiry when the strength is unchanged, so this costs nothing per frame.
-    if (g_pad != nullptr && g_has_rumble.load(std::memory_order_relaxed)) {
-        const bool on = g_rumble_on.load(std::memory_order_relaxed);
-        int result = 0;
-        if (on) {
-            result = SDL_GameControllerRumble(g_pad, kRumbleStrength, kRumbleStrength, kRumbleHoldMs);
-        } else if (g_rumble_applied) {
-            result = SDL_GameControllerRumble(g_pad, 0, 0, 0);
-        }
-        static bool reported = false;
-        if (result != 0 && !reported) {
-            reported = true;
-            std::fprintf(stderr, "[conker] controller 1 rumble failed: %s\n", SDL_GetError());
-        }
-        g_rumble_applied = on;
-    }
-
     std::vector<Haptic> haptics;
     {
         std::lock_guard lock(g_haptics_mutex);
         haptics.swap(g_haptics);
     }
+    const Uint64 now = SDL_GetTicks64();
     if (g_pad != nullptr && g_has_haptics.load(std::memory_order_relaxed)) {
         for (Haptic haptic : haptics) {
-            if (haptic.grip == Haptic::Grip::Trigger) {
+            const bool on_trigger = haptic.grip == Haptic::Grip::Trigger;
+            if (on_trigger) {
                 haptic.grip = g_trigger_grip;
             }
-            if (g_pad_virtual) {
+            if (g_haptics_via == HapticsVia::Log) {
                 static const char* const kGrips[] = {"left", "right", "both"};
                 std::printf("[conker] virtual pad: VI %llu: haptic %.2f sharpness %.2f for %.2f s, %s\n",
                             static_cast<unsigned long long>(conker::current_vi()), haptic.intensity, haptic.sharpness,
@@ -458,10 +593,16 @@ void update() {
                 continue;
             }
 #ifdef __APPLE__
-            apple::play_dualsense_haptic(haptic);
+            // No DualSense among the GameController framework's pads (SDL_JOYSTICK_HIDAPI_PS5=1 reads
+            // it through SDL's own driver): the motors, which SDL rumbles.
+            if (g_haptics_via == HapticsVia::CoreHaptics && apple::play_dualsense_haptic(haptic)) {
+                continue;
+            }
 #endif
+            g_motor_effects.push_back(motor_effect(haptic, on_trigger, now));
         }
     }
+    apply_rumble(now);
 }
 
 void read(uint16_t* buttons, float* x, float* y) {
