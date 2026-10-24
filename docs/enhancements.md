@@ -28,7 +28,10 @@ The OPTIONS page of the title menu has five rows under the sound setting.
   vertex buffers big enough for the extra tiles. The metal frame of the
   turret's first-person view reaches the sides, its plates carrying on with
   more bolts (in 4:3 too it now closes the pixel of scene the game leaves
-  past each end). In the intro,
+  past each end). Every view of a multiplayer split screen is widened alike
+  (tools/patches/rt64-split-screen-wide.patch): RT64 used to widen only a view
+  as wide as everything else it was drawn with, so of two players' views one
+  could stay 4:3. In the intro,
   Conker is not drawn while he waits for his cue just past the edge of the
   4:3 view. Behind the pause menu the paused scene stays widescreen, but
   sharp: the game blurs only the 4:3 middle of the frame, so that blur is
