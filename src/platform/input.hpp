@@ -1,6 +1,8 @@
-// Player input for controller 1. The RT64 build reads an SDL game controller and the keyboard
-// (src/platform/input_sdl.cpp, pumped by the window's event loop); the null build has no input
-// device (src/platform/input_headless.cpp).
+// Player input for the four controller ports. The RT64 build reads SDL game controllers, one per
+// port in the order they connect, and the keyboard on controller 1 (src/platform/input_sdl.cpp,
+// pumped by the window's event loop); the null build has no input device
+// (src/platform/input_headless.cpp). Controller 1 alone has the haptics, adaptive triggers, button
+// pictures and debug menu button below.
 #pragma once
 
 #include <cstdint>
@@ -24,9 +26,15 @@ constexpr uint16_t kCDown = 0x0004;
 constexpr uint16_t kCLeft = 0x0002;
 constexpr uint16_t kCRight = 0x0001;
 
-// Current state of controller 1, safe to call from any thread. The stick is in [-1, 1] with
-// +y up; ultramodern scales it to the N64 range (about +-82 on the axes).
-void read(uint16_t* buttons, float* x, float* y);
+constexpr int kPorts = 4;
+
+// Current state of a controller port (0 is controller 1), safe to call from any thread. The stick
+// is in [-1, 1] with +y up; ultramodern scales it to the N64 range (about +-82 on the axes).
+void read(uint16_t* buttons, float* x, float* y, int port = 0);
+
+// Whether a controller is plugged into a port: controller 1 always is (the keyboard), the others
+// while a pad holds them. Safe to call from any thread.
+bool connected(int port);
 
 // Controller 1's name, or "" when none is connected (keyboard only). Safe to call from any thread.
 std::string controller_name();
@@ -41,10 +49,10 @@ PadKind controller_kind();
 // PlayStation pad, View on an Xbox pad) or the ` key. Safe to call from any thread.
 bool take_debug_menu_press();
 
-// Controller 1's rumble pak: present while a pad that can rumble is connected. set_rumble turns
-// the pak's motor on or off; both are safe to call from any thread.
-bool has_rumble();
-void set_rumble(bool on);
+// A port's rumble pak: present while that port's pad can rumble. set_rumble turns the pak's motor
+// on or off; both are safe to call from any thread.
+bool has_rumble(int port = 0);
+void set_rumble(int port, bool on);
 
 // A haptic effect on controller 1, alongside the rumble pak's on and off: shaped on a DualSense on
 // macOS (Core Haptics), played on the rumble motors (and an Xbox pad's trigger motors) elsewhere.

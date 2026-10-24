@@ -47,8 +47,8 @@ constexpr uint32_t kViContextScratch = 0x807F0000;
 // --- PIF shim -------------------------------------------------------------------------------
 // Rare's EEPROM and controller-pak code bypasses libultra's high-level routines and talks to
 // the PIF through __osSiRawStartDma. The 64-byte PIF RAM is modelled here with a tiny command
-// interpreter: controller status on channels 0-3, a 16 kbit EEPROM on channel 4, and "no device"
-// for everything else. EEPROM contents are volatile for now.
+// interpreter: a controller on each of channels 0-3 that has one (conker::input::connected), a
+// 16 kbit EEPROM on channel 4, and "no device" for everything else. EEPROM contents are volatile for now.
 std::mutex pif_mutex;
 uint8_t pif_ram[64];
 uint8_t eeprom_image[2048];
@@ -81,12 +81,12 @@ void pif_process_commands() {
             break;
         }
         bool handled = false;
-        if (channel < 4) {
+        if (channel < 4 && conker::input::connected(channel)) {
             if (cmd[0] == 0x00 || cmd[0] == 0xFF) {  // status / reset
                 if (rx >= 3) {  // controller; a pak when the host pad can rumble
                     resp[0] = 0x05;
                     resp[1] = 0x00;
-                    resp[2] = (channel == 0 && conker::input::has_rumble()) ? 0x01 : 0x00;
+                    resp[2] = conker::input::has_rumble(channel) ? 0x01 : 0x00;
                     handled = true;
                 }
             } else if (cmd[0] == 0x01) {  // read buttons
@@ -95,8 +95,8 @@ void pif_process_commands() {
                     uint16_t buttons = 0;
                     float x = 0.0f;
                     float y = 0.0f;
+                    conker::input::read(&buttons, &x, &y, channel);
                     if (channel == 0) {
-                        conker::input::read(&buttons, &x, &y);
                         buttons |= conker::scripted_buttons();
                     }
                     resp[0] = static_cast<uint8_t>(buttons >> 8);
@@ -385,15 +385,18 @@ void __osEepStatus_recomp(uint8_t* rdram, recomp_context* ctx) {
 }
 
 void __osContGetInitData_recomp(uint8_t* rdram, recomp_context* ctx) {
-    // (u8* pattern, OSContStatus* data[4]): one standard controller in port 1, with a pak
-    // (status CONT_CARD_ON) when the host pad can rumble.
+    // (u8* pattern, OSContStatus* data[4]): a standard controller in each connected port, with a
+    // pak (status CONT_CARD_ON) when its host pad can rumble.
     gpr pattern = ARG0, data = ARG1;
-    MEM_B(0, pattern) = 1;
+    uint8_t bits = 0;
     for (int i = 0; i < 4; i++) {
-        MEM_H(i * 4 + 0, data) = static_cast<int16_t>(i == 0 ? 0x0500 : 0);
-        MEM_B(i * 4 + 2, data) = static_cast<int8_t>(i == 0 && conker::input::has_rumble() ? 1 : 0);
-        MEM_B(i * 4 + 3, data) = static_cast<int8_t>(i == 0 ? 0 : 0x80);
+        const bool present = conker::input::connected(i);
+        bits |= present ? (1 << i) : 0;
+        MEM_H(i * 4 + 0, data) = static_cast<int16_t>(present ? 0x0500 : 0);
+        MEM_B(i * 4 + 2, data) = static_cast<int8_t>(present && conker::input::has_rumble(i) ? 1 : 0);
+        MEM_B(i * 4 + 3, data) = static_cast<int8_t>(present ? 0 : 0x80);
     }
+    MEM_B(0, pattern) = static_cast<int8_t>(bits);
 }
 
 void __osContAddressCrc_recomp(uint8_t* /*rdram*/, recomp_context* ctx) {
@@ -431,8 +434,8 @@ void __osContDataCrc_recomp(uint8_t* rdram, recomp_context* ctx) {
 
 // --- Rumble pak -----------------------------------------------------------------------------
 // Rare's motor routines (src/main/init_57E0.c, src/main/init_5570.c) work on a 0x68-byte device
-// record: status at 0x0, message queue at 0x4, channel at 0x8, active bank at 0x65. Controller 1
-// has a rumble pak whenever the host pad can rumble (conker::input::has_rumble); the game probes
+// record: status at 0x0, message queue at 0x4, channel at 0x8, active bank at 0x65. A controller
+// has a rumble pak whenever its host pad can rumble (conker::input::has_rumble); the game probes
 // for it at boot (func_15006234: pak status bit, then osPfsInit, then func_800057E0) and again
 // from func_1501C1B0, and keeps the result per port at 0x800BE944.
 
@@ -441,10 +444,10 @@ constexpr int32_t PFS_ERR_CONTRFAIL = 4;
 constexpr int32_t PFS_ERR_DEVICE = 11;
 
 static int32_t rumble_pak_status(int32_t channel) {
-    if (channel != 0) {
-        return PFS_ERR_CONTRFAIL;  // no controller in ports 2-4
+    if (channel < 0 || channel >= 4 || !conker::input::connected(channel)) {
+        return PFS_ERR_CONTRFAIL;  // no controller in that port
     }
-    return conker::input::has_rumble() ? 0 : PFS_ERR_NOPACK;
+    return conker::input::has_rumble(channel) ? 0 : PFS_ERR_NOPACK;
 }
 
 // Motor init: (OSMesgQueue* queue, device*, int channel). On hardware it selects bank 0x80, reads
@@ -457,11 +460,10 @@ void func_800057E0(uint8_t* rdram, recomp_context* ctx) {
     MEM_W(0x0, device) = 0;
     MEM_B(0x65, device) = static_cast<int8_t>(0x80);
     const int32_t status = rumble_pak_status(channel);
-    if (channel == 0) {
-        static std::atomic<int32_t> reported{-1};
-        if (reported.exchange(status) != status) {
-            std::printf("[conker] rumble pak %s\n", status == 0 ? "inserted (host pad rumble)" : "not inserted (no pad that can rumble)");
-        }
+    static std::atomic<int32_t> reported[4] = {-1, -1, -1, -1};
+    if (channel >= 0 && channel < 4 && status != PFS_ERR_CONTRFAIL && reported[channel].exchange(status) != status) {
+        std::printf("[conker] controller %d rumble pak %s\n", channel + 1,
+                    status == 0 ? "inserted (host pad rumble)" : "not inserted (no pad that can rumble)");
     }
     RET(status);
 }
@@ -471,14 +473,14 @@ void func_800057E0(uint8_t* rdram, recomp_context* ctx) {
 static void motor_access(uint8_t* rdram, recomp_context* ctx, bool on) {
     const int32_t channel = MEM_W(0x8, ARG0);
     const int32_t status = rumble_pak_status(channel);
-    static std::atomic<int> last{-1};
-    const int state = (channel << 2) | (on ? 1 : 0) | (status == 0 ? 0 : 2);
-    if (last.exchange(state) != state) {
+    static std::atomic<int> last[4] = {-1, -1, -1, -1};
+    const int state = (on ? 1 : 0) | (status == 0 ? 0 : 2);
+    if (channel >= 0 && channel < 4 && last[channel].exchange(state) != state) {
         std::printf("[conker] VI %llu: rumble %s, port %d%s\n", static_cast<unsigned long long>(conker::current_vi()),
                     on ? "on" : "off", channel + 1, status == 0 ? "" : " (no pak, ignored)");
     }
     if (status == 0) {
-        conker::input::set_rumble(on);
+        conker::input::set_rumble(channel, on);
     }
     RET(status);
 }

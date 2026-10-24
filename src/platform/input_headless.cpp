@@ -3,11 +3,13 @@
 
 namespace conker::input {
 
-void read(uint16_t* buttons, float* x, float* y) {
+void read(uint16_t* buttons, float* x, float* y, int /*port*/) {
     *buttons = 0;
     *x = 0.0f;
     *y = 0.0f;
 }
+
+bool connected(int port) { return port == 0; }
 
 std::string controller_name() { return ""; }
 
@@ -15,8 +17,8 @@ PadKind controller_kind() { return PadKind::None; }
 
 bool take_debug_menu_press() { return false; }
 
-bool has_rumble() { return false; }
-void set_rumble(bool /*on*/) {}
+bool has_rumble(int /*port*/) { return false; }
+void set_rumble(int /*port*/, bool /*on*/) {}
 
 bool has_haptics() { return false; }
 void play_haptic(const Haptic& /*haptic*/) {}
