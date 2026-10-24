@@ -88,6 +88,7 @@ add_executable(ConkerRecomp
     src/enhancements/display_options/widescreen_intro.cpp
     src/enhancements/display_options/widescreen_copies.cpp
     src/enhancements/display_options/widescreen_culling.cpp
+    src/enhancements/display_options/widescreen_frame.cpp
     src/enhancements/frame_rate/frame_rate.cpp
     src/enhancements/intro_skip/intro_skip.cpp
     src/enhancements/max_detail/max_detail.cpp
