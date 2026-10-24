@@ -1,7 +1,29 @@
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
 --- a/src/render/rt64_framebuffer_renderer.cpp
 +++ b/src/render/rt64_framebuffer_renderer.cpp
-@@ -1515,7 +1515,10 @@
+@@ -1476,6 +1476,21 @@
+         int32_t vertexTestZCallIndex = -1;
+         RenderViewport viewportClip;
+ 
++        // The scissors of the 3D views this pair widens (useWideViewport below), for the untextured rects drawn over
++        // one of them (rect.extendEdgeRects): a split-screen view's fades and wipes reach its own sides, not the pair's.
++        std::vector<FixedRect> wideViewScissors;
++        for (uint32_t pr = 0; pr < fbPair.projectionCount; pr++) {
++            const Projection &proj = fbPair.projections[pr];
++            if (proj.scissorRect.isNull() || !proj.usesViewport() || (proj.type != Projection::Type::Perspective) || (drawData.viewportOrigins[proj.transformsIndex] != G_EX_ORIGIN_NONE)) {
++                continue;
++            }
++
++            const FixedRect intersectionRect = proj.scissorRect.intersection(drawData.rspViewports[proj.transformsIndex].rect(&drawData.viewportClipRatios[proj.transformsIndex * 4]));
++            if (!intersectionRect.isEmpty() && (intersectionRect.width(true, true) > intersectionRect.height(true, true))) {
++                wideViewScissors.push_back(proj.scissorRect);
++            }
++        }
++
+         for (uint32_t pr = 0; (pr < fbPair.projectionCount) && (globalCallIndex < p.maxGameCall); pr++) {
+             const Projection &proj = fbPair.projections[pr];
+             if (proj.scissorRect.isNull()) {
+@@ -1516,7 +1531,10 @@
                  FixedRect intersectionRect = proj.scissorRect.intersection(viewport.rect(viewportClipRatios));
                  bool coversWholeWidth = !intersectionRect.isEmpty() && (intersectionRect.ulx <= fbPair.scissorRect.ulx) && (intersectionRect.lrx >= fbPair.scissorRect.lrx);
                  bool horizontalRatio = !intersectionRect.isEmpty() && (intersectionRect.width(true, true) > intersectionRect.height(true, true));
@@ -13,6 +35,66 @@ diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuf
                  if (useWideViewport) {
                      projInvRatioScale = 1.0f;
                  }
+@@ -1653,6 +1671,9 @@
+                         float horizontalMisalignment = 0.0f;
+                         bool extendLeft = false;
+                         bool extendRight = false;
++                        bool viewLeft = false;
++                        bool viewRight = false;
++                        RenderRect viewEdges;
+                         switch (proj.type) {
+                         case Projection::Type::Perspective:
+                         case Projection::Type::Orthographic: {
+@@ -1689,7 +1710,17 @@
+                                     extendLeft = (call.callDesc.rect.ulx <= fbPair.scissorRect.ulx);
+                                     extendRight = (call.callDesc.rect.lrx >= fbPair.scissorRect.lrx);
+                                     extendViewport = true;
+-                                }
++
++                                    // A rect with a widened view's scissor reaching that scissor's side goes to the
++                                    // view's widened side instead.
++                                    const FixedRect &sc = call.callDesc.scissorRect;
++                                    for (const FixedRect &view : wideViewScissors) {
++                                        if ((sc.ulx == view.ulx) && (sc.uly == view.uly) && (sc.lrx == view.lrx) && (sc.lry == view.lry)) {
++                                            viewLeft = !extendLeft && (call.callDesc.rect.ulx <= view.ulx);
++                                            viewRight = !extendRight && (call.callDesc.rect.lrx >= view.lrx);
++                                            viewEdges = convertFixedRect(view, p.resolutionScale, p.fbWidth, 1.0f, extOriginPercentage, 0, G_EX_ORIGIN_NONE, G_EX_ORIGIN_NONE);
++                                            break;
++                                        }
+                                     }
+                                 }
+                                 // A textured rect already drawn past the side (RDP::drawTexRect) only needs the scissor
+@@ -1710,6 +1741,15 @@
+                                 viewportRect.width = framebuffer.viewport.width - viewportRect.x;
+                             }
+ 
++                            if (viewLeft) {
++                                viewportRect.width += viewportRect.x - float(viewEdges.left);
++                                viewportRect.x = float(viewEdges.left);
++                            }
++
++                            if (viewRight) {
++                                viewportRect.width = float(viewEdges.right) - viewportRect.x;
++                            }
++
+                             triangles.screenScale = { viewportRect.width / framebuffer.viewport.width, viewportRect.height / framebuffer.viewport.height };
+                             triangles.screenOffset.x = halfPixelOffset.x + ((viewportRect.x + viewportRect.width / 2.0f) - halfViewportSize.x) / halfViewportSize.x;
+                             triangles.screenOffset.y = halfPixelOffset.y + (halfViewportSize.y - (viewportRect.y + viewportRect.height / 2.0f)) / halfViewportSize.y;
+@@ -1752,6 +1792,14 @@
+ 
+                         if (extendRight) {
+                             triangles.scissor.right = int32_t(std::ceil(framebuffer.viewport.width));
++                        }
++
++                        if (viewLeft) {
++                            triangles.scissor.left = viewEdges.left;
++                        }
++
++                        if (viewRight) {
++                            triangles.scissor.right = viewEdges.right;
+                         }
+ 
+                         bool usesViewport = (proj.type == Projection::Type::Perspective) || (proj.type == Projection::Type::Orthographic);
 diff --git a/src/render/rt64_projection_processor.cpp b/src/render/rt64_projection_processor.cpp
 --- a/src/render/rt64_projection_processor.cpp
 +++ b/src/render/rt64_projection_processor.cpp

@@ -31,7 +31,8 @@ The OPTIONS page of the title menu has five rows under the sound setting.
   past each end). Every view of a multiplayer split screen is widened alike
   (tools/patches/rt64-split-screen-wide.patch): RT64 used to widen only a view
   as wide as everything else it was drawn with, so of two players' views one
-  could stay 4:3. In the intro,
+  could stay 4:3. A view's own fades and the circle wipe when a player dies
+  cover its widened width too. In the intro,
   Conker is not drawn while he waits for his cue just past the edge of the
   4:3 view. Behind the pause menu the paused scene stays widescreen, but
   sharp: the game blurs only the 4:3 middle of the frame, so that blur is
