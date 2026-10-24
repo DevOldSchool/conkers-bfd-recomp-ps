@@ -1,8 +1,10 @@
 // Experimental 60 fps: CONKER_60FPS=1 lets Rare's scheduler start a frame on every retrace instead
 // of every second one. Off by default; docs/investigations.md has what was measured. Native helpers
 // called from the [[patches.hook]] snippets for func_1501C880, func_800049E0, func_80004DB0,
-// func_80005020, and the half steps in func_15116BAC, func_151169B4 and func_8000BF60, in
-// config/us.toml.
+// func_80005020, the half steps in func_15116BAC, func_151169B4, func_151934B4 and func_8000BF60,
+// the frame counters in func_15043384 and func_151934B4, the menu repeat timers in func_151DE8F0,
+// the full steps in func_1508F9F4, the Doppler shift in func_80011624 and the heading easing in
+// func_1501B320, in config/us.toml.
 //
 // The game logic already steps by the retraces its frame took: func_80004F00 copies the count since
 // the last frame started (D_8003B238) to D_800BE9E4, and the logic scales by it (D_800BE9A4 =
@@ -17,6 +19,7 @@
 // scene, logic delta (D_800BE9A4), Conker's position and the camera's eye, for comparing the two
 // rates.
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -24,6 +27,7 @@
 
 #include "recomp.h"
 #include "ultramodern/ultra64.h"
+#include "enhancements/frame_rate/frame_rate.hpp"
 #include "enhancements/status.hpp"
 #include "enhancements/switches.hpp"
 #include "runtime/game.hpp"
@@ -123,13 +127,89 @@ extern "C" void conker_60fps_scheduler_message(uint8_t* rdram, recomp_context* c
 
 // Integer steps written as (rate * ticks) >> 1, which lose the odd half: at one retrace a frame, a
 // rate of 1 never moves and 3 moves at two thirds of its speed. Called before the shift with the
-// product in a register; at one retrace it becomes rate * 2 * D_800BE9A0, so the step is the rate
-// on every second frame, as at 30 fps. func_15116BAC and func_151169B4 move an object's s16
-// position toward a target (with a sound, so doors and platforms); func_8000BF60 counts down the
-// title scene's fade of sound 0x22, which never reached 0.
+// product in a register; at one retrace it becomes rate + D_800BE9A0, which alternates 0 and 1, so
+// the steps of two frames, rate >> 1 and (rate + 1) >> 1, add up to the rate, as one 30 fps frame
+// would. func_15116BAC and func_151169B4 move an object's s16 position toward a target (with a
+// sound, so doors and platforms); func_151934B4 drops a falling object's height by its speed;
+// func_8000BF60 counts down the title scene's fade of sound 0x22, which never reached 0.
 extern "C" void conker_60fps_half_step(uint8_t* rdram, gpr* product) {
     if (enabled() && MEM_W(0, kseg0(kFrameTicks)) == 1) {
+        *product = static_cast<gpr>(static_cast<int32_t>(*product) + MEM_BU(0, kseg0(kHalfSteps)));
+    }
+}
+
+// Steps of (ticks * speed) >> n with n > 1, where splitting the 30 fps step over two frames would
+// still round most of it away. Called before the shift with the product in a register; at one
+// retrace a frame it becomes 2 * product on the frames that take a 30 Hz step and 0 on the others,
+// so the object moves exactly as at 30 fps. func_1508F9F4 drops an entry of the six-slot effect at
+// D_800D2460 by (ticks * speed) >> 4 while its speed (+0xC) climbs a tick at a time to 32: below 16
+// it never moved at 60 fps.
+extern "C" void conker_60fps_full_step(uint8_t* rdram, gpr* product) {
+    if (enabled() && MEM_W(0, kseg0(kFrameTicks)) == 1) {
         *product = static_cast<gpr>(static_cast<int32_t>(*product) * 2 * MEM_BU(0, kseg0(kHalfSteps)));
+    }
+}
+
+// Easing that moves a value a fixed share k of the way to its target every frame settles twice as fast
+// at one retrace a frame. Two 60 fps frames with 1 - sqrt(1 - k) each leave the same distance as one
+// 30 fps frame with k.
+static float per_frame_easing(uint8_t* rdram, float share) {
+    if (enabled() && MEM_W(0, kseg0(kFrameTicks)) == 1 && share > 0.0f && share < 1.0f) {
+        return 1.0f - std::sqrt(1.0f - share);
+    }
+    return share;
+}
+
+// The Doppler shift of a moving sound (func_80011624, flag 4): (previous distance - distance) *
+// ticks / 3 sets the pitch ratio, and the pitch then moves 0.3 of the way to it every frame
+// (D_8002C404). Both are tuned for two retraces a frame: at one, a frame's distance is half as far
+// and is multiplied by 1 instead of 2, so the shift was a quarter of the 30 fps one, and the pitch
+// settled twice as fast. The first is called before the divide with the product in $v0, the second
+// before the multiply with the factor in $f10.
+extern "C" void conker_60fps_doppler_distance(uint8_t* rdram, recomp_context* ctx) {
+    if (enabled() && MEM_W(0, kseg0(kFrameTicks)) == 1) {
+        ctx->r2 = static_cast<gpr>(static_cast<int32_t>(ctx->r2) * 4);
+    }
+}
+
+extern "C" void conker_60fps_doppler_easing(uint8_t* rdram, recomp_context* ctx) {
+    ctx->f10.fl = per_frame_easing(rdram, ctx->f10.fl);
+}
+
+// func_1501B320 eases two angles per player (D_800BE6C0[p], D_800BE6D0[p]) toward the heading at
+// +0x388 of the player's record (*D_800DBFF0, 0x9A0 each) by a fixed share every frame: 0.1 or 0.03
+// (D_80096910/D_80096914), or 1 when it should follow at once. Called after the share is loaded into
+// $f6 from sp+0x38, where it is read again for the second angle; both get the 60 fps share.
+extern "C" void conker_60fps_heading_easing(uint8_t* rdram, recomp_context* ctx) {
+    const float share = per_frame_easing(rdram, ctx->f6.fl);
+    if (share != ctx->f6.fl) {
+        ctx->f6.fl = share;
+        MEM_W(0x38, ctx->r29) = static_cast<int32_t>(ctx->f6.u32l);
+    }
+}
+
+// Counters that go up once a frame where they should go up once a 30 Hz step. Called before the
+// increment with the old value in a register; at one retrace a frame it is lowered by one unless
+// this frame takes a step, so the counter keeps its 30 fps rate. func_15043384 (the HUD text pass)
+// counts D_80085CD0, whose (count >> 1) % 10 picks the frame of the wobbling joystick sprite (kind
+// 0x1A, D_80085AA8) beside the selected row of the OPTIONS and pause menus. func_151934B4 adds 1 to
+// a falling object's speed (+0x94, up to 20), so it built up speed twice as fast.
+extern "C" void conker_60fps_frame_counter(uint8_t* rdram, gpr* count) {
+    if (enabled() && MEM_W(0, kseg0(kFrameTicks)) == 1 && MEM_BU(0, kseg0(kHalfSteps)) == 0) {
+        *count = static_cast<gpr>(static_cast<int32_t>(*count) - 1);
+    }
+}
+
+// Timers that add the frame's ticks and act when they pass a threshold. At 30 fps they move in steps
+// of 2, so a threshold that falls between two steps is reached a retrace late. Called with the
+// ticks in a register; at one retrace a frame they become 2 * D_800BE9A0 (2 on every second frame),
+// so the timer moves in 30 Hz steps and acts on the same retrace it would at 30 fps. func_151DE8F0
+// (the title menu's input pass) repeats a held stick direction with two per player, +0x36 for left
+// and right and +0x3A for up and down, from 0 to 0x33 and then from 0x28 again: one repeat every 12
+// retraces at 30 fps, every 11 at 60 without this.
+extern "C" void conker_60fps_step_ticks(uint8_t* rdram, gpr* ticks) {
+    if (enabled() && static_cast<int32_t>(*ticks) == 1) {
+        *ticks = static_cast<gpr>(2 * MEM_BU(0, kseg0(kHalfSteps)));
     }
 }
 
@@ -141,6 +221,10 @@ extern "C" void conker_60fps_current_framebuffer(uint8_t* /*rdram*/, recomp_cont
     if (enabled()) {
         ctx->r2 = 0;
     }
+}
+
+bool conker::frame_rate::thirty_hz_step(uint8_t* rdram) {
+    return !enabled() || MEM_W(0, kseg0(kFrameTicks)) != 1 || MEM_BU(0, kseg0(kHalfSteps)) != 0;
 }
 
 nlohmann::json conker::status::frame_rate() {
