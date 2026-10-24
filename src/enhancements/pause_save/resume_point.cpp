@@ -80,6 +80,17 @@ constexpr int kObjectFacingAngle = 0x76;         // the facing it is made from, 
 constexpr int kObjectFacingTarget = 0x7A;        // towards: 16-bit angles from +X, 0x10000 a turn
 constexpr int kObjectCamera = 0x31C;             // the camera block: forward vector, eye, look-at
 constexpr int kCameraForward = 0x130;
+// The same block (the player's, see func_150BDB70) holds what B does where Conker stands: u8 +0x75,
+// and a second action at +0x74. A B pad's trigger sets them as he steps on it (func_15080500,
+// which leaves one alone while it has 0x80), and a script sets one with 0x80 to make it stick away
+// from any pad (func_15080620): drinking at Rock Solid's B pad leaves 0x83 at +0x75, which is him
+// drunk: B pees. How long he stays drunk is the s16 at +0x8, counting down a step a frame (about a
+// minute from the drink); while it is above 0 he hiccups and staggers instead of standing still
+// (func_1507F640 picks animation 0xAB). The block is not in the saved tables, so a point keeps the
+// sticky actions (conker_actions) and what is left of that count (conker_drunk) and puts them back.
+constexpr int kPlayerActions[] = {0x74, 0x75};
+constexpr uint8_t kActionSticky = 0x80;
+constexpr int kPlayerDrunk = 0x8;
 constexpr int kCameraEye = 0x13C;
 constexpr int kCameraAt = 0x148;
 // The camera keeps its own place in the world and is pulled along after Conker; its angles are
@@ -256,6 +267,8 @@ struct Point {
     bool has_swarms = false;             // recorded (an older point has none)
     std::vector<Swarm> swarms;
     int cutscene = -1;                   // the scene's cutscene to play again once placed, or -1
+    uint8_t actions[2] = {};             // Conker's sticky B actions (kPlayerActions), 0 for none
+    int drunk = 0;                       // frames he has left drunk (kPlayerDrunk)
 };
 
 Point g_pending;           // remembered, waiting for the save to be written
@@ -523,6 +536,27 @@ bool parse_point(const nlohmann::json& entry, Point* point, int* slot) {
         }
         point->has_swarms = true;
     }
+    if (entry.contains("conker_actions")) {
+        const nlohmann::json& actions = entry["conker_actions"];
+        if (!actions.is_array() || actions.size() != std::size(kPlayerActions)) {
+            return false;
+        }
+        for (size_t i = 0; i < actions.size(); i++) {
+            const nlohmann::json& action = actions[i];
+            if (!action.is_number_integer() || action.get<int>() < 0 || action.get<int>() > 255 ||
+                (action.get<int>() != 0 && !(action.get<int>() & kActionSticky))) {
+                return false;
+            }
+            point->actions[i] = static_cast<uint8_t>(action.get<int>());
+        }
+    }
+    if (entry.contains("conker_drunk")) {
+        double drunk;
+        if (!whole_in(entry, "conker_drunk", 0, 32767, &drunk)) {
+            return false;
+        }
+        point->drunk = static_cast<int>(drunk);
+    }
     if (entry.contains("cutscene")) {
         double cutscene;
         if (!whole_in(entry, "cutscene", 0, 255, &cutscene)) {
@@ -643,6 +677,12 @@ void write_points(const std::array<Point, kSlots>& points, const std::filesystem
         }
         if (p.cutscene >= 0) {
             entry["cutscene"] = p.cutscene;
+        }
+        if (p.actions[0] != 0 || p.actions[1] != 0) {
+            entry["conker_actions"] = {p.actions[0], p.actions[1]};
+        }
+        if (p.drunk > 0) {
+            entry["conker_drunk"] = p.drunk;
         }
         slots.push_back(std::move(entry));
     };
@@ -817,9 +857,25 @@ void restore_swarms(uint8_t* rdram, recomp_context* ctx, const Point& point, con
     }
 }
 
+// Conker's player block (kObjectCamera, also the camera's), or 0.
+uint32_t player_block(uint8_t* rdram) {
+    const uint32_t conker = static_cast<uint32_t>(MEM_W(0, kseg0(kPlayerObject)));
+    if (conker < 0x80000000u || conker >= 0x80800000u) {
+        return 0;
+    }
+    const uint32_t player = static_cast<uint32_t>(MEM_W(kObjectCamera, kseg0(conker)));
+    return player >= 0x80000000u && player < 0x80800000u ? player : 0;
+}
+
 // Records the scene as it is now (see the top of the file) in `point`.
 void capture_scene(uint8_t* rdram, Point* point) {
     capture_swarms(rdram, point);
+    const uint32_t player = player_block(rdram);
+    for (size_t i = 0; i < std::size(kPlayerActions); i++) {
+        const uint8_t action = player != 0 ? MEM_BU(kPlayerActions[i], kseg0(player)) : 0;
+        point->actions[i] = (action & kActionSticky) ? action : 0;
+    }
+    point->drunk = player != 0 ? std::max<int>(0, MEM_H(kPlayerDrunk, kseg0(player))) : 0;
     point->tables.clear();
     point->scripts.clear();
     for (const TableSpec& spec : kTables) {
@@ -1067,6 +1123,23 @@ void restore_scene(uint8_t* rdram, recomp_context* ctx, const Point& point) {
     });
     if (point.has_swarms) {
         restore_swarms(rdram, ctx, point, actor_slots, &restored);
+    }
+    if (const uint32_t player = player_block(rdram); player != 0) {
+        char kept[64];
+        if (point.actions[0] != 0 || point.actions[1] != 0) {
+            for (size_t i = 0; i < std::size(kPlayerActions); i++) {
+                if (point.actions[i] != 0) {
+                    MEM_B(kPlayerActions[i], kseg0(player)) = static_cast<int8_t>(point.actions[i]);
+                }
+            }
+            std::snprintf(kept, sizeof(kept), " Conker's actions 0x%02X 0x%02X", point.actions[0], point.actions[1]);
+            restored += kept;
+        }
+        if (point.drunk > 0) {
+            MEM_H(kPlayerDrunk, kseg0(player)) = static_cast<int16_t>(point.drunk);
+            std::snprintf(kept, sizeof(kept), " drunk %d frames", point.drunk);
+            restored += kept;
+        }
     }
     std::printf("[conker] resumed scene state:%s, event scripts %d/%zu (%d started)\n", restored.c_str(), scripts,
                 point.scripts.size(), started);

@@ -45,6 +45,7 @@ git submodule update --init --recursive
 (cd lib/N64Recomp && git apply ../../tools/patches/n64recomp.patch)
 (cd lib/N64ModernRuntime && git apply ../../tools/patches/n64modernruntime-running-thread.patch)
 (cd lib/N64ModernRuntime && git apply ../../tools/patches/n64modernruntime-pi-dma-message.patch)
+(cd lib/N64ModernRuntime && git apply ../../tools/patches/n64modernruntime-keep-rdram.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-f3dex2cbfd.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-native-size.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-edge-rects.patch)
