@@ -61,6 +61,32 @@ struct Haptic {
 bool has_haptics();
 void play_haptic(const Haptic& haptic);
 
+// What controller 1's triggers (both are Z) do on a pad with adaptive triggers (a DualSense).
+// Positions along the pull and strengths are in [0, 1], from released to fully pressed:
+// - Off: the triggers are free.
+// - Feedback: zones[i] resists in each tenth of the pull.
+// - Weapon: free up to start, then a wall of strength up to end, where it gives way with a snap.
+// - Vibration: buzzes past start at amplitude and frequency (0 slowest, 1 fastest).
+// z_at is how far a trigger is pulled before it counts as Z on such a pad, so an effect can lead up
+// to it; other pads keep kTriggerZ. has_adaptive_triggers says whether the open pad has them; both
+// are safe to call from any thread.
+constexpr int kTriggerZones = 10;
+constexpr float kTriggerZ = 10000.0f / 32767.0f;  // about a third of the travel
+struct TriggerEffect {
+    enum class Mode { Off, Feedback, Weapon, Vibration };
+    Mode mode = Mode::Off;
+    float zones[kTriggerZones] = {};
+    float start = 0.0f;
+    float end = 0.0f;
+    float strength = 0.0f;
+    float amplitude = 0.0f;
+    float frequency = 0.0f;
+    float z_at = kTriggerZ;
+    bool operator==(const TriggerEffect&) const = default;
+};
+bool has_adaptive_triggers();
+void set_trigger_effect(const TriggerEffect& effect);
+
 // Whether C-left and C-right are swapped, on the right stick and on J/L, so that pushing left turns
 // the view left (on unless the debug menu turns it off). Safe to call from any thread.
 bool camera_swapped();
