@@ -84,6 +84,12 @@ priority, return queue, addresses, size) and makes PI DMA completion send that
 `OSIoMesg` pointer to the return queue, as libultra's PI manager does, instead
 of a null message.
 
+`tools/patches/n64modernruntime-keep-rdram.patch` (apply in
+`lib/N64ModernRuntime`) stops `recomp::start` from unmapping the game's memory
+on quit. The game's own threads are never stopped, so one still running after
+that faulted on freed memory (`fatal signal 11` at a valid N64 address as the
+window closed). The process is exiting, so the OS frees it.
+
 `tools/patches/rt64-f3dex2cbfd.patch` (apply in `lib/rt64`) adds Rare's
 F3DEX2CBFD microcode: GBI database entries for the eight variants, a
 `GBI_F3DEX2CBFD` command table on top of F3DEX2 and the RSP state for its
