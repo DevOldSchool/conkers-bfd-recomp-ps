@@ -58,10 +58,14 @@ constexpr TriggerEffect kGunReady = feedback(0.2f, 0.4f);
 
 using conker::input::Haptic;
 
-// A round going off: a short, hard thump in both grips. Sharpness 0.3 is deep on a DualSense and
-// still runs both motors of a pad that has two (much lower leaves the light right one still). Rounds
-// come 8-14 VIs (130-230 ms) apart, so a 70 ms thump always leaves a gap before the next.
-constexpr Haptic kGunRound = {1.0f, 0.3f, 0.07f, Haptic::Grip::Both};
+// A round going off, in both grips: a sharp hit on top of a short, deep thump, which together feel
+// heavier than either at full strength alone. The thump's sharpness 0.15 is deep on a DualSense and
+// still runs the light motor of a pad that has two (at 0 only the heavy one would turn). Rounds come
+// 8-14 VIs (130-230 ms) apart, so an 80 ms thump leaves a gap before the next.
+constexpr Haptic kGunRound[] = {
+    {1.0f, 0.45f, 0.0f, Haptic::Grip::Both},
+    {1.0f, 0.15f, 0.08f, Haptic::Grip::Both},
+};
 
 std::atomic<bool> g_enabled{[] {
     const char* value = std::getenv("CONKER_ADAPTIVE_TRIGGERS");
@@ -91,7 +95,9 @@ bool g_was_mounted = false;
 void gun_rumble(uint8_t* rdram, uint32_t player) {
     const int16_t rounds = static_cast<int16_t>(MEM_HU(kPlayerGunRounds, kseg0(player)));
     if (g_was_mounted && rounds != g_last_rounds && conker::input::has_haptics()) {
-        conker::input::play_haptic(kGunRound);
+        for (const Haptic& haptic : kGunRound) {
+            conker::input::play_haptic(haptic);
+        }
     }
     g_last_rounds = rounds;
     g_was_mounted = true;

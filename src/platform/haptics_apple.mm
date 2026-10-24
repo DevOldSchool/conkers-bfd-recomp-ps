@@ -82,8 +82,9 @@ bool engines_ready() {
     return g_left != nil && g_right != nil;
 }
 
-// The same effect feels stronger in the left grip than the right (when alternating L2 and R2
-// shots), so the left plays it this much weaker.
+// The same effect feels stronger in the left grip than the right when it plays in one grip at a
+// time (alternating L2 and R2 shots), so the left plays a one-grip effect this much weaker. In both
+// grips at once the two sides play alike, as they should for something held in both hands.
 constexpr float kLeftGripGain = 0.7f;
 
 CHHapticPattern* pattern(const Haptic& haptic, float intensity) {
@@ -164,7 +165,7 @@ bool set_dualsense_rumble(bool on) {
             return false;
         }
         if (g_left_rumble == nil) {
-            g_left_rumble = start_rumble(g_left, kLeftGripGain);
+            g_left_rumble = start_rumble(g_left, 1.0f);
         }
         if (g_right_rumble == nil) {
             g_right_rumble = start_rumble(g_right, 1.0f);
@@ -187,7 +188,8 @@ bool play_dualsense_haptic(const Haptic& haptic) {
         return false;
     }
     if (haptic.grip != Haptic::Grip::Right) {
-        play_on(g_left, pattern(haptic, haptic.intensity * kLeftGripGain));
+        const float gain = haptic.grip == Haptic::Grip::Left ? kLeftGripGain : 1.0f;
+        play_on(g_left, pattern(haptic, haptic.intensity * gain));
     }
     if (haptic.grip != Haptic::Grip::Left) {
         play_on(g_right, pattern(haptic, haptic.intensity));
