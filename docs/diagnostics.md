@@ -24,6 +24,12 @@ These environment variables are read by both builds:
   `--largest N [--instance <seg3>]` prints the largest triangles and where
   their vertices came from. Use it to tell bad data in RDRAM apart from a
   renderer that misreads good data.
+* `CONKER_INSPECT=1` starts with the debug menu's INSPECT on, and
+  `CONKER_INSPECT_CURSOR=<x>,<y>[,<layer>][;...]` (fractions of the window,
+  from the top left, and how many wheel steps behind the front) holds its
+  cursor there and picks what is under it every 60 frames, moving to the next
+  spot after each, so a scripted run prints what is at those spots
+  (`[conker] inspect: picked ...`).
 * `CONKER_SKIP_INTRO=1` skips the boot logos, the intro and the title
   scene's opening by itself, behind a black screen, so the GAME 1 menu is up
   around VI 65 instead of 3,670. VI numbers in input scripts written for a full
@@ -163,7 +169,7 @@ system log. The faults found this way so far were RT64's LOD tile choice
 (`tools/patches/rt64-metal-float-to-int.patch`, see `docs/recompilation.md`).
 A debug report that shows the fault can be replayed by script for this: with
 `CONKER_SKIP_INTRO=1` and the report alone in the run's `debug_reports`, the pad
-lines `600 8 back`, seven `dpdown`s and two `a`s load it from the title.
+lines `600 8 back`, eight `dpdown`s and two `a`s load it from the title.
 
 ## Emulator ground truth
 

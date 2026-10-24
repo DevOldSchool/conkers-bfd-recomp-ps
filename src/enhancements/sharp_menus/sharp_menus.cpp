@@ -235,6 +235,17 @@ void dump_pack(const RT64::FileSystem& pack) {
     std::printf("[conker] sharp menus written to %s\n", dir);
 }
 
+std::string sprite_name(int resource) {
+    for (const Title& title : kTitles) {
+        if (resource >= title.first && resource < title.first + title.tiles) {
+            return title.tiles == 1 ? std::string(title.name)
+                                    : std::string(title.name) + " " + std::to_string(resource - title.first + 1) + "/" +
+                                          std::to_string(title.tiles);
+        }
+    }
+    return "";
+}
+
 std::shared_ptr<RT64::FileSystem> make_pack() {
     // The signs are independent, so they are made on every core; SAVE and LOAD alongside.
     std::future<const pause_signs::Signs*> signs = std::async(std::launch::async, pause_signs::get);

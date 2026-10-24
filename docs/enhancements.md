@@ -135,6 +135,27 @@ button. Up and down choose a row, A or left and right change it:
   +X), so walking away from the camera they agree. The first page shows them
   too, and opening the menu prints them in the terminal, with the camera's
   position, the point it looks at and its forward vector.
+* INSPECT: for telling exactly which model or object has a problem. With it
+  on (or `CONKER_INSPECT=1` from the start) the mouse cursor shows, and what
+  is under it is tinted cyan and named under the other overlay lines: an
+  actor with its index, model number and model name (from the decomp's model
+  registry), an attachment with its parent actor, a prop with its index in
+  the prop table, an object of a layer (grass and other effects) with the
+  callback that drew it, a 2D sprite tile by its resource number (and, for
+  the menus' signs, which sign and tile: `SPRITE GAME1 1/3 (2011)`), or else
+  the game function that drew it
+  (LEVEL for the terrain, `FUNC 1515D6D0`, ...), then the display list it came from, its
+  triangle count, its texture hash and, for an actor or prop, where it is. A
+  left click picks it out: every part of it pulses magenta (for the level,
+  every part with the same texture), and the terminal gets a full report
+  (scene, tag, display list, the command that drew it and its vertices,
+  combiner, texture hash, and for an actor its table address, model, kind and
+  position, for a prop its position and record). A right click lets it go.
+  Texture transparency is not known, so a cut-out (a grass sprite's clear
+  parts) covers what is behind it: the mouse wheel steps through everything
+  under the cursor, front to back (shown as 2/3), until the mouse moves. Text
+  is never picked. RT64 build only; see
+  `src/enhancements/object_inspector/object_inspector.cpp`.
 * ENHANCEMENTS: every enhancement that can be switched while the game
   runs, each ON or OFF, starting as its `CONKER_*` variable set it: SHARP
   TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),

@@ -3,6 +3,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 namespace RT64 {
 struct FileSystem;
@@ -19,5 +20,9 @@ std::shared_ptr<RT64::FileSystem> make_pack();
 
 // With CONKER_DUMP_SHARP_MENUS=<dir>, writes the pack's files to <dir> (a pack to start from).
 void dump_pack(const RT64::FileSystem& pack);
+
+// The menu sign or picture sprite resource `resource` is a tile of, as "GAME1 2/3": its name and
+// which tile of it. Empty if it is none of the ones this pack knows. For the object inspector.
+std::string sprite_name(int resource);
 
 } // namespace conker::sharp_menus
