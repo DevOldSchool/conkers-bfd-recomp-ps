@@ -9,7 +9,7 @@
 // each step copying the 3x3 patch of the lit floor beside and below the B that best matches what is
 // already round it. Then an O stands where the B was, as bold as the B: across each of its edges
 // the brightness of the B's edges facing the same way, measured from their crests (so the crest
-// stays a sharp line at the depth the B has it facing that way), with the fine grain of the B's
+// stays a sharp line at the depth the B has it facing that way), with the mottling of the B's
 // face over it, and its shadow cast up and to the left as the B's is. It is made from the
 // player's ROM when the game starts, so no part of Rare's texture is in this repository.
 #include "enhancements/pad_icons/b_pad.hpp"
@@ -42,7 +42,7 @@ constexpr float kLetter = 30;      // the least brightness of the B (its dim slo
 constexpr float kHighlight = 100;  // the least brightness of its crest along its right side
 constexpr int kDepths = 8;         // how far into the B its edges are measured
 constexpr float kSpread = 25.0f * float(M_PI) / 180;  // how widely edges facing nearly the same way are mixed
-constexpr float kGrain = 0.5f;     // how much of the B's grain is kept on the O
+constexpr float kGrain = 1.0f;     // how strong the B's mottling is on the O
 
 using Grid = std::array<bool, N * N>;
 using Image = std::array<float, N * N>;
@@ -366,24 +366,22 @@ std::optional<Texture> circle_rock_pad() {
         }
     if (outer_edges.empty() || counter_edges.empty()) return std::nullopt;
 
-    // 5. The B's grain: its face less a blur of it, carried out from the face's middle to the
-    // texels round it from the nearest.
-    const Image smooth = blur(a, 1.5f);
-    const Grid middle_face = erode(letter, 2);
-    std::vector<int> grain_from;
-    for (int i = 0; i < N * N; i++)
-        if (middle_face[i]) grain_from.push_back(i);
-    if (grain_from.empty()) return std::nullopt;
-    Image grain;
+    // 5. The B's grain: its mottling (its face less a wide blur of it), from the middle of its
+    // face clear of its crests, each texel from the first of a few places round it that is there,
+    // so it is the B's own mottling everywhere.
+    const Image smooth = blur(a, 3.0f);
+    const Grid middle_face = erode(letter, 5);
+    constexpr int kFrom[][2] = {{0, 0}, {7, 9}, {-7, 9}, {7, -9}, {-7, -9}, {12, 3},
+                                {-12, 3}, {3, 15}, {-3, -15}, {12, -12}, {-12, 12}};
+    Image grain{};
     for (int y = 0; y < N; y++)
-        for (int x = 0; x < N; x++) {
-            int nearest = grain_from[0], best = N * N * 2;
-            for (int i : grain_from) {
-                const int dx = i % N - x, dy = i / N - y, d = dx * dx + dy * dy;
-                if (d < best) best = d, nearest = i;
+        for (int x = 0; x < N; x++)
+            for (const auto& from : kFrom) {
+                const int sx = x + from[0], sy = y + from[1];
+                if (!in(sx, sy) || !middle_face[at(sx, sy)]) continue;
+                grain[at(x, y)] = std::clamp(a[at(sx, sy)] - smooth[at(sx, sy)], -25.0f, 25.0f) * kGrain;
+                break;
             }
-            grain[at(x, y)] = std::clamp(a[nearest] - smooth[nearest], -20.0f, 20.0f) * kGrain;
-        }
 
     // 6. The O: across its outer edge the B's outer edges facing the same way, across its inner
     // edge the B's counters', blended over the middle of its stroke.
