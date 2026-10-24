@@ -279,6 +279,9 @@ void open_pad(int device_index) {
         return;
     }
     port.id = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(port.pad));
+    // The port as the pad's player number: lit on a DualSense, and how src/platform/haptics_apple.mm
+    // and adaptive_triggers_apple.mm find controller 1's pad among the GameController framework's.
+    SDL_GameControllerSetPlayerIndex(port.pad, number - 1);
     port.has_rumble.store(SDL_GameControllerHasRumble(port.pad) == SDL_TRUE);
     port.rumble_applied = false;
     port.buttons.store(0);

@@ -35,17 +35,30 @@ void apply(GCDualSenseAdaptiveTrigger* trigger, const TriggerEffect& effect) API
 
 bool set_dualsense_triggers(const TriggerEffect& effect) {
     if (@available(macOS 12.3, *)) {
-        bool found = false;
+        // Controller 1's DualSense: the one SDL numbered player 1 (input_sdl.cpp sets each pad's
+        // player index to its port), or the only DualSense when none is numbered.
+        GCDualSenseGamepad* only = nil;
+        int count = 0;
         for (GCController* controller in GCController.controllers) {
             if (![controller.physicalInputProfile isKindOfClass:[GCDualSenseGamepad class]]) {
                 continue;
             }
             GCDualSenseGamepad* pad = (GCDualSenseGamepad*)controller.physicalInputProfile;
-            apply(pad.leftTrigger, effect);
-            apply(pad.rightTrigger, effect);
-            found = true;
+            if (controller.playerIndex == GCControllerPlayerIndex1) {
+                apply(pad.leftTrigger, effect);
+                apply(pad.rightTrigger, effect);
+                return true;
+            }
+            if (controller.playerIndex == GCControllerPlayerIndexUnset) {
+                only = pad;
+            }
+            count++;
         }
-        return found;
+        if (count == 1 && only != nil) {
+            apply(only.leftTrigger, effect);
+            apply(only.rightTrigger, effect);
+            return true;
+        }
     }
     return false;
 }

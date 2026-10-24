@@ -21,13 +21,21 @@ id<CHHapticPatternPlayer> g_right_rumble = nil;
 bool g_rumble_failed = false;  // Core Haptics refused the rumble: SDL rumbles the pad instead
 bool g_reported = false;  // a failure is printed once, not for every effect
 
+// Controller 1's DualSense: the one SDL numbered player 1 (input_sdl.cpp sets each pad's player
+// index to its port), or the only DualSense when none is numbered.
 GCController* dualsense() {
+    GCController* only = nil;
+    int count = 0;
     for (GCController* controller in GCController.controllers) {
         if ([controller.physicalInputProfile isKindOfClass:[GCDualSenseGamepad class]] && controller.haptics != nil) {
-            return controller;
+            if (controller.playerIndex == GCControllerPlayerIndex1) {
+                return controller;
+            }
+            only = controller;
+            count++;
         }
     }
-    return nil;
+    return count == 1 && only.playerIndex == GCControllerPlayerIndexUnset ? only : nil;
 }
 
 CHHapticEngine* make_engine(GCController* controller, GCHapticsLocality locality) {
