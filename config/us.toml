@@ -417,6 +417,19 @@ func = "func_151D5E90"
 before_vram = 0x151D6180
 text = "{ void conker_widescreen_copy_end(uint8_t*, recomp_context*); conker_widescreen_copy_end(rdram, ctx); }"
 
+# Widescreen: the rocket launcher's scope in a multiplayer match, func_151A5170, a tinted copy of
+# the frame over the player's view, is drawn as strips spanning the view instead of two passes of
+# pieces, so RT64 stretches it over the widened view. Same file as above.
+[[patches.hook]]
+func = "func_151A5170"
+before_vram = 0x151A5170
+text = "{ void conker_widescreen_scope_begin(uint8_t*, recomp_context*); conker_widescreen_scope_begin(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_151A5170"
+before_vram = 0x151A55A4
+text = "{ void conker_widescreen_scope_end(uint8_t*, recomp_context*); conker_widescreen_scope_end(rdram, ctx); }"
+
 # Widescreen: the metal frame of the turret's first-person view reaches the sides of the widened
 # picture. func_15154D80 draws one 2D sprite record; the tiles of the frame's top and bottom plates
 # are laid out again from edge to edge. See

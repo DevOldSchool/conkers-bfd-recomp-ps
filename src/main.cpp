@@ -81,29 +81,22 @@ bool get_input(int controller_num, uint16_t* buttons, float* x, float* y) {
         std::printf("[conker] controllers read through osContGetReadData (VI %llu)\n",
                     static_cast<unsigned long long>(vi_count.load()));
     }
-    *buttons = 0;
-    *x = 0.0f;
-    *y = 0.0f;
+    conker::input::read(buttons, x, y, controller_num);
     if (controller_num == 0) {
-        conker::input::read(buttons, x, y);
         *buttons |= conker::scripted_buttons();
     }
-    return true;
+    return conker::input::connected(controller_num);
 }
 
-void set_rumble(int controller_num, bool rumble) {
-    if (controller_num == 0) {
-        conker::input::set_rumble(rumble);
-    }
-}
+void set_rumble(int controller_num, bool rumble) { conker::input::set_rumble(controller_num, rumble); }
 
 ultramodern::input::connected_device_info_t get_connected_device_info(int controller_num) {
-    if (controller_num != 0) {
+    if (!conker::input::connected(controller_num)) {
         return {ultramodern::input::Device::None, ultramodern::input::Pak::None};
     }
     return {
         ultramodern::input::Device::Controller,
-        conker::input::has_rumble() ? ultramodern::input::Pak::RumblePak : ultramodern::input::Pak::None,
+        conker::input::has_rumble(controller_num) ? ultramodern::input::Pak::RumblePak : ultramodern::input::Pak::None,
     };
 }
 

@@ -25,6 +25,14 @@
 // showed as a slight stretch at its edges. In widescreen its pieces are replaced by full-width
 // strips 7 lines tall (292x7 RGBA16 is 4088 bytes, within TMEM's 4 KiB), so there are no joins
 // across a row; the vertical scale is a whole number, so the rows meet exactly.
+//
+// The rocket launcher's scope in a multiplayer match (func_151A5170, hooked like func_151D5E90)
+// copies the frame back over the player's view, tinted, in two passes: the first 256 columns in
+// 8-line pieces, then the rest in 54-line pieces. Neither piece spans the picture, so RT64 placed
+// them against its widened frame differently, and the scope came out as a 4:3 band with a smeared
+// edge. In widescreen they are replaced the same way, by strips spanning the view (as many lines
+// as fit TMEM), which RT64 stretches over the widened view like any copy spanning the picture.
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 
@@ -44,33 +52,58 @@ constexpr uint32_t kTmemBytes = 4096;
 
 bool g_rewriting = false;
 gpr g_start = 0;  // where func_151D5E90 started writing
+bool g_scope_rewriting = false;
+gpr g_scope_start = 0;  // where func_151A5170 started writing
 
 uint32_t op(const Command& command) { return command.w0 >> 24; }
 
-// Full-width strips for the image `image` (FD command) of width x height, in the order the game
-// issues each piece's commands.
-void add_strips(std::vector<Command>& out, const Command& image, uint32_t width, uint32_t height) {
+// Strips spanning the region from (left, top), width x height, of the image `image` (FD command),
+// drawn where they are read from, in the order the game issues each piece's commands. `clamp`
+// clamps the tiles in S and T.
+void add_strips(std::vector<Command>& out, const Command& image, uint32_t left, uint32_t top, uint32_t width, uint32_t height,
+                bool clamp) {
     const uint32_t row_bytes = width * 2;
     const uint32_t lines = kTmemBytes / row_bytes;
     const uint32_t line_words = (row_bytes + 7) / 8;
     const uint32_t set_tile = 0xF5100000 | ((line_words & 0x1FF) << 9);  // RGBA16, TMEM 0
-    const uint32_t lrs = (width - 1) << 2;
-    for (uint32_t y = 0; y < height; y += lines) {
-        const uint32_t rows = height - y < lines ? height - y : lines;
+    const uint32_t clamps = clamp ? 0x00080200 : 0;  // cmt and cms G_TX_CLAMP
+    const uint32_t uls = left << 2;
+    const uint32_t lrs = (left + width - 1) << 2;
+    for (uint32_t y = top; y < top + height; y += lines) {
+        const uint32_t rows = top + height - y < lines ? top + height - y : lines;
         const uint32_t ult = y << 2;
         const uint32_t lrt = (y + rows - 1) << 2;
         out.push_back(image);
-        out.push_back({set_tile, 0x07000000});                    // G_TX_LOADTILE
+        out.push_back({set_tile, 0x07000000 | clamps});           // G_TX_LOADTILE
         out.push_back({0xE6000000, 0});                           // G_RDPLOADSYNC
-        out.push_back({0xF4000000 | ult, 0x07000000 | (lrs << 12) | lrt});  // G_LOADTILE
+        out.push_back({0xF4000000 | (uls << 12) | ult, 0x07000000 | (lrs << 12) | lrt});  // G_LOADTILE
         out.push_back({0xE7000000, 0});                           // G_RDPPIPESYNC
-        out.push_back({set_tile, 0});                             // tile 0
-        out.push_back({0xF2000000 | ult, (lrs << 12) | lrt});     // G_SETTILESIZE
-        out.push_back({0xE4000000 | ((width << 2) << 12) | ((y + rows) << 2), ult});  // G_TEXRECT
-        out.push_back({0xE1000000, y << 5});                      // S 0, T y
+        out.push_back({set_tile, clamps});                        // tile 0
+        out.push_back({0xF2000000 | (uls << 12) | ult, (lrs << 12) | lrt});  // G_SETTILESIZE
+        out.push_back({0xE4000000 | (((left + width) << 2) << 12) | ((y + rows) << 2), (uls << 12) | ult});  // G_TEXRECT
+        out.push_back({0xE1000000, ((left << 5) << 16) | (y << 5)});  // S left, T y
         out.push_back({0xF1000000, 0x04000400});                  // DSDX, DTDY 1
         out.push_back({0xE7000000, 0});
     }
+}
+
+std::vector<Command> read_commands(uint8_t* rdram, gpr start, gpr end) {
+    std::vector<Command> commands;
+    for (gpr address = start; address < end; address += 8) {
+        commands.push_back({static_cast<uint32_t>(MEM_W(0x0, address)), static_cast<uint32_t>(MEM_W(0x4, address))});
+    }
+    return commands;
+}
+
+// Writes `out` from `start` and returns the address past it.
+gpr write_commands(uint8_t* rdram, gpr start, const std::vector<Command>& out) {
+    gpr address = start;
+    for (const Command& command : out) {
+        MEM_W(0x0, address) = static_cast<int32_t>(command.w0);
+        MEM_W(0x4, address) = static_cast<int32_t>(command.w1);
+        address += 8;
+    }
+    return address;
 }
 
 } // namespace
@@ -95,10 +128,7 @@ extern "C" void conker_widescreen_copy_end(uint8_t* rdram, recomp_context* ctx) 
         return;
     }
     g_rewriting = false;
-    std::vector<Command> commands;
-    for (gpr address = g_start; address < ctx->r4; address += 8) {
-        commands.push_back({static_cast<uint32_t>(MEM_W(0x0, address)), static_cast<uint32_t>(MEM_W(0x4, address))});
-    }
+    const std::vector<Command> commands = read_commands(rdram, g_start, ctx->r4);
     size_t first = commands.size();
     size_t last = 0;
     uint32_t width = 0;
@@ -122,17 +152,58 @@ extern "C" void conker_widescreen_copy_end(uint8_t* rdram, recomp_context* ctx) 
         return;
     }
     std::vector<Command> out(commands.begin(), commands.begin() + static_cast<long>(first));
-    add_strips(out, commands[first], width, height);
+    add_strips(out, commands[first], 0, 0, width, height, false);
     out.insert(out.end(), commands.begin() + static_cast<long>(last + 2), commands.end());
     if (out.size() > commands.size() + 64) {
         return;  // more than the game's own list by a margin: leave it alone
     }
-    gpr address = g_start;
-    for (const Command& command : out) {
-        MEM_W(0x0, address) = static_cast<int32_t>(command.w0);
-        MEM_W(0x4, address) = static_cast<int32_t>(command.w1);
-        address += 8;
-    }
+    const gpr address = write_commands(rdram, g_start, out);
     ctx->r4 = address;
     ctx->r2 = address;
+}
+
+// At func_151A5170's entry: $a0 is the display list pointer it writes from.
+extern "C" void conker_widescreen_scope_begin(uint8_t* /*rdram*/, recomp_context* ctx) {
+    g_scope_rewriting = conker::display::rendered_widescreen();
+    g_scope_start = ctx->r4;
+}
+
+// After func_151A5170's last call, before it returns $v0, the display list pointer past its
+// commands. The set-up before the first piece and everything after the last are kept; the pieces
+// between become strips over the region they covered. Anything unexpected leaves the list alone.
+extern "C" void conker_widescreen_scope_end(uint8_t* rdram, recomp_context* ctx) {
+    if (!g_scope_rewriting) {
+        return;
+    }
+    g_scope_rewriting = false;
+    const std::vector<Command> commands = read_commands(rdram, g_scope_start, ctx->r2);
+    size_t first = commands.size();
+    size_t last = 0;
+    uint32_t ulx = 0xFFF, uly = 0xFFF, lrx = 0, lry = 0;
+    for (size_t i = 0; i < commands.size(); i++) {
+        if (op(commands[i]) == kSetTextureImage && first == commands.size()) {
+            first = i;
+        }
+        if (op(commands[i]) == kTexRect) {
+            lrx = std::max(lrx, ((commands[i].w0 >> 12) & 0xFFF) >> 2);
+            lry = std::max(lry, (commands[i].w0 & 0xFFF) >> 2);
+            ulx = std::min(ulx, ((commands[i].w1 >> 12) & 0xFFF) >> 2);
+            uly = std::min(uly, (commands[i].w1 & 0xFFF) >> 2);
+        }
+        if (op(commands[i]) == kRdpHalf2) {
+            last = i;
+        }
+    }
+    // The pieces end with G_RDPHALF_2 and a pipe sync, and read 16-bit texels.
+    if (first == commands.size() || last <= first || last + 1 >= commands.size() || lrx <= ulx || lry <= uly ||
+        (lrx - ulx) * 2 > kTmemBytes || ((commands[first].w0 >> 19) & 0x3) != 2) {
+        return;
+    }
+    std::vector<Command> out(commands.begin(), commands.begin() + static_cast<long>(first));
+    add_strips(out, commands[first], ulx, uly, lrx - ulx, lry - uly, true);
+    out.insert(out.end(), commands.begin() + static_cast<long>(last + 2), commands.end());
+    if (out.size() > commands.size() + 64) {
+        return;  // more than the game's own list by a margin: leave it alone
+    }
+    ctx->r2 = write_commands(rdram, g_scope_start, out);
 }

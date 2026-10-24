@@ -2,6 +2,7 @@
 // PlayStation pads through that framework (src/platform/input_sdl.cpp), and SDL can't send
 // trigger effects that way, so input_sdl.cpp sets them here instead.
 #include "platform/adaptive_triggers_apple.hpp"
+#include "platform/haptics_apple.hpp"
 
 #import <GameController/GameController.h>
 
@@ -35,17 +36,12 @@ void apply(GCDualSenseAdaptiveTrigger* trigger, const TriggerEffect& effect) API
 
 bool set_dualsense_triggers(const TriggerEffect& effect) {
     if (@available(macOS 12.3, *)) {
-        bool found = false;
-        for (GCController* controller in GCController.controllers) {
-            if (![controller.physicalInputProfile isKindOfClass:[GCDualSenseGamepad class]]) {
-                continue;
-            }
+        if (GCController* controller = port1_dualsense()) {
             GCDualSenseGamepad* pad = (GCDualSenseGamepad*)controller.physicalInputProfile;
             apply(pad.leftTrigger, effect);
             apply(pad.rightTrigger, effect);
-            found = true;
+            return true;
         }
-        return found;
     }
     return false;
 }

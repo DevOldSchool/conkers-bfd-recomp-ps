@@ -1,0 +1,132 @@
+diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
+--- a/src/render/rt64_framebuffer_renderer.cpp
++++ b/src/render/rt64_framebuffer_renderer.cpp
+@@ -1476,6 +1476,21 @@
+         int32_t vertexTestZCallIndex = -1;
+         RenderViewport viewportClip;
+ 
++        // The scissors of the 3D views this pair widens (useWideViewport below), for the untextured rects drawn over
++        // one of them (rect.extendEdgeRects): a split-screen view's fades and wipes reach its own sides, not the pair's.
++        std::vector<FixedRect> wideViewScissors;
++        for (uint32_t pr = 0; pr < fbPair.projectionCount; pr++) {
++            const Projection &proj = fbPair.projections[pr];
++            if (proj.scissorRect.isNull() || !proj.usesViewport() || (proj.type != Projection::Type::Perspective) || (drawData.viewportOrigins[proj.transformsIndex] != G_EX_ORIGIN_NONE)) {
++                continue;
++            }
++
++            const FixedRect intersectionRect = proj.scissorRect.intersection(drawData.rspViewports[proj.transformsIndex].rect(&drawData.viewportClipRatios[proj.transformsIndex * 4]));
++            if (!intersectionRect.isEmpty() && (intersectionRect.width(true, true) > intersectionRect.height(true, true))) {
++                wideViewScissors.push_back(proj.scissorRect);
++            }
++        }
++
+         for (uint32_t pr = 0; (pr < fbPair.projectionCount) && (globalCallIndex < p.maxGameCall); pr++) {
+             const Projection &proj = fbPair.projections[pr];
+             if (proj.scissorRect.isNull()) {
+@@ -1516,7 +1531,10 @@
+                 FixedRect intersectionRect = proj.scissorRect.intersection(viewport.rect(viewportClipRatios));
+                 bool coversWholeWidth = !intersectionRect.isEmpty() && (intersectionRect.ulx <= fbPair.scissorRect.ulx) && (intersectionRect.lrx >= fbPair.scissorRect.lrx);
+                 bool horizontalRatio = !intersectionRect.isEmpty() && (intersectionRect.width(true, true) > intersectionRect.height(true, true));
+-                bool useWideViewport = (viewportOrigin == G_EX_ORIGIN_NONE) && coversWholeWidth && horizontalRatio;
++                // A 3D view beside others (a split screen) widens too, about the middle of the screen like a whole one, so
++                // every view of a split screen is widened the same way, whichever other draws share its framebuffer pair.
++                const bool splitView = (proj.type == Projection::Type::Perspective);
++                bool useWideViewport = (viewportOrigin == G_EX_ORIGIN_NONE) && (coversWholeWidth || splitView) && horizontalRatio;
+                 if (useWideViewport) {
+                     projInvRatioScale = 1.0f;
+                 }
+@@ -1653,6 +1671,9 @@
+                         float horizontalMisalignment = 0.0f;
+                         bool extendLeft = false;
+                         bool extendRight = false;
++                        bool viewLeft = false;
++                        bool viewRight = false;
++                        RenderRect viewEdges;
+                         switch (proj.type) {
+                         case Projection::Type::Perspective:
+                         case Projection::Type::Orthographic: {
+@@ -1672,7 +1693,19 @@
+ 
+                             // The call's scissor spans the whole width of the framebuffer pair scissor. The rect must not be using extended origins.
+                             const bool regularOrigins = (call.callDesc.rectLeftOrigin == G_EX_ORIGIN_NONE) && (call.callDesc.rectRightOrigin == G_EX_ORIGIN_NONE);
+-                            const bool coversScissorWidth = regularOrigins && (call.callDesc.rect.ulx <= fbPair.scissorRect.ulx) && (call.callDesc.rect.lrx >= fbPair.scissorRect.lrx);
++                            bool coversScissorWidth = regularOrigins && (call.callDesc.rect.ulx <= fbPair.scissorRect.ulx) && (call.callDesc.rect.lrx >= fbPair.scissorRect.lrx);
++
++                            // Likewise a rect with a widened view's scissor spanning that view's whole width (a split-screen
++                            // view's own full-view effects) is stretched with the view.
++                            const FixedRect &rectScissor = call.callDesc.scissorRect;
++                            for (const FixedRect &view : wideViewScissors) {
++                                if (regularOrigins && (rectScissor.ulx == view.ulx) && (rectScissor.uly == view.uly) && (rectScissor.lrx == view.lrx) && (rectScissor.lry == view.lry) &&
++                                    (call.callDesc.rect.ulx <= view.ulx) && (call.callDesc.rect.lrx >= view.lrx)) {
++                                    coversScissorWidth = true;
++                                    break;
++                                }
++                            }
++
+                             if ((tileCopiesUsed || coversScissorWidth || call.callDesc.rectAspect == G_EX_ASPECT_STRETCH) && (call.callDesc.rectAspect != G_EX_ASPECT_ADJUST)) {
+                                 invRatioScale = 1.0f;
+                             }
+@@ -1689,7 +1722,17 @@
+                                     extendLeft = (call.callDesc.rect.ulx <= fbPair.scissorRect.ulx);
+                                     extendRight = (call.callDesc.rect.lrx >= fbPair.scissorRect.lrx);
+                                     extendViewport = true;
+-                                }
++
++                                    // A rect with a widened view's scissor reaching that scissor's side goes to the
++                                    // view's widened side instead.
++                                    const FixedRect &sc = call.callDesc.scissorRect;
++                                    for (const FixedRect &view : wideViewScissors) {
++                                        if ((sc.ulx == view.ulx) && (sc.uly == view.uly) && (sc.lrx == view.lrx) && (sc.lry == view.lry)) {
++                                            viewLeft = !extendLeft && (call.callDesc.rect.ulx <= view.ulx);
++                                            viewRight = !extendRight && (call.callDesc.rect.lrx >= view.lrx);
++                                            viewEdges = convertFixedRect(view, p.resolutionScale, p.fbWidth, 1.0f, extOriginPercentage, 0, G_EX_ORIGIN_NONE, G_EX_ORIGIN_NONE);
++                                            break;
++                                        }
+                                     }
+                                 }
+                                 // A textured rect already drawn past the side (RDP::drawTexRect) only needs the scissor
+@@ -1710,6 +1753,15 @@
+                                 viewportRect.width = framebuffer.viewport.width - viewportRect.x;
+                             }
+ 
++                            if (viewLeft) {
++                                viewportRect.width += viewportRect.x - float(viewEdges.left);
++                                viewportRect.x = float(viewEdges.left);
++                            }
++
++                            if (viewRight) {
++                                viewportRect.width = float(viewEdges.right) - viewportRect.x;
++                            }
++
+                             triangles.screenScale = { viewportRect.width / framebuffer.viewport.width, viewportRect.height / framebuffer.viewport.height };
+                             triangles.screenOffset.x = halfPixelOffset.x + ((viewportRect.x + viewportRect.width / 2.0f) - halfViewportSize.x) / halfViewportSize.x;
+                             triangles.screenOffset.y = halfPixelOffset.y + (halfViewportSize.y - (viewportRect.y + viewportRect.height / 2.0f)) / halfViewportSize.y;
+@@ -1752,6 +1804,14 @@
+ 
+                         if (extendRight) {
+                             triangles.scissor.right = int32_t(std::ceil(framebuffer.viewport.width));
++                        }
++
++                        if (viewLeft) {
++                            triangles.scissor.left = viewEdges.left;
++                        }
++
++                        if (viewRight) {
++                            triangles.scissor.right = viewEdges.right;
+                         }
+ 
+                         bool usesViewport = (proj.type == Projection::Type::Perspective) || (proj.type == Projection::Type::Orthographic);
+diff --git a/src/render/rt64_projection_processor.cpp b/src/render/rt64_projection_processor.cpp
+--- a/src/render/rt64_projection_processor.cpp
++++ b/src/render/rt64_projection_processor.cpp
+@@ -94,7 +94,9 @@
+                 if (!intersectionRect.isEmpty()) {
+                     bool coversWholeWidth = (intersectionRect.ulx <= fbPair.scissorRect.ulx) && (intersectionRect.lrx >= fbPair.scissorRect.lrx);
+                     bool horizontalRatio = (intersectionRect.width(true, true) > intersectionRect.height(true, true));
+-                    adjustAspectRatio = (viewportOrigin == G_EX_ORIGIN_NONE) && coversWholeWidth && horizontalRatio;
++                    // As in FramebufferRenderer: a 3D view of a split screen widens like a whole one.
++                    const bool splitView = (proj.type == Projection::Type::Perspective);
++                    adjustAspectRatio = (viewportOrigin == G_EX_ORIGIN_NONE) && (coversWholeWidth || splitView) && horizontalRatio;
+                 }
+             }
+  

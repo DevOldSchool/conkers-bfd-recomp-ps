@@ -48,24 +48,27 @@ These environment variables are read by both builds:
   `CONKER_SKIP_INTRO=1 CONKER_PRESS_A=300,600,900,1200,1500` with no save
   reaches the opening cutscene, whose first speech bubbles are up about
   165 s in.
-* `CONKER_VIRTUAL_PAD=<file>` (RT64 build) attaches an SDL virtual game
-  controller driven by a script, so the whole controller path can be tested
-  without hardware. Each line is `<vi> <length in VIs> <control>...`, where a
+* `CONKER_VIRTUAL_PAD=<file>[,<file>...]` (RT64 build) attaches an SDL virtual
+  game controller per file, each driven by its script, so the whole controller
+  path can be tested without hardware. They connect in the order given, so the
+  first file is controller 1, the second controller 2, and so on. Each line is `<vi> <length in VIs> <control>...`, where a
   control is an SDL button name (`a`, `b`, `x`, `start`, `leftshoulder`,
   `dpup`, ...) or `<axis>=<value>` (`leftx`, `lefty`, `rightx`, `righty`
   from -1 to 1, with +y down as in SDL; `lefttrigger`, `righttrigger` from 0,
   released, to 1). Before this, the triggers rested half pressed, which held Z. `#`
   starts a comment. For example, `5400 10 start` then `7500 10 a` goes from the
-  title scene to a new game. Real controllers are ignored while it is set:
+  title scene to a new game. `unplug <vi>` and `plug <vi>` lines disconnect
+  and reconnect the pad; a pad whose first such line is `plug` starts
+  unplugged. Real controllers are ignored while it is set:
   SDL passes pad input to every process, so a pad in use in another window
-  would otherwise steer the scripted run. The virtual pad can rumble, so it
+  would otherwise steer the scripted run. A virtual pad can rumble, so it
   counts as a Rumble Pak, and it logs each rumble change. It logs each haptic
   effect too, or with `CONKER_HAPTICS_MOTORS=1` the motor strengths it plays
   as (`rumble low <x> high <y>`, `trigger rumble left <x> right <y>`), as on
   a pad without Core Haptics.
-* **Rumble.** The log shows the pak probe at boot (`rumble pak inserted` or
-  `not inserted`) and every change of the motor the game asks for
-  (`VI <n>: rumble on/off, port 1`); a rumble is a run of on/off lines, since
+* **Rumble.** The log shows the pak probe for each connected controller
+  (`controller <n> rumble pak inserted` or `not inserted`) and every change of
+  the motor the game asks for (`VI <n>: rumble on/off, port <n>`); a rumble is a run of on/off lines, since
   the game pulses the motor to set its strength. `CONKER_RUMBLE_TEST=1` (RT64
   build) buzzes the pad for a second when it connects, to check the pad
   without the game.
