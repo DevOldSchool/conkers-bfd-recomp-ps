@@ -474,7 +474,7 @@ def main() -> int:
             seen.setdefault(name, ovl.name)
 
     for ovl in (main_ovl, game_ovl, dbg_ovl):
-        funcs = ovl.finalize(word_at_vrom_vram := (lambda v, o=ovl: word_at_vrom(o.rom + (v - o.vram))))
+        funcs = ovl.finalize(lambda v, o=ovl: word_at_vrom(o.rom + (v - o.vram)))
         names = [f["name"] for f in funcs]
         dupes = {n for n in names if names.count(n) > 1}
         if dupes:

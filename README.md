@@ -42,23 +42,7 @@ RT64 also needs Xcode's Metal toolchain
 
 ```sh
 git submodule update --init --recursive
-(cd lib/N64Recomp && git apply ../../tools/patches/n64recomp.patch)
-(cd lib/N64ModernRuntime && git apply ../../tools/patches/n64modernruntime-running-thread.patch)
-(cd lib/N64ModernRuntime && git apply ../../tools/patches/n64modernruntime-pi-dma-message.patch)
-(cd lib/N64ModernRuntime && git apply ../../tools/patches/n64modernruntime-keep-rdram.patch)
-(cd lib/rt64 && git apply ../../tools/patches/rt64-f3dex2cbfd.patch)
-(cd lib/rt64 && git apply ../../tools/patches/rt64-native-size.patch)
-(cd lib/rt64 && git apply ../../tools/patches/rt64-edge-rects.patch)
-(cd lib/rt64 && git apply ../../tools/patches/rt64-memory-packs.patch)
-(cd lib/rt64 && git apply ../../tools/patches/rt64-wireframe.patch)
-(cd lib/rt64 && git apply ../../tools/patches/rt64-wide-draw-rect.patch)
-(cd lib/rt64 && git apply ../../tools/patches/rt64-queue-names.patch)
-(cd lib/rt64 && git apply ../../tools/patches/rt64-metal-float-to-int.patch)
-(cd lib/rt64 && git apply ../../tools/patches/rt64-object-picking.patch)
-(cd lib/rt64 && git apply ../../tools/patches/rt64-near-draw-rect.patch)
-(cd lib/rt64 && git apply ../../tools/patches/rt64-split-screen-wide.patch)
-(cd lib/rt64/src/contrib/plume && git apply ../../../../../tools/patches/plume-wireframe.patch)
-(cd lib/rt64/src/contrib/plume && git apply ../../../../../tools/patches/plume-gpu-errors.patch)
+tools/apply_patches.sh
 tools/regenerate.sh
 cmake -S . -B build/rt64 -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER=rt64
 cmake --build build/rt64

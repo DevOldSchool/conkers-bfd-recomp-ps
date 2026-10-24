@@ -1,10 +1,12 @@
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
+index c09e25d..506c8c3 100644
 --- a/src/render/rt64_framebuffer_renderer.cpp
 +++ b/src/render/rt64_framebuffer_renderer.cpp
-@@ -1476,6 +1476,21 @@
+@@ -1475,6 +1475,22 @@ namespace RT64 {
+         uint32_t vertexTestZFaceIndicesStart = 0;
          int32_t vertexTestZCallIndex = -1;
          RenderViewport viewportClip;
- 
++
 +        // The scissors of the 3D views this pair widens (useWideViewport below), for the untextured rects drawn over
 +        // one of them (rect.extendEdgeRects): a split-screen view's fades and wipes reach its own sides, not the pair's.
 +        std::vector<FixedRect> wideViewScissors;
@@ -23,7 +25,7 @@ diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuf
          for (uint32_t pr = 0; (pr < fbPair.projectionCount) && (globalCallIndex < p.maxGameCall); pr++) {
              const Projection &proj = fbPair.projections[pr];
              if (proj.scissorRect.isNull()) {
-@@ -1516,7 +1531,10 @@
+@@ -1515,7 +1531,10 @@ namespace RT64 {
                  FixedRect intersectionRect = proj.scissorRect.intersection(viewport.rect(viewportClipRatios));
                  bool coversWholeWidth = !intersectionRect.isEmpty() && (intersectionRect.ulx <= fbPair.scissorRect.ulx) && (intersectionRect.lrx >= fbPair.scissorRect.lrx);
                  bool horizontalRatio = !intersectionRect.isEmpty() && (intersectionRect.width(true, true) > intersectionRect.height(true, true));
@@ -35,7 +37,7 @@ diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuf
                  if (useWideViewport) {
                      projInvRatioScale = 1.0f;
                  }
-@@ -1653,6 +1671,9 @@
+@@ -1652,6 +1671,9 @@ namespace RT64 {
                          float horizontalMisalignment = 0.0f;
                          bool extendLeft = false;
                          bool extendRight = false;
@@ -45,7 +47,7 @@ diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuf
                          switch (proj.type) {
                          case Projection::Type::Perspective:
                          case Projection::Type::Orthographic: {
-@@ -1672,7 +1693,19 @@
+@@ -1671,7 +1693,19 @@ namespace RT64 {
  
                              // The call's scissor spans the whole width of the framebuffer pair scissor. The rect must not be using extended origins.
                              const bool regularOrigins = (call.callDesc.rectLeftOrigin == G_EX_ORIGIN_NONE) && (call.callDesc.rectRightOrigin == G_EX_ORIGIN_NONE);
@@ -66,11 +68,10 @@ diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuf
                              if ((tileCopiesUsed || coversScissorWidth || call.callDesc.rectAspect == G_EX_ASPECT_STRETCH) && (call.callDesc.rectAspect != G_EX_ASPECT_ADJUST)) {
                                  invRatioScale = 1.0f;
                              }
-@@ -1689,7 +1722,17 @@
+@@ -1688,6 +1722,18 @@ namespace RT64 {
                                      extendLeft = (call.callDesc.rect.ulx <= fbPair.scissorRect.ulx);
                                      extendRight = (call.callDesc.rect.lrx >= fbPair.scissorRect.lrx);
                                      extendViewport = true;
--                                }
 +
 +                                    // A rect with a widened view's scissor reaching that scissor's side goes to the
 +                                    // view's widened side instead.
@@ -82,10 +83,11 @@ diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuf
 +                                            viewEdges = convertFixedRect(view, p.resolutionScale, p.fbWidth, 1.0f, extOriginPercentage, 0, G_EX_ORIGIN_NONE, G_EX_ORIGIN_NONE);
 +                                            break;
 +                                        }
-                                     }
++                                    }
                                  }
                                  // A textured rect already drawn past the side (RDP::drawTexRect) only needs the scissor
-@@ -1710,6 +1753,15 @@
+                                 // opened on that side; its texture keeps its place and scale.
+@@ -1707,6 +1753,15 @@ namespace RT64 {
                                  viewportRect.width = framebuffer.viewport.width - viewportRect.x;
                              }
  
@@ -101,25 +103,26 @@ diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuf
                              triangles.screenScale = { viewportRect.width / framebuffer.viewport.width, viewportRect.height / framebuffer.viewport.height };
                              triangles.screenOffset.x = halfPixelOffset.x + ((viewportRect.x + viewportRect.width / 2.0f) - halfViewportSize.x) / halfViewportSize.x;
                              triangles.screenOffset.y = halfPixelOffset.y + (halfViewportSize.y - (viewportRect.y + viewportRect.height / 2.0f)) / halfViewportSize.y;
-@@ -1752,6 +1804,14 @@
- 
-                         if (extendRight) {
+@@ -1751,6 +1806,14 @@ namespace RT64 {
                              triangles.scissor.right = int32_t(std::ceil(framebuffer.viewport.width));
-+                        }
-+
+                         }
+ 
 +                        if (viewLeft) {
 +                            triangles.scissor.left = viewEdges.left;
 +                        }
 +
 +                        if (viewRight) {
 +                            triangles.scissor.right = viewEdges.right;
-                         }
- 
++                        }
++
                          bool usesViewport = (proj.type == Projection::Type::Perspective) || (proj.type == Projection::Type::Orthographic);
+                         if (usesViewport) {
+                             triangles.scissor = viewportScissorIntersection(viewportClip, triangles.scissor);
 diff --git a/src/render/rt64_projection_processor.cpp b/src/render/rt64_projection_processor.cpp
+index e842dcc..705ffde 100644
 --- a/src/render/rt64_projection_processor.cpp
 +++ b/src/render/rt64_projection_processor.cpp
-@@ -94,7 +94,9 @@
+@@ -94,7 +94,9 @@ namespace RT64 {
                  if (!intersectionRect.isEmpty()) {
                      bool coversWholeWidth = (intersectionRect.ulx <= fbPair.scissorRect.ulx) && (intersectionRect.lrx >= fbPair.scissorRect.lrx);
                      bool horizontalRatio = (intersectionRect.width(true, true) > intersectionRect.height(true, true));
