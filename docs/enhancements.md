@@ -90,7 +90,10 @@ down from the sign above, or use the stick's down-left and down-right
 diagonals, and press A. SAVE saves the game where Conker stands, and LOAD,
 or starting that save from the title menu, puts him back on that spot,
 facing the same way, with the camera put back where it looked once it has
-settled behind him (saves made before this keep only the spot). Quitting
+settled behind him: the same direction, distance and pitch, and the game's
+camera kept at that distance (saves made before this keep only the spot;
+saves from before the distance was kept take the distance the camera comes
+to rest at, and a debug report's takes it from its `report.json`). Quitting
 from the pause menu keeps the spot too. The spot is kept in
 `conker_us.resume` next to the save; a checkpoint reached later takes over
 as usual. The game's own save only records finished events, so the spot

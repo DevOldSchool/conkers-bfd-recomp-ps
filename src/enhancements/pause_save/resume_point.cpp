@@ -3,8 +3,8 @@
 //
 // The game's save holds progress and the checkpoint to resume from (scene D_800BE3DF, entrance
 // D_800BE3E0), not where Conker stands. A save made from the pause menu (SAVE, or QUIT then Y)
-// also records the scene, entrance, position, Conker's facing and the camera's yaw in a file next
-// to the save, conker_us.resume (JSON, see parse_points), tagged with the save's sequence number. Starting that save (PLAY on
+// also records the scene, entrance, position, Conker's facing and the camera's yaw, distance and
+// pitch in a file next to the save, conker_us.resume (JSON, see parse_points), tagged with the save's sequence number. Starting that save (PLAY on
 // the title menu, or LOAD in the pause menu) then enters the recorded scene by that entrance, and
 // once the scene is running, Conker is moved to the recorded spot for the first few frames, facing
 // as he did, with the camera put back where it looked (as the debug menu's teleport does). (The spawn
@@ -106,6 +106,13 @@ constexpr int kOrbitTargetDegrees = 0x380;       // the turn it eases towards,
 constexpr int kCameraBehind = 0x390;             // Conker's facing - the camera's yaw,
 constexpr int kOrbitRadians = 0x39C;             // and the two turns in radians
 constexpr int kOrbitTargetRadians = 0x3A0;
+// How far along the ground the camera stays from Conker: it eases towards a target distance
+// (+0x374; the controls' +0x370 is the distance it is at), which the scene's camera zones set (an
+// entrance's zone sets its own, and leaving one puts back the player's distance, func_15124B18), as
+// does a quick zoom (func_1512B730): it keeps the target it replaced in +0x3F4 (-1 when none) for
+// 30 ticks (+0x3F0), then puts it back.
+constexpr int kTargetDistance = 0x374;
+constexpr int kZoomKeptDistance = 0x3F4;
 constexpr uint32_t kScene = 0x800BE9F0;          // D_800BE9F0: the scene being played
 // D_800BE3DF, D_800BE3E0: the checkpoint the save restarts from (scene, entrance), set by the event
 // scripts (func_1509F850) and read back from the save (func_15006590). A scene started as the game
@@ -281,6 +288,9 @@ struct Point {
     float x = 0, y = 0, z = 0, yaw = 0;  // yaw in degrees
     bool has_view = false;               // facing and camera_yaw recorded (see Position)
     float facing = 0, camera_yaw = 0;
+    bool has_camera = false;             // camera_distance and camera_pitch recorded (an older
+    float camera_distance = 0;           // point has none): from the camera to the point it looks
+    float camera_pitch = 0;              // at, and its pitch in degrees (see measure_camera)
     std::vector<TableState> tables;      // the scene as it was (see the top of the file)
     std::vector<ScriptVariables> scripts;
     bool has_swarms = false;             // recorded (an older point has none)
@@ -303,8 +313,14 @@ Position g_view;           // a teleport's facing and camera, held with its posi
 float g_camera_distance = 600.0f;  // from the camera to the point it looks at, and its pitch,
 float g_camera_pitch = -30.0f;     // when a teleport was asked for or a resumed save first placed
 // A resumed save's camera is put back once it has settled behind Conker (it swings into place as
-// the scene starts), then held there for a few frames.
+// the scene starts), then held there for a few frames. It goes back as far from Conker and at the
+// pitch it was saved with when the point recorded them, and the game's target distance is set to
+// match (see kTargetDistance). Where the entrance camera comes to rest is otherwise a race in the
+// game: in scene 0's report (saved 530 along the ground from Conker) the entrance zone ends during a
+// quick zoom, and at 30 fps the zoom runs out last, putting back the zone's 211, so the camera
+// eased back in after the hold.
 bool g_camera_waits = false;
+bool g_camera_saved = false;       // g_camera_distance and g_camera_pitch are the point's
 int g_camera_still = 0;            // frames it has not moved
 int g_camera_wait = 0;             // frames waited
 int g_camera_hold = 0;             // frames left to hold it
@@ -451,6 +467,16 @@ bool parse_point(const nlohmann::json& entry, Point* point, int* slot) {
         point->facing = static_cast<float>(facing);
         point->camera_yaw = static_cast<float>(camera_yaw);
     }
+    point->has_camera = entry.contains("camera_distance") || entry.contains("camera_pitch");
+    if (point->has_camera) {
+        double distance, pitch;
+        if (!point->has_view || !number_in(entry, "camera_distance", 1, kMaxCoordinate, &distance) ||
+            !number_in(entry, "camera_pitch", -90, 90, &pitch)) {
+            return false;
+        }
+        point->camera_distance = static_cast<float>(distance);
+        point->camera_pitch = static_cast<float>(pitch);
+    }
     if (entry.contains("tables")) {
         const nlohmann::json& tables = entry["tables"];
         if (!tables.is_array() || tables.size() > std::size(kTables)) {
@@ -591,7 +617,8 @@ bool parse_point(const nlohmann::json& entry, Point* point, int* slot) {
 // The points file, conker_us.resume (a snapshot's .resume, a report's save.resume), is JSON:
 // {"format": "conker-recomp-resume", "version": 2, "slots": [point, ...]}, at most one point per slot,
 // the saved slot's first. A point: "slot", "counter" (the save's sequence number), "scene", "entrance",
-// "x", "y", "z", "yaw" (degrees), "facing" and "camera_yaw" when they were recorded, and the scene as
+// "x", "y", "z", "yaw" (degrees), "facing" and "camera_yaw" when they were recorded, with
+// "camera_distance" and "camera_pitch" (degrees) in newer points, and the scene as
 // it was: "tables" [{"name", "count", "record_size", "bytes", hex}] (see kTables), "scripts"
 // [{"key", "variables", hex}] and "swarms" [{"id", "position" [x, y, z], "target_actor" or "target"
 // [x, y, z], "speed"}] (see kSwarms), and "cutscene" when the save was made during one (see
@@ -666,6 +693,10 @@ void write_points(const std::array<Point, kSlots>& points, const std::filesystem
         if (p.has_view) {
             entry["facing"] = p.facing;
             entry["camera_yaw"] = p.camera_yaw;
+            if (p.has_camera) {
+                entry["camera_distance"] = p.camera_distance;
+                entry["camera_pitch"] = p.camera_pitch;
+            }
         }
         nlohmann::json tables = nlohmann::json::array();
         for (const TableState& table : p.tables) {
@@ -1244,12 +1275,16 @@ uint32_t player_object(uint8_t* rdram) {
     return (object & 0xFF000000) == 0x80000000 ? object : 0;
 }
 
+float camera_distance(const Camera& camera) {
+    const float d[3] = {camera.at[0] - camera.eye[0], camera.at[1] - camera.eye[1], camera.at[2] - camera.eye[2]};
+    return std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+}
+
 // Measures how far the camera is from the point it looks at, and its pitch, for place_view.
 void measure_camera(uint8_t* rdram) {
     Camera camera;
     if (current_camera(rdram, &camera)) {
-        const float d[3] = {camera.at[0] - camera.eye[0], camera.at[1] - camera.eye[1], camera.at[2] - camera.eye[2]};
-        g_camera_distance = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        g_camera_distance = camera_distance(camera);
         g_camera_pitch = camera.pitch();
     }
 }
@@ -1301,6 +1336,19 @@ void place_view(uint8_t* rdram, uint32_t object, const Position& view, bool turn
     write_float(rdram, control + kCameraBehind, behind);
     write_float(rdram, control + kOrbitRadians, orbit * (3.14159265f / 180.0f));
     write_float(rdram, control + kOrbitTargetRadians, orbit * (3.14159265f / 180.0f));
+}
+
+// Makes the view's distance the one the game's camera keeps (see kTargetDistance).
+void keep_distance(uint8_t* rdram, uint32_t object) {
+    const uint32_t control = static_cast<uint32_t>(MEM_W(0, kseg0(object + kObjectCameraControl)));
+    if ((control & 0xFF800000) != 0x80000000) {
+        return;
+    }
+    const float ground = g_camera_distance * std::cos(g_camera_pitch * (3.14159265f / 180.0f));
+    write_float(rdram, control + kTargetDistance, ground);
+    if (read_float(rdram, control + kZoomKeptDistance) != -1.0f) {
+        write_float(rdram, control + kZoomKeptDistance, ground);
+    }
 }
 
 uint32_t save_counter(uint8_t* rdram, int slot) {
@@ -1425,6 +1473,9 @@ void settle_camera(uint8_t* rdram) {
     const bool where_saved = dx * dx + dz * dz < 1.0f;
     if (g_camera_hold > 0) {
         place_view(rdram, object, g_view, where_saved, true);
+        if (g_camera_saved) {
+            keep_distance(rdram, object);
+        }
         if (--g_camera_hold == 0) {
             g_camera_waits = false;
         }
@@ -1437,10 +1488,16 @@ void settle_camera(uint8_t* rdram) {
     }
     g_camera_still = moved < 0.5f ? g_camera_still + 1 : 0;
     if (g_camera_still >= kCameraStillFrames || ++g_camera_wait > kCameraWaitFrames) {
-        measure_camera(rdram);
+        if (!g_camera_saved) {
+            measure_camera(rdram);
+        }
         place_view(rdram, object, g_view, where_saved, true);
+        if (g_camera_saved) {
+            keep_distance(rdram, object);
+        }
         g_camera_hold = kPlaceFrames;
-        std::printf("[conker] resumed camera: yaw %.2f\n", g_view.camera_yaw);
+        std::printf("[conker] resumed camera: yaw %.2f, distance %.2f, pitch %.2f%s\n", g_view.camera_yaw,
+                    g_camera_distance, g_camera_pitch, g_camera_saved ? "" : " (as the game placed it)");
     }
 }
 
@@ -1503,6 +1560,12 @@ bool capture_point(uint8_t* rdram, Point* point) {
     point->has_view = current_position(rdram, &here) && here.has_view;
     point->facing = here.facing;
     point->camera_yaw = here.camera_yaw;
+    Camera camera;
+    if (point->has_view && current_camera(rdram, &camera)) {
+        point->has_camera = true;
+        point->camera_distance = camera_distance(camera);
+        point->camera_pitch = camera.pitch();
+    }
     capture_scene(rdram, point);
     return true;
 }
@@ -1616,6 +1679,7 @@ bool teleport(uint8_t* rdram, const Position& to) {
     if (to.has_view) {
         g_view = to;
         g_camera_waits = false;
+        g_camera_saved = false;
         measure_camera(rdram);
         place_view(rdram, object, g_view);
     } else {
@@ -1912,6 +1976,41 @@ bool check_report(const std::filesystem::path& folder, ReportFiles* files, std::
     return true;
 }
 
+// A point saved before points recorded the camera's distance and pitch: they are taken from the
+// report's camera (report.json "camera": "eye" and "look_at", recorded as the save was made), so the
+// view is the one reported, not wherever the scene's entrance camera comes to rest. False when the
+// point has them already or the report has no usable camera.
+bool report_camera(const nlohmann::json& report, Point* point) {
+    if (!point->valid || !point->has_view || point->has_camera) {
+        return false;
+    }
+    const nlohmann::json camera = report.value("camera", nlohmann::json());
+    if (!camera.is_object()) {
+        return false;
+    }
+    const nlohmann::json eye = camera.value("eye", nlohmann::json());
+    const nlohmann::json at = camera.value("look_at", nlohmann::json());
+    if (!eye.is_array() || !at.is_array() || eye.size() != 3 || at.size() != 3) {
+        return false;
+    }
+    float d[3];
+    for (int i = 0; i < 3; i++) {
+        if (!eye[i].is_number() || !at[i].is_number() || std::fabs(eye[i].get<double>()) > kMaxCoordinate ||
+            std::fabs(at[i].get<double>()) > kMaxCoordinate) {
+            return false;
+        }
+        d[i] = static_cast<float>(at[i].get<double>() - eye[i].get<double>());
+    }
+    const float distance = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    if (!(distance >= 1.0f)) {
+        return false;
+    }
+    point->has_camera = true;
+    point->camera_distance = distance;
+    point->camera_pitch = std::asin(std::clamp(d[1] / distance, -1.0f, 1.0f)) * (180.0f / 3.14159265f);
+    return true;
+}
+
 }  // namespace
 
 bool load_report(uint8_t* rdram, const std::filesystem::path& path, std::string* problem, bool at_checkpoint) {
@@ -1950,7 +2049,10 @@ bool load_report(uint8_t* rdram, const std::filesystem::path& path, std::string*
     // The game now plays on the copy: its saves, and their snapshots, go there until it is closed.
     ultramodern::change_save_file(u8"debug", std::u8string(name.begin(), name.end()));
     int slot;
-    const std::array<Point, kSlots> report_points = read_points(points_path(), &slot);
+    std::array<Point, kSlots> report_points = read_points(points_path(), &slot);
+    if (slot >= 0 && report_camera(files.report, &report_points[slot])) {
+        write_points(report_points, points_path(), slot);
+    }
     start_save(rdram, report_points, slot);
     g_at_checkpoint = at_checkpoint;
     std::printf("[conker] loading debug report %s%s, slot %d, playing on %s until the game is closed\n",
@@ -2168,6 +2270,11 @@ extern "C" void conker_resume_start(uint8_t* rdram, recomp_context* ctx) {
         g_camera_still = 0;
         g_camera_wait = 0;
         g_camera_hold = 0;
+        g_camera_saved = point.has_camera;
+        if (point.has_camera) {
+            g_camera_distance = point.camera_distance;
+            g_camera_pitch = point.camera_pitch;
+        }
     }
     g_resumed_slot = slot;
     g_resumed_at = std::chrono::steady_clock::now();
