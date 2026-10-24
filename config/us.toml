@@ -397,12 +397,23 @@ func = "func_151E3344"
 before_vram = 0x151E414C
 text = "{ void conker_display_options_stick_y(uint8_t*, recomp_context*); conker_display_options_stick_y(rdram, ctx); }"
 
-# Black and white frames: func_150AF790, the colour-framebuffer effect that greys the frame on the
-# CPU at the swap, is skipped when RT64 greys the frame itself. See src/fixes/grey_frames.cpp.
+# The colour-framebuffer effects the game makes on the CPU over the frame at the swap are skipped
+# when RT64 makes them itself: black and white frames (func_150AF790), the mosaic
+# (func_150CE450) and the sight lens (func_151CB110). See src/fixes/frame_effects.cpp.
 [[patches.hook]]
 func = "func_150AF790"
 before_vram = 0x150AF790
-text = "{ int conker_grey_cpu_pass(void); if (conker_grey_cpu_pass()) { return; } }"
+text = "{ int conker_frame_effect_cpu_pass(int); if (conker_frame_effect_cpu_pass(2)) { return; } }"
+
+[[patches.hook]]
+func = "func_150CE450"
+before_vram = 0x150CE450
+text = "{ int conker_frame_effect_cpu_pass(int); if (conker_frame_effect_cpu_pass(0)) { return; } }"
+
+[[patches.hook]]
+func = "func_151CB110"
+before_vram = 0x151CB110
+text = "{ int conker_frame_effect_cpu_pass(int); if (conker_frame_effect_cpu_pass(1)) { return; } }"
 
 # The pause menu's background in widescreen: func_151D61B0, the CPU blur of the frame the pause
 # menu copies for its background, is skipped, so RT64 keeps drawing the background from its own

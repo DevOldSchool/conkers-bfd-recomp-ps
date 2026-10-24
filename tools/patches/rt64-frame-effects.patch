@@ -1,0 +1,515 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -547,6 +547,8 @@ build_pixel_shader(  rt64 "src/shaders/RtCopyDepthToColorPS.hlsl" "src/shaders/R
+ build_pixel_shader(  rt64 "src/shaders/RtCopyDepthToColorPS.hlsl" "src/shaders/RtCopyDepthToColor8XPS.hlsl" "-D SAMPLES_8X")
+ build_pixel_shader(  rt64 "src/shaders/TextureCopyPS.hlsl")
+ build_pixel_shader(  rt64 "src/shaders/GreyFromGreenPS.hlsl")
++build_pixel_shader(  rt64 "src/shaders/FrameMosaicPS.hlsl")
++build_pixel_shader(  rt64 "src/shaders/FrameLensPS.hlsl")
+ build_compute_shader(rt64 "src/shaders/TextureDecodeCS.hlsl")
+ build_pixel_shader(  rt64 "src/shaders/TextureResolvePS.hlsl" "src/shaders/TextureResolveSamples2XPS.hlsl" "-D SAMPLES_2X")
+ build_pixel_shader(  rt64 "src/shaders/TextureResolvePS.hlsl" "src/shaders/TextureResolveSamples4XPS.hlsl" "-D SAMPLES_4X")
+diff --git a/src/gui/rt64_debugger_inspector.cpp b/src/gui/rt64_debugger_inspector.cpp
+--- a/src/gui/rt64_debugger_inspector.cpp
++++ b/src/gui/rt64_debugger_inspector.cpp
+@@ -909,6 +909,17 @@ namespace RT64 {
+                                         ImGui::Text("GreyFromGreen");
+                                         ImGui::Text("Address: 0x%08X", fbOp.greyFromGreen.address);
+                                         break;
++                                    case FramebufferOperation::Type::FrameMosaic:
++                                        ImGui::Text("FrameMosaic");
++                                        ImGui::Text("Address: 0x%08X", fbOp.frameMosaic.address);
++                                        ImGui::Text("Rect: %u %u %u %u", fbOp.frameMosaic.left, fbOp.frameMosaic.top, fbOp.frameMosaic.right, fbOp.frameMosaic.bottom);
++                                        ImGui::Text("Step: 0x%X", fbOp.frameMosaic.step);
++                                        break;
++                                    case FramebufferOperation::Type::FrameLens:
++                                        ImGui::Text("FrameLens");
++                                        ImGui::Text("Address: 0x%08X", fbOp.frameLens.address);
++                                        ImGui::Text("Center: %.1f %.1f", fbOp.frameLens.centerX, fbOp.frameLens.centerY);
++                                        break;
+                                     case FramebufferOperation::Type::ReinterpretTile:
+                                         ImGui::Text("ReinterpretTile");
+                                         ImGui::Text("Source Tile ID: %" PRIu64, fbOp.reinterpretTile.srcId);
+diff --git a/src/hle/rt64_framebuffer_manager.cpp b/src/hle/rt64_framebuffer_manager.cpp
+--- a/src/hle/rt64_framebuffer_manager.cpp
++++ b/src/hle/rt64_framebuffer_manager.cpp
+@@ -111,6 +111,39 @@ namespace RT64 {
+         }
+     }
+ 
++    void FramebufferManager::frameEffect(RenderWorker *renderWorker, const FramebufferOperation &op, RenderTargetManager &targetManager, const ShaderLibrary *shaderLibrary) {
++        const uint32_t address = (op.type == FramebufferOperation::Type::FrameMosaic) ? op.frameMosaic.address : op.frameLens.address;
++        auto it = framebuffers.find(address);
++        if ((it == framebuffers.end()) || (it->second.lastWriteType != Framebuffer::Type::Color) || (it->second.width == 0)) {
++            return;
++        }
++
++        RenderTargetKey targetKey(it->second.addressStart, it->second.width, it->second.siz, it->second.lastWriteType);
++        RenderTarget &target = targetManager.get(targetKey);
++
++        // The framebuffer's pixels are drawn in the middle of a target widened for the aspect ratio.
++        const float scale = target.resolutionScale.y;
++        const hlslpp::float2 origin(float(it->second.width) * (target.resolutionScale.x - target.resolutionScale.y) / 2.0f, 0.0f);
++        if (op.type == FramebufferOperation::Type::FrameMosaic) {
++            interop::FrameMosaicCB mosaicCB;
++            mosaicCB.origin = origin;
++            mosaicCB.scale = scale;
++            mosaicCB.step = op.frameMosaic.step;
++            mosaicCB.rect = interop::uint4(uint32_t(op.frameMosaic.left), uint32_t(op.frameMosaic.top), uint32_t(op.frameMosaic.right), uint32_t(op.frameMosaic.bottom));
++            target.frameMosaic(renderWorker, shaderLibrary, mosaicCB);
++        }
++        else {
++            interop::FrameLensCB lensCB;
++            lensCB.origin = origin;
++            lensCB.scale = scale;
++            lensCB.radius = op.frameLens.radius;
++            lensCB.center = hlslpp::float2(op.frameLens.centerX, op.frameLens.centerY);
++            lensCB.source = hlslpp::float2(op.frameLens.sourceX, op.frameLens.sourceY);
++            lensCB.strength = op.frameLens.strength;
++            target.frameLens(renderWorker, shaderLibrary, lensCB);
++        }
++    }
++
+     void FramebufferManager::createTileCopySetup(RenderWorker *renderWorker, const FramebufferOperation &op, hlslpp::float2 resolutionScale, RenderTargetManager &targetManager, std::unordered_set<RenderTarget *> *resizedTargets) {
+         TileCopy &tileCopy = tileCopies[op.createTileCopy.id];
+         auto fbIt = framebuffers.find(op.createTileCopy.address);
+@@ -945,7 +978,9 @@ namespace RT64 {
+                 reinterpretTileSetup(renderWorker, op, resolutionScale, targetManager.usesHDR);
+                 break;
+             }
+-            case FramebufferOperation::Type::GreyFromGreen: {
++            case FramebufferOperation::Type::GreyFromGreen:
++            case FramebufferOperation::Type::FrameMosaic:
++            case FramebufferOperation::Type::FrameLens: {
+                 // No setup required.
+                 break;
+             }
+@@ -989,6 +1024,11 @@ namespace RT64 {
+                 greyFromGreen(renderWorker, op, targetManager, shaderLibrary);
+                 break;
+             }
++            case FramebufferOperation::Type::FrameMosaic:
++            case FramebufferOperation::Type::FrameLens: {
++                frameEffect(renderWorker, op, targetManager, shaderLibrary);
++                break;
++            }
+             default:
+                 assert(false && "Unknown operation type");
+                 break;
+diff --git a/src/hle/rt64_framebuffer_manager.h b/src/hle/rt64_framebuffer_manager.h
+--- a/src/hle/rt64_framebuffer_manager.h
++++ b/src/hle/rt64_framebuffer_manager.h
+@@ -28,7 +28,9 @@ namespace RT64 {
+             WriteChanges,
+             CreateTileCopy,
+             ReinterpretTile,
+-            GreyFromGreen
++            GreyFromGreen,
++            FrameMosaic,
++            FrameLens
+         };
+ 
+         Type type;
+@@ -49,6 +51,27 @@ namespace RT64 {
+                 uint32_t address;
+             } greyFromGreen;
+ 
++            // Rectangle in the framebuffer's pixels, inclusive; step in 16.16.
++            struct {
++                uint32_t address;
++                uint16_t left;
++                uint16_t top;
++                uint16_t right;
++                uint16_t bottom;
++                uint32_t step;
++            } frameMosaic;
++
++            // Middle of the disc drawn and of the part it shows, in the framebuffer's pixels.
++            struct {
++                uint32_t address;
++                float centerX;
++                float centerY;
++                float sourceX;
++                float sourceY;
++                float radius;
++                float strength;
++            } frameLens;
++
+             struct {
+                 uint64_t srcId;
+                 uint8_t srcSiz;
+@@ -184,6 +207,7 @@ namespace RT64 {
+         Framebuffer *findMostRecentContaining(uint32_t addressStart, uint32_t addressEnd);
+         void writeChanges(RenderWorker *renderWorker, const FramebufferChangePool &fbChangePool, const FramebufferOperation &op, RenderTargetManager &targetManager, const ShaderLibrary *shaderLibrary);
+         void greyFromGreen(RenderWorker *renderWorker, const FramebufferOperation &op, RenderTargetManager &targetManager, const ShaderLibrary *shaderLibrary);
++        void frameEffect(RenderWorker *renderWorker, const FramebufferOperation &op, RenderTargetManager &targetManager, const ShaderLibrary *shaderLibrary);
+         void clearUsedTileCopies();
+         uint64_t getUsedTimestamp() const;
+         uint64_t findTileCopyId(uint32_t width, uint32_t height);
+diff --git a/src/hle/rt64_state.cpp b/src/hle/rt64_state.cpp
+--- a/src/hle/rt64_state.cpp
++++ b/src/hle/rt64_state.cpp
+@@ -829,6 +829,20 @@ namespace RT64 {
+ 
+             greyFromGreenAddress = 0;
+         }
++
++        // Each frame effect asked for runs after the last pair that draws to its image.
++        for (const FramebufferOperation &effectOp : frameEffectOperations) {
++            const uint32_t address = (effectOp.type == FramebufferOperation::Type::FrameMosaic) ? effectOp.frameMosaic.address : effectOp.frameLens.address;
++            for (int32_t f = int32_t(workload.fbPairCount) - 1; f >= 0; f--) {
++                FramebufferPair &fbPair = workload.fbPairs[f];
++                if (fbPair.colorImage.address == address) {
++                    fbPair.endFbOperations.emplace_back(effectOp);
++                    break;
++                }
++            }
++        }
++
++        frameEffectOperations.clear();
+         
+         // Copy the current state's extended parameters into the workload.
+         workload.extended.ditherNoiseStrength = extended.ditherNoiseStrength;
+@@ -2738,6 +2752,10 @@ namespace RT64 {
+         greyFromGreenAddress = address;
+     }
+ 
++    void State::requestFrameEffect(const FramebufferOperation &operation) {
++        frameEffectOperations.emplace_back(operation);
++    }
++
+     void State::flushFramebufferOperations(FramebufferPair &fbPair) {
+         if (!drawFbOperations.empty()) {
+             fbPair.startFbOperations.insert(fbPair.startFbOperations.end(), drawFbOperations.begin(), drawFbOperations.end());
+diff --git a/src/hle/rt64_state.h b/src/hle/rt64_state.h
+--- a/src/hle/rt64_state.h
++++ b/src/hle/rt64_state.h
+@@ -93,6 +93,11 @@ namespace RT64 {
+         // Set with requestGreyFromGreen before processDisplayLists; used and cleared at their full sync.
+         uint32_t greyFromGreenAddress = 0;
+         void requestGreyFromGreen(uint32_t address);
++
++        // Frame effects (FrameMosaic, FrameLens) to run after the last draw to their colour image in the display
++        // lists being processed, in this order. Queued before processDisplayLists; used and cleared at their full sync.
++        std::vector<FramebufferOperation> frameEffectOperations;
++        void requestFrameEffect(const FramebufferOperation &operation);
+         std::vector<uint32_t> drawFbDiscards;
+         std::vector<DisplayList *> returnAddressStack;
+ 
+diff --git a/src/render/rt64_render_target.cpp b/src/render/rt64_render_target.cpp
+--- a/src/render/rt64_render_target.cpp
++++ b/src/render/rt64_render_target.cpp
+@@ -324,8 +324,43 @@ namespace RT64 {
+ 
+     // Puts the green channel in all three for the whole target: a copy of it is drawn back over it.
+     void RenderTarget::greyFromGreen(RenderWorker *worker, const ShaderLibrary *shaderLibrary) {
++        interop::TextureCopyCB textureCopyCB;
++        textureCopyCB.uvScroll.x = 0.0f;
++        textureCopyCB.uvScroll.y = 0.0f;
++        textureCopyCB.uvScale.x = float(width);
++        textureCopyCB.uvScale.y = float(height);
++        drawOverCopy(worker, shaderLibrary, shaderLibrary->greyFromGreen, &textureCopyCB, RenderRect(0, 0, width, height));
++    }
++
++    // Conker's mosaic over part of the target (FrameMosaicPS.hlsl).
++    void RenderTarget::frameMosaic(RenderWorker *worker, const ShaderLibrary *shaderLibrary, const interop::FrameMosaicCB &mosaicCB) {
++        const float left = mosaicCB.origin.x + float(mosaicCB.rect.x) * mosaicCB.scale;
++        const float top = mosaicCB.origin.y + float(mosaicCB.rect.y) * mosaicCB.scale;
++        const float right = mosaicCB.origin.x + float(mosaicCB.rect.z + 1) * mosaicCB.scale;
++        const float bottom = mosaicCB.origin.y + float(mosaicCB.rect.w + 1) * mosaicCB.scale;
++        drawOverCopy(worker, shaderLibrary, shaderLibrary->frameMosaic, &mosaicCB, clampedRect(left, top, right, bottom));
++    }
++
++    // Conker's sight lens over part of the target (FrameLensPS.hlsl).
++    void RenderTarget::frameLens(RenderWorker *worker, const ShaderLibrary *shaderLibrary, const interop::FrameLensCB &lensCB) {
++        const float left = lensCB.origin.x + (lensCB.center.x - lensCB.radius) * lensCB.scale;
++        const float top = lensCB.origin.y + (lensCB.center.y - lensCB.radius) * lensCB.scale;
++        const float right = lensCB.origin.x + (lensCB.center.x + lensCB.radius) * lensCB.scale;
++        const float bottom = lensCB.origin.y + (lensCB.center.y + lensCB.radius) * lensCB.scale;
++        drawOverCopy(worker, shaderLibrary, shaderLibrary->frameLens, &lensCB, clampedRect(left, top, right, bottom));
++    }
++
++    RenderRect RenderTarget::clampedRect(float left, float top, float right, float bottom) const {
++        const int32_t w = int32_t(width);
++        const int32_t h = int32_t(height);
++        return RenderRect(std::clamp(int32_t(std::floor(left)), 0, w), std::clamp(int32_t(std::floor(top)), 0, h),
++            std::clamp(int32_t(std::ceil(right)), 0, w), std::clamp(int32_t(std::ceil(bottom)), 0, h));
++    }
++
++    // Draws the target back over itself through a pixel shader that reads a copy of it (gInput), inside the scissor.
++    void RenderTarget::drawOverCopy(RenderWorker *worker, const ShaderLibrary *shaderLibrary, const ShaderRecord &shaderRecord, const void *pushConstants, RenderRect scissor) {
+         assert(worker != nullptr);
+-        if (isEmpty() || (format != colorBufferFormat(usesHDR))) {
++        if (isEmpty() || (format != colorBufferFormat(usesHDR)) || (scissor.right <= scissor.left) || (scissor.bottom <= scissor.top)) {
+             return;
+         }
+ 
+@@ -372,21 +407,13 @@ namespace RT64 {
+         worker->commandList->barriers(RenderBarrierStage::GRAPHICS, drawBarriers, uint32_t(std::size(drawBarriers)));
+         setupColorFramebuffer(worker);
+         worker->commandList->setFramebuffer(textureFramebuffer.get());
+-
+-        interop::TextureCopyCB textureCopyCB;
+-        textureCopyCB.uvScroll.x = 0.0f;
+-        textureCopyCB.uvScroll.y = 0.0f;
+-        textureCopyCB.uvScale.x = float(width);
+-        textureCopyCB.uvScale.y = float(height);
+-
+-        const ShaderRecord &greyFromGreen = shaderLibrary->greyFromGreen;
+-        worker->commandList->setPipeline(greyFromGreen.pipeline.get());
+-        worker->commandList->setGraphicsPipelineLayout(greyFromGreen.pipelineLayout.get());
++        worker->commandList->setPipeline(shaderRecord.pipeline.get());
++        worker->commandList->setGraphicsPipelineLayout(shaderRecord.pipelineLayout.get());
+         worker->commandList->setVertexBuffers(0, nullptr, 0, nullptr);
+         worker->commandList->setViewports(RenderViewport(0.0f, 0.0f, float(width), float(height)));
+-        worker->commandList->setScissors(RenderRect(0, 0, width, height));
++        worker->commandList->setScissors(scissor);
+         worker->commandList->setGraphicsDescriptorSet(sourceDescSet->get(), 0);
+-        worker->commandList->setGraphicsPushConstants(0, &textureCopyCB);
++        worker->commandList->setGraphicsPushConstants(0, pushConstants);
+         worker->commandList->drawInstanced(3, 1, 0, 0);
+ 
+         markForResolve();
+diff --git a/src/render/rt64_render_target.h b/src/render/rt64_render_target.h
+--- a/src/render/rt64_render_target.h
++++ b/src/render/rt64_render_target.h
+@@ -9,12 +9,14 @@
+ #include "common/rt64_common.h"
+ #include "hle/rt64_framebuffer.h"
+ #include "hle/rt64_framebuffer_changes.h"
++#include "shared/rt64_frame_effects.h"
+ 
+ #include "rt64_descriptor_sets.h"
+ #include "rt64_render_worker.h"
+ 
+ namespace RT64 {
+     struct RenderWorker;
++    struct ShaderRecord;
+ 
+     struct RenderTarget {
+         static const long MaxDimension;
+@@ -67,6 +69,10 @@ namespace RT64 {
+         void resolveFromTarget(RenderWorker *worker, RenderTarget *src, const ShaderLibrary *shaderLibrary);
+         void copyFromChanges(RenderWorker *worker, const FramebufferChange &fbChange, uint32_t fbWidth, uint32_t fbHeight, uint32_t rowStart, const ShaderLibrary *shaderLibrary);
+         void greyFromGreen(RenderWorker *worker, const ShaderLibrary *shaderLibrary);
++        void frameMosaic(RenderWorker *worker, const ShaderLibrary *shaderLibrary, const interop::FrameMosaicCB &mosaicCB);
++        void frameLens(RenderWorker *worker, const ShaderLibrary *shaderLibrary, const interop::FrameLensCB &lensCB);
++        void drawOverCopy(RenderWorker *worker, const ShaderLibrary *shaderLibrary, const ShaderRecord &shaderRecord, const void *pushConstants, RenderRect scissor);
++        RenderRect clampedRect(float left, float top, float right, float bottom) const;
+         void clearColorTarget(RenderWorker *worker);
+         void clearDepthTarget(RenderWorker *worker);
+         void downsampleTarget(RenderWorker *worker, const ShaderLibrary *shaderLibrary);
+diff --git a/src/render/rt64_shader_library.cpp b/src/render/rt64_shader_library.cpp
+--- a/src/render/rt64_shader_library.cpp
++++ b/src/render/rt64_shader_library.cpp
+@@ -5,6 +5,7 @@
+ #include "rt64_shader_library.h"
+ 
+ #include "common/rt64_common.h"
++#include "shared/rt64_frame_effects.h"
+ #include "shared/rt64_render_target_copy.h"
+ #include "shared/rt64_rsp_vertex_test_z.h"
+ 
+@@ -41,6 +42,8 @@
+ #include "shaders/RtCopyDepthToColor8XPS.hlsl.spirv.h"
+ #include "shaders/TextureCopyPS.hlsl.spirv.h"
+ #include "shaders/GreyFromGreenPS.hlsl.spirv.h"
++#include "shaders/FrameMosaicPS.hlsl.spirv.h"
++#include "shaders/FrameLensPS.hlsl.spirv.h"
+ #include "shaders/TextureDecodeCS.hlsl.spirv.h"
+ #include "shaders/TextureResolveSamples2XPS.hlsl.spirv.h"
+ #include "shaders/TextureResolveSamples4XPS.hlsl.spirv.h"
+@@ -88,6 +91,8 @@
+ #   include "shaders/RtCopyDepthToColor8XPS.hlsl.dxil.h"
+ #   include "shaders/TextureCopyPS.hlsl.dxil.h"
+ #   include "shaders/GreyFromGreenPS.hlsl.dxil.h"
++#   include "shaders/FrameMosaicPS.hlsl.dxil.h"
++#   include "shaders/FrameLensPS.hlsl.dxil.h"
+ #   include "shaders/TextureDecodeCS.hlsl.dxil.h"
+ #   include "shaders/TextureResolveSamples2XPS.hlsl.dxil.h"
+ #   include "shaders/TextureResolveSamples4XPS.hlsl.dxil.h"
+@@ -134,6 +139,8 @@
+ #   include "shaders/RtCopyDepthToColor8XPS.hlsl.metal.h"
+ #   include "shaders/TextureCopyPS.hlsl.metal.h"
+ #   include "shaders/GreyFromGreenPS.hlsl.metal.h"
++#   include "shaders/FrameMosaicPS.hlsl.metal.h"
++#   include "shaders/FrameLensPS.hlsl.metal.h"
+ #   include "shaders/TextureDecodeCS.hlsl.metal.h"
+ #   include "shaders/TextureResolveSamples2XPS.hlsl.metal.h"
+ #   include "shaders/TextureResolveSamples4XPS.hlsl.metal.h"
+@@ -592,6 +599,46 @@ namespace RT64 {
+             greyFromGreen.pipeline = device->createGraphicsPipeline(pipelineDesc);
+         }
+ 
++        // Frame Mosaic.
++        {
++            TextureCopyDescriptorSet descriptorSet;
++            layoutBuilder.begin();
++            layoutBuilder.addPushConstant(0, 0, sizeof(interop::FrameMosaicCB), RenderShaderStageFlag::PIXEL);
++            layoutBuilder.addDescriptorSet(descriptorSet);
++            layoutBuilder.end();
++            frameMosaic.pipelineLayout = layoutBuilder.create(device);
++
++            std::unique_ptr<RenderShader> pixelShader = device->createShader(CREATE_SHADER_INPUTS(FrameMosaicPSBlobDXIL, FrameMosaicPSBlobSPIRV, FrameMosaicPSBlobMSL, "PSMain", shaderFormat));
++            RenderGraphicsPipelineDesc pipelineDesc;
++            pipelineDesc.pipelineLayout = frameMosaic.pipelineLayout.get();
++            pipelineDesc.renderTargetBlend[0] = RenderBlendDesc::Copy();
++            pipelineDesc.renderTargetFormat[0] = RenderTarget::colorBufferFormat(usesHDR);
++            pipelineDesc.renderTargetCount = 1;
++            pipelineDesc.vertexShader = fullScreenVertexShader.get();
++            pipelineDesc.pixelShader = pixelShader.get();
++            frameMosaic.pipeline = device->createGraphicsPipeline(pipelineDesc);
++        }
++
++        // Frame Lens.
++        {
++            TextureCopyDescriptorSet descriptorSet;
++            layoutBuilder.begin();
++            layoutBuilder.addPushConstant(0, 0, sizeof(interop::FrameLensCB), RenderShaderStageFlag::PIXEL);
++            layoutBuilder.addDescriptorSet(descriptorSet);
++            layoutBuilder.end();
++            frameLens.pipelineLayout = layoutBuilder.create(device);
++
++            std::unique_ptr<RenderShader> pixelShader = device->createShader(CREATE_SHADER_INPUTS(FrameLensPSBlobDXIL, FrameLensPSBlobSPIRV, FrameLensPSBlobMSL, "PSMain", shaderFormat));
++            RenderGraphicsPipelineDesc pipelineDesc;
++            pipelineDesc.pipelineLayout = frameLens.pipelineLayout.get();
++            pipelineDesc.renderTargetBlend[0] = RenderBlendDesc::Copy();
++            pipelineDesc.renderTargetFormat[0] = RenderTarget::colorBufferFormat(usesHDR);
++            pipelineDesc.renderTargetCount = 1;
++            pipelineDesc.vertexShader = fullScreenVertexShader.get();
++            pipelineDesc.pixelShader = pixelShader.get();
++            frameLens.pipeline = device->createGraphicsPipeline(pipelineDesc);
++        }
++
+         // Texture Decode.
+         {
+             TextureDecodeDescriptorSet descriptorSet;
+diff --git a/src/render/rt64_shader_library.h b/src/render/rt64_shader_library.h
+--- a/src/render/rt64_shader_library.h
++++ b/src/render/rt64_shader_library.h
+@@ -54,6 +54,8 @@ namespace RT64 {
+         ShaderRecord textureDecode;
+         ShaderRecord textureCopy;
+         ShaderRecord greyFromGreen;
++        ShaderRecord frameMosaic;
++        ShaderRecord frameLens;
+         ShaderRecord textureResolve;
+         ShaderRecord videoInterfaceLinear;
+         ShaderRecord videoInterfaceNearest;
+diff --git a/src/shaders/FrameLensPS.hlsl b/src/shaders/FrameLensPS.hlsl
+new file mode 100644
+--- /dev/null
++++ b/src/shaders/FrameLensPS.hlsl
+@@ -0,0 +1,29 @@
++//
++// RT64
++//
++
++#include "shared/rt64_frame_effects.h"
++
++// Conker's sight lens (func_151CB110 on the N64): a disc that magnifies what is around its middle.
++// A point at d (in radii from the middle) shows the point at d * (1 - strength * sqrt(1 - d.y^2) *
++// sqrt(1 - |d|^2)), as the N64 does pixel by pixel from a 24x24 copy, here at every target pixel.
++
++[[vk::push_constant]] ConstantBuffer<FrameLensCB> gConstants : register(b0);
++
++Texture2D<float4> gInput : register(t1);
++
++float4 PSMain(in float4 pos : SV_Position, in float2 uv : TEXCOORD0) : SV_TARGET {
++    uint width, height;
++    gInput.GetDimensions(width, height);
++    const float2 nativePos = (pos.xy - gConstants.origin) / gConstants.scale;
++    const float2 d = (nativePos - gConstants.center) / gConstants.radius;
++    const float lengthSquared = dot(d, d);
++    if (lengthSquared >= 1.0f) {
++        return gInput.Load(uint3(uint2(pos.xy), 0));
++    }
++
++    const float reach = 1.0f - gConstants.strength * sqrt(1.0f - d.y * d.y) * sqrt(1.0f - lengthSquared);
++    const float2 sourcePos = gConstants.source + d * reach * gConstants.radius;
++    const float2 targetPos = gConstants.origin + sourcePos * gConstants.scale;
++    return gInput.Load(uint3(clamp(uint2(max(targetPos, 0.0f)), uint2(0, 0), uint2(width - 1, height - 1)), 0));
++}
+diff --git a/src/shaders/FrameMosaicPS.hlsl b/src/shaders/FrameMosaicPS.hlsl
+new file mode 100644
+--- /dev/null
++++ b/src/shaders/FrameMosaicPS.hlsl
+@@ -0,0 +1,38 @@
++//
++// RT64
++//
++
++#include "shared/rt64_frame_effects.h"
++
++// Conker's mosaic (func_150CE450 on the N64): inside a rectangle, each pixel takes a source pixel
++// that steps on once every 0x10000 / step pixels, both across and down, so the rectangle shows
++// blocks of one colour. The blocks are the N64's; each takes the middle of its native source pixel.
++
++[[vk::push_constant]] ConstantBuffer<FrameMosaicCB> gConstants : register(b0);
++
++Texture2D<float4> gInput : register(t1);
++
++// The source of pixel i in a run starting at start: the pixel where the step last carried over.
++uint mosaicSource(uint i, uint start, uint step) {
++    const uint carries = ((i - start) * step) >> 16;
++    if (carries == 0) {
++        return start;
++    }
++
++    return start - 1 + ((carries << 16) + step - 1) / step;
++}
++
++float4 PSMain(in float4 pos : SV_Position, in float2 uv : TEXCOORD0) : SV_TARGET {
++    uint width, height;
++    gInput.GetDimensions(width, height);
++    const int2 nativePos = int2(floor((pos.xy - gConstants.origin) / gConstants.scale));
++    const uint4 rect = gConstants.rect;
++    if (any(nativePos < int2(rect.xy)) || any(nativePos > int2(rect.zw))) {
++        return gInput.Load(uint3(uint2(pos.xy), 0));
++    }
++
++    const uint step = min(gConstants.step, 0x10000U);
++    const uint2 sourcePos = uint2(mosaicSource(uint(nativePos.x), rect.x, step), mosaicSource(uint(nativePos.y), rect.y, step));
++    const float2 targetPos = gConstants.origin + (float2(sourcePos) + 0.5f) * gConstants.scale;
++    return gInput.Load(uint3(clamp(uint2(targetPos), uint2(0, 0), uint2(width - 1, height - 1)), 0));
++}
+diff --git a/src/shared/rt64_frame_effects.h b/src/shared/rt64_frame_effects.h
+new file mode 100644
+--- /dev/null
++++ b/src/shared/rt64_frame_effects.h
+@@ -0,0 +1,34 @@
++//
++// RT64
++//
++
++#pragma once
++
++#include "shared/rt64_hlsl.h"
++
++// Conker's frame effects: passes over a finished colour target that the game made on the CPU over
++// the N64 frame. Positions are in the frame's native pixels; a native pixel (x, y) covers the
++// target from origin + (x, y) * scale.
++
++#ifdef HLSL_CPU
++namespace interop {
++#endif
++    struct FrameMosaicCB {
++        float2 origin;
++        float scale;
++        uint step;      // 16.16: one source pixel more every 0x10000 / step pixels
++        uint4 rect;     // left, top, right, bottom, inclusive
++    };
++
++    struct FrameLensCB {
++        float2 origin;
++        float scale;
++        float radius;
++        float2 center;  // where the lens is drawn
++        float2 source;  // where it looks
++        float strength;
++        float padding[3];
++    };
++#ifdef HLSL_CPU
++};
++#endif

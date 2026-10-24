@@ -243,8 +243,34 @@ framebuffer operation, which draws a copy of a colour target back over it with
 green in all three channels (`GreyFromGreenPS.hlsl`), and
 `State::requestGreyFromGreen`, which queues it after the last pair that draws
 to an image in the display lists about to be processed.
-`src/fixes/grey_frames.cpp` asks for it when a task is handed to RT64, by the
+`src/fixes/frame_effects.cpp` asks for it when a task is handed to RT64, by the
 same rules `func_1515FDA0` applies at the swap, and skips the CPU pass.
+
+`tools/patches/rt64-frame-effects.patch` (apply after
+`rt64-grey-from-green.patch`) does the same for the other two
+colour-framebuffer effects, which were lost the same way. Effect type 0
+(`func_150CE450`) is the mosaic that censors the caveman in scene 20's
+cutscene 21 (script opcode 5, selector `0x60`, the only use in the game's
+scripts): `func_150CE200` keeps a rectangle on the character each frame, and
+inside it each pixel takes a source pixel that steps on once every
+`0x10000 / step` pixels across and down (step 10000, blocks of about 6.5
+pixels). Effect type 1 (`func_151CB110`) is the lens in the middle of the
+sight that `func_151CAD28` makes for the aiming modes `0x0C`, `0x16`, `0x1F`
+and `0x29` (`func_151C9BA0`; the mounted guns use `0x1B`, which has none):
+within 12 pixels of the view's middle, a point `d` radii out shows the point
+`d * (1 - 0.67 * sqrt(1 - d.y^2) * sqrt(1 - |d|^2))` from a copy of the 24x24
+square around it, magnifying up to 3x. The patch adds `FrameMosaic` and
+`FrameLens` framebuffer operations (`FrameMosaicPS.hlsl`, `FrameLensPS.hlsl`)
+and `State::requestFrameEffect`, which queues each after the last pair that
+draws to its image. Positions are the frame's own pixels, placed in the middle
+of a target widened for the aspect ratio. The mosaic computes the N64's
+source pixel for each block, in closed form, and fills the block with the
+middle of that source pixel, so its blocks are the N64's at any resolution.
+The lens is computed for every target pixel rather than for whole N64
+pixels, so it magnifies smoothly; the N64's loop also never writes the lens's
+middle row, a quirk left out here. `src/fixes/frame_effects.cpp` reads the
+rectangle and step, or the view's middle and where the copy was taken, from
+each effect when its task is handed to RT64, and skips the CPU passes.
 
 RT64's CMake turns plume's Retina support off, which would size the Metal
 swap chain in points and leave macOS to upscale it 2x on a Retina screen. Our
