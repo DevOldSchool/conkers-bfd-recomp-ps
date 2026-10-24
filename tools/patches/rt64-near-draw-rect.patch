@@ -1,0 +1,65 @@
+diff --git a/src/hle/rt64_rsp.cpp b/src/hle/rt64_rsp.cpp
+--- a/src/hle/rt64_rsp.cpp
++++ b/src/hle/rt64_rsp.cpp
+@@ -1139,9 +1139,14 @@
+             maxMatrix = std::max(maxMatrix, worldIndices[globalIndex]);
+         }
+ 
++        // A vertex behind the camera (w <= 0) projects to the wrong side of the screen, so neither its screen position nor
++        // the winding below says anything about where the triangle lands. Its screen bounds come from the triangle clipped
++        // to the visible side instead, and it always counts as visible here.
++        const auto &posTransformed = workload.drawData.posTransformed;
++        const bool crossesCamera = (posTransformed[globalIndices[0]].w <= 0.0f) || (posTransformed[globalIndices[1]].w <= 0.0f) || (posTransformed[globalIndices[2]].w <= 0.0f);
+         bool visibleTri = true;
+         const bool usesCulling = geometryMode & cullBothMask;
+-        if (usesCulling) {
++        if (usesCulling && !crossesCamera) {
+             const hlslpp::float3 U = posScreen[globalIndices[1]] - posScreen[globalIndices[0]];
+             const hlslpp::float3 V = posScreen[globalIndices[2]] - posScreen[globalIndices[0]];
+             const hlslpp::float3 N = hlslpp::cross(V, U);
+@@ -1152,16 +1157,42 @@
+         if (visibleTri && !scissorRect.isNull()) {
+             fbPair.scissorRect.merge(scissorRect);
+ 
++            const interop::RSPViewport &viewport = viewportStack[viewportStackSize - 1];
+             FixedRect drawRect;
+-            for (int i = 0; i < 3; i++) {
+-                const hlslpp::float3 &v = posScreen[globalIndices[i]];
++            auto addPoint = [&drawRect](hlslpp::float3 v) {
++                // Points just in front of the camera land far outside the screen; keep them in range for the conversions.
++                const float Limit = 1.0e6f;
++                v = hlslpp::clamp(v, hlslpp::float3(-Limit, -Limit, -Limit), hlslpp::float3(Limit, Limit, Limit));
+                 drawRect.ulx = std::min(drawRect.ulx, int32_t(v[0] * 4.0f));
+                 drawRect.uly = std::min(drawRect.uly, int32_t(v[1] * 4.0f));
+                 drawRect.lrx = std::max(drawRect.lrx, int32_t(hlslpp::ceil(v.x).x * 4.0f));
+                 drawRect.lry = std::max(drawRect.lry, int32_t(hlslpp::ceil(v.y).x * 4.0f));
++            };
++
++            if (crossesCamera) {
++                const float MinW = 1.0e-4f;
++                for (int i = 0; i < 3; i++) {
++                    const hlslpp::float4 &a = posTransformed[globalIndices[i]];
++                    const hlslpp::float4 &b = posTransformed[globalIndices[(i + 1) % 3]];
++                    const float aw = a.w;
++                    const float bw = b.w;
++                    if (aw > MinW) {
++                        addPoint((a.xyz / hlslpp::float3(aw, -aw, aw)) * viewport.scale + viewport.translate);
++                    }
++
++                    if ((aw > MinW) != (bw > MinW)) {
++                        const float t = (MinW - aw) / (bw - aw);
++                        const hlslpp::float4 c = a + (b - a) * t;
++                        addPoint((c.xyz / hlslpp::float3(MinW, -MinW, MinW)) * viewport.scale + viewport.translate);
++                    }
++                }
+             }
++            else {
++                for (int i = 0; i < 3; i++) {
++                    addPoint(posScreen[globalIndices[i]]);
++                }
++            }
+ 
+-            const interop::RSPViewport &viewport = viewportStack[viewportStackSize - 1];
+             const FixedRect viewportClipRect = viewport.rect(clipRatios.data());
+             const FixedRect clipRect = viewportClipRect.intersection(scissorRect);
+             const FixedRect triRect = drawRect;

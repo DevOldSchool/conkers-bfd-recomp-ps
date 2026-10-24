@@ -54,6 +54,7 @@ git submodule update --init --recursive
 (cd lib/rt64 && git apply ../../tools/patches/rt64-queue-names.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-metal-float-to-int.patch)
 (cd lib/rt64 && git apply ../../tools/patches/rt64-object-picking.patch)
+(cd lib/rt64 && git apply ../../tools/patches/rt64-near-draw-rect.patch)
 (cd lib/rt64/src/contrib/plume && git apply ../../../../../tools/patches/plume-wireframe.patch)
 (cd lib/rt64/src/contrib/plume && git apply ../../../../../tools/patches/plume-gpu-errors.patch)
 tools/regenerate.sh
