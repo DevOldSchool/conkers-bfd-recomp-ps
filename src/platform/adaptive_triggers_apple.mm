@@ -2,6 +2,7 @@
 // PlayStation pads through that framework (src/platform/input_sdl.cpp), and SDL can't send
 // trigger effects that way, so input_sdl.cpp sets them here instead.
 #include "platform/adaptive_triggers_apple.hpp"
+#include "platform/haptics_apple.hpp"
 
 #import <GameController/GameController.h>
 
@@ -35,28 +36,10 @@ void apply(GCDualSenseAdaptiveTrigger* trigger, const TriggerEffect& effect) API
 
 bool set_dualsense_triggers(const TriggerEffect& effect) {
     if (@available(macOS 12.3, *)) {
-        // Controller 1's DualSense: the one SDL numbered player 1 (input_sdl.cpp sets each pad's
-        // player index to its port), or the only DualSense when none is numbered.
-        GCDualSenseGamepad* only = nil;
-        int count = 0;
-        for (GCController* controller in GCController.controllers) {
-            if (![controller.physicalInputProfile isKindOfClass:[GCDualSenseGamepad class]]) {
-                continue;
-            }
+        if (GCController* controller = port1_dualsense()) {
             GCDualSenseGamepad* pad = (GCDualSenseGamepad*)controller.physicalInputProfile;
-            if (controller.playerIndex == GCControllerPlayerIndex1) {
-                apply(pad.leftTrigger, effect);
-                apply(pad.rightTrigger, effect);
-                return true;
-            }
-            if (controller.playerIndex == GCControllerPlayerIndexUnset) {
-                only = pad;
-            }
-            count++;
-        }
-        if (count == 1 && only != nil) {
-            apply(only.leftTrigger, effect);
-            apply(only.rightTrigger, effect);
+            apply(pad.leftTrigger, effect);
+            apply(pad.rightTrigger, effect);
             return true;
         }
     }

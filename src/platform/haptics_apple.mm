@@ -4,6 +4,7 @@
 #include "platform/haptics_apple.hpp"
 
 #include <cstdio>
+#include <string>
 
 #import <CoreHaptics/CoreHaptics.h>
 #import <GameController/GameController.h>
@@ -21,21 +22,9 @@ id<CHHapticPatternPlayer> g_right_rumble = nil;
 bool g_rumble_failed = false;  // Core Haptics refused the rumble: SDL rumbles the pad instead
 bool g_reported = false;  // a failure is printed once, not for every effect
 
-// Controller 1's DualSense: the one SDL numbered player 1 (input_sdl.cpp sets each pad's player
-// index to its port), or the only DualSense when none is numbered.
 GCController* dualsense() {
-    GCController* only = nil;
-    int count = 0;
-    for (GCController* controller in GCController.controllers) {
-        if ([controller.physicalInputProfile isKindOfClass:[GCDualSenseGamepad class]] && controller.haptics != nil) {
-            if (controller.playerIndex == GCControllerPlayerIndex1) {
-                return controller;
-            }
-            only = controller;
-            count++;
-        }
-    }
-    return count == 1 && only.playerIndex == GCControllerPlayerIndexUnset ? only : nil;
+    GCController* controller = port1_dualsense();
+    return controller != nil && controller.haptics != nil ? controller : nil;
 }
 
 CHHapticEngine* make_engine(GCController* controller, GCHapticsLocality locality) {
@@ -82,7 +71,14 @@ bool engines_ready() {
         g_left = make_engine(controller, GCHapticsLocalityLeftHandle);
         g_right = make_engine(controller, GCHapticsLocalityRightHandle);
         if (g_left != nil && g_right != nil) {
-            std::printf("[conker] haptics: Core Haptics engines started on %s's grips\n", controller.vendorName.UTF8String);
+            std::printf("[conker] haptics: Core Haptics engines started on %s's grips (player %ld; DualSense pads:",
+                        controller.vendorName.UTF8String, static_cast<long>(controller.playerIndex) + 1);
+            for (GCController* pad in GCController.controllers) {
+                if ([pad.physicalInputProfile isKindOfClass:[GCDualSenseGamepad class]]) {
+                    std::printf(" %s as player %ld;", pad.vendorName.UTF8String, static_cast<long>(pad.playerIndex) + 1);
+                }
+            }
+            std::printf(" controller 1 is %s)\n", conker::input::controller_name().c_str());
         } else {
             g_reported = true;
         }
@@ -159,6 +155,37 @@ void stop_rumble(__strong id<CHHapticPatternPlayer>& player) {
 }
 
 }  // namespace
+
+GCController* port1_dualsense() {
+    const std::string name = conker::input::controller_name();
+    GCController* named = nil;
+    GCController* numbered = nil;
+    GCController* only = nil;
+    int named_count = 0;
+    int count = 0;
+    for (GCController* controller in GCController.controllers) {
+        if (![controller.physicalInputProfile isKindOfClass:[GCDualSenseGamepad class]]) {
+            continue;
+        }
+        const bool has_name = controller.vendorName != nil && name == controller.vendorName.UTF8String;
+        if (has_name) {
+            named = controller;
+            named_count++;
+        }
+        if (controller.playerIndex == GCControllerPlayerIndex1 && (has_name || name.empty())) {
+            numbered = controller;
+        }
+        only = controller;
+        count++;
+    }
+    if (named_count == 1) {
+        return named;
+    }
+    if (numbered != nil) {
+        return numbered;
+    }
+    return count == 1 && named_count == 0 && name.empty() ? only : nil;
+}
 
 bool set_dualsense_rumble(bool on) {
     // Core Haptics raises an exception for what it can't do on a pad's engine (an advanced player,
