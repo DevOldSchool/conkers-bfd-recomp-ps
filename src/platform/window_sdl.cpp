@@ -24,6 +24,7 @@
 
 #include "enhancements/object_inspector/object_inspector.hpp"
 #include "platform/display_mode.hpp"
+#include "platform/hang_watch.hpp"
 #include "platform/input_sdl.hpp"
 
 #include <algorithm>
@@ -202,6 +203,37 @@ void apply_mode(Mode mode) {
     }
 }
 
+// RT64 keeps rendering as it was while the window changes mode (conker::display::window_changing):
+// until the window has the mode's size, at least kMinChangeMs after apply_mode, and kSettleMs at most.
+constexpr Uint64 kMinChangeMs = 250;
+bool g_changing = false;
+uint32_t g_changing_requests = 0;  // conker::display::mode_requests() when the change was taken
+Uint64 g_changed_at = 0;
+
+bool has_mode_size() {
+    const bool full = (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) != 0;
+    int w, h;
+    SDL_GetWindowSize(g_window, &w, &h);
+    if (conker::display::current() == Mode::Fullscreen) {
+        SDL_Rect bounds;
+        return full && SDL_GetDisplayBounds(std::max(SDL_GetWindowDisplayIndex(g_window), 0), &bounds) == 0 &&
+               w == bounds.w && h == bounds.h;
+    }
+    return !full && w == g_wanted_frame.w && h == g_wanted_frame.h;
+}
+
+void settle_mode_change() {
+    if (!g_changing) {
+        return;
+    }
+    const Uint64 now = SDL_GetTicks64();
+    if (now < g_changed_at + kMinChangeMs || (now < g_changed_at + kSettleMs && !has_mode_size())) {
+        return;
+    }
+    g_changing = false;
+    conker::display::set_window_settled(g_changing_requests);
+}
+
 // Moved to another display, or the display's pixels per point changed: new limits, and a window
 // that still has the size it was given is resized to stay exact in pixels, keeping its centre.
 void follow_display() {
@@ -296,6 +328,7 @@ void* create_gfx() {
         return nullptr;
     }
     conker::input::init();
+    conker::hang_watch::start();
     return &g_window;
 }
 
@@ -382,6 +415,7 @@ void show_cursor_for_inspector() {
 } // namespace
 
 void update_gfx(void* /*gfx_data*/) {
+    conker::hang_watch::beat();
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         follow_mouse(event);
@@ -398,8 +432,12 @@ void update_gfx(void* /*gfx_data*/) {
     }
     run_scheduled_switches();
     if (Mode mode; conker::display::take_request(&mode)) {
+        g_changing_requests = conker::display::mode_requests();
         apply_mode(mode);
+        g_changing = true;
+        g_changed_at = SDL_GetTicks64();
     }
+    settle_mode_change();
     show_cursor_for_inspector();
     keep_frame();
     conker::input::update();

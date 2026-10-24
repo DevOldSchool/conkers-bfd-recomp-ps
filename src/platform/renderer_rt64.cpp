@@ -431,6 +431,11 @@ private:
             conker::gpu_faults::note("pause frame copy over: display settings let go");
             applied_scale_ = -1;  // apply whatever is asked for now
         }
+        // Nor while the window changes mode: new frame buffers in the middle of leaving or entering
+        // a full-screen Space stalled everything (see conker::display::window_changing).
+        if (conker::display::window_changing()) {
+            return;
+        }
         const conker::display::Mode mode = conker::display::current();
         const bool windowed = mode == conker::display::Mode::Windowed;
         const int scale = windowed ? conker::display::window_scale() : conker::display::screen_scale();

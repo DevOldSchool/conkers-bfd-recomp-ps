@@ -43,6 +43,17 @@ Mode current();
 // main thread (take_request).
 void request(Mode mode);
 
+// Whether the window is still changing to the mode last asked for: from request() until the window
+// has settled in it. RT64 keeps the multiple, fill and shape it renders with until then. Leaving or
+// entering a macOS full-screen Space while RT64 also discarded and remade its frame buffers at
+// another size stalled the main thread, and the game with it, for up to half a minute.
+bool window_changing();
+
+// For the window: the number of mode requests so far, read when it takes one, and given back once
+// the window has settled in the mode, which ends window_changing unless another came since.
+uint32_t mode_requests();
+void set_window_settled(uint32_t requests);
+
 // The largest multiple of the picture that fits a window on the display (title bar and Dock
 // allowed for), and the smallest that covers the whole screen, in 4:3 and in widescreen, with the
 // screen's size; set by the window when it opens.
