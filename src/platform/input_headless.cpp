@@ -20,8 +20,8 @@ bool take_debug_menu_press() { return false; }
 bool has_rumble(int /*port*/) { return false; }
 void set_rumble(int /*port*/, bool /*on*/) {}
 
-bool has_haptics() { return false; }
-void play_haptic(const Haptic& /*haptic*/) {}
+bool has_haptics(int /*port*/) { return false; }
+void play_haptic(const Haptic& /*haptic*/, int /*port*/) {}
 
 bool has_adaptive_triggers() { return false; }
 void set_trigger_effect(const TriggerEffect& /*effect*/) {}

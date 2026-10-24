@@ -10,6 +10,11 @@
 // shaking is in the grips, and only for the rounds: nothing while the barrels wind up, and a gap
 // between thumps so each round is felt on its own.
 //
+// In a multiplayer match (D_800BE616 nonzero) every player's gun is followed, whoever they play:
+// player n is actor n (D_800CC2D0, 0x32C bytes each, as the match's own tallies walk them) and plays
+// on controller n + 1. Controller 1 gets the triggers too; controllers 2 to 4 feel the rounds on
+// their pad's motors.
+//
 // Native helper called once a frame from the [[patches.hook]] in config/us.toml (func_1501878C);
 // src/platform/input.hpp sends the trigger effect and plays the thumps (Core Haptics on a DualSense
 // on macOS, the motors elsewhere). CONKER_ADAPTIVE_TRIGGERS=0 turns it all off.
@@ -56,6 +61,9 @@ inline gpr kseg0(uint32_t address) { return static_cast<gpr>(static_cast<int32_t
 
 constexpr uint32_t kConker = 0x80088720;       // D_80088720: Conker's actor
 constexpr uint32_t kWorldPaused = 0x800BEAC0;  // D_800BEAC0: the world frame is skipped (pause, menus)
+constexpr uint32_t kMultiplayer = 0x800BE616;  // D_800BE616: nonzero during a multiplayer match
+constexpr uint32_t kActors = 0x800CC2D0;       // D_800CC2D0: the actors; player n is actor n in a match
+constexpr uint32_t kActorSize = 0x32C;
 constexpr uint32_t kActorModel = 0x4;          // u8: 0 for Conker
 constexpr uint32_t kActorAnimation = 0x84;     // u16
 constexpr uint32_t kActorPlayer = 0x31C;       // the player's block
@@ -159,35 +167,58 @@ float pee_power(uint8_t* rdram, uint32_t conker) {
     return -1.0f;
 }
 
-// Game thread only.
-int16_t g_last_rounds = 0;
-bool g_was_mounted = false;
+// Game thread only, per controller.
+int16_t g_last_rounds[conker::input::kPorts] = {};
+bool g_was_mounted[conker::input::kPorts] = {};
 
-// A thump in both grips for each round fired since the last frame.
-void gun_rumble(uint8_t* rdram, uint32_t player) {
+// A thump in both grips of controller `port` for each round fired since the last frame.
+void gun_rumble(uint8_t* rdram, uint32_t player, int port) {
     const int16_t rounds = static_cast<int16_t>(MEM_HU(kPlayerGunRounds, kseg0(player)));
-    if (g_was_mounted && rounds != g_last_rounds && conker::input::has_haptics()) {
+    if (g_was_mounted[port] && rounds != g_last_rounds[port] && conker::input::has_haptics(port)) {
         for (const Haptic& haptic : kGunRound) {
-            conker::input::play_haptic(haptic);
+            conker::input::play_haptic(haptic, port);
         }
     }
-    g_last_rounds = rounds;
-    g_was_mounted = true;
+    g_last_rounds[port] = rounds;
+    g_was_mounted[port] = true;
+}
+
+// A multiplayer match: each player's gun on their own controller.
+void multiplayer_guns(uint8_t* rdram) {
+    TriggerEffect effect;  // off
+    const bool running = MEM_BU(0, kseg0(kWorldPaused)) == 0;
+    for (int i = 0; i < conker::input::kPorts; i++) {
+        const uint32_t player = running ? player_block(rdram, kActors + i * kActorSize) : 0;
+        const bool mounted = player != 0 && MEM_BU(kPlayerMounted, kseg0(player)) == kMountedGun;
+        if (mounted && adaptive_triggers_enabled()) {
+            gun_rumble(rdram, player, i);
+            if (i == 0) {
+                effect = kGunReady;
+            }
+        } else {
+            g_was_mounted[i] = false;
+        }
+    }
+    conker::input::set_trigger_effect(effect);
 }
 
 } // namespace
 
 // Once a frame, from func_1501878C just before it decides whether to run the world frame.
 extern "C" void conker_adaptive_triggers(uint8_t* rdram, recomp_context* /*ctx*/) {
+    if (MEM_BU(0, kseg0(kMultiplayer)) != 0) {
+        multiplayer_guns(rdram);
+        return;
+    }
     TriggerEffect effect;  // off
     const uint32_t conker = conker_actor(rdram);
     const uint32_t player = conker != 0 ? player_block(rdram, conker) : 0;
     const bool mounted = player != 0 && MEM_BU(kPlayerMounted, kseg0(player)) == kMountedGun;
     if (mounted && adaptive_triggers_enabled()) {
-        gun_rumble(rdram, player);
+        gun_rumble(rdram, player, 0);
         effect = kGunReady;
     } else {
-        g_was_mounted = false;
+        g_was_mounted[0] = false;
     }
     if (conker != 0 && !mounted && adaptive_triggers_enabled()) {
         const uint16_t animation = MEM_HU(kActorAnimation, kseg0(conker));

@@ -167,6 +167,8 @@ const bool g_force_motors = [] {
 }();
 std::mutex g_haptics_mutex;
 std::vector<Haptic> g_haptics;           // waiting for update(), under g_haptics_mutex
+std::vector<Haptic> g_port_haptics[kPorts];          // controllers 2 to 4's, likewise
+std::vector<MotorEffect> g_port_motor_effects[kPorts];  // main thread only: controllers 2 to 4's
 constexpr size_t kMaxWaitingHaptics = 8;
 Haptic::Grip g_trigger_grip = Haptic::Grip::Right;  // main thread only: Grip::Trigger's side
 bool g_left_trigger_held = false;                   // main thread only
@@ -711,21 +713,6 @@ void store(Port& port, uint16_t buttons, float x, float y) {
     port.stick_y.store(y, std::memory_order_relaxed);
 }
 
-// Controllers 2 to 4: the rumble pak's motor on both grip motors at full strength, held
-// kRumbleHoldMs so a stalled game stops it.
-void apply_pak_rumble(Port& port) {
-    if (port.pad == nullptr || !port.has_rumble.load(std::memory_order_relaxed)) {
-        return;
-    }
-    const bool on = port.rumble_on.load(std::memory_order_relaxed);
-    if (on) {
-        SDL_GameControllerRumble(port.pad, kRumbleStrength, kRumbleStrength, kRumbleHoldMs);
-    } else if (port.rumble_applied) {
-        SDL_GameControllerRumble(port.pad, 0, 0, 0);
-    }
-    port.rumble_applied = on;
-}
-
 // --- haptic effects on the rumble motors ---
 // A tap lasts long enough for the motor to spin up, longer the softer it is. A Grip::Both effect
 // leans on the light motor the sharper it is and on the heavy one the softer: both run at full
@@ -755,6 +742,37 @@ MotorEffect motor_effect(const Haptic& haptic, bool on_trigger, Uint64 now) {
 }
 
 Uint16 motor_strength(float level) { return static_cast<Uint16>(std::clamp(level, 0.0f, 1.0f) * 65535.0f + 0.5f); }
+
+// Controllers 2 to 4: the rumble pak's motor on both grip motors at full strength, held
+// kRumbleHoldMs so a stalled game stops it, and otherwise the strongest haptic effect still playing
+// on each motor, until the next one ends (as apply_rumble does for controller 1).
+void apply_pak_rumble(int index, Uint64 now) {
+    Port& port = g_ports[index];
+    std::vector<MotorEffect>& effects = g_port_motor_effects[index];
+    std::erase_if(effects, [now](const MotorEffect& effect) { return effect.end_ms <= now; });
+    if (port.pad == nullptr || !port.has_rumble.load(std::memory_order_relaxed)) {
+        effects.clear();
+        return;
+    }
+    float low = 0.0f;
+    float high = 0.0f;
+    Uint64 next_end = now + kRumbleHoldMs;
+    for (const MotorEffect& effect : effects) {
+        low = std::fmax(low, effect.low);
+        high = std::fmax(high, effect.high);
+        next_end = std::min(next_end, effect.end_ms);
+    }
+    const bool pak = port.rumble_on.load(std::memory_order_relaxed);
+    const Uint16 low_strength = pak ? kRumbleStrength : motor_strength(low);
+    const Uint16 high_strength = pak ? kRumbleStrength : motor_strength(high);
+    const bool on = low_strength != 0 || high_strength != 0;
+    if (on) {
+        SDL_GameControllerRumble(port.pad, low_strength, high_strength, pak ? kRumbleHoldMs : static_cast<Uint32>(next_end - now));
+    } else if (port.rumble_applied) {
+        SDL_GameControllerRumble(port.pad, 0, 0, 0);
+    }
+    port.rumble_applied = on;
+}
 
 // Sets the motors from the rumble pak and the haptic effects still playing, the strongest of them
 // for each motor. The pak's motor is on or off and drives both grip motors at full strength (on a
@@ -917,8 +935,19 @@ void update() {
     }
     g_debug_menu_held = debug_menu;
 
+    std::vector<Haptic> port_haptics[kPorts];
+    {
+        std::lock_guard lock(g_haptics_mutex);
+        for (int i = 1; i < kPorts; i++) port_haptics[i].swap(g_port_haptics[i]);
+    }
+    const Uint64 port_now = SDL_GetTicks64();
     for (int i = 1; i < kPorts; i++) {
         Port& port = g_ports[i];
+        if (port.pad != nullptr && port.has_rumble.load(std::memory_order_relaxed)) {
+            for (const Haptic& haptic : port_haptics[i]) {
+                g_port_motor_effects[i].push_back(motor_effect(haptic, false, port_now));
+            }
+        }
         if (port.pad != nullptr) {
             uint16_t port_buttons = 0;
             float port_x = 0.0f;
@@ -928,7 +957,7 @@ void update() {
             read_pad(port.pad, kTriggerZ, multiplayer, port_buttons, port_x, port_y, left_trigger, right_trigger);
             store(port, port_buttons, port_x, port_y);
         }
-        apply_pak_rumble(port);
+        apply_pak_rumble(i, port_now);
     }
 
     std::vector<Haptic> haptics;
@@ -1011,15 +1040,18 @@ void set_rumble(int port, bool on) {
     }
 }
 
-bool has_haptics() { return g_has_haptics.load(std::memory_order_relaxed); }
+bool has_haptics(int port) {
+    return port == 0 ? g_has_haptics.load(std::memory_order_relaxed) : has_rumble(port);
+}
 
-void play_haptic(const Haptic& haptic) {
-    if (!has_haptics()) {
+void play_haptic(const Haptic& haptic, int port) {
+    if (!has_haptics(port)) {
         return;
     }
     std::lock_guard lock(g_haptics_mutex);
-    if (g_haptics.size() < kMaxWaitingHaptics) {
-        g_haptics.push_back(haptic);
+    std::vector<Haptic>& waiting = port == 0 ? g_haptics : g_port_haptics[port];
+    if (waiting.size() < kMaxWaitingHaptics) {
+        waiting.push_back(haptic);
     }
 }
 
