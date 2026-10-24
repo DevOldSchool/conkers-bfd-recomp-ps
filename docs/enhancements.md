@@ -262,18 +262,25 @@ The title menu's "INSERT RUMBLE PAK" banner shows on an N64 even with the
 pak inserted. It is left out when controller 1's pad can rumble;
 `CONKER_RUMBLE_BANNER=1` shows it.
 
-## DualSense haptics
+## Pad haptics
 
-A DualSense's motors play shaped taps and buzzes as well as the Rumble Pak's
+A pad that can rumble plays taps and buzzes as well as the Rumble Pak's
 on and off, and some of the game's sound effects now play one: the
 slingshot coming out, each shot in the grip of the trigger that fired it,
 the elastic stretched again and the click when it is ready, a thump
 when Conker lands from a jump, on any ground, and a much heavier one when
 he splats after a long fall or is squashed flat. The game's own rumble is unchanged. More sounds are a
 line each in src/enhancements/haptics/haptics.cpp, found with
-`CONKER_SOUND_LOG=1` (see [diagnostics](diagnostics.md)). It works on macOS
-only so far, through Core Haptics, which reaches the pad over Bluetooth too.
-`CONKER_HAPTICS=0` turns it off.
+`CONKER_SOUND_LOG=1` (see [diagnostics](diagnostics.md)).
+
+On macOS a DualSense plays them shaped, through Core Haptics, which reaches
+the pad over Bluetooth too. Every other pad, and every pad on Windows and
+Linux, plays them on its rumble motors: the heavy one in the left grip takes
+the soft thumps, the light one in the right the crisp taps. An Xbox One or
+Series pad also has a motor in each trigger, and the slingshot is felt in
+the trigger that fired it. `CONKER_HAPTICS=0` turns it off, and
+`CONKER_HAPTICS_MOTORS=1` plays them on the motors on a DualSense on macOS
+too.
 
 ## Camera on the right stick
 

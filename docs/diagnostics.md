@@ -51,7 +51,10 @@ These environment variables are read by both builds:
   title scene to a new game. Real controllers are ignored while it is set:
   SDL passes pad input to every process, so a pad in use in another window
   would otherwise steer the scripted run. The virtual pad can rumble, so it
-  counts as a Rumble Pak, and it logs each rumble change.
+  counts as a Rumble Pak, and it logs each rumble change. It logs each haptic
+  effect too, or with `CONKER_HAPTICS_MOTORS=1` the motor strengths it plays
+  as (`rumble low <x> high <y>`, `trigger rumble left <x> right <y>`), as on
+  a pad without Core Haptics.
 * **Rumble.** The log shows the pak probe at boot (`rumble pak inserted` or
   `not inserted`) and every change of the motor the game asks for
   (`VI <n>: rumble on/off, port 1`); a rumble is a run of on/off lines, since

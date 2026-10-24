@@ -1,8 +1,9 @@
-// Haptics on a DualSense driven by the game's sound effects. Every sound effect starts in
+// Haptics on the pad driven by the game's sound effects. Every sound effect starts in
 // sndp_play_sound(player, sound, volume, flags), which the [[patches.hook]] in config/us.toml calls
-// this from: chosen sounds play a haptic effect on the pad (src/platform/input.hpp). The volume is
-// no guide to strength, since each sound has its own (Conker's reload click plays at 9233, his
-// footsteps at 32767), so each effect has its own. The game's rumble pak still rumbles as before.
+// this from: chosen sounds play a haptic effect on the pad (src/platform/input.hpp: shaped on a
+// DualSense on macOS, on the rumble motors of any other pad, Xbox trigger motors included). The
+// volume is no guide to strength, since each sound has its own (Conker's reload click plays at
+// 9233, his footsteps at 32767), so each effect has its own. The game's rumble pak still rumbles as before.
 // CONKER_HAPTICS=0 turns them off.
 //
 // The sounds so far were picked out with the log below in scene 6 (Windy's slingshot B pad), by
@@ -136,7 +137,7 @@ extern "C" void conker_haptics_frame(uint8_t* rdram, recomp_context* /*ctx*/) {
 }
 
 nlohmann::json conker::status::haptics() {
-    return enhancement("haptics", "DualSense haptics from sound effects", haptics_enabled(), "CONKER_HAPTICS",
+    return enhancement("haptics", "Pad haptics from sound effects", haptics_enabled(), "CONKER_HAPTICS",
                        {{"pad_has_haptics", conker::input::has_haptics()}});
 }
 
