@@ -76,6 +76,13 @@ func = "func_800095A0"
 before_vram = 0x100095D4
 text = "{ void osAiGetLength_recomp(uint8_t*, recomp_context*); uint64_t saved_v0 = ctx->r2; osAiGetLength_recomp(rdram, ctx); ctx->r3 = ctx->r2; ctx->r2 = saved_v0; }"
 
+# func_80004250 walks the heap once a frame; check the list first and report damage (a write past
+# the end of a block) before the walk follows it. See src/runtime/heap_check.cpp.
+[[patches.hook]]
+func = "func_80004250"
+before_vram = 0x10004250
+text = "{ void conker_heap_check(uint8_t*, recomp_context*); conker_heap_check(rdram, ctx); }"
+
 # func_8000853C returns a sequence player's state to the music manager, which frees the record of
 # a player it sees stopped. A sequence that was started this frame is still stopped until the
 # audio thread's next render, which on hardware always comes first; the recompiled game can get

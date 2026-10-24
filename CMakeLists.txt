@@ -65,6 +65,7 @@ endif()
 add_executable(ConkerRecomp
     src/main.cpp
     src/runtime/game.cpp
+    src/runtime/heap_check.cpp
     src/runtime/memory.cpp
     src/runtime/overlays.cpp
     src/runtime/rsp.cpp
