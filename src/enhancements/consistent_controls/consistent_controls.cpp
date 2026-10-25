@@ -22,9 +22,15 @@
 // stick aims, up aiming down, and C-up and C-down walk. So while scoped it gets the shotgun's aim:
 // the right stick aims, up aiming up, and the left stick walks. Unscoped it walks with the stick.
 // The matches' scoped gun, item 0x24, scopes with R the same way and gets the same.
+// The tanks (TANK in MULTI, any player): C-left and C-right turn the turret, C-left to the left,
+// so the camera's swap turned it the wrong way; a player in a tank gets them back the N64's way,
+// the right stick pushed left turning the turret left, and none of the above, as a tank's player
+// block can read as holding a gun. A player's tank in TANK (scene 36) is an actor of model 0x77
+// (logged in a match); 0x28 is what Rare's func_15075548 tests for too. Player n is actor n and
+// reads the pad D_80084060[n] names.
 // The matches' guns (picked up; TEMPLE's shotgun is item 0x37) handle as the story's shotgun
 // does, so they get its controls too; every player in a match gets all of the above on their own
-// pad (player n is actor n and reads the pad D_80084060[n] names), controller 1 alone the mouse.
+// pad, controller 1 alone the mouse.
 // The pads as the game reads them are rewritten in func_1501BBB8 (sp+0x38, four OSContPads, after
 // osContGetReadData; the [[patches.hook]] in config/us.toml), so the game sees nothing else.
 // CONKER_CONSISTENT_CONTROLS=0 leaves the game's controls.
@@ -68,6 +74,8 @@ constexpr uint32_t kPlayerLook = 0x198;  // u8: 1 going into R's look, 2 looking
 
 constexpr uint32_t kActors = 0x800CC2D0;       // D_800CC2D0: the actors; player n is actor n in a match
 constexpr uint32_t kActorSize = 0x32C;
+constexpr uint32_t kActorModel = 0x4;          // u8
+constexpr uint8_t kTankModels[] = {0x28, 0x77};
 constexpr uint32_t kMultiplayer = 0x800BE616;  // D_800BE616: nonzero during a multiplayer match
 constexpr uint32_t kPlayerPads = 0x80084060;   // D_80084060: u8 per player, the pad it reads
 
@@ -181,6 +189,12 @@ uint16_t swap_c_left_right(uint16_t buttons) {
                                  ((c & kCRight) ? kCLeft : 0));
 }
 
+// Whether player n drives a tank.
+bool in_tank(uint8_t* rdram, int player) {
+    const uint8_t model = MEM_BU(kActorModel, kseg0(player_actor(rdram, player)));
+    return std::find(std::begin(kTankModels), std::end(kTankModels), model) != std::end(kTankModels);
+}
+
 bool looking(uint8_t* rdram, uint32_t player) {
     const uint8_t look = MEM_BU(kPlayerLook, kseg0(player));
     return look == 1 || look == 2;
@@ -227,6 +241,13 @@ extern "C" void conker_consistent_controls(uint8_t* rdram, recomp_context* ctx) 
     }
     for (int player = 0; player < players(rdram); player++) {
         const int pad = player_pad(rdram, player);
+        if (pad >= 0 && in_tank(rdram, player)) {
+            const int at = kPad + pad * kPadSize;
+            if (camera_swapped()) {
+                MEM_H(at, ctx->r29) = static_cast<int16_t>(swap_c_left_right(MEM_HU(at, ctx->r29)));
+            }
+            continue;
+        }
         const uint32_t block = pad >= 0 ? player_block(rdram, player) : 0;
         if (block != 0) {
             remap(rdram, ctx, block, pad);
