@@ -4,7 +4,7 @@
 // keeping Rare's pixels and soft edges, and hands the tiles to RT64 as a texture pack in memory,
 // keyed by the hash RT64 computes for each tile as the game loads it (TMEMHasher). Tiles drawn
 // side by side are enlarged together, so no seams show between them. The button prompts and the
-// multiplayer heads and player pieces are enlarged too; other pictures (the small statistics icons)
+// multiplayer heads, player pieces and death skull are enlarged too; other pictures (the small statistics icons)
 // are left as they are: they lose their detail when enlarged.
 //
 // The speech and thought bubbles are not menu art but come from the same resources, and are
@@ -103,6 +103,10 @@ constexpr Title kTitles[] = {
 // one's outline.
 constexpr int kSmallBadges = 2115;
 constexpr int kLargeBadges = 2196;
+
+// The multiplayer death skull is a 64x64 picture of four tiles in column order: 1980 top left, 1981
+// bottom left, 1982 top right, 1983 bottom right.
+constexpr int kSkull = 1980;
 
 // The speech and thought bubbles are 64x64 IA8 pictures, resources 4167 and 4168 (the literal
 // descriptors at 0x8009055C and 0x8009056C), each drawn stretched over the text; the shadow is the
@@ -208,6 +212,34 @@ std::vector<Replacement> split(const std::string& name, const menu_art::Image& i
     return out;
 }
 
+// The skull's four tiles, enlarged together so no seams show where they meet.
+std::vector<Replacement> skull() {
+    menu_art::Image whole(kTile * 2, kTile * 2);
+    std::vector<uint64_t> hashes;
+    for (int i = 0; i < 4; i++) {
+        const std::optional<menu_art::StoredTile> tile = menu_art::load_tile(kSkull + i);
+        if (!tile) return {};
+        hashes.push_back(hash(*tile));
+        const menu_art::Image image = menu_art::decode_tile(*tile);
+        const int x0 = (i / 2) * kTile, y0 = (i % 2) * kTile;
+        for (int y = 0; y < kTile; y++) std::copy_n(image.at(0, y), kTile * 4, whole.at(x0, y0 + y));
+    }
+    const std::vector<uint8_t> rgba = menu_art::to_rgba8(menu_art::super_xbr(whole, kScale));
+    const int size = kTile * kScale, width = size * 2;
+    std::vector<Replacement> out;
+    std::vector<uint8_t> tile(size_t(size) * size * 4);
+    for (int i = 0; i < 4; i++) {
+        const int x0 = (i / 2) * size, y0 = (i % 2) * size;
+        for (int y = 0; y < size; y++) {
+            const uint8_t* row = &rgba[(size_t(y0 + y) * width + x0) * 4];
+            std::copy(row, row + size * 4, &tile[size_t(y) * size * 4]);
+        }
+        out.push_back({"menus/skull_" + std::to_string(i) + ".png", hashes[i],
+                       memory_pack::Pack::encode_png(size, size, tile.data())});
+    }
+    return out;
+}
+
 std::string file_name(const char* title) {
     std::string out;
     for (const char* c = title; *c; c++) {
@@ -284,6 +316,7 @@ std::shared_ptr<RT64::FileSystem> make_pack() {
             pack->add(r.path, r.hash, std::move(r.png));
         }
     }
+    for (Replacement& r : skull()) pack->add(r.path, r.hash, std::move(r.png));
     for (const Bubble& b : kBubbles) {
         if (std::optional<Replacement> r = bubble(b)) pack->add(r->path, r->hash, std::move(r->png));
     }
