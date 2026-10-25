@@ -33,7 +33,9 @@ The OPTIONS page of the title menu has five rows under the sound setting.
   as wide as everything else it was drawn with, so of two players' views one
   could stay 4:3. A view's own fades, the circle wipe when a player dies and
   the rocket launcher's scope cover its widened width too; the wipe's circle
-  stays centred on its player and its black stops at the view's edge. In the
+  stays centred on its player and its black stops at the view's edge. Each
+  view's HUD (score, ammo, radar and the aiming reticle) stays centred in its
+  widened view, so the reticle is over the view's middle. In the
   intro, Conker is not drawn while he waits for his cue just past the edge of
   the 4:3 view. Behind the pause menu the paused scene stays widescreen, but
   sharp: the game blurs only the 4:3 middle of the frame, so that blur is
