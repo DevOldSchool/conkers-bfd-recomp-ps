@@ -78,6 +78,7 @@ add_executable(ConkerRecomp
     src/platform/gpu_faults.cpp
     src/fixes/geometry_escape.cpp
     src/fixes/frame_effects.cpp
+    src/fixes/level_seams.cpp
     src/fixes/music_start.cpp
     src/enhancements/cutscene_skip/cutscene_skip.cpp
     src/enhancements/draw_distance/draw_distance.cpp

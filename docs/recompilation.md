@@ -34,7 +34,8 @@
 * `src/platform/`: host backends for audio, input, the window and the
   renderer, with a null/headless and an SDL/RT64 version of each.
 * `src/fixes/`: hooks that make the recompiled game behave as it does on
-  hardware. These have no switch.
+  hardware, or mend Rare's own slips (`level_seams.cpp`: cracks in the level
+  geometry). These have no switch.
 * `src/enhancements/<feature>/`: one folder per feature the console does not
   have (see the README), each with its own `CONKER_*` switch. A new
   enhancement gets a folder here, its source in `CMakeLists.txt`, and its
