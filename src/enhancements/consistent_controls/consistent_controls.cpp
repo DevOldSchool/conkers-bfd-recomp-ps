@@ -21,7 +21,11 @@
 // The rocket launcher in a multiplayer match (THE VAULT) scoped with R works the same way: the
 // stick aims, up aiming down, and C-up and C-down walk. So while scoped it gets the shotgun's aim:
 // the right stick aims, up aiming up, and the left stick walks. Unscoped it walks with the stick.
-// Controller 1's pad as the game reads it is rewritten in func_1501BBB8 (sp+0x38, after
+// The matches' scoped gun, item 0x24, scopes with R the same way and gets the same.
+// The matches' guns (picked up; TEMPLE's shotgun is item 0x37) handle as the story's shotgun
+// does, so they get its controls too; every player in a match gets all of the above on their own
+// pad (player n is actor n and reads the pad D_80084060[n] names), controller 1 alone the mouse.
+// The pads as the game reads them are rewritten in func_1501BBB8 (sp+0x38, four OSContPads, after
 // osContGetReadData; the [[patches.hook]] in config/us.toml), so the game sees nothing else.
 // CONKER_CONSISTENT_CONTROLS=0 leaves the game's controls.
 //
@@ -52,14 +56,23 @@ constexpr uint32_t kConker = 0x80088720;  // D_80088720: Conker's actor
 constexpr uint32_t kActorPlayer = 0x31C;  // the player's block
 constexpr uint32_t kPlayerItem = 0x78;    // u8: the item he holds
 constexpr uint32_t kPlayerItemState = 0x11A;  // u8
-constexpr uint8_t kShotgun = 0x3B;
+// The guns that aim with R, as Rare lists them in func_15121490: 0x3B the story's shotgun, 0x37
+// the matches' (TEMPLE), the rest the matches' other guns.
+constexpr uint8_t kGuns[] = {0x09, 0x15, 0x26, 0x37, 0x38, 0x39, 0x3A, 0x3B};
 constexpr uint8_t kItemHeld = 2;
 constexpr uint8_t kRocketLauncher = 0x16;
+constexpr uint8_t kScopedGun = 0x24;  // a match's gun with a scope on R, as the launcher's
 constexpr uint32_t kPlayerScoped = 0x197;  // u8: 2 while the launcher's scope is up
 constexpr uint8_t kScoped = 2;
 constexpr uint32_t kPlayerLook = 0x198;  // u8: 1 going into R's look, 2 looking, 3 coming out
 
+constexpr uint32_t kActors = 0x800CC2D0;       // D_800CC2D0: the actors; player n is actor n in a match
+constexpr uint32_t kActorSize = 0x32C;
+constexpr uint32_t kMultiplayer = 0x800BE616;  // D_800BE616: nonzero during a multiplayer match
+constexpr uint32_t kPlayerPads = 0x80084060;   // D_80084060: u8 per player, the pad it reads
+
 constexpr int kPad = 0x38;  // func_1501BBB8's frame: controller 1's OSContPad
+constexpr int kPadSize = 6;  // OSContPad, four of them
 constexpr float kStickRange = 82.0f;  // the N64 stick's reach on an axis
 constexpr int kStepAt = 41;           // the left stick, half way, steps as a C button would
 
@@ -89,53 +102,118 @@ int8_t stick_axis(float value) {
     return static_cast<int8_t>(std::lround(std::fmax(-1.0f, std::fmin(value, 1.0f)) * kStickRange));
 }
 
-// Conker's player block, or 0.
-uint32_t player_block(uint8_t* rdram) {
-    const uint32_t conker = static_cast<uint32_t>(MEM_W(0, kseg0(kConker)));
-    if (!in_rdram(conker)) {
+int players(uint8_t* rdram) { return MEM_BU(0, kseg0(kMultiplayer)) != 0 ? 4 : 1; }
+
+// The pad player n reads, or -1 for none (a match's bots). Outside a match only Conker, on
+// controller 1.
+int player_pad(uint8_t* rdram, int player) {
+    if (MEM_BU(0, kseg0(kMultiplayer)) == 0) {
+        return player == 0 ? 0 : -1;
+    }
+    const uint8_t pad = MEM_BU(player, kseg0(kPlayerPads));
+    return pad < 4 ? pad : -1;
+}
+
+// Player n's actor: Conker's for the first.
+uint32_t player_actor(uint8_t* rdram, int player) {
+    return player == 0 ? static_cast<uint32_t>(MEM_W(0, kseg0(kConker))) : kActors + player * kActorSize;
+}
+
+// Player n's block, or 0.
+uint32_t player_block(uint8_t* rdram, int player) {
+    const uint32_t actor = player_actor(rdram, player);
+    if (!in_rdram(actor)) {
         return 0;
     }
-    const uint32_t player = static_cast<uint32_t>(MEM_W(kActorPlayer, kseg0(conker)));
-    return in_rdram(player) ? player : 0;
+    const uint32_t block = static_cast<uint32_t>(MEM_W(kActorPlayer, kseg0(actor)));
+    return in_rdram(block) ? block : 0;
 }
 
 bool holding(uint8_t* rdram, uint32_t player, uint8_t item) {
     return MEM_BU(kPlayerItem, kseg0(player)) == item && MEM_BU(kPlayerItemState, kseg0(player)) == kItemHeld;
 }
 
-bool launcher_scoped(uint8_t* rdram, uint32_t player) {
-    return holding(rdram, player, kRocketLauncher) && MEM_BU(kPlayerScoped, kseg0(player)) == kScoped;
+bool holding_gun(uint8_t* rdram, uint32_t player) {
+    return std::any_of(std::begin(kGuns), std::end(kGuns), [&](uint8_t gun) { return holding(rdram, player, gun); });
 }
 
-// Aims with the right stick and the mouse, up aiming up, and walks with the left stick (or WASD)
-// as the C buttons. False, leaving the pad alone, when controller 1 has neither (the keyboard
-// alone, the mouse not captured).
-bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, uint16_t& buttons) {
+bool launcher_scoped(uint8_t* rdram, uint32_t player) {
+    return (holding(rdram, player, kRocketLauncher) || holding(rdram, player, kScopedGun)) &&
+           MEM_BU(kPlayerScoped, kseg0(player)) == kScoped;
+}
+
+// The mouse's aim, controller 1's alone; false when it has none (not captured).
+bool mouse_aim(int pad, float* x, float* y) {
+    *x = 0.0f;
+    *y = 0.0f;
+    return pad == 0 && conker::mouse_look::take_aim(x, y);
+}
+
+// Aims with the right stick (and controller 1's mouse), up aiming up, and walks with the left
+// stick (or WASD) as the C buttons, on the pad at `at` in the frame. False, leaving the pad
+// alone, when its controller has neither (the keyboard alone, the mouse not captured).
+bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16_t& buttons) {
     float aim_x;
     float aim_y;
     float mouse_x;
     float mouse_y;
-    const bool pad = right_stick(&aim_x, &aim_y);
-    if (!conker::mouse_look::take_aim(&mouse_x, &mouse_y) && !pad) {
+    const bool stick = right_stick(&aim_x, &aim_y, pad);
+    if (!mouse_aim(pad, &mouse_x, &mouse_y) && !stick) {
         return false;
     }
     aim_x += mouse_x;
     aim_y += mouse_y;
-    const int walk_x = MEM_B(kPad + 2, ctx->r29);
-    const int walk_y = MEM_B(kPad + 3, ctx->r29);
+    const int walk_x = MEM_B(at + 2, ctx->r29);
+    const int walk_y = MEM_B(at + 3, ctx->r29);
     buttons &= static_cast<uint16_t>(~(kCUp | kCDown | kCLeft | kCRight));
     if (walk_y > kStepAt) buttons |= kCUp;
     if (walk_y < -kStepAt) buttons |= kCDown;
     if (walk_x < -kStepAt) buttons |= kCLeft;
     if (walk_x > kStepAt) buttons |= kCRight;
-    MEM_B(kPad + 2, ctx->r29) = stick_axis(aim_x);
-    MEM_B(kPad + 3, ctx->r29) = stick_axis(-aim_y);
+    MEM_B(at + 2, ctx->r29) = stick_axis(aim_x);
+    MEM_B(at + 3, ctx->r29) = stick_axis(-aim_y);
     return true;
+}
+
+uint16_t swap_c_left_right(uint16_t buttons) {
+    const uint16_t c = buttons & (kCLeft | kCRight);
+    return static_cast<uint16_t>((buttons & ~(kCLeft | kCRight)) | ((c & kCLeft) ? kCRight : 0) |
+                                 ((c & kCRight) ? kCLeft : 0));
 }
 
 bool looking(uint8_t* rdram, uint32_t player) {
     const uint8_t look = MEM_BU(kPlayerLook, kseg0(player));
     return look == 1 || look == 2;
+}
+
+// Rewrites the pad of the player whose block this is, read from controller `pad`.
+void remap(uint8_t* rdram, recomp_context* ctx, uint32_t player, int pad) {
+    const int at = kPad + pad * kPadSize;
+    uint16_t buttons = MEM_HU(at, ctx->r29);
+    if (launcher_scoped(rdram, player)) {
+        if (twin_stick_aim(rdram, ctx, pad, at, buttons)) {
+            MEM_H(at, ctx->r29) = static_cast<int16_t>(buttons);
+        }
+        return;
+    }
+    if (!holding_gun(rdram, player)) {
+        if ((buttons & kR) != 0 && looking(rdram, player)) {
+            // The game looks down with the stick pushed up; the mouse adds to it.
+            float mouse_x;
+            float mouse_y;
+            mouse_aim(pad, &mouse_x, &mouse_y);
+            const float x = MEM_B(at + 2, ctx->r29) / kStickRange + mouse_x;
+            const float y = -MEM_B(at + 3, ctx->r29) / kStickRange - mouse_y;
+            MEM_B(at + 2, ctx->r29) = stick_axis(x);
+            MEM_B(at + 3, ctx->r29) = stick_axis(y);
+        }
+        return;
+    }
+    const bool aimed = (buttons & kR) != 0 && twin_stick_aim(rdram, ctx, pad, at, buttons);
+    if (!aimed && camera_swapped()) {
+        buttons = swap_c_left_right(buttons);
+    }
+    MEM_H(at, ctx->r29) = static_cast<int16_t>(buttons);
 }
 
 }  // namespace
@@ -144,37 +222,16 @@ bool looking(uint8_t* rdram, uint32_t player) {
 // them while it is open.
 extern "C" void conker_consistent_controls(uint8_t* rdram, recomp_context* ctx) {
     conker::mouse_look::frame(rdram);
-    const uint32_t player = consistent_controls_enabled() ? player_block(rdram) : 0;
-    if (player == 0) {
+    if (!consistent_controls_enabled()) {
         return;
     }
-    uint16_t buttons = MEM_HU(kPad, ctx->r29);
-    if (launcher_scoped(rdram, player)) {
-        if (twin_stick_aim(rdram, ctx, buttons)) {
-            MEM_H(kPad, ctx->r29) = static_cast<int16_t>(buttons);
+    for (int player = 0; player < players(rdram); player++) {
+        const int pad = player_pad(rdram, player);
+        const uint32_t block = pad >= 0 ? player_block(rdram, player) : 0;
+        if (block != 0) {
+            remap(rdram, ctx, block, pad);
         }
-        return;
     }
-    if (!holding(rdram, player, kShotgun)) {
-        if ((buttons & kR) != 0 && looking(rdram, player)) {
-            // The game looks down with the stick pushed up; the mouse adds to it.
-            float mouse_x;
-            float mouse_y;
-            conker::mouse_look::take_aim(&mouse_x, &mouse_y);
-            const float x = MEM_B(kPad + 2, ctx->r29) / kStickRange + mouse_x;
-            const float y = -MEM_B(kPad + 3, ctx->r29) / kStickRange - mouse_y;
-            MEM_B(kPad + 2, ctx->r29) = stick_axis(x);
-            MEM_B(kPad + 3, ctx->r29) = stick_axis(y);
-        }
-        return;
-    }
-    const bool aimed = (buttons & kR) != 0 && twin_stick_aim(rdram, ctx, buttons);
-    if (!aimed && camera_swapped()) {
-        const uint16_t c = buttons & (kCLeft | kCRight);
-        buttons = static_cast<uint16_t>((buttons & ~(kCLeft | kCRight)) | ((c & kCLeft) ? kCRight : 0) |
-                                        ((c & kCRight) ? kCLeft : 0));
-    }
-    MEM_H(kPad, ctx->r29) = static_cast<int16_t>(buttons);
 }
 
 nlohmann::json conker::status::consistent_controls() {
