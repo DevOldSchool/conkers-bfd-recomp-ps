@@ -47,22 +47,32 @@ You need:
 ### macOS
 
 1. Install Xcode from the App Store (the Command Line Tools alone are not
-   enough: RT64 compiles its shaders with Xcode's `metal`), open it once to
-   accept the license, and select it:
+   enough: RT64 compiles its shaders with Xcode's `metal`). Then select it,
+   accept its license and install its system components (what opening it
+   for the first time does):
 
    ```sh
    sudo xcode-select -s /Applications/Xcode.app
+   sudo xcodebuild -license accept
+   sudo xcodebuild -runFirstLaunch
    ```
 
-   On Xcode 26 or later the Metal toolchain is a separate download:
+   `xcode-select -p` should now print
+   `/Applications/Xcode.app/Contents/Developer`. On Xcode 26 or later the
+   Metal toolchain is a separate download, which fails with a missing
+   `CoreSimulator` framework if `-runFirstLaunch` has not run:
 
    ```sh
    xcodebuild -downloadComponent MetalToolchain
    ```
 
-   `xcrun -sdk macosx metal --version` should then print a version.
+   `xcrun -sdk macosx metal --version` should then print a version. The
+   build checks this too, when it is configured in step 4.
 
-2. Install the tools with [Homebrew](https://brew.sh):
+2. Install the tools with [Homebrew](https://brew.sh). If `brew` is not
+   found after installing it, add it to your shell as its installer says
+   (`eval "$(/opt/homebrew/bin/brew shellenv)"` in `~/.zprofile`) and open
+   a new terminal:
 
    ```sh
    brew install cmake ninja python sdl2
