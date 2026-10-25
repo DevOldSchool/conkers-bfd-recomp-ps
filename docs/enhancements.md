@@ -380,10 +380,15 @@ ROM and shaded as the B is;
 an Xbox pad's B is B, and other pads keep the N64's, so they stay as they
 are.
 
-With the keyboard alone or another pad (an N64 pad, a Switch Pro) the
+With no pad connected (the keyboard and mouse alone) the pictures are the
+keys that press each button, dark keycaps with white letters: Space for A, E
+for B, Esc for START, C for Z (crouch), Q for L, F for R, and I, K, J and L
+for the C buttons (J and L swapped with the camera, as the stick is), and
+the B pads on the ground have an E where their B was, drawn as the
+PlayStation Square is. With another pad (an N64 pad, a Switch Pro) the
 N64's buttons are shown, redrawn the same way, sharper than the game's small
 pictures; ORIGINAL TEXT in the OPTIONS menu keeps Rare's. `CONKER_PAD_ICONS=xbox`,
-`playstation` or `n64` picks a set whatever the pad, and `0` keeps Rare's
+`playstation`, `keyboard` or `n64` picks a set whatever the pad, and `0` keeps Rare's
 pictures, as does PAD BUTTONS switched off in the debug menu. The pictures
 are drawn when the game starts (about a fifth of a
 second, for the connected pad's set only; `src/enhancements/pad_icons`), so

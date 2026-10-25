@@ -14,7 +14,7 @@ struct Picture {
     std::vector<uint8_t> rgba;   // straight alpha, rows top first
 };
 
-// Every picture of `style`'s set (N64, Xbox or PlayStation), drawn on every core. With
+// Every picture of `style`'s set (N64, Xbox, PlayStation or the keyboard's), drawn on every core. With
 // `camera_swapped`, C-left is the right stick pushed right (input::camera_swapped), else left.
 std::vector<Picture> draw_set(Style style, bool camera_swapped);
 

@@ -3,15 +3,15 @@
 // flourish either side of its lower half, and in the middle a calligraphic B in dark brown ink, its
 // top stroke swept out to the left into a curl.
 //
-// For a PlayStation pad the B is taken out (its dark ink texels joined to its stem, and the brown
+// For a PlayStation pad or the keyboard the B is taken out (its dark ink texels joined to its stem, and the brown
 // ones round them) and filled from its edges inward, each step copying the 3x3 patch of the
 // plaque, clear of the B and of any ink, that best matches what is already round it and lies at
-// about the same height (the plaque is darker and more mottled toward the top). Then a square is
-// written where the B was, as with a broad nib: thick down its sides, thin over its top and bottom,
+// about the same height (the plaque is darker and more mottled toward the top). Then the mark (a
+// square or an E) is written where the B was, as with a broad nib,
 // in the B's own inks, blended into the plaque at its edges. It is made from the player's ROM when
 // the game starts, so no part of Rare's texture is in this repository.
 #include "enhancements/pad_icons/b_pad.hpp"
-#include "enhancements/pad_icons/square_symbol.hpp"
+#include "enhancements/pad_icons/pad_mark.hpp"
 
 #include <algorithm>
 #include <array>
@@ -35,7 +35,7 @@ constexpr uint32_t kTlutRgba16 = 0x8000;  // G_TT_RGBA16, as RT64 hashes a TLUT 
 // The B lies in x 9-46, y 20-47 (inclusive), but for the plaque's notch above its curl (x < 17,
 // y < 24); its stem is at (27, 32). The plaque the fill copies from: x 8-55, y 7-56.
 constexpr int kLeft = 9, kTop = 20, kRight = 46, kBottom = 47, kStemX = 27, kStemY = 32;
-// The square: its middle, its half width and height (to the middle of the stroke), how much it leans
+// The mark: its middle, its half width and height (to the middle of the stroke), how much it leans
 // (degrees, clockwise), and the nib: its length and angle (degrees, clockwise from the right) and
 // its thickness, in texels.
 constexpr float kOX = 32.0f, kOY = 31.0f, kRadiusX = 10.5f, kRadiusY = 10.5f, kLean = -4;
@@ -86,17 +86,30 @@ Grid part_at(const Grid& g, int x, int y) {
     return out;
 }
 
-// How much of each texel the square covers, from 4x4 samples: the nib drawn round it.
-std::array<float, N * N> o_cover() {
+// How much of each texel the mark covers, from 4x4 samples: the nib drawn round the square, or
+// along the E's stem and bars.
+std::array<float, N * N> o_cover(Mark::Shape shape) {
     constexpr int kSteps = 720;
     const float lean = kLean * float(M_PI) / 180, nib = kNibAngle * float(M_PI) / 180;
-    std::array<std::array<float, 2>, kSteps> path;
-    for (int k = 0; k < kSteps; k++) {
-        const float t = 2 * float(M_PI) * k / kSteps;
-        // Where the square is at angle t from its middle.
-        const float c = std::cos(t), s = std::sin(t), on = 1 / square_symbol::reach(c, s);
-        const float ex = kRadiusX * c * on, ey = kRadiusY * s * on;
-        path[k] = {kOX + ex * std::cos(lean) - ey * std::sin(lean), kOY + ex * std::sin(lean) + ey * std::cos(lean)};
+    std::vector<std::array<float, 2>> path;
+    auto add = [&](float ex, float ey) {
+        path.push_back({kOX + ex * std::cos(lean) - ey * std::sin(lean), kOY + ex * std::sin(lean) + ey * std::cos(lean)});
+    };
+    if (shape == Mark::Shape::Square) {
+        for (int k = 0; k < kSteps; k++) {
+            const float t = 2 * float(M_PI) * k / kSteps;
+            // Where the square is at angle t from its middle.
+            const float c = std::cos(t), s = std::sin(t), on = 1 / square_symbol::reach(c, s);
+            add(kRadiusX * c * on, kRadiusY * s * on);
+        }
+    } else {
+        // The E's lines, its half height kRadiusY to the middle of its bars.
+        Mark::Line lines[Mark::kELines];
+        Mark{shape, kRadiusY, 0}.centre_lines(lines);
+        for (const Mark::Line& l : lines) {
+            const int steps = std::max(1, int(std::hypot(l.x1 - l.x0, l.y1 - l.y0) * 20));
+            for (int k = 0; k <= steps; k++) add(l.x0 + (l.x1 - l.x0) * k / steps, l.y0 + (l.y1 - l.y0) * k / steps);
+        }
     }
     const float ux = std::cos(nib), uy = std::sin(nib);
     auto inked = [&](float x, float y) {
@@ -133,7 +146,7 @@ uint64_t hash(const std::vector<uint8_t>& resource) {
 
 } // namespace
 
-std::optional<Texture> rug_pad() {
+std::optional<Texture> rug_pad(Mark::Shape shape) {
     const std::vector<uint8_t> resource = menu_art::load_resource(kResource);
     if (resource.size() != size_t(kTexelBytes + 32)) return std::nullopt;
 
@@ -236,9 +249,9 @@ std::optional<Texture> rug_pad() {
             }
     }
 
-    // 3. The square: where the nib covers most of a texel, one of the B's inks; at its edges the ink
+    // 3. The mark: where the nib covers most of a texel, one of the B's inks; at its edges the ink
     // blended into the plaque, as the nearest colour in the palette.
-    const std::array<float, N * N> cover = o_cover();
+    const std::array<float, N * N> cover = o_cover(shape);
     Rgb mean_ink{};
     for (int i : {9, 10, 7})
         for (int c = 0; c < 3; c++) mean_ink[c] += palette[i][c] / 3;

@@ -5,14 +5,14 @@
 // cut by a cross of grooves, a raised ring in the middle, and inside it a B sunk into the stone, a
 // flat darker recess with soft edges.
 //
-// For a PlayStation pad everything inside the ring (the B and the smoother stone round it) is
+// For a PlayStation pad or the keyboard everything inside the ring (the B and the smoother stone round it) is
 // filled again from its edges inward, each step copying the 5x9 patch of the floor outside the ring,
 // clear of the grooves, that best matches what is already round it, so it is the same stone as the
-// floor. Then a square, its sides equal on the plate and centred in the ring's dark outline, is sunk where the B
+// floor. Then the mark (a square or an E), in its proportions on the plate and centred in the ring's dark outline, is sunk where the B
 // was, in the B's own dark texels and with edges as soft. It is made from the player's ROM when the game starts, so no part
 // of Rare's texture is in this repository.
 #include "enhancements/pad_icons/b_pad.hpp"
-#include "enhancements/pad_icons/square_symbol.hpp"
+#include "enhancements/pad_icons/pad_mark.hpp"
 
 #include <algorithm>
 #include <array>
@@ -42,7 +42,7 @@ constexpr float kAcross = 32.0f / 200, kDown = 64.0f / 200;
 // kGrooveX across and kGrooveY down from the middle of the grooves.
 constexpr float kCX = 31.5f, kCY = 63.5f, kRX = 18.0f, kRY = 37.5f;
 constexpr float kInside = 0.80f, kLetter = 0.92f, kFloor = 1.25f, kGrooveX = 3.0f, kGrooveY = 5.0f;
-// The square, in texels its middle (by the middle of the ring's dark outline, fitted by least squares,
+// The mark, in texels its middle (by the middle of the ring's dark outline, fitted by least squares,
 // then half a texel across, which looked better centred in game), and in units on the plate its
 // outer half-width and stroke width.
 constexpr float kOX = 31.35f, kOY = 62.9f, kOuter = 72.0f, kWidth = 34.0f;
@@ -80,7 +80,8 @@ uint64_t hash(const std::vector<uint8_t>& resource) {
 
 } // namespace
 
-std::vector<Texture> plate_pad() {
+std::vector<Texture> plate_pad(Mark::Shape shape) {
+    const Mark mark{shape, kOuter, kWidth};
     // The plate as RT64 decodes it.
     std::vector<uint8_t> resources[4];
     std::vector<Rgb> rgb(W * H);
@@ -131,7 +132,7 @@ std::vector<Texture> plate_pad() {
         for (int m : largest) letter[m] = true;
     }
     Grid hole{};
-    std::vector<int> core;  // the B away from its edges, the dark the square is sunk in
+    std::vector<int> core;  // the B away from its edges, the dark the mark is sunk in
     for (int y = 0; y < H; y++)
         for (int x = 0; x < W; x++) {
             const int n[4][2] = {{x - 1, y}, {x + 1, y}, {x, y - 1}, {x, y + 1}};
@@ -207,8 +208,8 @@ std::vector<Texture> plate_pad() {
             }
     }
 
-    // 3. The square, its sides equal on the plate, sunk as the B was: each texel the B's own dark (the same texel
-    // where the B was, else the nearest of it), over the stone by how much of the texel the square
+    // 3. The mark, in its proportions on the plate, sunk as the B was: each texel the B's own dark (the same texel
+    // where the B was, else the nearest of it), over the stone by how much of the texel the mark
     // covers, so its edges are as soft as the B's.
     const std::vector<Rgb> stone = out;
     for (int y = 0; y < H; y++)
@@ -217,9 +218,8 @@ std::vector<Texture> plate_pad() {
             int covered = 0;
             for (int sy = 0; sy < kSamples; sy++)
                 for (int sx = 0; sx < kSamples; sx++) {
-                    const float d = square_symbol::reach((x + (sx + 0.5f) / kSamples - kOX) / kAcross,
-                                               (y + (sy + 0.5f) / kSamples - kOY) / kDown);
-                    covered += d >= kOuter - kWidth && d <= kOuter;
+                    covered += mark.stroke((x + (sx + 0.5f) / kSamples - kOX) / kAcross,
+                                           (y + (sy + 0.5f) / kSamples - kOY) / kDown);
                 }
             if (covered == 0) continue;
             const float cover = float(covered) / (kSamples * kSamples);

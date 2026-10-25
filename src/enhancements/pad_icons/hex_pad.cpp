@@ -5,15 +5,15 @@
 // edges facing up and left (inside its counters too), a pale highlight two texels wide on those
 // facing down and right.
 //
-// For a PlayStation pad the B is taken out and the plate under it filled from the same ring of the
-// grain further along the hexagon's edge, so the rings run on through it; the square's counter (the
+// For a PlayStation pad or the keyboard the B is taken out and the plate under it filled from the same ring of the
+// grain further along the hexagon's edge, so the rings run on through it; the mark's counter (the
 // middle, where every ring is under the B) from one piece of the plate's smoothest wood, and what
-// is left from 5x5 patches of the plate. Then a square stands where the B was, edged texel for
+// is left from 5x5 patches of the plate. Then the mark (a square, or an E for the keyboard) stands where the B was, edged texel for
 // texel as the B is, with the B's own edge and face texels. It is made from the player's ROM when
 // the game starts, so no part of Rare's texture is in this repository.
 #include "enhancements/pad_icons/b_pad.hpp"
 #include "enhancements/pad_icons/ring_fill.hpp"
-#include "enhancements/pad_icons/square_symbol.hpp"
+#include "enhancements/pad_icons/pad_mark.hpp"
 
 #include <algorithm>
 #include <array>
@@ -38,7 +38,7 @@ constexpr uint32_t kTlutRgba16 = 0x8000;  // G_TT_RGBA16, as RT64 hashes a TLUT 
 
 // The hexagon (its outline against the black round it): its middle, half its width (to the corners
 // left and right), half its height and half the length of its top and bottom edges; the plate is
-// inside kPlate of that. Then the square, in the hexagon's middle (Rare's B stands two texels right of
+// inside kPlate of that. Then the mark, in the hexagon's middle (Rare's B stands two texels right of
 // it): its middle, outer half-width and stroke width, in texels.
 constexpr float kCX = 32.0f, kCY = 32.5f, kHalfWidth = 32.0f, kHalfHeight = 30.5f, kHalfTop = 17.5f;
 constexpr float kPlate = 0.65f;
@@ -128,7 +128,8 @@ uint64_t hash(const std::vector<uint8_t>& resource) {
 
 } // namespace
 
-std::vector<Texture> hex_pad() {
+std::vector<Texture> hex_pad(Mark::Shape shape) {
+    const Mark mark{shape, kOuter, kWidth};
     // The hexagon as RT64 decodes it.
     Half halves[2];
     std::vector<Rgb> rgb(N * N);
@@ -179,15 +180,14 @@ std::vector<Texture> hex_pad() {
     // the edges inward, each step copying the 5x5 patch of the plate (clear of the B) that best
     // matches the wood already round it.
     std::vector<Rgb> out = rgb;
-    // The square's stroke (step 3 paints it over whatever is filled there).
+    // The mark's stroke (step 3 paints it over whatever is filled there).
     Grid o{};
     for (int y = 0; y < N; y++)
         for (int x = 0; x < N; x++) {
             int inside = 0;
             for (int sy = 0; sy < 8; sy++)
                 for (int sx = 0; sx < 8; sx++) {
-                    const float d = square_symbol::reach(x + (sx + 0.5f) / 8 - kOX, y + (sy + 0.5f) / 8 - kOY);
-                    inside += d >= kOuter - kWidth && d <= kOuter;
+                    inside += mark.stroke(x + (sx + 0.5f) / 8 - kOX, y + (sy + 0.5f) / 8 - kOY);
                 }
             o[at(x, y)] = inside > 64 * 0.45f;
         }
@@ -279,11 +279,11 @@ std::vector<Texture> hex_pad() {
             }
     }
 
-    // 3. The square, raised and lit from the lower right as the B is. Where its edge faces up or
+    // 3. The mark, raised and lit from the lower right as the B is. Where its edge faces up or
     // left it has the B's band there, texel for texel in from the edge: the near-black, then the
     // two dark greens; where it faces down or right, the B's two texels of highlight there, the
     // brightest where it faces the light squarely. Each is copied from the B's own edge, in order
-    // round the square, so the band runs on as the B's does. The rest is the B's own face: the same
+    // round the mark, so the band runs on as the B's does. The rest is the B's own face: the same
     // texel where the face was, else the nearest.
     // How many texels in from the stroke's nearer edge each of its texels is.
     std::array<int, N * N> depth{};
@@ -335,14 +335,13 @@ std::vector<Texture> hex_pad() {
         if (face_inside[i] && L[i] < 200) core.push_back(i);
     if (core.empty()) return {};
 
-    const float middle = kOuter - kWidth / 2;
     for (int y = 0; y < N; y++)
         for (int x = 0; x < N; x++) {
             const int i = at(x, y);
             if (!o[i]) continue;
-            const float dx = x + 0.5f - kOX, dy = y + 0.5f - kOY, d = square_symbol::reach(dx, dy);
-            const square_symbol::Facing f = square_symbol::facing(dx, dy);
-            const float lit = (d > middle ? 1.0f : -1.0f) * (f.x + f.y);  // its edge facing the lower right
+            const float dx = x + 0.5f - kOX, dy = y + 0.5f - kOY;
+            const square_symbol::Facing f = mark.out(dx, dy);
+            const float lit = f.x + f.y;  // its edge facing the lower right
             const int along = int((std::atan2(dy, dx) + float(M_PI)) / (2 * float(M_PI)) * 97);
             const int k = depth[i];
             if (lit < 0 && k <= 3) {

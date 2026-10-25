@@ -158,6 +158,49 @@ const Glyph* glyph(char c) {
         line(s, o, k, h, {0.26f, -0.5f}, {-0.26f, 0.5f});
         line(s, o, k, h, {-0.26f, 0.5f}, {0.28f, 0.5f});
     }};
+    static const Glyph c_{0.62f, [](Symbol& s, Vec o, float k, float h) {
+        arc(s, o, k, h, {0.02f, -0.19f}, 0.31f, 180, 140);
+        line(s, o, k, h, {-0.29f, -0.19f}, {-0.29f, 0.19f});
+        arc(s, o, k, h, {0.02f, 0.19f}, 0.31f, 180, -140);
+    }};
+    static const Glyph e{0.56f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.24f, -0.5f}, {-0.24f, 0.5f});
+        line(s, o, k, h, {-0.24f, -0.5f}, {0.26f, -0.5f});
+        line(s, o, k, h, {-0.24f, 0}, {0.2f, 0});
+        line(s, o, k, h, {-0.24f, 0.5f}, {0.26f, 0.5f});
+    }};
+    static const Glyph f{0.54f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.23f, -0.5f}, {-0.23f, 0.5f});
+        line(s, o, k, h, {-0.23f, -0.5f}, {0.27f, -0.5f});
+        line(s, o, k, h, {-0.23f, 0}, {0.2f, 0});
+    }};
+    static const Glyph i{0.4f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {0, -0.5f}, {0, 0.5f});
+        line(s, o, k, h, {-0.17f, -0.5f}, {0.17f, -0.5f});
+        line(s, o, k, h, {-0.17f, 0.5f}, {0.17f, 0.5f});
+    }};
+    static const Glyph j{0.52f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {0.22f, -0.5f}, {0.22f, 0.26f});
+        arc(s, o, k, h, {-0.01f, 0.26f}, 0.23f, 0, 180);
+    }};
+    static const Glyph k_{0.62f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.26f, -0.5f}, {-0.26f, 0.5f});
+        line(s, o, k, h, {0.27f, -0.5f}, {-0.26f, 0.1f});
+        line(s, o, k, h, {-0.06f, -0.12f}, {0.3f, 0.5f});
+    }};
+    static const Glyph p_{0.62f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.27f, -0.5f}, {-0.27f, 0.5f});
+        line(s, o, k, h, {-0.27f, -0.5f}, {0.02f, -0.5f});
+        arc(s, o, k, h, {0.02f, -0.22f}, 0.28f, -90, 180);
+        line(s, o, k, h, {0.02f, 0.06f}, {-0.27f, 0.06f});
+    }};
+    static const Glyph q{0.74f, [](Symbol& s, Vec o, float k, float h) {
+        arc(s, o, k, h, {0, -0.13f}, 0.37f, 180, 180);
+        line(s, o, k, h, {0.37f, -0.13f}, {0.37f, 0.13f});
+        arc(s, o, k, h, {0, 0.13f}, 0.37f, 0, 180);
+        line(s, o, k, h, {-0.37f, 0.13f}, {-0.37f, -0.13f});
+        line(s, o, k, h, {0.1f, 0.22f}, {0.38f, 0.56f});
+    }};
     static const Glyph one{0.46f, [](Symbol& s, Vec o, float k, float h) {
         line(s, o, k, h, {0.04f, -0.5f}, {0.04f, 0.5f});
         line(s, o, k, h, {-0.18f, -0.3f}, {0.04f, -0.5f});
@@ -170,6 +213,14 @@ const Glyph* glyph(char c) {
     switch (c) {
         case 'A': return &a;
         case 'B': return &b;
+        case 'C': return &c_;
+        case 'E': return &e;
+        case 'F': return &f;
+        case 'I': return &i;
+        case 'J': return &j;
+        case 'K': return &k_;
+        case 'P': return &p_;
+        case 'Q': return &q;
         case 'L': return &l;
         case 'R': return &r;
         case 'S': return &s_;
@@ -546,6 +597,31 @@ std::vector<Entry> entries(Style style, bool swapped) {
             add("l", 32, 16, false, with(bumper, cap, grey, label("L1", 0.56f)));
             add("r", 32, 16, false, with(bumper, cap, grey, label("R1", 0.56f)));
             sticks(cap, grey);
+            break;
+        }
+        case Style::Keyboard: {  // dark keycaps with white legends, the keys that press each button
+            const Rgb cap = colour(0x26282d), white = colour(0xeceef2);
+            Button key;
+            key.squareness = 5, key.rx = key.ry = 0.7f, key.wall = 0.24f, key.dome = 0, key.concave = 0.05f;
+            key.shine = 50, key.spec = 0.6f;
+            Button space = key;
+            space.rx = 0.94f, space.ry = 0.46f;
+            // Z is C (crouch), Left Ctrl and the left mouse button too; L is Q and Tab, R F and the
+            // right mouse button. C-left is L with the camera swap, as on the stick, else J.
+            const char* to_left = swapped ? "L" : "J";
+            const char* to_right = swapped ? "J" : "L";
+            add("a", 32, 32, true, with(space, cap, white, label("SPACE", 0.4f)));
+            add("b", 32, 32, true, with(key, cap, white, label("E", 0.62f)));
+            add("start", 32, 32, true, with(key, cap, white, label("ESC", 0.44f)));
+            add("z", 16, 32, false, with(key, cap, white, label("C", 0.62f)));
+            add("l", 32, 16, false, with(key, cap, white, label("Q", 0.62f)));
+            add("r", 32, 16, false, with(key, cap, white, label("F", 0.62f)));
+            add("c_left", 32, 32, false, with(key, cap, white, label(to_left, 0.62f)));
+            add("c_right", 32, 32, false, with(key, cap, white, label(to_right, 0.62f)));
+            add("c_up", 32, 32, false, with(key, cap, white, label("I", 0.62f)));
+            add("c_down", 32, 32, false, with(key, cap, white, label("K", 0.62f)));
+            add("c_left_small", 16, 16, false, with(key, cap, white, label(to_left, 0.62f)));
+            add("c_right_small", 16, 16, false, with(key, cap, white, label(to_right, 0.62f)));
             break;
         }
         default:

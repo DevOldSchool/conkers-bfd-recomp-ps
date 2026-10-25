@@ -19,13 +19,14 @@ std::string setting() {
     return value != nullptr ? value : "";
 }
 
-// CONKER_PAD_ICONS=xbox, playstation or n64, read once: that set whatever the pad, else -1.
+// CONKER_PAD_ICONS=xbox, playstation, keyboard or n64, read once: that set whatever the pad, else -1.
 int chosen() {
     static const int choice = [] {
         const std::string text = setting();
         if (text == "n64") return int(Style::N64);
         if (text == "xbox") return int(Style::Xbox);
         if (text == "playstation") return int(Style::PlayStation);
+        if (text == "keyboard") return int(Style::Keyboard);
         return -1;
     }();
     return choice;
@@ -41,6 +42,7 @@ Style style() {
     switch (input::controller_kind()) {
         case input::PadKind::Xbox: return Style::Xbox;
         case input::PadKind::PlayStation: return Style::PlayStation;
+        case input::PadKind::None: return Style::Keyboard;
         default: return Style::N64;
     }
 }
@@ -49,6 +51,7 @@ const char* name(Style style) {
     switch (style) {
         case Style::Xbox: return "Xbox";
         case Style::PlayStation: return "PlayStation";
+        case Style::Keyboard: return "keyboard";
         case Style::N64: return "N64";
         default: return "original";
     }
