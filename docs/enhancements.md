@@ -342,14 +342,16 @@ place to the next, and aims like a plane, pushing up to look down.
   right stepping right, where the camera's swap would turn it round.
   With R held to aim, the right stick aims, and the left stick walks and
   steps.
-* With the rocket launcher in a multiplayer match, while its scope is up
-  (R), the right stick aims and the left stick walks.
+* The multiplayer matches' guns (the shotgun in TEMPLE, the Uzi and the
+  others that aim with R) handle as the shotgun does, and get the same.
+* With the rocket launcher or the scoped gun in a multiplayer match, while
+  its scope is up (R), the right stick aims and the left stick walks.
 
 With the keyboard and mouse the mouse is that right stick: it turns the
 camera itself (0.15 degrees a pixel, times `CONKER_MOUSE_SENSITIVITY`), and
 while aiming it aims (see the controls in the README). The keyboard alone,
-with the mouse not captured, keeps the game's aiming, and only controller 1
-is changed (the camera's swap is on every controller). `CONKER_CONSISTENT_CONTROLS=0`
+with the mouse not captured, keeps the game's aiming. In a multiplayer match every player's pad gets
+these controls with their own right stick; only controller 1 has the mouse. `CONKER_CONSISTENT_CONTROLS=0`
 leaves the game's controls, and CONSISTENT CONTROLS on the debug menu's
 ENHANCEMENTS page switches it.
 
