@@ -1,9 +1,9 @@
 // Headless runtime for the Conker's Bad Fur Day recompilation.
 //
-//   ConkerRecomp [path to US ROM .z64]
+//   ConkersBadFurDay [path to US ROM .z64]
 //
 // The ROM is kept in conker-recomp-data once chosen, so later runs need no argument. The packaged
-// macOS app asks for it with a panel instead (src/platform/app_bundle_apple.hpp).
+// RT64 build asks for it with a dialog instead (src/platform/launch.hpp).
 // Registers the game with librecomp, wires the ultramodern callbacks and starts the game thread.
 // Controller 1 is an SDL game controller or the keyboard in the RT64 build
 // (src/platform/input_sdl.cpp), plus any scripted Start or A presses (CONKER_PRESS_START,
@@ -38,8 +38,8 @@ static long _dyld_get_image_vmaddr_slide(int) { return 0; }
 #include "platform/window.hpp"
 #include "runtime/game.hpp"
 #include "runtime/rsp.hpp"
-#if CONKER_APP_BUNDLE
-#include "platform/app_bundle_apple.hpp"
+#if CONKER_LAUNCH_UI
+#include "platform/launch.hpp"
 #endif
 #if CONKER_RENDERER_RT64
 #include "platform/renderer_rt64.hpp"
@@ -109,9 +109,9 @@ ultramodern::input::connected_device_info_t get_connected_device_info(int contro
 // --- misc ----------------------------------------------------------------------------------
 void message_box(const char* msg) {
     std::fprintf(stderr, "[conker] %s\n", msg);
-#if CONKER_APP_BUNDLE
-    // The packaged app has no terminal.
-    if (conker::app_bundle::active()) {
+#if CONKER_LAUNCH_UI
+    // Started from the desktop, nobody reads the terminal.
+    if (conker::launch::from_desktop()) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Conker's Bad Fur Day", msg, nullptr);
     }
 #endif
@@ -219,8 +219,8 @@ int main(int argc, char** argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);  // keep log order intact if the game thread crashes
     install_crash_handler();
     parse_scripted_input();
-#if CONKER_APP_BUNDLE
-    conker::app_bundle::enter_data_folder();
+#if CONKER_LAUNCH_UI
+    conker::launch::enter_data_folder();
 #endif
 
     // Stored ROM copy, saves and mod folders live here.
@@ -236,12 +236,21 @@ int main(int argc, char** argv) {
         recomp::check_all_stored_roms();
     }
     if (rom_path.empty() && !recomp::is_rom_valid(conker::kGameId)) {
-#if CONKER_APP_BUNDLE
-        if (conker::app_bundle::active() && SDL_InitSubSystem(SDL_INIT_VIDEO) == 0) {
-            rom_path = conker::app_bundle::choose_rom();
+#if CONKER_LAUNCH_UI
+#if defined(__APPLE__)
+        if (SDL_InitSubSystem(SDL_INIT_VIDEO) == 0)
+#endif
+        {
+            rom_path = conker::launch::choose_rom();
         }
 #endif
         if (rom_path.empty()) {
+#if CONKER_LAUNCH_UI
+            if (conker::launch::from_desktop()) {
+                message_box("No ROM was chosen. Open the game again and choose your own Conker's Bad Fur Day "
+                            "(US) ROM to play.");
+            }
+#endif
             std::fprintf(stderr, "usage: %s <conker-us.z64>\n", argv[0]);
             return 2;
         }

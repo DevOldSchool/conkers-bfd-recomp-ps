@@ -70,7 +70,7 @@ From the repository's folder, since settings, saves and texture packs live in
 `conker-recomp-data` in the current folder:
 
 ```sh
-build/rt64/ConkerRecomp /path/to/conker-us.z64
+build/rt64/ConkersBadFurDay /path/to/conker-us.z64
 ```
 
 The ROM is kept in `conker-recomp-data`, so later runs can leave it out.
@@ -86,8 +86,8 @@ Mac, right click it and choose Open the first time, or run
 
 The app asks for the player's own ROM the first time it opens and keeps a
 copy, along with settings, saves and `last-run.log`, in
-`~/Library/Application Support/ConkerRecomp/conker-recomp-data`.
-`dist/ConkerRecomp.dSYM` stays with you, for `tools/symbolicate.sh` on a crash
+`~/Library/Application Support/ConkersBadFurDay/conker-recomp-data`.
+`dist/ConkersBadFurDay.dSYM` stays with you, for `tools/symbolicate.sh` on a crash
 they send back.
 
 ## After pulling changes

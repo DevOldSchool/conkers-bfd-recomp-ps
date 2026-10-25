@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Package a built ConkerRecomp as "dist/Conker's Bad Fur Day.app" and dist/Conkers-Bad-Fur-Day-<version>-macos.zip,
-# to run on another Mac with no Homebrew or checkout.
+# Package a built ConkersBadFurDay as "dist/Conker's Bad Fur Day.app" and
+# dist/Conkers-Bad-Fur-Day-<version>-macos.zip, to run on another Mac with no Homebrew or checkout.
 #
 #   tools/package_macos.sh [build dir]
 #
@@ -9,8 +9,8 @@
 # Contents/Frameworks and is signed ad hoc, not notarised: the first time, the tester opens it with
 # right click > Open, or clears the quarantine with `xattr -dr com.apple.quarantine "Conker's Bad Fur Day.app"`.
 # No ROM is packaged. Opened from Finder the app asks for the tester's own ROM once and keeps its data
-# and last-run.log in ~/Library/Application Support/ConkerRecomp (src/platform/app_bundle_apple.hpp).
-# dist/ConkerRecomp.dSYM holds the debug information, for tools/symbolicate.sh on a tester's crash.
+# and last-run.log in ~/Library/Application Support/ConkersBadFurDay (src/platform/launch.hpp).
+# dist/ConkersBadFurDay.dSYM holds the debug information, for tools/symbolicate.sh on a tester's crash.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,11 +18,11 @@ if [ -n "${1:-}" ]; then
     build="$1"
 else
     build="$here/build/rt64"
-    if [ "$here/cmake-build-relwithdebinfo-rt64/ConkerRecomp" -nt "$build/ConkerRecomp" ]; then
+    if [ "$here/cmake-build-relwithdebinfo-rt64/ConkersBadFurDay" -nt "$build/ConkersBadFurDay" ]; then
         build="$here/cmake-build-relwithdebinfo-rt64"
     fi
 fi
-binary="$build/ConkerRecomp"
+binary="$build/ConkersBadFurDay"
 dist="$here/dist"
 app="$dist/Conker's Bad Fur Day.app"
 
@@ -32,7 +32,7 @@ if [ ! -x "$binary" ]; then
 fi
 # A build from before the packaged-app support would quit at once when opened from Finder.
 if ! grep -q "Choose your Conker" "$binary"; then
-    echo "$binary predates the packaged-app support (src/platform/app_bundle_apple.mm): rebuild it" >&2
+    echo "$binary predates the packaged-app support (src/platform/launch_apple.mm): rebuild it" >&2
     exit 1
 fi
 echo "==> packaging $binary ($(stat -f '%Sm' "$binary"))"
@@ -52,9 +52,9 @@ sdl2="$(realpath "$sdl2_ref")"
 sdl3="$(realpath "$(brew --prefix sdl3)/lib/libSDL3.0.dylib")"
 
 echo "==> $app ($version, $arch, macOS $minos or later)"
-rm -rf "$app" "$dist/ConkerRecomp.app" "$dist/ConkerRecomp.dSYM"
+rm -rf "$app" "$dist/ConkersBadFurDay.dSYM" "$dist/ConkerRecomp.app" "$dist/ConkerRecomp.dSYM"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks"
-cp "$binary" "$app/Contents/MacOS/ConkerRecomp"
+cp "$binary" "$app/Contents/MacOS/ConkersBadFurDay"
 cp "$sdl2" "$app/Contents/Frameworks/libSDL2-2.0.0.dylib"
 cp "$sdl3" "$app/Contents/Frameworks/libSDL3.dylib"
 chmod u+w "$app/Contents/Frameworks/"*.dylib
@@ -66,8 +66,8 @@ cat > "$app/Contents/Info.plist" <<EOF
 <dict>
     <key>CFBundleName</key><string>Conker's Bad Fur Day</string>
     <key>CFBundleDisplayName</key><string>Conker's Bad Fur Day</string>
-    <key>CFBundleExecutable</key><string>ConkerRecomp</string>
-    <key>CFBundleIdentifier</key><string>org.conkerrecomp.ConkerRecomp</string>
+    <key>CFBundleExecutable</key><string>ConkersBadFurDay</string>
+    <key>CFBundleIdentifier</key><string>org.conkerrecomp.ConkersBadFurDay</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>0.1.0</string>
     <key>CFBundleVersion</key><string>$version</string>
@@ -97,7 +97,7 @@ iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
 rm -rf "$(dirname "$iconset")"
 
 echo "==> pointing the binary at the bundled SDL"
-exe="$app/Contents/MacOS/ConkerRecomp"
+exe="$app/Contents/MacOS/ConkersBadFurDay"
 install_name_tool -id @rpath/libSDL2-2.0.0.dylib "$app/Contents/Frameworks/libSDL2-2.0.0.dylib"
 install_name_tool -id @rpath/libSDL3.dylib "$app/Contents/Frameworks/libSDL3.dylib"
 install_name_tool -change "$sdl2_ref" @rpath/libSDL2-2.0.0.dylib "$exe"
@@ -120,7 +120,7 @@ codesign --force --sign - "$app/Contents/Frameworks/"*.dylib
 codesign --force --sign - "$app"
 codesign --verify --strict "$app"
 
-dsymutil "$binary" -o "$dist/ConkerRecomp.dSYM"
+dsymutil "$binary" -o "$dist/ConkersBadFurDay.dSYM"
 zip="$dist/Conkers-Bad-Fur-Day-$version-macos.zip"
 rm -f "$zip"
 ditto -c -k --keepParent "$app" "$zip"

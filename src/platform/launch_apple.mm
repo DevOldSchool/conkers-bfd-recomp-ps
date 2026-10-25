@@ -1,19 +1,19 @@
-// The packaged macOS app: data folder, log and ROM panel (see app_bundle_apple.hpp).
-#include "platform/app_bundle_apple.hpp"
+// The packaged macOS app: data folder, log and ROM panel (see launch.hpp).
+#include "platform/launch.hpp"
 
 #include <cstdio>
 #include <system_error>
 
 #import <AppKit/AppKit.h>
 
-namespace conker::app_bundle {
+namespace conker::launch {
 
-bool active() {
+bool from_desktop() {
     return [[[NSBundle mainBundle] bundlePath] hasSuffix:@".app"];
 }
 
 void enter_data_folder() {
-    if (!active()) {
+    if (!from_desktop()) {
         return;
     }
     NSURL* support = [[[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory
@@ -21,7 +21,7 @@ void enter_data_folder() {
     if (support == nil) {
         return;
     }
-    const std::filesystem::path folder = std::filesystem::path(support.fileSystemRepresentation) / "ConkerRecomp";
+    const std::filesystem::path folder = std::filesystem::path(support.fileSystemRepresentation) / "ConkersBadFurDay";
     std::error_code error;
     std::filesystem::create_directories(folder / "conker-recomp-data", error);
     std::filesystem::current_path(folder, error);
@@ -52,4 +52,4 @@ std::filesystem::path choose_rom() {
     }
 }
 
-}  // namespace conker::app_bundle
+}  // namespace conker::launch
