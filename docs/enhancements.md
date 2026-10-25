@@ -336,6 +336,8 @@ place to the next, and aims like a plane, pushing up to look down.
 * The right stick turns the view the way it is pushed: C-left and C-right
   are swapped (also on J/L), as the N64's C-left swings the view right.
 * Holding R to look around in first person, the stick pushed up looks up.
+* Aiming the slingshot (out with B on its pad), the stick or WASD pushed up
+  aims up, and the mouse aims it too.
 * With the shotgun (Spooky's mansion, out with B), the left stick moves him
   as before, and the right stick steps him (C-up and C-down forwards and
   back, C-left and C-right sideways, still facing the same way), pushed
