@@ -1,7 +1,7 @@
 # Building on macOS
 
-The tested platform. See [building.md](building.md) for what every build
-needs and the build options.
+The tested platform. See the [README](../README.md#building) for what every
+build needs and the build options.
 
 ## One-time setup
 

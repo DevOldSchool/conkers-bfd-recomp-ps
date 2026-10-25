@@ -1,8 +1,8 @@
 # Building on Linux
 
 Not tested yet. RT64 renders through Vulkan on an X11 window, so you need a
-GPU driver with Vulkan support. See [building.md](building.md) for what every
-build needs and the build options.
+GPU driver with Vulkan support. See the [README](../README.md#building) for
+what every build needs and the build options.
 
 ## One-time setup
 

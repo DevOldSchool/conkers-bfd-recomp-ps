@@ -1,8 +1,9 @@
 # Building on Windows
 
 Not tested yet. RT64 renders through Direct3D 12 on Windows 10 or 11. The
-build scripts are Bash, so the steps run in Git Bash. See
-[building.md](building.md) for what every build needs and the build options.
+build scripts are Bash, so the steps run in Git Bash. See the
+[README](../README.md#building) for what every build needs and the build
+options.
 
 ## One-time setup
 

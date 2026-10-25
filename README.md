@@ -34,17 +34,36 @@ Platforms:
 
 ## Building
 
-You need CMake, Ninja, Python 3, SDL2, clang, the
-[decomp](https://github.com/DevOldSchool/conkers-bfd-decomp) checked out next
-to this repository, and your US ROM. Step-by-step guides, one-time setup
-included:
+Step-by-step guides, one-time setup included:
 
-* [macOS](docs/building-macos.md)
+* [macOS](docs/building-macos.md) (the only platform tested so far)
 * [Windows](docs/building-windows.md)
 * [Linux](docs/building-linux.md)
 
-[docs/building.md](docs/building.md) has the full requirements and the build
-options.
+Every build needs:
+
+* CMake 3.20 or later, Ninja, Python 3 and SDL2
+* a C++20 compiler (clang)
+* the [decomp](https://github.com/DevOldSchool/conkers-bfd-decomp) checked
+  out next to this repository, as `../conkers-bfd-decomp`. Only its scripts
+  and inventory are used; it does not have to be built, so its Docker
+  toolchain is not needed.
+* your US ROM
+
+The build has three stages: `tools/apply_patches.sh` patches the submodules,
+`tools/regenerate.sh` turns the ROM into C with N64Recomp, and CMake compiles
+that with the runtime and the renderer.
+
+### Build options
+
+* Cloned without `--recursive`? Run `git submodule update --init --recursive`
+  before `tools/apply_patches.sh`.
+* Leave out `-DCONKER_RENDERER=rt64` for the null build: no window, sound or
+  input, useful for scripted runs.
+* With the decomp or the ROM somewhere else, set
+  `CONKER_DECOMP=/path/to/conkers-bfd-decomp` or `CONKER_ROM=/path/to/rom.z64`
+  for `regenerate.sh` (from a git worktree, `CONKER_DECOMP` is needed).
+* Run `tools/regenerate.sh` again after changing `config/us.toml`.
 
 ## Controls
 
@@ -116,8 +135,6 @@ says how to turn it off. The details, and every setting, are in
 
 ## Documentation
 
-* [docs/building.md](docs/building.md): requirements, build options and
-  the guide for each platform
 * [docs/enhancements.md](docs/enhancements.md): each enhancement in full
   and its settings
 * [docs/diagnostics.md](docs/diagnostics.md): crash reports, display-list and
