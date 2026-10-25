@@ -1,12 +1,14 @@
 // The octagonal wooden B pads are a 64x64 CI4 texture with a 16-colour RGBA16 palette, flat
 // resource 1575: a wooden octagon with a raised B painted in five shades of moss. For a PlayStation
 // pad the B is taken out, the wood under it refilled from the same ring of the plate elsewhere (its
-// grain runs in octagonal rings), and a circle painted in, in Rare's own colours: the moss mottled
+// grain runs in octagonal rings), and a square painted in, in Rare's own colours: the moss mottled
 // the way theirs is, lightest on the edges facing up and right, with a dark band two texels wide in
 // the palette's dark browns where the B has one: its outline moved up and to the left (outside the
 // top and left of the letter, inside its bowls at their lower right). It is made from the player's
 // ROM when the game starts, so no part of Rare's texture is in this repository.
 #include "enhancements/pad_icons/b_pad.hpp"
+#include "enhancements/pad_icons/ring_fill.hpp"
+#include "enhancements/pad_icons/square_symbol.hpp"
 
 #include <algorithm>
 #include <array>
@@ -103,9 +105,11 @@ Field blur(const Field& f, float sigma) {
     return out;
 }
 
-// The circle, as much of each texel as lies in the ring, kept where that is most of it.
-Grid circle() {
-    constexpr float kOuter = kSize * 0.27f, kInner = kOuter - kSize * 0.13f;
+// The square's outer reach and its counter's, in texels.
+constexpr float kOuter = kSize * 0.24f, kInner = kOuter - kSize * 0.12f;
+
+// The square, as much of each texel as lies in its stroke, kept where that is most of it.
+Grid square() {
     Grid out{};
     for (int y = 0; y < kSize; y++) {
         for (int x = 0; x < kSize; x++) {
@@ -113,7 +117,7 @@ Grid circle() {
             for (int sy = 0; sy < 8; sy++) {
                 for (int sx = 0; sx < 8; sx++) {
                     const float dx = x + (sx + 0.5f) / 8 - kSize / 2.0f, dy = y + (sy + 0.5f) / 8 - kSize / 2.0f;
-                    const float d = std::sqrt(dx * dx + dy * dy);
+                    const float d = square_symbol::reach(dx, dy);
                     inside += d >= kInner && d <= kOuter;
                 }
             }
@@ -138,7 +142,7 @@ uint64_t hash(const std::vector<uint8_t>& resource) {
 
 } // namespace
 
-std::optional<Texture> circle_pad() {
+std::optional<Texture> wood_pad() {
     const std::vector<uint8_t> resource = menu_art::load_resource(kResource);
     if (resource.size() != size_t(kTexelBytes + 32)) return std::nullopt;
 
@@ -188,7 +192,8 @@ std::optional<Texture> circle_pad() {
     }
     letter = erode(dilate(letter));
 
-    // Refill the wood under the letter from the same ring, at the nearest angles.
+    // Refill the wood under the letter from the same ring further along the same edge of the
+    // octagon, else (where no ring is clear of it) from the same ring at the nearest angles.
     std::mt19937 random(3);
     auto ring = [](int x, int y) {
         const float dx = std::abs(x + 0.5f - kSize / 2.0f), dy = std::abs(y + 0.5f - kSize / 2.0f);
@@ -197,9 +202,81 @@ std::optional<Texture> circle_pad() {
     auto angle = [](int x, int y) { return std::atan2(y + 0.5f - kSize / 2.0f, x + 0.5f - kSize / 2.0f); };
     const Grid covered = dilate(letter);
     std::array<int, kSize * kSize> wood = index;
+    auto along = [](int x, int y) {
+        const float dx = x + 0.5f - kSize / 2.0f, dy = y + 0.5f - kSize / 2.0f;
+        const float ax = std::abs(dx), ay = std::abs(dy), diagonal = (ax + ay) / 1.41421356f;
+        if (ax >= ay && ax >= diagonal) return ring_fill::Step{0, 1};  // the left and right edges
+        if (ay >= diagonal) return ring_fill::Step{1, 0};              // the top and bottom
+        return ring_fill::Step{0.70710678f, dx * dy < 0 ? 0.70710678f : -0.70710678f};
+    };
+    Grid slid{};
+    ring_fill::fill(
+        kSize, kSize, [&](int x, int y) { return covered[at(x, y)] && solid[at(x, y)]; }, along,
+        [&](int sx, int sy, int x, int y) {
+            const ring_fill::Step a = along(sx, sy), b = along(x, y);
+            return !covered[at(sx, sy)] && solid[at(sx, sy)] && a.x * b.x + a.y * b.y > 0.99f && ring(sx, sy) == ring(x, y);
+        },
+        [&](int sx, int sy, int x, int y) { wood[at(x, y)] = index[at(sx, sy)], slid[at(x, y)] = true; });
+    // Outside the square, where a ring's straight edge is shorter than the letter, the same place on
+    // the octagon turned or mirrored about its middle (on the same ring), the first of those clear
+    // of the letter.
     for (int y = 0; y < kSize; y++) {
         for (int x = 0; x < kSize; x++) {
-            if (!covered[at(x, y)] || !solid[at(x, y)]) continue;
+            if (!covered[at(x, y)] || !solid[at(x, y)] || slid[at(x, y)]) continue;
+            const int dx = 2 * x + 1 - kSize, dy = 2 * y + 1 - kSize;  // in half texels from the middle
+            if (square_symbol::reach(dx / 2.0f, dy / 2.0f) < kOuter) continue;  // the square and its counter, below
+            const int images[7][2] = {{-dx, dy}, {dx, -dy}, {-dx, -dy}, {dy, dx}, {-dy, dx}, {dy, -dx}, {-dy, -dx}};
+            for (const auto& image : images) {
+                const int sx = (image[0] + kSize - 1) / 2, sy = (image[1] + kSize - 1) / 2;
+                if (covered[at(sx, sy)] || !solid[at(sx, sy)]) continue;
+                wood[at(x, y)] = index[at(sx, sy)], slid[at(x, y)] = true;
+                break;
+            }
+        }
+    }
+    // The square's counter is the middle of the rings, all under the letter: each texel from the
+    // same direction further out, clear of the letter (out by so many rings, and the rings drawn
+    // closer together if that is what it takes to stay off the dark rings by the rim), so the rings
+    // close in round the middle as they do.
+    {
+        const Grid stroke = square();  // painted over below
+        std::vector<int> counter;
+        for (int i = 0; i < kSize * kSize; i++)
+            if (covered[i] && solid[i] && !slid[i] && !stroke[i]) counter.push_back(i);
+        auto pushed = [&](int i, float rings, float closer, int& sx, int& sy) {
+            const float dx = i % kSize + 0.5f - kSize / 2.0f, dy = i / kSize + 0.5f - kSize / 2.0f;
+            const float ax = std::abs(dx), ay = std::abs(dy), r = std::max({ax, ay, (ax + ay) / 1.41421356f, 0.5f});
+            const float out = (rings + r * closer) / r;
+            sx = int(std::floor(kSize / 2.0f + dx * out)), sy = int(std::floor(kSize / 2.0f + dy * out));
+            return in(sx, sy) && solid[at(sx, sy)] && (!covered[at(sx, sy)] || slid[at(sx, sy)]);
+        };
+        // Of those that fit, the one that gives the smoothest counter with no dark ring in it (its
+        // only shadow is the B's band, at its lower right), the rings as little closer as may be.
+        std::vector<int> best;
+        float best_rough = 0;
+        for (int half_rings = 2; half_rings < kSize && !counter.empty(); half_rings++)
+          for (const float closer : {1.0f, 0.8f, 0.65f, 0.5f}) {
+            const float rings = half_rings / 2.0f;
+            int sx, sy;
+            if (!std::all_of(counter.begin(), counter.end(), [&](int i) { return pushed(i, rings, closer, sx, sy); })) continue;
+            std::vector<int> from(kSize * kSize, -1);
+            for (int i : counter) pushed(i, rings, closer, sx, sy), from[i] = wood[at(sx, sy)];
+            auto lum = [&](int v) { return (palette[v][0] + palette[v][1] + palette[v][2]) / 3; };
+            float rough = 0;
+            for (int i : counter) {
+                if (i % kSize + 1 < kSize && from[i + 1] >= 0) rough += std::abs(lum(from[i + 1]) - lum(from[i]));
+                if (i + kSize < kSize * kSize && from[i + kSize] >= 0) rough += std::abs(lum(from[i + kSize]) - lum(from[i]));
+                rough += 20 * std::max(0.0f, 110 - lum(from[i]));  // dark wood
+            }
+            rough *= 2 - closer;
+            if (best.empty() || rough < best_rough) best = from, best_rough = rough;
+        }
+        if (!best.empty())
+            for (int i : counter) wood[i] = best[i], slid[i] = true;
+    }
+    for (int y = 0; y < kSize; y++) {
+        for (int x = 0; x < kSize; x++) {
+            if (!covered[at(x, y)] || !solid[at(x, y)] || slid[at(x, y)]) continue;
             std::vector<std::pair<float, int>> candidates;
             for (int reach : {0, 1, 2, 4, 8, 16, 64}) {
                 for (int cy = 0; cy < kSize; cy++) {
@@ -218,8 +295,8 @@ std::optional<Texture> circle_pad() {
         }
     }
 
-    // The circle, with the B's dark band: the circle moved one and two texels up and left.
-    const Grid ring_mask = circle();
+    // The square, with the B's dark band: the square moved one and two texels up and left.
+    const Grid ring_mask = square();
     std::array<int, kSize * kSize> out = wood;
     for (int y = 0; y < kSize; y++) {
         for (int x = 0; x < kSize; x++) {

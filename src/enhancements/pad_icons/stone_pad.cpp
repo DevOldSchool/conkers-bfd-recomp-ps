@@ -7,11 +7,12 @@
 // For a PlayStation pad the B's lines are taken out: where they cross the ring, the ring and its
 // shadow are rebuilt from their mirror image across the light's diagonal; inside the ring the gap
 // is filled from its edges inward with 5x5 patches of the disc's own light marble, each the one
-// that best matches the stone already round it, so the veins run on. Then an O is drawn in the
+// that best matches the stone already round it, so the veins run on. Then a square is drawn in the
 // middle of the ring, edged the way the B is, in the B's own colours, its face lifted a little
 // towards the B's lighter marble. It is made from the player's ROM when the game starts, so no part
 // of Rare's texture is in this repository.
 #include "enhancements/pad_icons/b_pad.hpp"
+#include "enhancements/pad_icons/square_symbol.hpp"
 
 #include <algorithm>
 #include <array>
@@ -34,10 +35,10 @@ constexpr int kTexelBytes = kW * kH;
 constexpr int kResourceBytes = kTexelBytes + 256 * 2;
 constexpr uint32_t kTlutRgba16 = 0x8000;  // G_TT_RGBA16, as RT64 hashes a TLUT draw
 
-// The disc's middle (fitted to its rim), the ring round the B, and the O: its middle (fitted to the
-// ring), outer radius and stroke width, in texels.
+// The disc's middle (fitted to its rim), the ring round the B, and the square: its middle (fitted to the
+// ring), outer half-width and stroke width, in texels.
 constexpr float kCX = 31.33f, kCY = 31.51f, kRing = 17.0f;
-constexpr float kOX = 32.3f, kOY = 32.5f, kOuter = 13.5f, kWidth = 8.0f;
+constexpr float kOX = 32.3f, kOY = 32.5f, kOuter = 12.5f, kWidth = 6.5f;
 constexpr float kLight = 165.0f;  // the least mean lightness of a marble patch to fill from
 
 using Rgb = std::array<float, 3>;
@@ -70,15 +71,16 @@ Grid roll(const Grid& g, int dx, int dy) {
     return out;
 }
 
-// Texels more than `coverage` covered by the ring between radii `inner` and `outer` about (cx, cy).
-Grid ring(float cx, float cy, float inner, float outer, float coverage) {
+// Texels more than `coverage` covered by the square's stroke between reaches `inner` and `outer`
+// about (cx, cy).
+Grid square(float cx, float cy, float inner, float outer, float coverage) {
     Grid out{};
     for (int y = 0; y < N; y++)
         for (int x = 0; x < N; x++) {
             int inside = 0;
             for (int sy = 0; sy < 8; sy++)
                 for (int sx = 0; sx < 8; sx++) {
-                    const float d = std::hypot(x + (sx + 0.5f) / 8 - cx, y + (sy + 0.5f) / 8 - cy);
+                    const float d = square_symbol::reach(x + (sx + 0.5f) / 8 - cx, y + (sy + 0.5f) / 8 - cy);
                     inside += d >= inner && d <= outer;
                 }
             out[at(x, y)] = inside > 64 * coverage;
@@ -107,7 +109,7 @@ uint64_t hash(const std::vector<uint8_t>& resource) {
 
 } // namespace
 
-std::vector<Texture> circle_stone_pad() {
+std::vector<Texture> stone_pad() {
     // The disc as RT64 decodes it.
     Half halves[2];
     std::vector<Rgb> rgb(N * N);
@@ -230,12 +232,12 @@ std::vector<Texture> circle_stone_pad() {
             }
     }
 
-    // 3. The O, edged as the B is: a solid dark band two texels wide where the stroke lies down and
+    // 3. The square, edged as the B is: a solid dark band two texels wide where the stroke lies down and
     // to the right of a texel (darker still in the hole, as the B's counters), a faint blue-grey
     // line one texel outside its edges facing down and right, a white highlight on its own edge
     // facing down and right.
-    const Grid o = ring(kOX, kOY, kOuter - kWidth, kOuter, 0.45f);
-    const Grid inside = ring(kOX, kOY, 0, kOuter - kWidth, 0.5f);
+    const Grid o = square(kOX, kOY, kOuter - kWidth, kOuter, 0.45f);
+    const Grid inside = square(kOX, kOY, 0, kOuter - kWidth, 0.5f);
     const Grid down_right1 = roll(o, -1, -1), down_right2 = roll(o, -2, -2);
     std::vector<Rgb> band_colours, counters, whites, faint_colours, face;
     for (int y = 18; y < 46; y++)

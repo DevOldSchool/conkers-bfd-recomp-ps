@@ -9,12 +9,13 @@
 // For a PlayStation pad the B and its shadow are taken out: above y 27 the wooden band is filled in
 // from its own wood, below it the plate from the B's and the rim's metal, each from the edges
 // inward, each step copying the 3x3 patch of its own kind that best matches what is already round
-// it. Then an O stands where the B was, drawn as the B is: each texel of its ring copied from Rare's
+// it. Then a square stands where the B was, drawn as the B is: each texel of its stroke copied from Rare's
 // lines of texels across the B's strokes, from the edge of the B that faces the same way, at the
 // same depth in; a thin dark line round it from the B's; and its shadow cast upward in the B's
 // shadow texels, over the wood above it and the bottom of its counter. It is made from the player's
 // ROM when the game starts, so no part of Rare's texture is in this repository.
 #include "enhancements/pad_icons/b_pad.hpp"
+#include "enhancements/pad_icons/square_symbol.hpp"
 
 #include <algorithm>
 #include <array>
@@ -36,13 +37,13 @@ constexpr int kTexelBytes = N * N / 2;
 constexpr uint32_t kTlutRgba16 = 0x8000;  // G_TT_RGBA16, as RT64 hashes a TLUT draw
 
 // The B stands in x 15-47, y 11-53 (inclusive). The wood above y 27 is filled from y 3 in x 12-49,
-// the plate below it in x 14-47 down to y 54, the rim's metal left as it is. The O: its middle,
-// outer radius and stroke width, in texels, and how far its shadow falls: so many texels dark,
+// the plate below it in x 14-47 down to y 54, the rim's metal left as it is. The square: its middle,
+// outer half-width and stroke width, in texels, and how far its shadow falls: so many texels dark,
 // then so many of its edge.
 constexpr int kLeft = 15, kTop = 11, kRight = 47, kBottom = 53;
 constexpr int kWoodEnd = 27, kFillTop = 3, kWoodLeft = 12, kWoodRight = 49;
 constexpr int kPlateLeft = 14, kPlateRight = 47, kPlateBottom = 54;
-constexpr float kOX = 31.0f, kOY = 33.0f, kOuter = 14.0f, kWidth = 7.0f;
+constexpr float kOX = 31.0f, kOY = 33.0f, kOuter = 14.5f, kWidth = 7.0f;
 constexpr int kShadow = 3, kShadowEdge = 3;
 constexpr float kPale = 100;     // the least mean lightness of the metal
 constexpr float kHighlight = 200;  // the B's near-white line, left out of the plate's metal
@@ -117,7 +118,7 @@ struct Line {
 
 } // namespace
 
-std::optional<Texture> circle_square_pad() {
+std::optional<Texture> square_pad() {
     const std::vector<uint8_t> resource = menu_art::load_resource(kResource);
     if (resource.size() != size_t(kTexelBytes + 32)) return std::nullopt;
 
@@ -238,7 +239,7 @@ std::optional<Texture> circle_square_pad() {
             }
     }
 
-    // 3. The O's shadow, cast upward as the B's is: where the O moved up 1 to kShadow texels lies,
+    // 3. The square's shadow, cast upward as the B's is: where the square moved up 1 to kShadow texels lies,
     // the B's darkest shadow (just above it), then its lighter edge (further up).
     Grid o{};
     for (int y = 0; y < N; y++)
@@ -246,7 +247,7 @@ std::optional<Texture> circle_square_pad() {
             int inside = 0;
             for (int sy = 0; sy < 8; sy++)
                 for (int sx = 0; sx < 8; sx++) {
-                    const float d = std::hypot(x + (sx + 0.5f) / 8 - kOX, y + (sy + 0.5f) / 8 - kOY);
+                    const float d = square_symbol::reach(x + (sx + 0.5f) / 8 - kOX, y + (sy + 0.5f) / 8 - kOY);
                     inside += d >= kOuter - kWidth && d <= kOuter;
                 }
             o[at(x, y)] = inside > 64 * 0.45f;
@@ -275,8 +276,8 @@ std::optional<Texture> circle_square_pad() {
         for (int x = 0; x < N; x++) {
             const int i = at(x, y);
             if (!around[i] || o[i] || dark[i]) continue;
-            const float dx = x + 0.5f - kOX, dy = y + 0.5f - kOY, d = std::hypot(dx, dy);
-            const float down = (d > middle ? dy : -dy) / d;  // how much the O's edge there faces down
+            const float dx = x + 0.5f - kOX, dy = y + 0.5f - kOY, d = square_symbol::reach(dx, dy);
+            const float down = (d > middle ? 1.0f : -1.0f) * square_symbol::facing(dx, dy).y;  // how much the edge there faces down
             const std::vector<Rgb>& from = down > 0.3f ? line_below : line_above;
             out[i] = from[random() % from.size()];
         }
@@ -318,8 +319,8 @@ std::optional<Texture> circle_square_pad() {
         for (int x = 0; x < N; x++) {
             const int i = at(x, y);
             if (!o[i]) continue;
-            const float dx = x + 0.5f - kOX, dy = y + 0.5f - kOY, r = std::hypot(dx, dy);
-            const float turn = std::atan2(dy, dx);
+            const float dx = x + 0.5f - kOX, dy = y + 0.5f - kOY, r = square_symbol::reach(dx, dy);
+            const float turn = square_symbol::turn(dx, dy), round = std::atan2(dy, dx);
             const bool outer = r >= middle;
             const float a = outer ? turn : turn + float(M_PI);  // the way the nearer edge faces
             const float depth = outer ? kOuter - r : r - (kOuter - kWidth);
@@ -333,7 +334,7 @@ std::optional<Texture> circle_square_pad() {
             int facing = 0;
             while (facing < 3 && pick >= weights[facing]) pick -= weights[facing++];
             const std::vector<Line>& run = runs[outer ? 0 : 1][facing];
-            const Line& line = run[size_t((turn + float(M_PI)) * radius) % run.size()];
+            const Line& line = run[size_t((round + float(M_PI)) * radius) % run.size()];
             const int k = std::min(int(depth), 7);
             const int sx = line.x + line.dx * k, sy = line.y + line.dy * k;
             if (in(sx, sy)) out[i] = rgb[at(sx, sy)];

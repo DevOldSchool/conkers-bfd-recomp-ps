@@ -6,11 +6,12 @@
 // For a PlayStation pad the B is taken out (its dark ink texels joined to its stem, and the brown
 // ones round them) and filled from its edges inward, each step copying the 3x3 patch of the
 // plaque, clear of the B and of any ink, that best matches what is already round it and lies at
-// about the same height (the plaque is darker and more mottled toward the top). Then an O is
+// about the same height (the plaque is darker and more mottled toward the top). Then a square is
 // written where the B was, as with a broad nib: thick down its sides, thin over its top and bottom,
 // in the B's own inks, blended into the plaque at its edges. It is made from the player's ROM when
 // the game starts, so no part of Rare's texture is in this repository.
 #include "enhancements/pad_icons/b_pad.hpp"
+#include "enhancements/pad_icons/square_symbol.hpp"
 
 #include <algorithm>
 #include <array>
@@ -34,10 +35,10 @@ constexpr uint32_t kTlutRgba16 = 0x8000;  // G_TT_RGBA16, as RT64 hashes a TLUT 
 // The B lies in x 9-46, y 20-47 (inclusive), but for the plaque's notch above its curl (x < 17,
 // y < 24); its stem is at (27, 32). The plaque the fill copies from: x 8-55, y 7-56.
 constexpr int kLeft = 9, kTop = 20, kRight = 46, kBottom = 47, kStemX = 27, kStemY = 32;
-// The O: its middle, its half width and height (to the middle of the stroke), how much it leans
+// The square: its middle, its half width and height (to the middle of the stroke), how much it leans
 // (degrees, clockwise), and the nib: its length and angle (degrees, clockwise from the right) and
 // its thickness, in texels.
-constexpr float kOX = 32.0f, kOY = 31.0f, kRadiusX = 9.5f, kRadiusY = 12.5f, kLean = -6;
+constexpr float kOX = 32.0f, kOY = 31.0f, kRadiusX = 10.5f, kRadiusY = 10.5f, kLean = -4;
 constexpr float kNib = 4.5f, kNibAngle = -40, kNibThickness = 0.7f;
 // The palette's inks, darkest browns (the B's strokes), and the browns its edges are drawn in.
 constexpr int kInks[] = {0, 1, 7, 8, 9, 10, 11};
@@ -85,14 +86,16 @@ Grid part_at(const Grid& g, int x, int y) {
     return out;
 }
 
-// How much of each texel the O covers, from 4x4 samples: the nib drawn round its ellipse.
+// How much of each texel the square covers, from 4x4 samples: the nib drawn round it.
 std::array<float, N * N> o_cover() {
     constexpr int kSteps = 720;
     const float lean = kLean * float(M_PI) / 180, nib = kNibAngle * float(M_PI) / 180;
     std::array<std::array<float, 2>, kSteps> path;
     for (int k = 0; k < kSteps; k++) {
         const float t = 2 * float(M_PI) * k / kSteps;
-        const float ex = kRadiusX * std::cos(t), ey = kRadiusY * std::sin(t);
+        // Where the square is at angle t from its middle.
+        const float c = std::cos(t), s = std::sin(t), on = 1 / square_symbol::reach(c, s);
+        const float ex = kRadiusX * c * on, ey = kRadiusY * s * on;
         path[k] = {kOX + ex * std::cos(lean) - ey * std::sin(lean), kOY + ex * std::sin(lean) + ey * std::cos(lean)};
     }
     const float ux = std::cos(nib), uy = std::sin(nib);
@@ -130,7 +133,7 @@ uint64_t hash(const std::vector<uint8_t>& resource) {
 
 } // namespace
 
-std::optional<Texture> circle_rug_pad() {
+std::optional<Texture> rug_pad() {
     const std::vector<uint8_t> resource = menu_art::load_resource(kResource);
     if (resource.size() != size_t(kTexelBytes + 32)) return std::nullopt;
 
@@ -233,7 +236,7 @@ std::optional<Texture> circle_rug_pad() {
             }
     }
 
-    // 3. The O: where the nib covers most of a texel, one of the B's inks; at its edges the ink
+    // 3. The square: where the nib covers most of a texel, one of the B's inks; at its edges the ink
     // blended into the plaque, as the nearest colour in the palette.
     const std::array<float, N * N> cover = o_cover();
     Rgb mean_ink{};
