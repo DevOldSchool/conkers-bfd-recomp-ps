@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# Package a built ConkerRecomp as "dist/Conker's Bad Fur Day.app" and dist/Conkers-Bad-Fur-Day-<version>-macos.zip,
+# to run on another Mac with no Homebrew or checkout.
+#
+#   tools/package_macos.sh [build dir]
+#
+# Without a build dir, the newer of build/rt64 and cmake-build-relwithdebinfo-rt64 is packaged.
+# Build the RT64 renderer first. The app carries SDL2 (sdl2-compat) and the SDL3 it loads in
+# Contents/Frameworks and is signed ad hoc, not notarised: the first time, the tester opens it with
+# right click > Open, or clears the quarantine with `xattr -dr com.apple.quarantine "Conker's Bad Fur Day.app"`.
+# No ROM is packaged. Opened from Finder the app asks for the tester's own ROM once and keeps its data
+# and last-run.log in ~/Library/Application Support/ConkerRecomp (src/platform/app_bundle_apple.hpp).
+# dist/ConkerRecomp.dSYM holds the debug information, for tools/symbolicate.sh on a tester's crash.
+set -euo pipefail
+
+here="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -n "${1:-}" ]; then
+    build="$1"
+else
+    build="$here/build/rt64"
+    if [ "$here/cmake-build-relwithdebinfo-rt64/ConkerRecomp" -nt "$build/ConkerRecomp" ]; then
+        build="$here/cmake-build-relwithdebinfo-rt64"
+    fi
+fi
+binary="$build/ConkerRecomp"
+dist="$here/dist"
+app="$dist/Conker's Bad Fur Day.app"
+
+if [ ! -x "$binary" ]; then
+    echo "no $binary: build the RT64 renderer first" >&2
+    exit 1
+fi
+# A build from before the packaged-app support would quit at once when opened from Finder.
+if ! grep -q "Choose your Conker" "$binary"; then
+    echo "$binary predates the packaged-app support (src/platform/app_bundle_apple.mm): rebuild it" >&2
+    exit 1
+fi
+echo "==> packaging $binary ($(stat -f '%Sm' "$binary"))"
+
+version="$(git -C "$here" describe --always --dirty 2>/dev/null || echo unknown)"
+minos="$(otool -l "$binary" | awk '/LC_BUILD_VERSION/ {found = 1} found && $1 == "minos" {print $2; exit}')"
+arch="$(lipo -archs "$binary")"
+
+# The SDL2 the binary links, wherever Homebrew put it.
+sdl2_ref="$(otool -L "$binary" | awk '/libSDL2-2\.0\.0\.dylib/ {print $1; exit}')"
+if [ -z "$sdl2_ref" ]; then
+    echo "$binary does not link libSDL2-2.0.0.dylib" >&2
+    exit 1
+fi
+sdl2="$(realpath "$sdl2_ref")"
+# sdl2-compat loads SDL3 at run time, first from @loader_path/libSDL3.dylib.
+sdl3="$(realpath "$(brew --prefix sdl3)/lib/libSDL3.0.dylib")"
+
+echo "==> $app ($version, $arch, macOS $minos or later)"
+rm -rf "$app" "$dist/ConkerRecomp.app" "$dist/ConkerRecomp.dSYM"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks"
+cp "$binary" "$app/Contents/MacOS/ConkerRecomp"
+cp "$sdl2" "$app/Contents/Frameworks/libSDL2-2.0.0.dylib"
+cp "$sdl3" "$app/Contents/Frameworks/libSDL3.dylib"
+chmod u+w "$app/Contents/Frameworks/"*.dylib
+
+cat > "$app/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key><string>Conker's Bad Fur Day</string>
+    <key>CFBundleDisplayName</key><string>Conker's Bad Fur Day</string>
+    <key>CFBundleExecutable</key><string>ConkerRecomp</string>
+    <key>CFBundleIdentifier</key><string>org.conkerrecomp.ConkerRecomp</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>0.1.0</string>
+    <key>CFBundleVersion</key><string>$version</string>
+    <key>LSMinimumSystemVersion</key><string>$minos</string>
+    <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>GCSupportsControllerUserInteraction</key><true/>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
+</dict>
+</plist>
+EOF
+
+# The icon: assets/app-icon.png, 1024 x 1024 with the tile in the middle 824, at every size an .icns holds.
+echo "==> making the icon"
+iconset="$(mktemp -d)/AppIcon.iconset"
+mkdir -p "$iconset" "$app/Contents/Resources"
+cp "$here/assets/app-icon.png" "$iconset/icon_512x512@2x.png"
+for size in 16 32 128 256 512; do
+    sips -z "$size" "$size" "$iconset/icon_512x512@2x.png" --out "$iconset/icon_${size}x${size}.png" > /dev/null
+    if [ "$size" != 512 ]; then
+        double=$((size * 2))
+        sips -z "$double" "$double" "$iconset/icon_512x512@2x.png" --out "$iconset/icon_${size}x${size}@2x.png" > /dev/null
+    fi
+done
+iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
+rm -rf "$(dirname "$iconset")"
+
+echo "==> pointing the binary at the bundled SDL"
+exe="$app/Contents/MacOS/ConkerRecomp"
+install_name_tool -id @rpath/libSDL2-2.0.0.dylib "$app/Contents/Frameworks/libSDL2-2.0.0.dylib"
+install_name_tool -id @rpath/libSDL3.dylib "$app/Contents/Frameworks/libSDL3.dylib"
+install_name_tool -change "$sdl2_ref" @rpath/libSDL2-2.0.0.dylib "$exe"
+for rpath in $(otool -l "$exe" | awk '$1 == "cmd" {cmd = $2} cmd == "LC_RPATH" && $1 == "path" {print $2}'); do
+    install_name_tool -delete_rpath "$rpath" "$exe"
+done
+install_name_tool -add_rpath @executable_path/../Frameworks "$exe"
+
+# Nothing may still point into Homebrew or this machine.
+leaks="$(for f in "$exe" "$app/Contents/Frameworks/"*.dylib; do otool -L "$f" | tail -n +2; done \
+    | awk '{print $1}' | grep -vE '^(/System/Library/|/usr/lib/|@rpath/)' || true)"
+if [ -n "$leaks" ]; then
+    echo "still linked outside the app:" >&2
+    echo "$leaks" >&2
+    exit 1
+fi
+
+echo "==> signing ad hoc"
+codesign --force --sign - "$app/Contents/Frameworks/"*.dylib
+codesign --force --sign - "$app"
+codesign --verify --strict "$app"
+
+dsymutil "$binary" -o "$dist/ConkerRecomp.dSYM"
+zip="$dist/Conkers-Bad-Fur-Day-$version-macos.zip"
+rm -f "$zip"
+ditto -c -k --keepParent "$app" "$zip"
+echo "==> $zip ($(du -h "$zip" | cut -f1))"

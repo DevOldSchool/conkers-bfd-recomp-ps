@@ -64,6 +64,9 @@ that with the runtime and the renderer.
   `CONKER_DECOMP=/path/to/conkers-bfd-decomp` or `CONKER_ROM=/path/to/rom.z64`
   for `regenerate.sh` (from a git worktree, `CONKER_DECOMP` is needed).
 * Run `tools/regenerate.sh` again after changing `config/us.toml`.
+* `regenerate.sh` uses the committed `config/us.syms.toml`, so any decomp
+  revision builds the same game. `CONKER_UPDATE_SYMS=1 tools/regenerate.sh`
+  rewrites it from your decomp checkout instead.
 
 ## Controls
 

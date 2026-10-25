@@ -59,6 +59,15 @@ From the repository's folder, since settings, saves and texture packs live in
 build/rt64/ConkerRecomp /path/to/conker-us.z64
 ```
 
+## Building in Docker
+
+`tools/linux/build.sh` builds in an Ubuntu 24.04 Docker container for the
+machine Docker runs on (arm64 on Apple silicon), into `build/linux-arm64`, and
+packages `dist/Conkers-Bad-Fur-Day-<version>-linux-arm64.tar.gz`. It runs on
+Ubuntu 24.04 or newer with SDL2, GTK 3 and a Vulkan driver; the README in the
+tarball has the `apt` line. It needs `tools/regenerate.sh` to have been run
+first.
+
 ## After pulling changes
 
 ```sh

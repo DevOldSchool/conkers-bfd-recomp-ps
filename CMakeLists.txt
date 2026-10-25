@@ -145,6 +145,10 @@ if(CONKER_RENDERER STREQUAL "rt64")
         endif()
     endif()
     set(RT64_STATIC ON CACHE BOOL "" FORCE)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # On Linux RT64 takes the SDL window and makes its Vulkan surface through SDL (X11 or Wayland).
+        set(RT64_SDL_WINDOW_VULKAN ON CACHE BOOL "" FORCE)
+    endif()
     add_subdirectory(lib/rt64 EXCLUDE_FROM_ALL)
     if(APPLE)
         # RT64 turns plume's Retina support off, which sizes the swap chain in points and leaves macOS
@@ -165,6 +169,10 @@ if(CONKER_RENDERER STREQUAL "rt64")
         "${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/imgui"
     )
     target_compile_definitions(ConkerRecomp PRIVATE CONKER_RENDERER_RT64=1 CONKER_AUDIO_SDL=1 HLSL_CPU FFX_GCC)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # RT64 defines these for itself only; its headers need them here too (an SDL_Window* window).
+        target_compile_definitions(ConkerRecomp PRIVATE RT64_SDL_WINDOW_VULKAN PLUME_SDL_VULKAN_ENABLED)
+    endif()
     target_link_libraries(ConkerRecomp PRIVATE rt64 ${SDL2_LIBRARIES})
     if(APPLE)
         # DualSense haptic effects and adaptive triggers through Apple's GameController framework
@@ -173,6 +181,11 @@ if(CONKER_RENDERER STREQUAL "rt64")
         target_sources(ConkerRecomp PRIVATE src/platform/haptics_apple.mm src/platform/adaptive_triggers_apple.mm)
         set_source_files_properties(src/platform/haptics_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
         target_link_libraries(ConkerRecomp PRIVATE "-framework GameController" "-framework CoreHaptics")
+        # The packaged app's data folder, log and ROM panel (tools/package_macos.sh).
+        target_sources(ConkerRecomp PRIVATE src/platform/app_bundle_apple.mm)
+        set_source_files_properties(src/platform/app_bundle_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+        target_compile_definitions(ConkerRecomp PRIVATE CONKER_APP_BUNDLE=1)
+        target_link_libraries(ConkerRecomp PRIVATE "-framework AppKit")
     endif()
 else()
     target_sources(ConkerRecomp PRIVATE

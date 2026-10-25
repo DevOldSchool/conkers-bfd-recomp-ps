@@ -3,6 +3,10 @@
 #
 # Needs: the decomp checkout (default: ../conkers-bfd-decomp) with your US ROM recorded as
 # roms/baserom.us.z64, python3, and a built N64Recomp (cmake -S lib/N64Recomp -B build/N64Recomp).
+#
+# config/us.syms.toml is committed and kept as it is: symbols generated from another decomp
+# revision can name functions differently and break hooks. CONKER_UPDATE_SYMS=1 rewrites it
+# from the decomp checkout; otherwise the generated copy goes to build/us/us.syms.generated.toml.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,11 +21,20 @@ if [ ! -f "$extract/game/code.bin" ]; then
     (cd "$decomp" && python3 scripts/rzip_extract.py --profile us --rom "$rom" --output "$extract" --force)
 fi
 
-echo "==> generating config/us.syms.toml and the virtual ROM"
+if [ "${CONKER_UPDATE_SYMS:-0}" = 1 ]; then
+    syms="$here/config/us.syms.toml"
+else
+    syms="$here/build/us/us.syms.generated.toml"
+fi
+echo "==> generating the virtual ROM (symbols: ${syms#$here/})"
 python3 "$here/tools/gen_syms.py" --decomp "$decomp" --rom "$rom" \
     --game-code "$extract/game/code.bin" --game-data "$extract/game/data.bin" \
-    --out-syms "$here/config/us.syms.toml" --out-rom "$here/build/us/conker.us.recomp.bin" \
+    --out-syms "$syms" --out-rom "$here/build/us/conker.us.recomp.bin" \
     --report "$here/build/us/syms-report.json"
+if [ "$syms" != "$here/config/us.syms.toml" ] && ! cmp -s "$syms" "$here/config/us.syms.toml"; then
+    echo "note: the decomp checkout gives different symbols than config/us.syms.toml, which is used;" \
+        "CONKER_UPDATE_SYMS=1 takes the decomp's (see build/us/us.syms.generated.toml)"
+fi
 
 if [ ! -x "$here/build/N64Recomp/N64Recomp" ] || [ ! -x "$here/build/N64Recomp/RSPRecomp" ]; then
     echo "==> building N64Recomp and RSPRecomp"
@@ -32,7 +45,11 @@ fi
 echo "==> recompiling"
 rm -rf "$here/build/us/RecompiledFuncs"
 mkdir -p "$here/build/us/RecompiledFuncs"
-(cd "$here" && build/N64Recomp/N64Recomp config/us.toml 2> build/us/recomp-run.log)
+if ! (cd "$here" && build/N64Recomp/N64Recomp config/us.toml 2> build/us/recomp-run.log); then
+    echo "N64Recomp failed; the end of build/us/recomp-run.log:" >&2
+    tail -n 20 "$here/build/us/recomp-run.log" >&2
+    exit 1
+fi
 
 echo "==> recompiling the audio microcode (RSPRecomp)"
 mkdir -p "$here/build/us/rsp"

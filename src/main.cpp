@@ -1,7 +1,9 @@
 // Headless runtime for the Conker's Bad Fur Day recompilation.
 //
-//   ConkerRecomp <path to US ROM .z64>
+//   ConkerRecomp [path to US ROM .z64]
 //
+// The ROM is kept in conker-recomp-data once chosen, so later runs need no argument. The packaged
+// macOS app asks for it with a panel instead (src/platform/app_bundle_apple.hpp).
 // Registers the game with librecomp, wires the ultramodern callbacks and starts the game thread.
 // Controller 1 is an SDL game controller or the keyboard in the RT64 build
 // (src/platform/input_sdl.cpp), plus any scripted Start or A presses (CONKER_PRESS_START,
@@ -36,8 +38,12 @@ static long _dyld_get_image_vmaddr_slide(int) { return 0; }
 #include "platform/window.hpp"
 #include "runtime/game.hpp"
 #include "runtime/rsp.hpp"
+#if CONKER_APP_BUNDLE
+#include "platform/app_bundle_apple.hpp"
+#endif
 #if CONKER_RENDERER_RT64
 #include "platform/renderer_rt64.hpp"
+#include <SDL.h>
 #else
 #include "platform/renderer_null.hpp"
 #endif
@@ -101,7 +107,15 @@ ultramodern::input::connected_device_info_t get_connected_device_info(int contro
 }
 
 // --- misc ----------------------------------------------------------------------------------
-void message_box(const char* msg) { std::fprintf(stderr, "[conker] %s\n", msg); }
+void message_box(const char* msg) {
+    std::fprintf(stderr, "[conker] %s\n", msg);
+#if CONKER_APP_BUNDLE
+    // The packaged app has no terminal.
+    if (conker::app_bundle::active()) {
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Conker's Bad Fur Day", msg, nullptr);
+    }
+#endif
+}
 void vi_callback() { vi_count++; }
 void gfx_init_callback() { std::printf("[conker] gfx thread started\n"); }
 
@@ -205,10 +219,9 @@ int main(int argc, char** argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);  // keep log order intact if the game thread crashes
     install_crash_handler();
     parse_scripted_input();
-    if (argc < 2) {
-        std::fprintf(stderr, "usage: %s <conker-us.z64>\n", argv[0]);
-        return 2;
-    }
+#if CONKER_APP_BUNDLE
+    conker::app_bundle::enter_data_folder();
+#endif
 
     // Stored ROM copy, saves and mod folders live here.
     const std::filesystem::path data_dir = std::filesystem::current_path() / "conker-recomp-data";
@@ -217,10 +230,29 @@ int main(int argc, char** argv) {
     recomp::register_game(conker::make_game_entry());
     conker::register_overlays();
 
-    const recomp::RomValidationError rom_result = recomp::select_rom(argv[1], conker::kGameId);
-    if (rom_result != recomp::RomValidationError::Good) {
-        std::fprintf(stderr, "[conker] ROM %s: %s\n", argv[1], rom_error_name(rom_result));
-        return 1;
+    // A ROM given on the command line replaces the stored copy; without one the stored copy is used.
+    std::filesystem::path rom_path = argc >= 2 ? std::filesystem::path(argv[1]) : std::filesystem::path();
+    if (rom_path.empty()) {
+        recomp::check_all_stored_roms();
+    }
+    if (rom_path.empty() && !recomp::is_rom_valid(conker::kGameId)) {
+#if CONKER_APP_BUNDLE
+        if (conker::app_bundle::active() && SDL_InitSubSystem(SDL_INIT_VIDEO) == 0) {
+            rom_path = conker::app_bundle::choose_rom();
+        }
+#endif
+        if (rom_path.empty()) {
+            std::fprintf(stderr, "usage: %s <conker-us.z64>\n", argv[0]);
+            return 2;
+        }
+    }
+    if (!rom_path.empty()) {
+        const recomp::RomValidationError rom_result = recomp::select_rom(rom_path, conker::kGameId);
+        if (rom_result != recomp::RomValidationError::Good) {
+            const std::string error = "ROM " + rom_path.string() + ": " + rom_error_name(rom_result);
+            message_box(error.c_str());
+            return 1;
+        }
     }
 
     recomp::Configuration cfg{};
