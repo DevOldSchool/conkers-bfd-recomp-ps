@@ -182,7 +182,7 @@ button. Up and down choose a row, A or left and right change it:
   TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
   WIDESCREEN CULLING, SKIP INTRO, SKIP CUTSCENES, PAUSE SAVE AND LOAD, SAVE
   SNAPSHOTS, SURROUND DEFAULT, FULL DETAIL, DRAW DISTANCE, NO RUMBLE
-  PAK BANNER, CAMERA STICK SWAP, TWIN STICK SHOTGUN, PAD BUTTONS and 60 FPS. A or left and right switch the
+  PAK BANNER, CAMERA STICK SWAP, AIM CONTROLS, PAD BUTTONS and 60 FPS. A or left and right switch the
   chosen one. SHARP TEXT and WIDESCREEN are the OPTIONS rows' settings and
   are kept in `display.cfg` as those rows keep them (a new shape applies once
   the game carries on); the rest last until the game is closed, and a debug
@@ -331,7 +331,11 @@ page switches it.
 C-left and C-right are swapped (also on J/L), so pushing left turns the view
 left. It has no variable; the debug menu's ENHANCEMENTS page switches it.
 
-## Twin-stick shotgun
+## Aiming up with up
+
+Holding R to look around in first person, the stick pushed up looks up and
+pushed down looks down (the N64 game has them the other way round, like a
+plane's).
 
 While Conker holds the shotgun (Spooky's mansion, out with B), the left
 stick always moves him and the right stick aims. Without R, the stick
@@ -341,8 +345,8 @@ pushed right stepping right, which the camera swap above would otherwise
 turn round. With R held to aim, the right stick aims, pushed up aiming up
 (the N64 stick aims down when pushed up), and the left stick steps him as
 the C buttons would. Controller 1 on the keyboard alone keeps the game's
-aiming. `CONKER_GUN_CONTROLS=0` leaves the game's controls, and TWIN STICK
-SHOTGUN on the debug menu's ENHANCEMENTS page switches it.
+aiming. `CONKER_AIM_CONTROLS=0` leaves the game's controls, and AIM
+CONTROLS on the debug menu's ENHANCEMENTS page switches it.
 
 ## Your pad's buttons
 

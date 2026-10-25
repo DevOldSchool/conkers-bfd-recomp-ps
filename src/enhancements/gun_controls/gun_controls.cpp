@@ -1,3 +1,6 @@
+// Aiming the right way up. Holding R without the shotgun looks around in first person, and the
+// stick, pushed up, looks down; it is turned round so up looks up.
+//
 // Twin-stick controls while Conker holds the shotgun (Spooky's mansion, out with B): the left
 // stick always moves him and the right stick aims. On the N64 the stick turns and walks, the C
 // buttons step (C-up and C-down forwards and back, C-left and C-right sideways, Conker keeps
@@ -10,12 +13,14 @@
 //    alone keeps the game's aiming, as it has no right stick.
 // Controller 1's pad as the game reads it is rewritten in func_1501BBB8 (sp+0x38, after
 // osContGetReadData; the [[patches.hook]] in config/us.toml), so the game sees nothing else.
-// CONKER_GUN_CONTROLS=0 leaves the game's controls.
+// CONKER_AIM_CONTROLS=0 leaves the game's controls.
 //
 // Found in scene 60 (debug report scene60-20261025-081607, B to take the shotgun out): the item
 // Conker holds is u8 +0x78 of his player block (*(Conker's actor + 0x31C)), 0x3B the shotgun, and
 // u8 +0x11A how far: 1 coming out, 2 held, 3 going away (func_15065A5C sets both). The block's
-// u8 +0x198 is 1 then 2 while R aims, with or without the shotgun.
+// u8 +0x198 is 1 then 2 while R aims, with or without the shotgun, and 3 as it lets go; looking
+// with it in scene 60, the stick pushed up turned the camera's forward vector (+0x130) down.
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -36,6 +41,7 @@ constexpr uint32_t kPlayerItem = 0x78;    // u8: the item he holds
 constexpr uint32_t kPlayerItemState = 0x11A;  // u8
 constexpr uint8_t kShotgun = 0x3B;
 constexpr uint8_t kItemHeld = 2;
+constexpr uint32_t kPlayerLook = 0x198;  // u8: 1 going into R's look, 2 looking, 3 coming out
 
 constexpr int kPad = 0x38;  // func_1501BBB8's frame: controller 1's OSContPad
 constexpr float kStickRange = 82.0f;  // the N64 stick's reach on an axis
@@ -44,7 +50,7 @@ constexpr int kStepAt = 41;           // the left stick, half way, steps as a C 
 using namespace conker::input;
 
 std::atomic<bool> g_enabled{[] {
-    const char* value = std::getenv("CONKER_GUN_CONTROLS");
+    const char* value = std::getenv("CONKER_AIM_CONTROLS");
     return value == nullptr || value[0] != '0';
 }()};  // the debug menu switches it
 
@@ -52,16 +58,23 @@ bool gun_controls_enabled() { return g_enabled.load(std::memory_order_relaxed); 
 
 bool in_rdram(uint32_t address) { return address >= 0x80000000u && address < 0x80800000u; }
 
-bool holding_shotgun(uint8_t* rdram) {
+// Conker's player block, or 0.
+uint32_t player_block(uint8_t* rdram) {
     const uint32_t conker = static_cast<uint32_t>(MEM_W(0, kseg0(kConker)));
     if (!in_rdram(conker)) {
-        return false;
+        return 0;
     }
     const uint32_t player = static_cast<uint32_t>(MEM_W(kActorPlayer, kseg0(conker)));
-    if (!in_rdram(player)) {
-        return false;
-    }
+    return in_rdram(player) ? player : 0;
+}
+
+bool holding_shotgun(uint8_t* rdram, uint32_t player) {
     return MEM_BU(kPlayerItem, kseg0(player)) == kShotgun && MEM_BU(kPlayerItemState, kseg0(player)) == kItemHeld;
+}
+
+bool looking(uint8_t* rdram, uint32_t player) {
+    const uint8_t look = MEM_BU(kPlayerLook, kseg0(player));
+    return look == 1 || look == 2;
 }
 
 int8_t stick_axis(float value) {
@@ -73,10 +86,18 @@ int8_t stick_axis(float value) {
 // In func_1501BBB8 just after the pads are read ($sp is its frame), before the debug menu empties
 // them while it is open.
 extern "C" void conker_gun_controls(uint8_t* rdram, recomp_context* ctx) {
-    if (!gun_controls_enabled() || !holding_shotgun(rdram)) {
+    const uint32_t player = gun_controls_enabled() ? player_block(rdram) : 0;
+    if (player == 0) {
         return;
     }
     uint16_t buttons = MEM_HU(kPad, ctx->r29);
+    if (!holding_shotgun(rdram, player)) {
+        if ((buttons & kR) != 0 && looking(rdram, player)) {
+            const int y = MEM_B(kPad + 3, ctx->r29);
+            MEM_B(kPad + 3, ctx->r29) = static_cast<int8_t>(std::min(-y, 127));
+        }
+        return;
+    }
     float aim_x;
     float aim_y;
     if ((buttons & kR) != 0 && right_stick(&aim_x, &aim_y)) {
@@ -98,9 +119,10 @@ extern "C" void conker_gun_controls(uint8_t* rdram, recomp_context* ctx) {
 }
 
 nlohmann::json conker::status::gun_controls() {
-    return enhancement("gun_controls", "Twin-stick shotgun", gun_controls_enabled(), "CONKER_GUN_CONTROLS");
+    return enhancement("aim_controls", "Look and aim up with up, twin-stick shotgun", gun_controls_enabled(),
+                       "CONKER_AIM_CONTROLS");
 }
 
 conker::switches::Switch conker::switches::gun_controls() {
-    return {"TWIN STICK SHOTGUN", gun_controls_enabled, [](bool on) { g_enabled.store(on); }};
+    return {"AIM CONTROLS", gun_controls_enabled, [](bool on) { g_enabled.store(on); }};
 }
