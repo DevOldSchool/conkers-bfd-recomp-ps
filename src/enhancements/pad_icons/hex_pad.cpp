@@ -5,12 +5,15 @@
 // edges facing up and left (inside its counters too), a pale highlight two texels wide on those
 // facing down and right.
 //
-// For a PlayStation pad the B is taken out and the plate under it filled from its edges inward,
-// each step copying the 5x5 patch of the plate's own wood (clear of the B) that best matches the
-// wood already round it, so the grain runs on. Then an O stands where the B was, edged texel for
+// For a PlayStation pad the B is taken out and the plate under it filled from the same ring of the
+// grain further along the hexagon's edge, so the rings run on through it; the square's counter (the
+// middle, where every ring is under the B) from one piece of the plate's smoothest wood, and what
+// is left from 5x5 patches of the plate. Then a square stands where the B was, edged texel for
 // texel as the B is, with the B's own edge and face texels. It is made from the player's ROM when
 // the game starts, so no part of Rare's texture is in this repository.
 #include "enhancements/pad_icons/b_pad.hpp"
+#include "enhancements/pad_icons/ring_fill.hpp"
+#include "enhancements/pad_icons/square_symbol.hpp"
 
 #include <algorithm>
 #include <array>
@@ -35,11 +38,11 @@ constexpr uint32_t kTlutRgba16 = 0x8000;  // G_TT_RGBA16, as RT64 hashes a TLUT 
 
 // The hexagon (its outline against the black round it): its middle, half its width (to the corners
 // left and right), half its height and half the length of its top and bottom edges; the plate is
-// inside kPlate of that. Then the O, in the hexagon's middle (Rare's B stands two texels right of
-// it): its middle, outer radius and stroke width, in texels.
+// inside kPlate of that. Then the square, in the hexagon's middle (Rare's B stands two texels right of
+// it): its middle, outer half-width and stroke width, in texels.
 constexpr float kCX = 32.0f, kCY = 32.5f, kHalfWidth = 32.0f, kHalfHeight = 30.5f, kHalfTop = 17.5f;
 constexpr float kPlate = 0.65f;
-constexpr float kOX = 32.0f, kOY = 32.5f, kOuter = 15.0f, kWidth = 8.5f;
+constexpr float kOX = 32.0f, kOY = 32.5f, kOuter = 14.0f, kWidth = 7.5f;
 
 using Rgb = std::array<float, 3>;
 using Grid = std::array<bool, N * N>;
@@ -125,7 +128,7 @@ uint64_t hash(const std::vector<uint8_t>& resource) {
 
 } // namespace
 
-std::vector<Texture> circle_hex_pad() {
+std::vector<Texture> hex_pad() {
     // The hexagon as RT64 decodes it.
     Half halves[2];
     std::vector<Rgb> rgb(N * N);
@@ -171,8 +174,55 @@ std::vector<Texture> circle_hex_pad() {
     Grid hole = dilate(letter);
     for (int i = 0; i < N * N; i++) hole[i] = hole[i] && box[i];
 
-    // 2. The plate under it, from the edges inward, each step copying the 5x5 patch of the plate
-    // (clear of the B) that best matches the wood already round it.
+    // 2. The plate under it: its grain runs in hexagonal rings, so first from the same ring further
+    // along the same edge of the hexagon; then what is left (where no ring is clear of the B), from
+    // the edges inward, each step copying the 5x5 patch of the plate (clear of the B) that best
+    // matches the wood already round it.
+    std::vector<Rgb> out = rgb;
+    // The square's stroke (step 3 paints it over whatever is filled there).
+    Grid o{};
+    for (int y = 0; y < N; y++)
+        for (int x = 0; x < N; x++) {
+            int inside = 0;
+            for (int sy = 0; sy < 8; sy++)
+                for (int sx = 0; sx < 8; sx++) {
+                    const float d = square_symbol::reach(x + (sx + 0.5f) / 8 - kOX, y + (sy + 0.5f) / 8 - kOY);
+                    inside += d >= kOuter - kWidth && d <= kOuter;
+                }
+            o[at(x, y)] = inside > 64 * 0.45f;
+        }
+    {
+        auto along = [](int x, int y) {
+            const float dx = x + 0.5f - kCX, dy = y + 0.5f - kCY;
+            if (std::abs(dy) / kHalfHeight >= (std::abs(dx) + std::abs(dy) * (kHalfWidth - kHalfTop) / kHalfHeight) / kHalfWidth)
+                return ring_fill::Step{1, 0};  // the top and bottom edges
+            const float ex = kHalfWidth - kHalfTop, ey = kHalfHeight * (dx * dy < 0 ? 1 : -1), length = std::hypot(ex, ey);
+            return ring_fill::Step{ex / length, ey / length};
+        };
+        auto same_edge = [&](int sx, int sy, int x, int y) {
+            const ring_fill::Step a = along(sx, sy), b = along(x, y);
+            return a.x * b.x + a.y * b.y > 0.99f;
+        };
+        Grid filled{};
+        ring_fill::fill(
+            N, N, [&](int x, int y) { return hole[at(x, y)]; }, along,
+            [&](int sx, int sy, int x, int y) {
+                return !hole[at(sx, sy)] && alpha[at(sx, sy)] && same_edge(sx, sy, x, y) &&
+                       std::abs(hex_ring(sx, sy) - hex_ring(x, y)) * kHalfHeight < 0.6f;
+            },
+            [&](int sx, int sy, int x, int y) { out[at(x, y)] = rgb[at(sx, sy)], filled[at(x, y)] = true; });
+        ring_fill::fill_pieces(
+            N, N, [&](int x, int y) { return hole[at(x, y)] && !filled[at(x, y)] && !o[at(x, y)]; },
+            [&](int sx, int sy) { return !hole[at(sx, sy)] && hex_ring(sx, sy) < 0.8f; },
+            [&](int sx, int sy) {
+                float r = 0;
+                if (sx + 1 < N) r += std::abs(lum(rgb[at(sx + 1, sy)]) - lum(rgb[at(sx, sy)]));
+                if (sy + 1 < N) r += std::abs(lum(rgb[at(sx, sy + 1)]) - lum(rgb[at(sx, sy)]));
+                return r;
+            },
+            [&](int sx, int sy, int x, int y) { out[at(x, y)] = rgb[at(sx, sy)], filled[at(x, y)] = true; });
+        for (int i = 0; i < N * N; i++) hole[i] = hole[i] && !filled[i];
+    }
     constexpr int kHalf = 2;
     struct Patch {
         int x, y;
@@ -189,7 +239,6 @@ std::vector<Texture> circle_hex_pad() {
     if (patches.empty()) return {};
     std::mt19937 random(3);
     auto mirror = [](int v) { return v < 0 ? -v - 1 : v >= N ? 2 * N - v - 1 : v; };
-    std::vector<Rgb> out = rgb;
     for (;;) {
         // The hole texel beside known wood with the most known wood round it.
         int best_i = -1;
@@ -230,23 +279,12 @@ std::vector<Texture> circle_hex_pad() {
             }
     }
 
-    // 3. The O, a raised ring lit from the lower right as the B is. Where its edge faces up or
+    // 3. The square, raised and lit from the lower right as the B is. Where its edge faces up or
     // left it has the B's band there, texel for texel in from the edge: the near-black, then the
     // two dark greens; where it faces down or right, the B's two texels of highlight there, the
     // brightest where it faces the light squarely. Each is copied from the B's own edge, in order
-    // round the O, so the band runs on as the B's does. The rest is the B's own face: the same
+    // round the square, so the band runs on as the B's does. The rest is the B's own face: the same
     // texel where the face was, else the nearest.
-    Grid o{};
-    for (int y = 0; y < N; y++)
-        for (int x = 0; x < N; x++) {
-            int inside = 0;
-            for (int sy = 0; sy < 8; sy++)
-                for (int sx = 0; sx < 8; sx++) {
-                    const float d = std::hypot(x + (sx + 0.5f) / 8 - kOX, y + (sy + 0.5f) / 8 - kOY);
-                    inside += d >= kOuter - kWidth && d <= kOuter;
-                }
-            o[at(x, y)] = inside > 64 * 0.45f;
-        }
     // How many texels in from the stroke's nearer edge each of its texels is.
     std::array<int, N * N> depth{};
     Grid left = o;
@@ -302,15 +340,16 @@ std::vector<Texture> circle_hex_pad() {
         for (int x = 0; x < N; x++) {
             const int i = at(x, y);
             if (!o[i]) continue;
-            const float dx = x + 0.5f - kOX, dy = y + 0.5f - kOY, d = std::hypot(dx, dy);
-            const float lit = (d > middle ? 1.0f : -1.0f) * (dx + dy);  // its edge facing the lower right
+            const float dx = x + 0.5f - kOX, dy = y + 0.5f - kOY, d = square_symbol::reach(dx, dy);
+            const square_symbol::Facing f = square_symbol::facing(dx, dy);
+            const float lit = (d > middle ? 1.0f : -1.0f) * (f.x + f.y);  // its edge facing the lower right
             const int along = int((std::atan2(dy, dx) + float(M_PI)) / (2 * float(M_PI)) * 97);
             const int k = depth[i];
             if (lit < 0 && k <= 3) {
                 out[i] = band[k][along % band[k].size()];
             } else if (lit >= 0 && k <= 2) {
                 const std::vector<Rgb>& v = shine[k];
-                const float squarely = lit / (std::sqrt(2.0f) * d);
+                const float squarely = lit / std::sqrt(2.0f);
                 const int pick = int(squarely * (v.size() - 1)) + along % 7 - 3;
                 out[i] = v[std::clamp(pick, 0, int(v.size()) - 1)];
             } else if (face_inside[i] && L[i] < 200) {

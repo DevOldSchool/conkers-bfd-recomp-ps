@@ -7,12 +7,13 @@
 //
 // For a PlayStation pad the B and its shadow are taken out and filled from their edges inward,
 // each step copying the 3x3 patch of the lit floor beside and below the B that best matches what is
-// already round it. Then an O stands where the B was, as bold as the B: across each of its edges
+// already round it. Then a square stands where the B was, as bold as the B: across each of its edges
 // the brightness of the B's edges facing the same way, measured from their crests (so the crest
 // stays a sharp line at the depth the B has it facing that way), with the mottling of the B's
 // face over it, and its shadow cast up and to the left as the B's is. It is made from the
 // player's ROM when the game starts, so no part of Rare's texture is in this repository.
 #include "enhancements/pad_icons/b_pad.hpp"
+#include "enhancements/pad_icons/square_symbol.hpp"
 
 #include <algorithm>
 #include <array>
@@ -34,15 +35,15 @@ constexpr int kTexelBytes = N * N;
 
 // The B stands in x 15-50, y 8-55 (inclusive); its stem is at (18, 30). Its shadow falls so many
 // texels left and up. The lit floor the B and its shadow are filled from: right of the B and
-// below it. The O: its middle, outer radius and stroke width, in texels.
+// below it. The square: its middle, outer half-width and stroke width, in texels.
 constexpr int kLeft = 15, kTop = 8, kRight = 50, kBottom = 55, kStemX = 18, kStemY = 30;
 constexpr float kShadowX = -8, kShadowY = -5;
-constexpr float kOX = 33.0f, kOY = 32.0f, kOuter = 19.5f, kWidth = 11.0f;
+constexpr float kOX = 33.0f, kOY = 32.0f, kOuter = 17.0f, kWidth = 9.5f;
 constexpr float kLetter = 30;      // the least brightness of the B (its dim slope)
 constexpr float kHighlight = 100;  // the least brightness of its crest along its right side
 constexpr int kDepths = 8;         // how far into the B its edges are measured
 constexpr float kSpread = 25.0f * float(M_PI) / 180;  // how widely edges facing nearly the same way are mixed
-constexpr float kGrain = 1.0f;     // how strong the B's mottling is on the O
+constexpr float kGrain = 1.0f;     // how strong the B's mottling is on the square
 
 using Grid = std::array<bool, N * N>;
 using Image = std::array<float, N * N>;
@@ -153,7 +154,7 @@ Image ring(float cx, float cy) {
             int inside = 0;
             for (int sy = 0; sy < 8; sy++)
                 for (int sx = 0; sx < 8; sx++) {
-                    const float d = std::hypot(x + (sx + 0.5f) / 8 - cx, y + (sy + 0.5f) / 8 - cy);
+                    const float d = square_symbol::reach(x + (sx + 0.5f) / 8 - cx, y + (sy + 0.5f) / 8 - cy);
                     inside += d >= kOuter - kWidth && d <= kOuter;
                 }
             cover[at(x, y)] = inside / 64.0f;
@@ -208,7 +209,7 @@ float across(const std::vector<Profile>& profiles, float facing, float depth) {
 
 } // namespace
 
-std::optional<Texture> circle_rock_pad() {
+std::optional<Texture> rock_pad() {
     const std::vector<uint8_t> resource = menu_art::load_resource(kResource);
     if (resource.size() != size_t(kTexelBytes)) return std::nullopt;
 
@@ -318,8 +319,8 @@ std::optional<Texture> circle_rock_pad() {
             }
     }
 
-    // 3. The O's shadow: the floor darkened as the B's shadow darkens it, by how much of the
-    // texel the O covers moved toward where its shadow falls (so its edge is soft).
+    // 3. The square's shadow: the floor darkened as the B's shadow darkens it, by how much of the
+    // texel the square covers moved toward where its shadow falls (so its edge is soft).
     std::vector<float> dark, lit;
     for (int i = 0; i < N * N; i++) {
         if (shadow[i] && !filled[i] && a[i] < 20) dark.push_back(a[i]);
@@ -383,7 +384,7 @@ std::optional<Texture> circle_rock_pad() {
                 break;
             }
 
-    // 6. The O: across its outer edge the B's outer edges facing the same way, across its inner
+    // 6. The square: across its outer edge the B's outer edges facing the same way, across its inner
     // edge the B's counters', blended over the middle of its stroke.
     const Image o = ring(kOX, kOY);
     const float middle = kOuter - kWidth / 2;
@@ -391,8 +392,8 @@ std::optional<Texture> circle_rock_pad() {
         for (int x = 0; x < N; x++) {
             const int i = at(x, y);
             if (o[i] <= 0.45f) continue;
-            const float dx = x + 0.5f - kOX, dy = y + 0.5f - kOY, r = std::hypot(dx, dy);
-            const float turn = std::atan2(dy, dx);
+            const float dx = x + 0.5f - kOX, dy = y + 0.5f - kOY, r = square_symbol::reach(dx, dy);
+            const float turn = square_symbol::turn(dx, dy);
             // A B edge texel's middle is half a texel in from its edge.
             const float outside = across(outer_edges, turn, std::max(kOuter - r - 0.5f, 0.0f));
             const float inside = across(counter_edges, turn + float(M_PI), std::max(r - (kOuter - kWidth) - 0.5f, 0.0f));

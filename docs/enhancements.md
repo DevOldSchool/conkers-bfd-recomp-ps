@@ -341,19 +341,19 @@ Rare's pre-rendered ones, and change when another kind of pad is connected:
 | N64 | Xbox | PlayStation |
 | --- | --- | --- |
 | A | A | Cross |
-| B | B | Circle |
+| B | B | Square |
 | START | Menu | Options |
 | Z | RT | R2 |
 | L, R | LB, RB | L1, R1 |
 | C-left, C-right | right stick pushed right, left (left, right without the camera swap) | the same |
 | C-up, C-down | right stick pushed up, down | the same |
 
-B is also on the left face button (X, Square) and Z on the left trigger,
+B is also on the other side face button (X on Xbox, Circle on PlayStation) and Z on the left trigger,
 and the C pictures point the way to push the stick, which is swapped left to
 right (see above); switching the swap in the debug menu turns them round. The Xbox buttons are black with coloured letters, the
 PlayStation ones black with the DualShock 4's coloured symbols. With a
 PlayStation pad the B pads on the ground, wooden (octagonal, hexagonal and
-square), stone, teal, grey stone, the rug in Count Batula's house and the round stone plate on a post in the water, have an O where their B was, made from their textures in your
+square), stone, teal, grey stone, the rug in Count Batula's house and the round stone plate on a post in the water, have a Square where their B was, made from their textures in your
 ROM and shaded as the B is;
 an Xbox pad's B is B, and other pads keep the N64's, so they stay as they
 are.
