@@ -31,7 +31,7 @@ Switch draw_distance();
 Switch rumble_banner();
 Switch haptics();
 Switch adaptive_triggers();
-Switch gun_controls();
+Switch consistent_controls();
 Switch frame_rate();
 Switch pad_buttons();  // src/enhancements/pad_icons/choice.cpp
 

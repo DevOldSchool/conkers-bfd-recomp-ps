@@ -33,7 +33,7 @@ constexpr int kPorts = 4;
 void read(uint16_t* buttons, float* x, float* y, int port = 0);
 
 // A port's right stick, in [-1, 1] with +y up and the left stick's deadzone, which the game sees
-// only as the C buttons (src/enhancements/gun_controls aims with it). False, with the stick
+// only as the C buttons (src/enhancements/consistent_controls aims with it). False, with the stick
 // centred, when no pad reads the port (controller 1 on the keyboard alone). Safe to call from
 // any thread.
 bool right_stick(float* x, float* y, int port = 0);

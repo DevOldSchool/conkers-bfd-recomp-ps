@@ -1,3 +1,6 @@
+// Consistent controls: the same controls wherever Conker aims, as a modern pad's games have them,
+// the left stick moving him, the right stick turning the view or aiming, and up looking up.
+//
 // Aiming the right way up. Holding R without the shotgun looks around in first person, and the
 // stick, pushed up, looks down; it is turned round so up looks up.
 //
@@ -17,7 +20,7 @@
 // the right stick aims, up aiming up, and the left stick walks. Unscoped it walks with the stick.
 // Controller 1's pad as the game reads it is rewritten in func_1501BBB8 (sp+0x38, after
 // osContGetReadData; the [[patches.hook]] in config/us.toml), so the game sees nothing else.
-// CONKER_AIM_CONTROLS=0 leaves the game's controls.
+// CONKER_CONSISTENT_CONTROLS=0 leaves the game's controls.
 //
 // Found in scene 60 (debug report scene60-20261025-081607, B to take the shotgun out): the item
 // Conker holds is u8 +0x78 of his player block (*(Conker's actor + 0x31C)), 0x3B the shotgun, and
@@ -59,11 +62,11 @@ constexpr int kStepAt = 41;           // the left stick, half way, steps as a C 
 using namespace conker::input;
 
 std::atomic<bool> g_enabled{[] {
-    const char* value = std::getenv("CONKER_AIM_CONTROLS");
+    const char* value = std::getenv("CONKER_CONSISTENT_CONTROLS");
     return value == nullptr || value[0] != '0';
 }()};  // the debug menu switches it
 
-bool gun_controls_enabled() { return g_enabled.load(std::memory_order_relaxed); }
+bool consistent_controls_enabled() { return g_enabled.load(std::memory_order_relaxed); }
 
 bool in_rdram(uint32_t address) { return address >= 0x80000000u && address < 0x80800000u; }
 
@@ -118,8 +121,8 @@ bool looking(uint8_t* rdram, uint32_t player) {
 
 // In func_1501BBB8 just after the pads are read ($sp is its frame), before the debug menu empties
 // them while it is open.
-extern "C" void conker_gun_controls(uint8_t* rdram, recomp_context* ctx) {
-    const uint32_t player = gun_controls_enabled() ? player_block(rdram) : 0;
+extern "C" void conker_consistent_controls(uint8_t* rdram, recomp_context* ctx) {
+    const uint32_t player = consistent_controls_enabled() ? player_block(rdram) : 0;
     if (player == 0) {
         return;
     }
@@ -146,11 +149,11 @@ extern "C" void conker_gun_controls(uint8_t* rdram, recomp_context* ctx) {
     MEM_H(kPad, ctx->r29) = static_cast<int16_t>(buttons);
 }
 
-nlohmann::json conker::status::gun_controls() {
-    return enhancement("aim_controls", "Look and aim up with up, twin-stick shotgun and rocket launcher", gun_controls_enabled(),
-                       "CONKER_AIM_CONTROLS");
+nlohmann::json conker::status::consistent_controls() {
+    return enhancement("consistent_controls", "Consistent controls", consistent_controls_enabled(),
+                       "CONKER_CONSISTENT_CONTROLS");
 }
 
-conker::switches::Switch conker::switches::gun_controls() {
-    return {"AIM CONTROLS", gun_controls_enabled, [](bool on) { g_enabled.store(on); }};
+conker::switches::Switch conker::switches::consistent_controls() {
+    return {"CONSISTENT CONTROLS", consistent_controls_enabled, [](bool on) { g_enabled.store(on); }};
 }

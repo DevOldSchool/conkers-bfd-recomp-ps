@@ -100,7 +100,7 @@ add_executable(ConkerRecomp
     src/enhancements/rumble_banner/rumble_banner.cpp
     src/enhancements/haptics/haptics.cpp
     src/enhancements/adaptive_triggers/adaptive_triggers.cpp
-    src/enhancements/gun_controls/gun_controls.cpp
+    src/enhancements/consistent_controls/consistent_controls.cpp
     src/enhancements/sharp_menus/menu_art.cpp
     src/enhancements/sharp_menus/pause_signs.cpp
     src/enhancements/surround_default/surround_default.cpp

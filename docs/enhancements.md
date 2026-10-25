@@ -182,7 +182,7 @@ button. Up and down choose a row, A or left and right change it:
   TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
   WIDESCREEN CULLING, SKIP INTRO, SKIP CUTSCENES, PAUSE SAVE AND LOAD, SAVE
   SNAPSHOTS, SURROUND DEFAULT, FULL DETAIL, DRAW DISTANCE, NO RUMBLE
-  PAK BANNER, CAMERA STICK SWAP, AIM CONTROLS, PAD BUTTONS and 60 FPS. A or left and right switch the
+  PAK BANNER, CAMERA STICK SWAP, CONSISTENT CONTROLS, PAD BUTTONS and 60 FPS. A or left and right switch the
   chosen one. SHARP TEXT and WIDESCREEN are the OPTIONS rows' settings and
   are kept in `display.cfg` as those rows keep them (a new shape applies once
   the game carries on); the rest last until the game is closed, and a debug
@@ -331,24 +331,27 @@ page switches it.
 C-left and C-right are swapped (also on J/L), so pushing left turns the view
 left. It has no variable; the debug menu's ENHANCEMENTS page switches it.
 
-## Aiming up with up
+## Consistent controls
 
-Holding R to look around in first person, the stick pushed up looks up and
-pushed down looks down (the N64 game has them the other way round, like a
-plane's).
+The controls stay the same across the game, the way a modern pad's games
+have them: the left stick moves Conker, the right stick turns the view or
+aims, and pushing up looks or aims up. The N64 game changes them from one
+place to the next, and aims like a plane, pushing up to look down.
 
-While Conker holds the shotgun (Spooky's mansion, out with B), the left
-stick always moves him and the right stick aims. Without R, the stick
-turns and walks as before and the right stick steps him (C-up and C-down
-forwards and back, C-left and C-right sideways, still facing the same way),
-pushed right stepping right, which the camera swap above would otherwise
-turn round. With R held to aim, the right stick aims, pushed up aiming up
-(the N64 stick aims down when pushed up), and the left stick steps him as
-the C buttons would. The rocket launcher in a multiplayer match does the
-same while its scope is up (R): the right stick aims, up aiming up, and the
-left stick walks. Controller 1 on the keyboard alone keeps the game's
-aiming. `CONKER_AIM_CONTROLS=0` leaves the game's controls, and AIM
-CONTROLS on the debug menu's ENHANCEMENTS page switches it.
+* Holding R to look around in first person, the stick pushed up looks up.
+* With the shotgun (Spooky's mansion, out with B), the left stick moves him
+  as before, and the right stick steps him (C-up and C-down forwards and
+  back, C-left and C-right sideways, still facing the same way), pushed
+  right stepping right where the camera swap above would turn it round.
+  With R held to aim, the right stick aims, and the left stick walks and
+  steps.
+* With the rocket launcher in a multiplayer match, while its scope is up
+  (R), the right stick aims and the left stick walks.
+
+Controller 1 on the keyboard alone keeps the game's aiming, as it has no
+right stick, and only controller 1 is changed. `CONKER_CONSISTENT_CONTROLS=0`
+leaves the game's controls, and CONSISTENT CONTROLS on the debug menu's
+ENHANCEMENTS page switches it.
 
 ## Your pad's buttons
 
