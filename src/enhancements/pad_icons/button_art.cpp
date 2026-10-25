@@ -197,7 +197,7 @@ Symbol letters(const std::string& text, float height) {
     return s;
 }
 
-enum class Kind { Cross, Circle, Menu, Left, Right, Up, Down };
+enum class Kind { Cross, Square, Menu, Left, Right, Up, Down };
 
 // A symbol `scale` across from its middle, strokes `width` wide; with a ring of radius `ring`.
 Symbol shape(Kind kind, float scale, float width, float ring = 0, float ring_width = 0.05f, float forward = 0) {
@@ -211,9 +211,12 @@ Symbol shape(Kind kind, float scale, float width, float ring = 0, float ring_wid
                 s.lines.push_back({c - d, c + d, width / 2});
             }
             break;
-        case Kind::Circle:
-            s.arcs.push_back({c, k - width / 2, 0, 2 * kPi, width / 2});
+        case Kind::Square: {  // its strokes' round ends round its corners a little, as the pad's are
+            const float h = k - width / 2;
+            const Vec corners[4] = {{c.x - h, c.y - h}, {c.x + h, c.y - h}, {c.x + h, c.y + h}, {c.x - h, c.y + h}};
+            for (int i = 0; i < 4; i++) s.lines.push_back({corners[i], corners[(i + 1) % 4], width / 2});
             break;
+        }
         case Kind::Menu:
             for (int i = -1; i <= 1; i++) {
                 const float y = c.y + i * k * 0.62f;
@@ -537,7 +540,7 @@ std::vector<Entry> entries(Style style, bool swapped) {
             Button options = wide;
             options.rx = 0.64f, options.ry = 0.84f;
             add("a", 32, 32, true, with(face, cap, colour(0x7fb0f2), shape(Kind::Cross, 0.33f, 0.095f)));
-            add("b", 32, 32, true, with(face, cap, colour(0xff5a5f), shape(Kind::Circle, 0.29f, 0.085f)));
+            add("b", 32, 32, true, with(face, cap, colour(0xf28fcf), shape(Kind::Square, 0.25f, 0.085f)));
             add("start", 32, 32, true, with(options, cap, grey, shape(Kind::Menu, 0.36f, 0.11f)));
             add("z", 16, 32, false, with(trigger, cap, grey, label("R2", 0.48f)));
             add("l", 32, 16, false, with(bumper, cap, grey, label("L1", 0.56f)));

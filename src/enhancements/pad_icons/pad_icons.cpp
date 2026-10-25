@@ -12,9 +12,9 @@
 // small pictures, unless the OPTIONS menu asks for the original text and menus.
 //
 // The N64 buttons map to the pad's by position (src/platform/input_sdl.cpp): A to the bottom face
-// button (Xbox A, Cross), B to the right one (Xbox B, Circle; the left one presses B too), START to
-// Menu or Options, Z to either trigger (drawn as the right one), L and R to the shoulder buttons
-// and the C buttons to the right stick. The stick is swapped left to right (C-left is pushing it
+// button (Xbox A, Cross), B to the right and left ones (Xbox B and X, drawn as B; Circle and
+// Square, drawn as Square), START to Menu or Options, Z to either trigger (drawn as the right one),
+// L and R to the shoulder buttons and the C buttons to the right stick. The stick is swapped left to right (C-left is pushing it
 // right), so the C-left picture shows the stick pushed right, and C-right pushed left.
 #include "enhancements/pad_icons/pad_icons.hpp"
 
