@@ -131,6 +131,19 @@ set_source_files_properties("${CONKER_RSP_DIR}/aspMain.cpp" PROPERTIES COMPILE_O
 # Renderer
 # ---------------------------------------------------------------------------------------------
 if(CONKER_RENDERER STREQUAL "rt64")
+    if(APPLE)
+        # RT64 compiles its shaders with Xcode's metal. Without it the build fails hundreds of steps in,
+        # so check here, and pass on xcrun's own message (license, Metal toolchain, no Xcode selected).
+        execute_process(COMMAND xcrun -sdk macosx metal --version
+            RESULT_VARIABLE CONKER_METAL_RESULT OUTPUT_QUIET ERROR_VARIABLE CONKER_METAL_ERROR)
+        if(NOT CONKER_METAL_RESULT EQUAL 0)
+            string(STRIP "${CONKER_METAL_ERROR}" CONKER_METAL_ERROR)
+            message(FATAL_ERROR
+                "The rt64 renderer needs Xcode's metal compiler, and 'xcrun -sdk macosx metal --version' "
+                "failed:\n  ${CONKER_METAL_ERROR}\n"
+                "See step 1 of the macOS build steps in README.md.")
+        endif()
+    endif()
     set(RT64_STATIC ON CACHE BOOL "" FORCE)
     add_subdirectory(lib/rt64 EXCLUDE_FROM_ALL)
     if(APPLE)
