@@ -126,6 +126,7 @@ constexpr int kFirstRowY = 56;
 constexpr int kRowHeight = 10;
 constexpr int kLineHeight = 9;                  // the small lines under the rows and in the overlay
 constexpr int kListRows = 9;
+constexpr int kSwitchRows = 16;                 // the ENHANCEMENTS page's rows that fit above the screen's foot
 constexpr int kInfoY = 176;                     // the position and camera lines under the rows
 constexpr int kOverlayX = 16;                   // FPS and position in play, top left
 constexpr int kOverlayY = 12;
@@ -495,7 +496,8 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
             for (const conker::switches::Switch& sw : switches()) {
                 rows.push_back(std::string(sw.label) + "  " + on_off(sw.on()));
             }
-            draw_rows(rdram, ctx, rows, g_switch_row, 0, static_cast<int>(rows.size()));
+            // More than fit scroll, keeping the chosen one in view at the foot.
+            draw_rows(rdram, ctx, rows, g_switch_row, std::max(0, g_switch_row - (kSwitchRows - 1)), kSwitchRows);
             break;
         }
         case Page::Teleport:

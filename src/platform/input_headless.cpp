@@ -9,6 +9,12 @@ void read(uint16_t* buttons, float* x, float* y, int /*port*/) {
     *y = 0.0f;
 }
 
+bool right_stick(float* x, float* y, int /*port*/) {
+    *x = 0.0f;
+    *y = 0.0f;
+    return false;
+}
+
 bool connected(int port) { return port == 0; }
 
 std::string controller_name() { return ""; }

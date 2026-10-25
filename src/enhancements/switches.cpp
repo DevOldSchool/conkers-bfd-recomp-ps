@@ -1,9 +1,8 @@
-// The debug menu's switches: see src/enhancements/switches.hpp. The display settings and the camera
-// stick live in src/platform, so their switches are here.
+// The debug menu's switches: see src/enhancements/switches.hpp. The display settings live in
+// src/platform, so their switches are here.
 #include "enhancements/switches.hpp"
 
 #include "platform/display_mode.hpp"
-#include "platform/input.hpp"
 
 namespace conker::switches {
 
@@ -17,10 +16,6 @@ Switch sharp() {
 Switch widescreen() {
     return {"WIDESCREEN", [] { return conker::display::widescreen(conker::display::current()); },
             [](bool on) { conker::display::request_widescreen(conker::display::current(), on); }};
-}
-
-Switch camera_stick() {
-    return {"CAMERA STICK SWAP", conker::input::camera_swapped, conker::input::set_camera_swapped};
 }
 
 }  // namespace
@@ -40,7 +35,7 @@ std::vector<Switch> all() {
         rumble_banner(),
         haptics(),
         adaptive_triggers(),
-        camera_stick(),
+        consistent_controls(),
         pad_buttons(),
         frame_rate(),
     };

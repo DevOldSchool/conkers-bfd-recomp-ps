@@ -182,7 +182,7 @@ button. Up and down choose a row, A or left and right change it:
   TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
   WIDESCREEN CULLING, SKIP INTRO, SKIP CUTSCENES, PAUSE SAVE AND LOAD, SAVE
   SNAPSHOTS, SURROUND DEFAULT, FULL DETAIL, DRAW DISTANCE, NO RUMBLE
-  PAK BANNER, CAMERA STICK SWAP, PAD BUTTONS and 60 FPS. A or left and right switch the
+  PAK BANNER, CONSISTENT CONTROLS, PAD BUTTONS and 60 FPS. A or left and right switch the
   chosen one. SHARP TEXT and WIDESCREEN are the OPTIONS rows' settings and
   are kept in `display.cfg` as those rows keep them (a new shape applies once
   the game carries on); the rest last until the game is closed, and a debug
@@ -326,10 +326,30 @@ on its motors, without the trigger resistance. `CONKER_ADAPTIVE_TRIGGERS=0`
 turns it all off, and ADAPTIVE TRIGGERS on the debug menu's ENHANCEMENTS
 page switches it.
 
-## Camera on the right stick
+## Consistent controls
 
-C-left and C-right are swapped (also on J/L), so pushing left turns the view
-left. It has no variable; the debug menu's ENHANCEMENTS page switches it.
+The controls stay the same across the game, the way a modern pad's games
+have them: the left stick moves Conker, the right stick turns the view or
+aims, and pushing up looks or aims up. The N64 game changes them from one
+place to the next, and aims like a plane, pushing up to look down.
+
+* The right stick turns the view the way it is pushed: C-left and C-right
+  are swapped (also on J/L), as the N64's C-left swings the view right.
+* Holding R to look around in first person, the stick pushed up looks up.
+* With the shotgun (Spooky's mansion, out with B), the left stick moves him
+  as before, and the right stick steps him (C-up and C-down forwards and
+  back, C-left and C-right sideways, still facing the same way), pushed
+  right stepping right, where the camera's swap would turn it round.
+  With R held to aim, the right stick aims, and the left stick walks and
+  steps.
+* With the rocket launcher in a multiplayer match, while its scope is up
+  (R), the right stick aims and the left stick walks.
+
+Controller 1 on the keyboard alone keeps the game's aiming, as it has no
+right stick, and only controller 1 is changed (the camera's swap is on
+every controller). `CONKER_CONSISTENT_CONTROLS=0`
+leaves the game's controls, and CONSISTENT CONTROLS on the debug menu's
+ENHANCEMENTS page switches it.
 
 ## Your pad's buttons
 
@@ -345,12 +365,12 @@ Rare's pre-rendered ones, and change when another kind of pad is connected:
 | START | Menu | Options |
 | Z | RT | R2 |
 | L, R | LB, RB | L1, R1 |
-| C-left, C-right | right stick pushed right, left (left, right without the camera swap) | the same |
+| C-left, C-right | right stick pushed right, left (left, right without consistent controls) | the same |
 | C-up, C-down | right stick pushed up, down | the same |
 
 B is also on the other side face button (X on Xbox, Circle on PlayStation) and Z on the left trigger,
 and the C pictures point the way to push the stick, which is swapped left to
-right (see above); switching the swap in the debug menu turns them round. The Xbox buttons are black with coloured letters, the
+right by [consistent controls](#consistent-controls); switching those off in the debug menu turns them round. The Xbox buttons are black with coloured letters, the
 PlayStation ones black with the DualShock 4's coloured symbols. With a
 PlayStation pad the B pads on the ground, wooden (octagonal, hexagonal and
 square), stone, teal, grey stone, the rug in Count Batula's house and the round stone plate on a post in the water, have a Square where their B was, made from their textures in your
