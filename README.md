@@ -70,21 +70,30 @@ one) after the game quits; `SDL_JOYSTICK_HIDAPI_PS5=1` (or `_PS4=1`) uses
 SDL's own driver instead, which leaves a Bluetooth pad unreadable to those
 apps until it reconnects.
 
-| N64 | Xbox | PlayStation | Keyboard |
+| N64 | Xbox | PlayStation | Keyboard and mouse |
 | --- | --- | --- | --- |
-| Analog stick | Left stick | Left stick | W A S D / arrow keys |
+| Analog stick | Left stick | Left stick | W A S D (Shift held walks) |
 | A | A | Cross | Space |
-| B | B or X | Square or Circle | Left Shift |
-| Z | LT or RT | L2 or R2 | Q |
-| L | LB | L1 | Tab |
-| R | RB | R1 | E |
-| Start | Start | Options | Enter |
-| C buttons | Right stick | Right stick | I J K L |
-| D-pad | D-pad | D-pad | T F G H |
+| B | B or X | Square or Circle | E |
+| Z | LT or RT | L2 or R2 | Left click (fire), Left Ctrl or C (crouch) |
+| L | LB | L1 | Q or Tab |
+| R | RB | R1 | Right click (aim), F |
+| Start | Start | Options | Esc or Enter |
+| C buttons | Right stick | Right stick | Mouse (the camera), I J K L |
+| Camera zoom (C-up) | Right stick up | Right stick up | Mouse wheel, or R (in) and T (out) |
+| D-pad | D-pad | D-pad | Arrow keys |
 | Debug menu | View | Create (Share) | ` |
 
 Keys held with Cmd or Alt are not passed to the game, so the full-screen
 shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
+
+The mouse is captured when you click in the window while playing (that click
+is not passed on): the cursor hides, moving the mouse turns the camera, and
+while aiming (R) it aims, as the right stick does. Pausing (Esc), a menu or
+another window lets it go; it is captured again when play carries on after a
+pause, or with a click. The wheel, or R and T, move the camera through its
+three distances, in and out (on a pad, C-up only steps in).
+`CONKER_MOUSE_SENSITIVITY` scales the mouse (1 by default, 2 twice as fast).
 
 ## Enhancements
 

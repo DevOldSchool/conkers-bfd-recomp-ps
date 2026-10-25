@@ -345,9 +345,11 @@ place to the next, and aims like a plane, pushing up to look down.
 * With the rocket launcher in a multiplayer match, while its scope is up
   (R), the right stick aims and the left stick walks.
 
-Controller 1 on the keyboard alone keeps the game's aiming, as it has no
-right stick, and only controller 1 is changed (the camera's swap is on
-every controller). `CONKER_CONSISTENT_CONTROLS=0`
+With the keyboard and mouse the mouse is that right stick: it turns the
+camera itself (0.15 degrees a pixel, times `CONKER_MOUSE_SENSITIVITY`), and
+while aiming it aims (see the controls in the README). The keyboard alone,
+with the mouse not captured, keeps the game's aiming, and only controller 1
+is changed (the camera's swap is on every controller). `CONKER_CONSISTENT_CONTROLS=0`
 leaves the game's controls, and CONSISTENT CONTROLS on the debug menu's
 ENHANCEMENTS page switches it.
 

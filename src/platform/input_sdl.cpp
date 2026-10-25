@@ -6,8 +6,8 @@
 // whenever it is outside the deadzone.
 //
 // Pad (SDL's Xbox-style names): south A, west and east B, LT Z, LB L, RT and RB R, Start Start,
-// D-pad D-pad, left stick the analog stick, right stick the C buttons. Keyboard: see kKeys and
-// the README.
+// D-pad D-pad, left stick the analog stick, right stick the C buttons. Keyboard and mouse: see
+// kKeys, the mouse below and docs/enhancements.md.
 // Back (Create/Share on a PlayStation pad, View on an Xbox pad) and the ` key open the debug menu
 // (src/enhancements/debug_menu); they are not N64 buttons.
 //
@@ -36,7 +36,10 @@
 // hardware. Each line is "<vi> <length in VIs> <control>...", where a control is an SDL button
 // name (a, b, x, start, leftshoulder, dpup, ...) or "<axis>=<value>" (leftx, lefty, rightx, righty:
 // -1 to 1, SDL's +y is down; lefttrigger, righttrigger: 0 released to 1), or "plug <vi>" /
-// "unplug <vi>". '#' starts a comment. Real pads are then ignored.
+// "unplug <vi>". '#' starts a comment. Real pads are then ignored. The first pad's script can also
+// play controller 1's mouse: mousex=<pixels> and mousey=<pixels> move it that much every VI,
+// wheel=<steps> turns the wheel once (+ away from you), lmb and rmb hold its buttons; a scripted
+// run's mouse counts as captured whenever the game is being played.
 // The virtual pad can rumble and logs each change, logs each haptic effect (or, with
 // CONKER_HAPTICS_MOTORS=1, the motor strengths it plays as), and has adaptive triggers, logging
 // each effect sent to them.
@@ -94,23 +97,141 @@ struct Key {
     uint16_t n64;
 };
 
+// WASD is the stick (Shift held walks, at half tilt), the mouse the camera (see the mouse below),
+// and R and T zoom it in and out as the wheel does (take_mouse), not N64 buttons.
 constexpr Key kKeys[] = {
     {SDL_SCANCODE_SPACE, kA},
-    {SDL_SCANCODE_LSHIFT, kB},
-    {SDL_SCANCODE_Q, kZ},
+    {SDL_SCANCODE_E, kB},
+    {SDL_SCANCODE_LCTRL, kZ},  // crouch; the left mouse button is Z too (fire)
+    {SDL_SCANCODE_C, kZ},
     {SDL_SCANCODE_RETURN, kStart},
     {SDL_SCANCODE_KP_ENTER, kStart},
+    {SDL_SCANCODE_ESCAPE, kStart},
+    {SDL_SCANCODE_Q, kL},
     {SDL_SCANCODE_TAB, kL},
-    {SDL_SCANCODE_E, kR},
+    {SDL_SCANCODE_F, kR},  // the right mouse button is R too (aim)
     {SDL_SCANCODE_I, kCUp},
     {SDL_SCANCODE_K, kCDown},
     {SDL_SCANCODE_J, kCRight},  // swapped like the right stick: J turns the view left
     {SDL_SCANCODE_L, kCLeft},
-    {SDL_SCANCODE_T, kDUp},
-    {SDL_SCANCODE_G, kDDown},
-    {SDL_SCANCODE_F, kDLeft},
-    {SDL_SCANCODE_H, kDRight},
+    {SDL_SCANCODE_UP, kDUp},
+    {SDL_SCANCODE_DOWN, kDDown},
+    {SDL_SCANCODE_LEFT, kDLeft},
+    {SDL_SCANCODE_RIGHT, kDRight},
 };
+constexpr float kWalkTilt = 0.5f;  // the stick with Shift held
+
+// The mouse, for controller 1. Clicking in the window during play captures it (relative mode, no
+// cursor; that click is not passed on); the game thread says whether it is playing
+// (set_mouse_play). Capture lets go while the game is paused or in a menu, and comes back by itself
+// when play carries on; losing the window's focus lets go until the next click. While captured the
+// left button is Z (fire), the right R (aim), its motion goes to take_mouse for the camera and
+// aiming, and the wheel zooms.
+bool g_scripted = false;  // CONKER_VIRTUAL_PAD: only the virtual pads count
+std::atomic<bool> g_mouse_play{false};     // set by the game thread
+bool g_mouse_captured = false;             // main thread only
+bool g_mouse_recapture = false;            // main thread only: captured before the game left play
+bool g_mouse_swallow = false;              // main thread only: the capturing click is still held
+std::mutex g_mouse_mutex;
+float g_mouse_dx = 0.0f;                   // under g_mouse_mutex: motion not yet taken, pixels
+float g_mouse_dy = 0.0f;
+int g_mouse_zoom = 0;                      // under g_mouse_mutex: zoom steps, + in
+bool g_zoom_in_held = false;               // main thread only: R and T, for their presses
+bool g_zoom_out_held = false;
+std::atomic<bool> g_mouse_buttons_captured{false};  // g_mouse_captured, for other threads
+bool g_script_mouse_left = false;          // main thread only: a virtual pad script's mouse buttons
+bool g_script_mouse_right = false;
+
+bool window_focused() {
+    SDL_Window* window = SDL_GetKeyboardFocus();
+    return window != nullptr && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) != 0;
+}
+
+void capture_mouse(bool on) {
+    if (on == g_mouse_captured) {
+        return;
+    }
+    if (SDL_SetRelativeMouseMode(on ? SDL_TRUE : SDL_FALSE) != 0) {
+        return;
+    }
+    g_mouse_captured = on;
+    g_mouse_buttons_captured.store(on, std::memory_order_relaxed);
+    std::lock_guard lock(g_mouse_mutex);
+    g_mouse_dx = 0.0f;
+    g_mouse_dy = 0.0f;
+}
+
+void add_zoom(int steps) {
+    std::lock_guard lock(g_mouse_mutex);
+    g_mouse_zoom = std::clamp(g_mouse_zoom + steps, -2, 2);
+}
+
+void mouse_event(const SDL_Event& event) {
+    switch (event.type) {
+        case SDL_MOUSEBUTTONDOWN:
+            if (!g_mouse_captured && g_mouse_play.load(std::memory_order_relaxed) && window_focused()) {
+                capture_mouse(true);
+                g_mouse_swallow = g_mouse_captured;
+            }
+            break;
+        case SDL_MOUSEMOTION:
+            if (g_mouse_captured) {
+                std::lock_guard lock(g_mouse_mutex);
+                g_mouse_dx += static_cast<float>(event.motion.xrel);
+                g_mouse_dy += static_cast<float>(event.motion.yrel);
+            }
+            break;
+        case SDL_MOUSEWHEEL:
+            if (g_mouse_captured && event.wheel.y != 0) {
+                const int y = event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -event.wheel.y : event.wheel.y;
+                add_zoom(y > 0 ? 1 : -1);  // away from you zooms in
+            }
+            break;
+        case SDL_WINDOWEVENT:
+            if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                capture_mouse(false);
+                g_mouse_recapture = false;
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+// Once an update: capture follows play, and the mouse's buttons and R/T join controller 1's.
+void update_mouse(uint16_t& buttons, const Uint8* keys, int key_count) {
+    const bool play = g_mouse_play.load(std::memory_order_relaxed);
+    if (g_scripted) {
+        g_mouse_captured = play;  // no real capture, which needs the window's focus
+        g_mouse_buttons_captured.store(play, std::memory_order_relaxed);
+        if (play && g_script_mouse_left) buttons |= kZ;
+        if (play && g_script_mouse_right) buttons |= kR;
+        return;
+    }
+    if (g_mouse_captured && !play) {
+        capture_mouse(false);
+        g_mouse_recapture = true;
+    } else if (!g_mouse_captured && g_mouse_recapture && play && window_focused()) {
+        capture_mouse(true);
+        g_mouse_recapture = !g_mouse_captured;
+    }
+    const Uint32 mouse = SDL_GetMouseState(nullptr, nullptr);
+    if (g_mouse_swallow && (mouse & (SDL_BUTTON_LMASK | SDL_BUTTON_RMASK)) == 0) {
+        g_mouse_swallow = false;
+    }
+    if (g_mouse_captured && !g_mouse_swallow) {
+        if (mouse & SDL_BUTTON_LMASK) buttons |= kZ;
+        if (mouse & SDL_BUTTON_RMASK) buttons |= kR;
+    }
+    if (keys != nullptr) {
+        const bool zoom_in = SDL_SCANCODE_R < key_count && keys[SDL_SCANCODE_R];
+        const bool zoom_out = SDL_SCANCODE_T < key_count && keys[SDL_SCANCODE_T];
+        if (zoom_in && !g_zoom_in_held) add_zoom(1);
+        if (zoom_out && !g_zoom_out_held) add_zoom(-1);
+        g_zoom_in_held = zoom_in;
+        g_zoom_out_held = zoom_out;
+    }
+}
 
 // A controller port and the pad holding it. Controller 1's pad also has the haptics, adaptive
 // triggers and button pictures below; it plays the keyboard alongside, and has a port without a pad.
@@ -131,7 +252,6 @@ struct Port {
 Port g_ports[kPorts];
 Port& g_port1 = g_ports[0];
 
-bool g_scripted = false;  // CONKER_VIRTUAL_PAD: only the virtual pads count
 
 std::atomic<int> g_debug_menu_presses{0};
 std::mutex g_pad_name_mutex;
@@ -329,6 +449,11 @@ struct ScriptStep {
     std::string text;
     std::vector<SDL_GameControllerButton> buttons;
     std::vector<std::pair<SDL_GameControllerAxis, float>> axes;
+    float mouse_x;
+    float mouse_y;
+    int wheel;
+    bool mouse_left;
+    bool mouse_right;
     bool reported;
 };
 
@@ -381,7 +506,14 @@ bool load_script(const std::string& path, VirtualPad& pad) {
         step.text = line;
         for (std::string control; in >> control;) {
             const size_t eq = control.find('=');
-            if (eq == std::string::npos) {
+            const std::string name = control.substr(0, eq);
+            if (control == "lmb" || control == "rmb") {
+                (control == "lmb" ? step.mouse_left : step.mouse_right) = true;
+            } else if (name == "mousex" || name == "mousey" || name == "wheel") {
+                const float value = std::strtof(control.c_str() + eq + 1, nullptr);
+                if (name == "wheel") step.wheel = static_cast<int>(value);
+                else (name == "mousex" ? step.mouse_x : step.mouse_y) = value;
+            } else if (eq == std::string::npos) {
                 const SDL_GameControllerButton button = SDL_GameControllerGetButtonFromString(control.c_str());
                 if (button == SDL_CONTROLLER_BUTTON_INVALID) {
                     std::fprintf(stderr, "[conker] CONKER_VIRTUAL_PAD line %d: unknown button '%s'\n", number, control.c_str());
@@ -622,6 +754,14 @@ void drive_virtual_pad() {
         }
         bool buttons[SDL_CONTROLLER_BUTTON_MAX] = {};
         float axes[SDL_CONTROLLER_AXIS_MAX] = {};
+        const bool first = &pad == &g_virtual_pads.front();
+        static uint64_t mouse_vi = 0;  // the scripted mouse moves by VI, however often this runs
+        const float mouse_vis = first && now > mouse_vi ? static_cast<float>(now - mouse_vi) : 0.0f;
+        if (first) {
+            mouse_vi = std::max(mouse_vi, now);
+            g_script_mouse_left = false;
+            g_script_mouse_right = false;
+        }
         for (ScriptStep& step : pad.script) {
             if (now < step.vi || now >= step.vi + step.length) {
                 continue;
@@ -630,9 +770,19 @@ void drive_virtual_pad() {
                 step.reported = true;
                 std::printf("[conker] %s: VI %llu:%s\n", virtual_pad_name(pad).c_str(), static_cast<unsigned long long>(now),
                             step.text.c_str());
+                if (first && step.wheel != 0) add_zoom(step.wheel > 0 ? 1 : -1);
             }
             for (SDL_GameControllerButton b : step.buttons) buttons[b] = true;
             for (const auto& [a, v] : step.axes) axes[a] = v;
+            if (first) {
+                g_script_mouse_left = g_script_mouse_left || step.mouse_left;
+                g_script_mouse_right = g_script_mouse_right || step.mouse_right;
+                if (g_mouse_captured && (step.mouse_x != 0.0f || step.mouse_y != 0.0f)) {
+                    std::lock_guard lock(g_mouse_mutex);
+                    g_mouse_dx += step.mouse_x * mouse_vis;
+                    g_mouse_dy += step.mouse_y * mouse_vis;
+                }
+            }
         }
         for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; b++) {
             SDL_JoystickSetVirtualButton(pad.joystick, b, buttons[b] ? SDL_PRESSED : SDL_RELEASED);
@@ -871,6 +1021,7 @@ void init() {
 }
 
 void handle_event(const SDL_Event& event) {
+    mouse_event(event);
     switch (event.type) {
         case SDL_CONTROLLERDEVICEADDED:
             open_pad(event.cdevice.which);
@@ -900,18 +1051,25 @@ void update() {
     bool debug_menu = false;
 
     // Keys held with Cmd or Alt are shortcuts (Cmd+Enter toggles full screen), not game input.
+    const Uint8* game_keys = nullptr;
+    int key_count = 0;
     if ((SDL_GetModState() & (KMOD_GUI | KMOD_ALT)) == 0) {
-        int key_count = 0;
         const Uint8* keys = SDL_GetKeyboardState(&key_count);
+        game_keys = keys;
         for (const Key& k : kKeys) {
             if (k.key < key_count && keys[k.key]) {
                 buttons |= k.n64;
             }
         }
-        x = static_cast<float>((keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) - (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT]));
-        y = static_cast<float>((keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) - (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]));
+        x = static_cast<float>(keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A]);
+        y = static_cast<float>(keys[SDL_SCANCODE_W] - keys[SDL_SCANCODE_S]);
+        if (keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT]) {
+            x *= kWalkTilt;
+            y *= kWalkTilt;
+        }
         debug_menu = keys[SDL_SCANCODE_GRAVE] != 0;
     }
+    update_mouse(buttons, game_keys, key_count);
 
     if (g_port1.pad != nullptr) {
         debug_menu = debug_menu || SDL_GameControllerGetButton(g_port1.pad, SDL_CONTROLLER_BUTTON_BACK);
@@ -1022,6 +1180,20 @@ void read(uint16_t* buttons, float* x, float* y, int port) {
     *buttons = g_ports[port].buttons.load(std::memory_order_relaxed);
     *x = g_ports[port].stick_x.load(std::memory_order_relaxed);
     *y = g_ports[port].stick_y.load(std::memory_order_relaxed);
+}
+
+void set_mouse_play(bool playing) { g_mouse_play.store(playing, std::memory_order_relaxed); }
+
+bool mouse_captured() { return g_mouse_buttons_captured.load(std::memory_order_relaxed); }
+
+void take_mouse(float* dx, float* dy, int* zoom) {
+    std::lock_guard lock(g_mouse_mutex);
+    *dx = g_mouse_dx;
+    *dy = g_mouse_dy;
+    *zoom = g_mouse_zoom;
+    g_mouse_dx = 0.0f;
+    g_mouse_dy = 0.0f;
+    g_mouse_zoom = 0;
 }
 
 bool right_stick(float* x, float* y, int port) {
