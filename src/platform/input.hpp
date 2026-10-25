@@ -103,7 +103,8 @@ bool has_adaptive_triggers();
 void set_trigger_effect(const TriggerEffect& effect);
 
 // Whether C-left and C-right are swapped, on the right stick and on J/L, so that pushing left turns
-// the view left (on unless the debug menu turns it off). Safe to call from any thread.
+// the view left; part of consistent controls (src/enhancements/consistent_controls), which set it.
+// Safe to call from any thread.
 bool camera_swapped();
 void set_camera_swapped(bool swapped);
 

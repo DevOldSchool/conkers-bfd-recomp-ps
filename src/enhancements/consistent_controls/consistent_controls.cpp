@@ -1,6 +1,9 @@
 // Consistent controls: the same controls wherever Conker aims, as a modern pad's games have them,
 // the left stick moving him, the right stick turning the view or aiming, and up looking up.
 //
+// The camera on the right stick: C-left and C-right are swapped (input::camera_swapped, also on
+// J/L), so pushing the right stick left turns the view left, where the N64's C-left swings it right.
+//
 // Aiming the right way up. Holding R without the shotgun looks around in first person, and the
 // stick, pushed up, looks down; it is turned round so up looks up.
 //
@@ -10,7 +13,7 @@
 // facing the same way) and, with R held to aim, the stick aims instead, pushed up to aim down.
 // So while he holds it:
 //  * the right stick's C-left and C-right are not swapped, as they are for the camera elsewhere
-//    (input::camera_swapped): pushed right, he steps right;
+//    (input::camera_swapped, above): pushed right, he steps right;
 //  * with R held, the right stick is the stick, up aiming up, and the left stick is the C
 //    buttons, so he still walks and steps with it while aiming. Controller 1 on the keyboard
 //    alone keeps the game's aiming, as it has no right stick.
@@ -66,7 +69,18 @@ std::atomic<bool> g_enabled{[] {
     return value == nullptr || value[0] != '0';
 }()};  // the debug menu switches it
 
+// The camera swap follows the switch from the start (input_sdl.cpp's flag is constant-initialized).
+[[maybe_unused]] const bool g_camera_swap_applied = [] {
+    set_camera_swapped(g_enabled.load());
+    return true;
+}();
+
 bool consistent_controls_enabled() { return g_enabled.load(std::memory_order_relaxed); }
+
+void set_consistent_controls(bool on) {
+    g_enabled.store(on);
+    set_camera_swapped(on);
+}
 
 bool in_rdram(uint32_t address) { return address >= 0x80000000u && address < 0x80800000u; }
 
@@ -155,5 +169,5 @@ nlohmann::json conker::status::consistent_controls() {
 }
 
 conker::switches::Switch conker::switches::consistent_controls() {
-    return {"CONSISTENT CONTROLS", consistent_controls_enabled, [](bool on) { g_enabled.store(on); }};
+    return {"CONSISTENT CONTROLS", consistent_controls_enabled, set_consistent_controls};
 }
