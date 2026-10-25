@@ -39,6 +39,7 @@
 #include <cstdlib>
 
 #include "recomp.h"
+#include "enhancements/consistent_controls/mouse_look.hpp"
 #include "enhancements/status.hpp"
 #include "enhancements/switches.hpp"
 #include "platform/input.hpp"
@@ -106,14 +107,20 @@ bool launcher_scoped(uint8_t* rdram, uint32_t player) {
     return holding(rdram, player, kRocketLauncher) && MEM_BU(kPlayerScoped, kseg0(player)) == kScoped;
 }
 
-// Aims with the right stick, up aiming up, and walks with the left one as the C buttons. False,
-// leaving the pad alone, when no pad reads controller 1.
+// Aims with the right stick and the mouse, up aiming up, and walks with the left stick (or WASD)
+// as the C buttons. False, leaving the pad alone, when controller 1 has neither (the keyboard
+// alone, the mouse not captured).
 bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, uint16_t& buttons) {
     float aim_x;
     float aim_y;
-    if (!right_stick(&aim_x, &aim_y)) {
+    float mouse_x;
+    float mouse_y;
+    const bool pad = right_stick(&aim_x, &aim_y);
+    if (!conker::mouse_look::take_aim(&mouse_x, &mouse_y) && !pad) {
         return false;
     }
+    aim_x += mouse_x;
+    aim_y += mouse_y;
     const int walk_x = MEM_B(kPad + 2, ctx->r29);
     const int walk_y = MEM_B(kPad + 3, ctx->r29);
     buttons &= static_cast<uint16_t>(~(kCUp | kCDown | kCLeft | kCRight));
@@ -136,6 +143,7 @@ bool looking(uint8_t* rdram, uint32_t player) {
 // In func_1501BBB8 just after the pads are read ($sp is its frame), before the debug menu empties
 // them while it is open.
 extern "C" void conker_consistent_controls(uint8_t* rdram, recomp_context* ctx) {
+    conker::mouse_look::frame(rdram);
     const uint32_t player = consistent_controls_enabled() ? player_block(rdram) : 0;
     if (player == 0) {
         return;
@@ -149,8 +157,14 @@ extern "C" void conker_consistent_controls(uint8_t* rdram, recomp_context* ctx) 
     }
     if (!holding(rdram, player, kShotgun)) {
         if ((buttons & kR) != 0 && looking(rdram, player)) {
-            const int y = MEM_B(kPad + 3, ctx->r29);
-            MEM_B(kPad + 3, ctx->r29) = static_cast<int8_t>(std::min(-y, 127));
+            // The game looks down with the stick pushed up; the mouse adds to it.
+            float mouse_x;
+            float mouse_y;
+            conker::mouse_look::take_aim(&mouse_x, &mouse_y);
+            const float x = MEM_B(kPad + 2, ctx->r29) / kStickRange + mouse_x;
+            const float y = -MEM_B(kPad + 3, ctx->r29) / kStickRange - mouse_y;
+            MEM_B(kPad + 2, ctx->r29) = stick_axis(x);
+            MEM_B(kPad + 3, ctx->r29) = stick_axis(y);
         }
         return;
     }

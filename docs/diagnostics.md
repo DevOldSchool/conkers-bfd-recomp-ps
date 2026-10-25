@@ -59,7 +59,11 @@ These environment variables are read by both builds:
   starts a comment. For example, `5400 10 start` then `7500 10 a` goes from the
   title scene to a new game. `unplug <vi>` and `plug <vi>` lines disconnect
   and reconnect the pad; a pad whose first such line is `plug` starts
-  unplugged. Real controllers are ignored while it is set:
+  unplugged. The first script can play controller 1's mouse too:
+  `mousex=<pixels>` and `mousey=<pixels>` move it that much every VI,
+  `wheel=<steps>` turns the wheel once (+ away from you, zooming in), and
+  `lmb` and `rmb` hold its buttons; the scripted mouse counts as captured
+  whenever the game is being played. Real controllers are ignored while it is set:
   SDL passes pad input to every process, so a pad in use in another window
   would otherwise steer the scripted run. A virtual pad can rumble, so it
   counts as a Rumble Pak, and it logs each rumble change. It logs each haptic

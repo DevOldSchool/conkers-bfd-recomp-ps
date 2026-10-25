@@ -15,6 +15,14 @@ bool right_stick(float* x, float* y, int /*port*/) {
     return false;
 }
 
+void set_mouse_play(bool /*playing*/) {}
+bool mouse_captured() { return false; }
+void take_mouse(float* dx, float* dy, int* zoom) {
+    *dx = 0.0f;
+    *dy = 0.0f;
+    *zoom = 0;
+}
+
 bool connected(int port) { return port == 0; }
 
 std::string controller_name() { return ""; }

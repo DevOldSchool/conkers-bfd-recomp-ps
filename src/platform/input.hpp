@@ -38,6 +38,14 @@ void read(uint16_t* buttons, float* x, float* y, int port = 0);
 // any thread.
 bool right_stick(float* x, float* y, int port = 0);
 
+// Controller 1's mouse (and the R and T keys' zoom). The game thread says each frame whether the
+// game is being played, not paused or in a menu, which is when the mouse may be captured; take_mouse
+// gives the motion (pixels, +x right, +y down) and zoom steps (+ in, - out) since the last call,
+// and clears them. Safe to call from any thread.
+void set_mouse_play(bool playing);
+bool mouse_captured();
+void take_mouse(float* dx, float* dy, int* zoom);
+
 // Whether a controller is plugged into a port: controller 1 always is (the keyboard), the others
 // while a pad holds them. Safe to call from any thread.
 bool connected(int port);
