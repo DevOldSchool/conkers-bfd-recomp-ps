@@ -5,7 +5,8 @@
 // J/L), so pushing the right stick left turns the view left, where the N64's C-left swings it right.
 //
 // Aiming the right way up. Holding R without the shotgun looks around in first person, and the
-// stick, pushed up, looks down; it is turned round so up looks up.
+// stick, pushed up, looks down; it is turned round so up looks up. The slingshot (B on its pad)
+// aims the same way without R, and gets the same, the mouse aiming it too.
 //
 // Twin-stick controls while Conker holds the shotgun (Spooky's mansion, out with B): the left
 // stick always moves him and the right stick aims. On the N64 the stick turns and walks, the C
@@ -38,10 +39,13 @@
 // Found in scene 60 (debug report scene60-20261025-081607, B to take the shotgun out): the item
 // Conker holds is u8 +0x78 of his player block (*(Conker's actor + 0x31C)), 0x3B the shotgun, and
 // u8 +0x11A how far: 1 coming out, 2 held, 3 going away (func_15065A5C sets both). The block's
-// u8 +0x198 is 1 then 2 while R aims, with or without the shotgun, and 3 as it lets go; looking
+// u8 +0x198 is 1 then 2 while R aims, with or without the shotgun, and 3 as it lets go (the
+// camera's s16 +0x73C, copied there by func_1512317C, so the slingshot's aim sets it too); looking
 // with it in scene 60, the stick pushed up turned the camera's forward vector (+0x130) down.
 // The launcher was found by logging these through a VAULT match (scene 26): it is item
 // 0x16, and u8 +0x197 is 2 while its scope is up (the mounted gun's "mounted" too).
+// The slingshot by logging them in scene 6 (debug report scene6-20261023-133408, B on its pad):
+// item 0x02, and +0x198 is 2 while it is out, R or not; the stick pushed up turned +0x130 down.
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -68,6 +72,7 @@ constexpr uint8_t kGuns[] = {0x09, 0x15, 0x26, 0x37, 0x38, 0x39, 0x3A, 0x3B};
 constexpr uint8_t kItemHeld = 2;
 constexpr uint8_t kRocketLauncher = 0x16;
 constexpr uint8_t kScopedGun = 0x24;  // a match's gun with a scope on R, as the launcher's
+constexpr uint8_t kSlingshot = 0x02;  // out with B on its pad, aimed without R
 constexpr uint32_t kPlayerScoped = 0x197;  // u8: 2 while the launcher's scope is up
 constexpr uint8_t kScoped = 2;
 constexpr uint32_t kPlayerLook = 0x198;  // u8: 1 going into R's look, 2 looking, 3 coming out
@@ -211,7 +216,8 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t player, int pad) {
         return;
     }
     if (!holding_gun(rdram, player)) {
-        if ((buttons & kR) != 0 && looking(rdram, player)) {
+        const bool aiming = (buttons & kR) != 0 || holding(rdram, player, kSlingshot);
+        if (aiming && looking(rdram, player)) {
             // The game looks down with the stick pushed up; the mouse adds to it.
             float mouse_x;
             float mouse_y;

@@ -101,9 +101,9 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
 
 The mouse is captured when you click in the window while playing (that click
 is not passed on): the cursor hides, moving the mouse turns the camera, and
-while aiming (R) it aims, as the right stick does. Pausing (Esc), a menu or
-another window lets it go; it is captured again when play carries on after a
-pause, or with a click. The wheel, or R and T, move the camera through its
+while aiming (R, or the slingshot) it aims, as the right stick does. Pausing
+(Esc), a menu or another window lets it go; it is captured again when play
+carries on after a pause, or with a click. The wheel, or R and T, move the camera through its
 three distances, in and out (on a pad, C-up only steps in).
 `CONKER_MOUSE_SENSITIVITY` scales the mouse (1 by default, 2 twice as fast).
 
