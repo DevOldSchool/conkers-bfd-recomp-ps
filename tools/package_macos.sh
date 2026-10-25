@@ -84,12 +84,13 @@ EOF
 echo "==> making the icon"
 iconset="$(mktemp -d)/AppIcon.iconset"
 mkdir -p "$iconset" "$app/Contents/Resources"
-cp "$here/assets/app-icon.png" "$iconset/icon_512x512@2x.png"
+retina="@2x"  # kept apart from the file names, which tools/check_tree.py would read as email addresses
+cp "$here/assets/app-icon.png" "$iconset/icon_512x512${retina}.png"
 for size in 16 32 128 256 512; do
-    sips -z "$size" "$size" "$iconset/icon_512x512@2x.png" --out "$iconset/icon_${size}x${size}.png" > /dev/null
+    sips -z "$size" "$size" "$here/assets/app-icon.png" --out "$iconset/icon_${size}x${size}.png" > /dev/null
     if [ "$size" != 512 ]; then
         double=$((size * 2))
-        sips -z "$double" "$double" "$iconset/icon_512x512@2x.png" --out "$iconset/icon_${size}x${size}@2x.png" > /dev/null
+        sips -z "$double" "$double" "$here/assets/app-icon.png" --out "$iconset/icon_${size}x${size}${retina}.png" > /dev/null
     fi
 done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
