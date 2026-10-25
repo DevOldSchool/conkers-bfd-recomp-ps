@@ -344,7 +344,9 @@ forwards and back, C-left and C-right sideways, still facing the same way),
 pushed right stepping right, which the camera swap above would otherwise
 turn round. With R held to aim, the right stick aims, pushed up aiming up
 (the N64 stick aims down when pushed up), and the left stick steps him as
-the C buttons would. Controller 1 on the keyboard alone keeps the game's
+the C buttons would. The rocket launcher in a multiplayer match does the
+same while its scope is up (R): the right stick aims, up aiming up, and the
+left stick walks. Controller 1 on the keyboard alone keeps the game's
 aiming. `CONKER_AIM_CONTROLS=0` leaves the game's controls, and AIM
 CONTROLS on the debug menu's ENHANCEMENTS page switches it.
 

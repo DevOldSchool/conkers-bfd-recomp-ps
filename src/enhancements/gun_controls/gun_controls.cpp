@@ -11,6 +11,10 @@
 //  * with R held, the right stick is the stick, up aiming up, and the left stick is the C
 //    buttons, so he still walks and steps with it while aiming. Controller 1 on the keyboard
 //    alone keeps the game's aiming, as it has no right stick.
+//
+// The rocket launcher in a multiplayer match (THE VAULT) scoped with R works the same way: the
+// stick aims, up aiming down, and C-up and C-down walk. So while scoped it gets the shotgun's aim:
+// the right stick aims, up aiming up, and the left stick walks. Unscoped it walks with the stick.
 // Controller 1's pad as the game reads it is rewritten in func_1501BBB8 (sp+0x38, after
 // osContGetReadData; the [[patches.hook]] in config/us.toml), so the game sees nothing else.
 // CONKER_AIM_CONTROLS=0 leaves the game's controls.
@@ -20,6 +24,8 @@
 // u8 +0x11A how far: 1 coming out, 2 held, 3 going away (func_15065A5C sets both). The block's
 // u8 +0x198 is 1 then 2 while R aims, with or without the shotgun, and 3 as it lets go; looking
 // with it in scene 60, the stick pushed up turned the camera's forward vector (+0x130) down.
+// The launcher was found by logging these through a VAULT match (scene 26): it is item
+// 0x16, and u8 +0x197 is 2 while its scope is up (the mounted gun's "mounted" too).
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -41,6 +47,9 @@ constexpr uint32_t kPlayerItem = 0x78;    // u8: the item he holds
 constexpr uint32_t kPlayerItemState = 0x11A;  // u8
 constexpr uint8_t kShotgun = 0x3B;
 constexpr uint8_t kItemHeld = 2;
+constexpr uint8_t kRocketLauncher = 0x16;
+constexpr uint32_t kPlayerScoped = 0x197;  // u8: 2 while the launcher's scope is up
+constexpr uint8_t kScoped = 2;
 constexpr uint32_t kPlayerLook = 0x198;  // u8: 1 going into R's look, 2 looking, 3 coming out
 
 constexpr int kPad = 0x38;  // func_1501BBB8's frame: controller 1's OSContPad
@@ -58,6 +67,10 @@ bool gun_controls_enabled() { return g_enabled.load(std::memory_order_relaxed); 
 
 bool in_rdram(uint32_t address) { return address >= 0x80000000u && address < 0x80800000u; }
 
+int8_t stick_axis(float value) {
+    return static_cast<int8_t>(std::lround(std::fmax(-1.0f, std::fmin(value, 1.0f)) * kStickRange));
+}
+
 // Conker's player block, or 0.
 uint32_t player_block(uint8_t* rdram) {
     const uint32_t conker = static_cast<uint32_t>(MEM_W(0, kseg0(kConker)));
@@ -68,17 +81,37 @@ uint32_t player_block(uint8_t* rdram) {
     return in_rdram(player) ? player : 0;
 }
 
-bool holding_shotgun(uint8_t* rdram, uint32_t player) {
-    return MEM_BU(kPlayerItem, kseg0(player)) == kShotgun && MEM_BU(kPlayerItemState, kseg0(player)) == kItemHeld;
+bool holding(uint8_t* rdram, uint32_t player, uint8_t item) {
+    return MEM_BU(kPlayerItem, kseg0(player)) == item && MEM_BU(kPlayerItemState, kseg0(player)) == kItemHeld;
+}
+
+bool launcher_scoped(uint8_t* rdram, uint32_t player) {
+    return holding(rdram, player, kRocketLauncher) && MEM_BU(kPlayerScoped, kseg0(player)) == kScoped;
+}
+
+// Aims with the right stick, up aiming up, and walks with the left one as the C buttons. False,
+// leaving the pad alone, when no pad reads controller 1.
+bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, uint16_t& buttons) {
+    float aim_x;
+    float aim_y;
+    if (!right_stick(&aim_x, &aim_y)) {
+        return false;
+    }
+    const int walk_x = MEM_B(kPad + 2, ctx->r29);
+    const int walk_y = MEM_B(kPad + 3, ctx->r29);
+    buttons &= static_cast<uint16_t>(~(kCUp | kCDown | kCLeft | kCRight));
+    if (walk_y > kStepAt) buttons |= kCUp;
+    if (walk_y < -kStepAt) buttons |= kCDown;
+    if (walk_x < -kStepAt) buttons |= kCLeft;
+    if (walk_x > kStepAt) buttons |= kCRight;
+    MEM_B(kPad + 2, ctx->r29) = stick_axis(aim_x);
+    MEM_B(kPad + 3, ctx->r29) = stick_axis(-aim_y);
+    return true;
 }
 
 bool looking(uint8_t* rdram, uint32_t player) {
     const uint8_t look = MEM_BU(kPlayerLook, kseg0(player));
     return look == 1 || look == 2;
-}
-
-int8_t stick_axis(float value) {
-    return static_cast<int8_t>(std::lround(std::fmax(-1.0f, std::fmin(value, 1.0f)) * kStickRange));
 }
 
 }  // namespace
@@ -91,26 +124,21 @@ extern "C" void conker_gun_controls(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     uint16_t buttons = MEM_HU(kPad, ctx->r29);
-    if (!holding_shotgun(rdram, player)) {
+    if (launcher_scoped(rdram, player)) {
+        if (twin_stick_aim(rdram, ctx, buttons)) {
+            MEM_H(kPad, ctx->r29) = static_cast<int16_t>(buttons);
+        }
+        return;
+    }
+    if (!holding(rdram, player, kShotgun)) {
         if ((buttons & kR) != 0 && looking(rdram, player)) {
             const int y = MEM_B(kPad + 3, ctx->r29);
             MEM_B(kPad + 3, ctx->r29) = static_cast<int8_t>(std::min(-y, 127));
         }
         return;
     }
-    float aim_x;
-    float aim_y;
-    if ((buttons & kR) != 0 && right_stick(&aim_x, &aim_y)) {
-        const int walk_x = MEM_B(kPad + 2, ctx->r29);
-        const int walk_y = MEM_B(kPad + 3, ctx->r29);
-        buttons &= static_cast<uint16_t>(~(kCUp | kCDown | kCLeft | kCRight));
-        if (walk_y > kStepAt) buttons |= kCUp;
-        if (walk_y < -kStepAt) buttons |= kCDown;
-        if (walk_x < -kStepAt) buttons |= kCLeft;
-        if (walk_x > kStepAt) buttons |= kCRight;
-        MEM_B(kPad + 2, ctx->r29) = stick_axis(aim_x);
-        MEM_B(kPad + 3, ctx->r29) = stick_axis(-aim_y);
-    } else if (camera_swapped()) {
+    const bool aimed = (buttons & kR) != 0 && twin_stick_aim(rdram, ctx, buttons);
+    if (!aimed && camera_swapped()) {
         const uint16_t c = buttons & (kCLeft | kCRight);
         buttons = static_cast<uint16_t>((buttons & ~(kCLeft | kCRight)) | ((c & kCLeft) ? kCRight : 0) |
                                         ((c & kCRight) ? kCLeft : 0));
@@ -119,7 +147,7 @@ extern "C" void conker_gun_controls(uint8_t* rdram, recomp_context* ctx) {
 }
 
 nlohmann::json conker::status::gun_controls() {
-    return enhancement("aim_controls", "Look and aim up with up, twin-stick shotgun", gun_controls_enabled(),
+    return enhancement("aim_controls", "Look and aim up with up, twin-stick shotgun and rocket launcher", gun_controls_enabled(),
                        "CONKER_AIM_CONTROLS");
 }
 
