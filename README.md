@@ -74,7 +74,7 @@ apps until it reconnects.
 | --- | --- | --- | --- |
 | Analog stick | Left stick | Left stick | W A S D / arrow keys |
 | A | A | Cross | Space |
-| B | B or X | Circle or Square | Left Shift |
+| B | B or X | Square or Circle | Left Shift |
 | Z | LT or RT | L2 or R2 | Q |
 | L | LB | L1 | Tab |
 | R | RB | R1 | E |
