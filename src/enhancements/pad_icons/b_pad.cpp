@@ -1,14 +1,14 @@
 // The octagonal wooden B pads are a 64x64 CI4 texture with a 16-colour RGBA16 palette, flat
 // resource 1575: a wooden octagon with a raised B painted in five shades of moss. For a PlayStation
-// pad the B is taken out, the wood under it refilled from the same ring of the plate elsewhere (its
-// grain runs in octagonal rings), and a square painted in, in Rare's own colours: the moss mottled
+// pad or the keyboard the B is taken out, the wood under it refilled from the same ring of the plate
+// elsewhere (its grain runs in octagonal rings), and the mark (a square or an E) painted in, in Rare's own colours: the moss mottled
 // the way theirs is, lightest on the edges facing up and right, with a dark band two texels wide in
 // the palette's dark browns where the B has one: its outline moved up and to the left (outside the
 // top and left of the letter, inside its bowls at their lower right). It is made from the player's
 // ROM when the game starts, so no part of Rare's texture is in this repository.
 #include "enhancements/pad_icons/b_pad.hpp"
 #include "enhancements/pad_icons/ring_fill.hpp"
-#include "enhancements/pad_icons/square_symbol.hpp"
+#include "enhancements/pad_icons/pad_mark.hpp"
 
 #include <algorithm>
 #include <array>
@@ -105,11 +105,11 @@ Field blur(const Field& f, float sigma) {
     return out;
 }
 
-// The square's outer reach and its counter's, in texels.
+// The mark's outer reach and its counter's (the square's), in texels.
 constexpr float kOuter = kSize * 0.24f, kInner = kOuter - kSize * 0.12f;
 
-// The square, as much of each texel as lies in its stroke, kept where that is most of it.
-Grid square() {
+// The mark, as much of each texel as lies in its stroke, kept where that is most of it.
+Grid stroke(const Mark& mark) {
     Grid out{};
     for (int y = 0; y < kSize; y++) {
         for (int x = 0; x < kSize; x++) {
@@ -117,8 +117,7 @@ Grid square() {
             for (int sy = 0; sy < 8; sy++) {
                 for (int sx = 0; sx < 8; sx++) {
                     const float dx = x + (sx + 0.5f) / 8 - kSize / 2.0f, dy = y + (sy + 0.5f) / 8 - kSize / 2.0f;
-                    const float d = square_symbol::reach(dx, dy);
-                    inside += d >= kInner && d <= kOuter;
+                    inside += mark.stroke(dx, dy);
                 }
             }
             out[at(x, y)] = inside > 64 * 0.43f;
@@ -142,7 +141,8 @@ uint64_t hash(const std::vector<uint8_t>& resource) {
 
 } // namespace
 
-std::optional<Texture> wood_pad() {
+std::optional<Texture> wood_pad(Mark::Shape shape) {
+    const Mark mark{shape, kOuter, kOuter - kInner};
     const std::vector<uint8_t> resource = menu_art::load_resource(kResource);
     if (resource.size() != size_t(kTexelBytes + 32)) return std::nullopt;
 
@@ -217,14 +217,14 @@ std::optional<Texture> wood_pad() {
             return !covered[at(sx, sy)] && solid[at(sx, sy)] && a.x * b.x + a.y * b.y > 0.99f && ring(sx, sy) == ring(x, y);
         },
         [&](int sx, int sy, int x, int y) { wood[at(x, y)] = index[at(sx, sy)], slid[at(x, y)] = true; });
-    // Outside the square, where a ring's straight edge is shorter than the letter, the same place on
+    // Outside the mark, where a ring's straight edge is shorter than the letter, the same place on
     // the octagon turned or mirrored about its middle (on the same ring), the first of those clear
     // of the letter.
     for (int y = 0; y < kSize; y++) {
         for (int x = 0; x < kSize; x++) {
             if (!covered[at(x, y)] || !solid[at(x, y)] || slid[at(x, y)]) continue;
             const int dx = 2 * x + 1 - kSize, dy = 2 * y + 1 - kSize;  // in half texels from the middle
-            if (square_symbol::reach(dx / 2.0f, dy / 2.0f) < kOuter) continue;  // the square and its counter, below
+            if (mark.within(dx / 2.0f, dy / 2.0f)) continue;  // the mark and its counter, below
             const int images[7][2] = {{-dx, dy}, {dx, -dy}, {-dx, -dy}, {dy, dx}, {-dy, dx}, {dy, -dx}, {-dy, -dx}};
             for (const auto& image : images) {
                 const int sx = (image[0] + kSize - 1) / 2, sy = (image[1] + kSize - 1) / 2;
@@ -234,15 +234,15 @@ std::optional<Texture> wood_pad() {
             }
         }
     }
-    // The square's counter is the middle of the rings, all under the letter: each texel from the
+    // The mark's counter (and the E's gaps) is the middle of the rings, all under the letter: each texel from the
     // same direction further out, clear of the letter (out by so many rings, and the rings drawn
     // closer together if that is what it takes to stay off the dark rings by the rim), so the rings
     // close in round the middle as they do.
     {
-        const Grid stroke = square();  // painted over below
+        const Grid painted = stroke(mark);  // painted over below
         std::vector<int> counter;
         for (int i = 0; i < kSize * kSize; i++)
-            if (covered[i] && solid[i] && !slid[i] && !stroke[i]) counter.push_back(i);
+            if (covered[i] && solid[i] && !slid[i] && !painted[i]) counter.push_back(i);
         auto pushed = [&](int i, float rings, float closer, int& sx, int& sy) {
             const float dx = i % kSize + 0.5f - kSize / 2.0f, dy = i / kSize + 0.5f - kSize / 2.0f;
             const float ax = std::abs(dx), ay = std::abs(dy), r = std::max({ax, ay, (ax + ay) / 1.41421356f, 0.5f});
@@ -295,8 +295,8 @@ std::optional<Texture> wood_pad() {
         }
     }
 
-    // The square, with the B's dark band: the square moved one and two texels up and left.
-    const Grid ring_mask = square();
+    // The mark, with the B's dark band: the mark moved one and two texels up and left.
+    const Grid ring_mask = stroke(mark);
     std::array<int, kSize * kSize> out = wood;
     for (int y = 0; y < kSize; y++) {
         for (int x = 0; x < kSize; x++) {

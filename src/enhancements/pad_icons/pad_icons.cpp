@@ -3,19 +3,22 @@
 // C-right; the tutorial bubbles have A and B and their own Z, L, R and C buttons (the sprites
 // func_150417AC picks). They are RGBA32 and RGBA16 tiles in the ROM's flat resources
 // (src/enhancements/sharp_menus/menu_art.cpp). With an Xbox or PlayStation pad connected, they are
-// replaced with that pad's buttons, drawn like Rare's when the set is first wanted
+// replaced with that pad's buttons, and with none (the keyboard alone) with the keys that press
+// them, drawn like Rare's when the set is first wanted
 // (src/enhancements/pad_icons/button_art.cpp), through a texture pack keyed by the hash RT64
 // computes for each tile as the game loads it (as src/enhancements/sharp_menus does).
 // CONKER_DUMP_PAD_ICONS=<dir> writes the pack out.
 //
-// Other pads and the keyboard get the N64's buttons redrawn the same way, sharper than Rare's
+// Other pads get the N64's buttons redrawn the same way, sharper than Rare's
 // small pictures, unless the OPTIONS menu asks for the original text and menus.
 //
 // The N64 buttons map to the pad's by position (src/platform/input_sdl.cpp): A to the bottom face
 // button (Xbox A, Cross), B to the right and left ones (Xbox B and X, drawn as B; Circle and
 // Square, drawn as Square), START to Menu or Options, Z to either trigger (drawn as the right one),
 // L and R to the shoulder buttons and the C buttons to the right stick. The stick is swapped left to right (C-left is pushing it
-// right), so the C-left picture shows the stick pushed right, and C-right pushed left.
+// right), so the C-left picture shows the stick pushed right, and C-right pushed left. The keys:
+// A Space, B E, START Esc, Z C (crouch; Left Ctrl and the left mouse button too), L Q, R F, and
+// the C buttons I, K and J and L, swapped as the stick is.
 #include "enhancements/pad_icons/pad_icons.hpp"
 
 #include <algorithm>
@@ -81,7 +84,10 @@ uint64_t hash(const std::vector<uint8_t>& tile, const Button& button) {
 
 std::shared_ptr<RT64::FileSystem> make_pack(Style style, bool camera_swapped) {
     if (style == Style::Original) return nullptr;
-    const std::string folder = style == Style::Xbox ? "xbox" : style == Style::PlayStation ? "playstation" : "n64";
+    const std::string folder = style == Style::Xbox          ? "xbox"
+                               : style == Style::PlayStation ? "playstation"
+                               : style == Style::Keyboard    ? "keyboard"
+                                                             : "n64";
     const auto started = std::chrono::steady_clock::now();
     const std::vector<Picture> pictures = draw_set(style, camera_swapped);
     auto pack = std::make_shared<memory_pack::Pack>();
@@ -95,50 +101,53 @@ std::shared_ptr<RT64::FileSystem> make_pack(Style style, bool camera_swapped) {
         pack->add("pad_icons/" + folder + "/" + button.picture + ".png", hash(tile, button), picture->width, picture->height,
                   picture->rgba.data());
     }
-    // The B pads on the ground: an Xbox pad's B is B, so only a PlayStation pad's change.
-    if (style == Style::PlayStation) {
-        if (const std::optional<Texture> pad = wood_pad()) {
-            pack->add("pad_icons/playstation/wood_pad.png", pad->hash, pad->width, pad->height, pad->rgba.data());
+    // The B pads on the ground: an Xbox pad's B is B, so only a PlayStation pad's (a Square) and the
+    // keyboard's (an E) change.
+    if (style == Style::PlayStation || style == Style::Keyboard) {
+        const Mark::Shape shape = style == Style::PlayStation ? Mark::Shape::Square : Mark::Shape::E;
+        const std::string pads = "pad_icons/" + folder + "/";
+        if (const std::optional<Texture> pad = wood_pad(shape)) {
+            pack->add(pads + "wood_pad.png", pad->hash, pad->width, pad->height, pad->rgba.data());
         } else {
             std::fprintf(stderr, "[conker] pad buttons: no B pad texture in the ROM; left as it is\n");
         }
-        const std::vector<Texture> stone = stone_pad();
+        const std::vector<Texture> stone = stone_pad(shape);
         for (size_t i = 0; i < stone.size(); i++) {
-            pack->add("pad_icons/playstation/stone_pad_" + std::to_string(i) + ".png", stone[i].hash, stone[i].width,
+            pack->add(pads + "stone_pad_" + std::to_string(i) + ".png", stone[i].hash, stone[i].width,
                       stone[i].height, stone[i].rgba.data());
         }
         if (stone.empty()) std::fprintf(stderr, "[conker] pad buttons: no stone B pad textures in the ROM; left as they are\n");
-        const std::vector<Texture> hex = hex_pad();
+        const std::vector<Texture> hex = hex_pad(shape);
         for (size_t i = 0; i < hex.size(); i++) {
-            pack->add("pad_icons/playstation/hex_pad_" + std::to_string(i) + ".png", hex[i].hash, hex[i].width,
+            pack->add(pads + "hex_pad_" + std::to_string(i) + ".png", hex[i].hash, hex[i].width,
                       hex[i].height, hex[i].rgba.data());
         }
         if (hex.empty()) std::fprintf(stderr, "[conker] pad buttons: no hexagonal B pad textures in the ROM; left as they are\n");
-        if (const std::optional<Texture> square = square_pad()) {
-            pack->add("pad_icons/playstation/square_pad.png", square->hash, square->width, square->height,
+        if (const std::optional<Texture> square = square_pad(shape)) {
+            pack->add(pads + "square_pad.png", square->hash, square->width, square->height,
                       square->rgba.data());
         } else {
             std::fprintf(stderr, "[conker] pad buttons: no square B pad texture in the ROM; left as it is\n");
         }
-        const std::vector<Texture> oval = oval_pad();
+        const std::vector<Texture> oval = oval_pad(shape);
         for (size_t i = 0; i < oval.size(); i++) {
-            pack->add("pad_icons/playstation/oval_pad_" + std::to_string(i) + ".png", oval[i].hash, oval[i].width,
+            pack->add(pads + "oval_pad_" + std::to_string(i) + ".png", oval[i].hash, oval[i].width,
                       oval[i].height, oval[i].rgba.data());
         }
         if (oval.empty()) std::fprintf(stderr, "[conker] pad buttons: no teal B pad textures in the ROM; left as they are\n");
-        if (const std::optional<Texture> rock = rock_pad()) {
-            pack->add("pad_icons/playstation/rock_pad.png", rock->hash, rock->width, rock->height, rock->rgba.data());
+        if (const std::optional<Texture> rock = rock_pad(shape)) {
+            pack->add(pads + "rock_pad.png", rock->hash, rock->width, rock->height, rock->rgba.data());
         } else {
             std::fprintf(stderr, "[conker] pad buttons: no grey stone B pad texture in the ROM; left as it is\n");
         }
-        if (const std::optional<Texture> rug = rug_pad()) {
-            pack->add("pad_icons/playstation/rug_pad.png", rug->hash, rug->width, rug->height, rug->rgba.data());
+        if (const std::optional<Texture> rug = rug_pad(shape)) {
+            pack->add(pads + "rug_pad.png", rug->hash, rug->width, rug->height, rug->rgba.data());
         } else {
             std::fprintf(stderr, "[conker] pad buttons: no rug B pad texture in the ROM; left as it is\n");
         }
-        const std::vector<Texture> plate = plate_pad();
+        const std::vector<Texture> plate = plate_pad(shape);
         for (size_t i = 0; i < plate.size(); i++) {
-            pack->add("pad_icons/playstation/plate_pad_" + std::to_string(i) + ".png", plate[i].hash, plate[i].width,
+            pack->add(pads + "plate_pad_" + std::to_string(i) + ".png", plate[i].hash, plate[i].width,
                       plate[i].height, plate[i].rgba.data());
         }
         if (plate.empty()) std::fprintf(stderr, "[conker] pad buttons: no round stone B plate textures in the ROM; left as they are\n");

@@ -126,7 +126,7 @@ Packs find_packs() {
 
 // Hands RT64 the packs to use, the built-in font and menus only if `sharp` (the OPTIONS menu's
 // choice) and `pad`'s button pictures (the redrawn N64 ones also only if `sharp`; an Xbox or
-// PlayStation pad's always, as they say which button to press), and returns whether the font's
+// PlayStation pad's and the keyboard's always, as they say which button to press), and returns whether the font's
 // glyphs may be replaced: the built-in font or any user pack is in.
 bool use_packs(RT64::Application& app, Packs& packs, bool sharp, conker::pad_icons::Style pad, bool swapped, bool report) {
     std::vector<RT64::ReplacementDirectory> directories;

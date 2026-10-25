@@ -5,13 +5,14 @@
 // 1.41 times along the tile's height, so the ring, 31 texels wide and 22 high, is round on the
 // floor.
 //
-// For a PlayStation pad the B is taken out and the dark under it filled from its edges inward, each
+// For a PlayStation pad or the keyboard the B is taken out and the dark under it filled from its edges inward, each
 // step copying the 3x3 patch of the ring's own dark middle (clear of the B) that best matches what
-// is already round it. Then a square, as wide on the floor as it is high, stands where the B was: its
+// is already round it. Then the mark (a square or an E), its
+// proportions those on the floor, stands where the B was: its
 // edge the B's edge texels in order round it, the rest the B's own teal. It is made from the
 // player's ROM when the game starts, so no part of Rare's texture is in this repository.
 #include "enhancements/pad_icons/b_pad.hpp"
-#include "enhancements/pad_icons/square_symbol.hpp"
+#include "enhancements/pad_icons/pad_mark.hpp"
 
 #include <algorithm>
 #include <array>
@@ -34,8 +35,8 @@ constexpr int kTexelBytes = kW * kH;
 constexpr int kResourceBytes = kTexelBytes + 256 * 2;
 constexpr uint32_t kTlutRgba16 = 0x8000;  // G_TT_RGBA16, as RT64 hashes a TLUT draw
 
-// A texel of the ring and one of the B, the ring's middle (and the square's), how much longer the
-// floor draws the tile's height than its width, and the square's half height and stroke (a share of
+// A texel of the ring and one of the B, the ring's middle (and the mark's), how much longer the
+// floor draws the tile's height than its width, and the mark's half height and stroke (a share of
 // its half height).
 constexpr int kRingX = 19, kRingY = 7, kLetterX = 30, kLetterY = 7;
 constexpr float kOX = 32.5f, kOY = 7.0f, kStretch = 1.41f;
@@ -110,7 +111,8 @@ uint64_t hash(const std::vector<uint8_t>& resource) {
 
 } // namespace
 
-std::vector<Texture> oval_pad() {
+std::vector<Texture> oval_pad(Mark::Shape shape) {
+    const Mark mark{shape, 1, kStroke};
     // The tile as RT64 decodes it.
     Half halves[2];
     std::vector<Rgb> rgb(N * N);
@@ -204,7 +206,7 @@ std::vector<Texture> oval_pad() {
             }
     }
 
-    // 3. The square, its sides equal on the floor: its edge texels the B's, in order round it (by the angle on
+    // 3. The mark, as it would be on the floor: its edge texels the B's, in order round it (by the angle on
     // the floor), the rest the B's teal, the same texel where the B was, else the nearest.
     const float outer_x = kOuterY * kStretch;
     Grid o{};
@@ -213,8 +215,7 @@ std::vector<Texture> oval_pad() {
             int inside = 0;
             for (int sy = 0; sy < 8; sy++)
                 for (int sx = 0; sx < 8; sx++) {
-                    const float d = square_symbol::reach((x + (sx + 0.5f) / 8 - kOX) / outer_x, (y + (sy + 0.5f) / 8 - kOY) / kOuterY);
-                    inside += d >= 1 - kStroke && d <= 1;
+                    inside += mark.stroke((x + (sx + 0.5f) / 8 - kOX) / outer_x, (y + (sy + 0.5f) / 8 - kOY) / kOuterY);
                 }
             o[at(x, y)] = inside > 64 * 0.45f;
         }
