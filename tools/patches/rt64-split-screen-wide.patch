@@ -1,5 +1,5 @@
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
-index c09e25d..506c8c3 100644
+index c09e25d..7be49a1 100644
 --- a/src/render/rt64_framebuffer_renderer.cpp
 +++ b/src/render/rt64_framebuffer_renderer.cpp
 @@ -1475,6 +1475,22 @@ namespace RT64 {
@@ -37,73 +37,118 @@ index c09e25d..506c8c3 100644
                  if (useWideViewport) {
                      projInvRatioScale = 1.0f;
                  }
-@@ -1652,6 +1671,9 @@ namespace RT64 {
+@@ -1652,6 +1671,10 @@ namespace RT64 {
                          float horizontalMisalignment = 0.0f;
                          bool extendLeft = false;
                          bool extendRight = false;
 +                        bool viewLeft = false;
 +                        bool viewRight = false;
 +                        RenderRect viewEdges;
++                        int32_t viewShift = 0;
                          switch (proj.type) {
                          case Projection::Type::Perspective:
                          case Projection::Type::Orthographic: {
-@@ -1671,7 +1693,19 @@ namespace RT64 {
+@@ -1671,7 +1694,25 @@ namespace RT64 {
  
                              // The call's scissor spans the whole width of the framebuffer pair scissor. The rect must not be using extended origins.
                              const bool regularOrigins = (call.callDesc.rectLeftOrigin == G_EX_ORIGIN_NONE) && (call.callDesc.rectRightOrigin == G_EX_ORIGIN_NONE);
 -                            const bool coversScissorWidth = regularOrigins && (call.callDesc.rect.ulx <= fbPair.scissorRect.ulx) && (call.callDesc.rect.lrx >= fbPair.scissorRect.lrx);
 +                            bool coversScissorWidth = regularOrigins && (call.callDesc.rect.ulx <= fbPair.scissorRect.ulx) && (call.callDesc.rect.lrx >= fbPair.scissorRect.lrx);
 +
-+                            // Likewise a rect with a widened view's scissor spanning that view's whole width (a split-screen
-+                            // view's own full-view effects) is stretched with the view.
++                            // The widened view whose scissor the rect has (one of a split screen's views), if any.
 +                            const FixedRect &rectScissor = call.callDesc.scissorRect;
++                            const FixedRect *wideView = nullptr;
 +                            for (const FixedRect &view : wideViewScissors) {
-+                                if (regularOrigins && (rectScissor.ulx == view.ulx) && (rectScissor.uly == view.uly) && (rectScissor.lrx == view.lrx) && (rectScissor.lry == view.lry) &&
-+                                    (call.callDesc.rect.ulx <= view.ulx) && (call.callDesc.rect.lrx >= view.lrx)) {
-+                                    coversScissorWidth = true;
++                                if (regularOrigins && (rectScissor.ulx == view.ulx) && (rectScissor.uly == view.uly) && (rectScissor.lrx == view.lrx) && (rectScissor.lry == view.lry)) {
++                                    wideView = &view;
++                                    viewEdges = convertFixedRect(view, p.resolutionScale, p.fbWidth, 1.0f, extOriginPercentage, 0, G_EX_ORIGIN_NONE, G_EX_ORIGIN_NONE);
 +                                    break;
 +                                }
++                            }
++
++                            // Likewise a rect spanning that view's whole width (a split-screen view's own full-view effects)
++                            // is stretched with the view.
++                            if ((wideView != nullptr) && (call.callDesc.rect.ulx <= wideView->ulx) && (call.callDesc.rect.lrx >= wideView->lrx)) {
++                                coversScissorWidth = true;
 +                            }
 +
                              if ((tileCopiesUsed || coversScissorWidth || call.callDesc.rectAspect == G_EX_ASPECT_STRETCH) && (call.callDesc.rectAspect != G_EX_ASPECT_ADJUST)) {
                                  invRatioScale = 1.0f;
                              }
-@@ -1688,6 +1722,18 @@ namespace RT64 {
+@@ -1688,16 +1729,44 @@ namespace RT64 {
                                      extendLeft = (call.callDesc.rect.ulx <= fbPair.scissorRect.ulx);
                                      extendRight = (call.callDesc.rect.lrx >= fbPair.scissorRect.lrx);
                                      extendViewport = true;
 +
 +                                    // A rect with a widened view's scissor reaching that scissor's side goes to the
 +                                    // view's widened side instead.
-+                                    const FixedRect &sc = call.callDesc.scissorRect;
-+                                    for (const FixedRect &view : wideViewScissors) {
-+                                        if ((sc.ulx == view.ulx) && (sc.uly == view.uly) && (sc.lrx == view.lrx) && (sc.lry == view.lry)) {
-+                                            viewLeft = !extendLeft && (call.callDesc.rect.ulx <= view.ulx);
-+                                            viewRight = !extendRight && (call.callDesc.rect.lrx >= view.lrx);
-+                                            viewEdges = convertFixedRect(view, p.resolutionScale, p.fbWidth, 1.0f, extOriginPercentage, 0, G_EX_ORIGIN_NONE, G_EX_ORIGIN_NONE);
-+                                            break;
-+                                        }
++                                    if (wideView != nullptr) {
++                                        viewLeft = !extendLeft && (call.callDesc.rect.ulx <= wideView->ulx);
++                                        viewRight = !extendRight && (call.callDesc.rect.lrx >= wideView->lrx);
 +                                    }
                                  }
                                  // A textured rect already drawn past the side (RDP::drawTexRect) only needs the scissor
                                  // opened on that side; its texture keeps its place and scale.
-@@ -1707,6 +1753,15 @@ namespace RT64 {
+                                 else if (!coversScissorWidth && !tileCopiesUsed) {
+                                     extendLeft = (call.callDesc.rectEdgeExtend & 1) != 0;
+                                     extendRight = (call.callDesc.rectEdgeExtend & 2) != 0;
++
++                                    // Past a widened view's side that is not the screen's, its scissor only opens to the
++                                    // view's widened side: a split-screen wipe's quarter circles stay out of the next view.
++                                    if ((wideView != nullptr) && extendLeft && (wideView->ulx > fbPair.scissorRect.ulx)) {
++                                        extendLeft = false;
++                                        viewLeft = true;
++                                    }
++
++                                    if ((wideView != nullptr) && extendRight && (wideView->lrx < fbPair.scissorRect.lrx)) {
++                                        extendRight = false;
++                                        viewRight = true;
++                                    }
+                                 }
+                             }
+ 
++                            // A rect kept at the original aspect ratio over a widened view keeps its place in that view: the
++                            // view's middle is widened about the screen's, so it moves with it (a split-screen wipe's circle
++                            // stays around its player).
++                            if ((wideView != nullptr) && (invRatioScale != 1.0f)) {
++                                const RenderRect viewOriginal = convertFixedRect(*wideView, p.resolutionScale, p.fbWidth, invRatioScale, extOriginPercentage, int32_t(horizontalMisalignment), G_EX_ORIGIN_NONE, G_EX_ORIGIN_NONE);
++                                viewShift = ((viewEdges.left + viewEdges.right) - (viewOriginal.left + viewOriginal.right)) / 2;
++                            }
++
+                             RenderViewport viewportRect = convertViewportRect(call.callDesc.rect, p.resolutionScale, p.fbWidth, invRatioScale, extOriginPercentage, horizontalMisalignment, call.callDesc.rectLeftOrigin, call.callDesc.rectRightOrigin);
++                            viewportRect.x += float(viewShift);
+                             if (extendViewport && extendLeft) {
+                                 viewportRect.width += viewportRect.x;
+                                 viewportRect.x = 0.0f;
+@@ -1707,6 +1776,15 @@ namespace RT64 {
                                  viewportRect.width = framebuffer.viewport.width - viewportRect.x;
                              }
  
-+                            if (viewLeft) {
++                            if (extendViewport && viewLeft) {
 +                                viewportRect.width += viewportRect.x - float(viewEdges.left);
 +                                viewportRect.x = float(viewEdges.left);
 +                            }
 +
-+                            if (viewRight) {
++                            if (extendViewport && viewRight) {
 +                                viewportRect.width = float(viewEdges.right) - viewportRect.x;
 +                            }
 +
                              triangles.screenScale = { viewportRect.width / framebuffer.viewport.width, viewportRect.height / framebuffer.viewport.height };
                              triangles.screenOffset.x = halfPixelOffset.x + ((viewportRect.x + viewportRect.width / 2.0f) - halfViewportSize.x) / halfViewportSize.x;
                              triangles.screenOffset.y = halfPixelOffset.y + (halfViewportSize.y - (viewportRect.y + viewportRect.height / 2.0f)) / halfViewportSize.y;
-@@ -1751,6 +1806,14 @@ namespace RT64 {
+@@ -1743,6 +1821,11 @@ namespace RT64 {
+                         }
+ 
+                         triangles.scissor = convertFixedRect(call.callDesc.scissorRect, p.resolutionScale, p.fbWidth, scissorInvRatioScale, extOriginPercentage, int32_t(scissorHorizontalMisalignment), call.callDesc.scissorLeftOrigin, call.callDesc.scissorRightOrigin);
++                        if (scissorInvRatioScale != 1.0f) {
++                            triangles.scissor.left += viewShift;
++                            triangles.scissor.right += viewShift;
++                        }
++
+                         if (extendLeft) {
+                             triangles.scissor.left = 0;
+                         }
+@@ -1751,6 +1834,14 @@ namespace RT64 {
                              triangles.scissor.right = int32_t(std::ceil(framebuffer.viewport.width));
                          }
  
