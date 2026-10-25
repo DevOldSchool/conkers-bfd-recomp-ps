@@ -141,7 +141,7 @@ if(CONKER_RENDERER STREQUAL "rt64")
             message(FATAL_ERROR
                 "The rt64 renderer needs Xcode's metal compiler, and 'xcrun -sdk macosx metal --version' "
                 "failed:\n  ${CONKER_METAL_ERROR}\n"
-                "See step 1 of the macOS build steps in README.md.")
+                "See step 1 of docs/building-macos.md.")
         endif()
     endif()
     set(RT64_STATIC ON CACHE BOOL "" FORCE)

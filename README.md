@@ -34,80 +34,27 @@ Platforms:
 
 ## Building
 
-You need:
+Step-by-step guides, one-time setup included:
+
+* [macOS](docs/building-macos.md) (the only platform tested so far)
+* [Windows](docs/building-windows.md)
+* [Linux](docs/building-linux.md)
+
+Every build needs:
 
 * CMake 3.20 or later, Ninja, Python 3 and SDL2
 * a C++20 compiler (clang)
 * the [decomp](https://github.com/DevOldSchool/conkers-bfd-decomp) checked
-  out next to this repository, as `../conkers-bfd-decomp`. Only its
-  scripts and inventory are used; it does not have to be built, so its
-  Docker toolchain is not needed.
+  out next to this repository, as `../conkers-bfd-decomp`. Only its scripts
+  and inventory are used; it does not have to be built, so its Docker
+  toolchain is not needed.
 * your US ROM
 
-### macOS
+The build has three stages: `tools/apply_patches.sh` patches the submodules,
+`tools/regenerate.sh` turns the ROM into C with N64Recomp, and CMake compiles
+that with the runtime and the renderer.
 
-1. Install Xcode from the App Store (the Command Line Tools alone are not
-   enough: RT64 compiles its shaders with Xcode's `metal`). Then select it,
-   accept its license and install its system components (what opening it
-   for the first time does):
-
-   ```sh
-   sudo xcode-select -s /Applications/Xcode.app
-   sudo xcodebuild -license accept
-   sudo xcodebuild -runFirstLaunch
-   ```
-
-   `xcode-select -p` should now print
-   `/Applications/Xcode.app/Contents/Developer`. On Xcode 26 or later the
-   Metal toolchain is a separate download, which fails with a missing
-   `CoreSimulator` framework if `-runFirstLaunch` has not run:
-
-   ```sh
-   xcodebuild -downloadComponent MetalToolchain
-   ```
-
-   `xcrun -sdk macosx metal --version` should then print a version. The
-   build checks this too, when it is configured in step 4.
-
-2. Install the tools with [Homebrew](https://brew.sh). If `brew` is not
-   found after installing it, add it to your shell as its installer says
-   (`eval "$(/opt/homebrew/bin/brew shellenv)"` in `~/.zprofile`) and open
-   a new terminal:
-
-   ```sh
-   brew install cmake ninja python sdl2
-   ```
-
-3. Clone the two repositories side by side, with this one's submodules, and
-   put the ROM in the decomp's `roms` folder:
-
-   ```sh
-   git clone https://github.com/DevOldSchool/conkers-bfd-decomp.git
-   git clone --recursive https://github.com/DevOldSchool/conkers-bfd-recomp.git
-   cp /path/to/conker-us.z64 conkers-bfd-decomp/roms/baserom.us.z64
-   ```
-
-4. In `conkers-bfd-recomp`, patch the submodules, generate the recompiled
-   code from the ROM, and build:
-
-   ```sh
-   tools/apply_patches.sh
-   tools/regenerate.sh
-   cmake -S . -B build/rt64 -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER=rt64
-   cmake --build build/rt64
-   ```
-
-   `regenerate.sh` builds N64Recomp itself the first time. The build
-   compiles about 54 MB of generated C, so it takes a while.
-
-5. Run it from the repository's folder, since settings, saves and texture
-   packs live in `conker-recomp-data` in the current folder:
-
-   ```sh
-   build/rt64/ConkerRecomp /path/to/conker-us.z64
-   ```
-
-### Other options
+### Build options
 
 * Cloned without `--recursive`? Run `git submodule update --init --recursive`
   before `tools/apply_patches.sh`.
