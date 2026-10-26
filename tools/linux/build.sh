@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build ConkersBadFurDay for Linux in a Docker container (tools/linux/Dockerfile) and package it as
-# dist/Conkers-Bad-Fur-Day-<version>-linux-<arch>.tar.gz.
+# Build ConkersBadFurDayRecompiled for Linux in a Docker container (tools/linux/Dockerfile) and package it as
+# dist/Conkers-Bad-Fur-Day-Recompiled-<version>-linux-<arch>.tar.gz.
 #
 #   tools/linux/build.sh [platform]    (default: the Docker host's, linux/arm64 on Apple silicon)
 #
@@ -27,49 +27,49 @@ echo "==> building in $build ($jobs jobs)"
 docker run --rm --platform "$platform" -v "$here:/src" -w /src "$image" bash -c "
     set -e
     cmake -S . -B '$build' -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER=rt64
-    cmake --build '$build' --target ConkersBadFurDay -j $jobs
+    cmake --build '$build' --target ConkersBadFurDayRecompiled -j $jobs
 "
 
 version="$(git -C "$here" describe --always --dirty 2>/dev/null || echo unknown)"
-name="Conkers-Bad-Fur-Day-$version-linux-$arch"
+name="Conkers-Bad-Fur-Day-Recompiled-$version-linux-$arch"
 stage="$here/dist/$name"
 echo "==> packaging dist/$name.tar.gz"
 rm -rf "$stage" "$stage.tar.gz"
 mkdir -p "$stage"
-cp "$here/$build/ConkersBadFurDay" "$stage/ConkersBadFurDay"
+cp "$here/$build/ConkersBadFurDayRecompiled" "$stage/ConkersBadFurDayRecompiled"
 # The window and launcher icon, at 256 px (sips on macOS; the full 1024 px elsewhere).
 if command -v sips > /dev/null; then
-    sips -z 256 256 "$here/assets/app-icon.png" --out "$stage/conkers-bad-fur-day.png" > /dev/null
+    sips -z 256 256 "$here/assets/app-icon.png" --out "$stage/conkers-bad-fur-day-recompiled.png" > /dev/null
 else
-    cp "$here/assets/app-icon.png" "$stage/conkers-bad-fur-day.png"
+    cp "$here/assets/app-icon.png" "$stage/conkers-bad-fur-day-recompiled.png"
 fi
 cat > "$stage/install.sh" <<'EOF'
 #!/bin/sh
-# Adds Conker's Bad Fur Day to the desktop's applications, with its icon, run from this folder.
-# Run it again after moving the folder. Remove ~/.local/share/applications/conkers-bad-fur-day.desktop
+# Adds Conker's Bad Fur Day Recompiled to the desktop's applications, with its icon, run from this folder.
+# Run it again after moving the folder. Remove ~/.local/share/applications/conkers-bad-fur-day-recompiled.desktop
 # to take it out.
 set -e
 here="$(cd "$(dirname "$0")" && pwd)"
 apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "$apps"
-cat > "$apps/conkers-bad-fur-day.desktop" <<DESKTOP
+cat > "$apps/conkers-bad-fur-day-recompiled.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
-Name=Conker's Bad Fur Day
-Comment=Conker's Bad Fur Day: Recompiled
-Exec="$here/ConkersBadFurDay"
-Icon=$here/conkers-bad-fur-day.png
+Name=Conker's Bad Fur Day Recompiled
+Comment=A native port of Conker's Bad Fur Day for Nintendo 64
+Exec="$here/ConkersBadFurDayRecompiled"
+Icon=$here/conkers-bad-fur-day-recompiled.png
 Terminal=false
 Categories=Game;
-StartupWMClass=ConkersBadFurDay
+StartupWMClass=ConkersBadFurDayRecompiled
 DESKTOP
-chmod +x "$apps/conkers-bad-fur-day.desktop"
+chmod +x "$apps/conkers-bad-fur-day-recompiled.desktop"
 command -v update-desktop-database > /dev/null && update-desktop-database "$apps" || true
-echo "Added Conker's Bad Fur Day to your applications."
+echo "Added Conker's Bad Fur Day Recompiled to your applications."
 EOF
 chmod +x "$stage/install.sh"
 cat > "$stage/README.txt" <<'EOF'
-Conker's Bad Fur Day: Recompiled, a test build for Linux.
+Conker's Bad Fur Day Recompiled, a test build for Linux.
 
 Needs SDL2, GTK 3 and a Vulkan driver. On Ubuntu 24.04 or newer:
 
@@ -81,9 +81,9 @@ Then add the game to your applications, with its icon:
 
 and start it from there. No ROM is included: the first time, it asks for your own US ROM (.z64)
 and keeps a copy, so it only asks once. Settings, saves, the ROM copy and last-run.log (the log
-when it was started from the desktop) are kept in ~/.local/share/ConkersBadFurDay/conker-recomp-data.
+when it was started from the desktop) are kept in ~/.local/share/ConkersBadFurDayRecompiled/conker-recomp-data.
 
-From a terminal, ./ConkersBadFurDay prints its log there instead, and ./ConkersBadFurDay /path/to/rom.z64
+From a terminal, ./ConkersBadFurDayRecompiled prints its log there instead, and ./ConkersBadFurDayRecompiled /path/to/rom.z64
 uses that ROM (and keeps it in place of the stored copy).
 EOF
 tar -C "$here/dist" -czf "$stage.tar.gz" "$name"

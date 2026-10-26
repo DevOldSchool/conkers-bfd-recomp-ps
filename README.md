@@ -164,7 +164,7 @@ under the MIT license; see [LICENSE](LICENSE). Everything else keeps its own
 license:
 
 * [N64ModernRuntime](https://github.com/N64Recomp/N64ModernRuntime):
-  GPL-3.0. A built `ConkersBadFurDay` links it, so a binary that is passed on
+  GPL-3.0. A built `ConkersBadFurDayRecompiled` links it, so a binary that is passed on
   falls under the GPL-3.0 as a whole and has to come with its source.
 * [N64Recomp](https://github.com/N64Recomp/N64Recomp): MIT.
 * [RT64](https://github.com/rt64/rt64): MIT, with the libraries it bundles

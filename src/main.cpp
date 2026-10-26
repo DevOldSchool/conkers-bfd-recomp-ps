@@ -1,6 +1,6 @@
 // Headless runtime for the Conker's Bad Fur Day recompilation.
 //
-//   ConkersBadFurDay [path to US ROM .z64]
+//   ConkersBadFurDayRecompiled [path to US ROM .z64]
 //
 // The ROM is kept in conker-recomp-data once chosen, so later runs need no argument. The packaged
 // RT64 build asks for it with a dialog instead (src/platform/launch.hpp).
@@ -112,7 +112,7 @@ void message_box(const char* msg) {
 #if CONKER_LAUNCH_UI
     // Started from the desktop, nobody reads the terminal.
     if (conker::launch::from_desktop()) {
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Conker's Bad Fur Day", msg, nullptr);
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Conker's Bad Fur Day Recompiled", msg, nullptr);
     }
 #endif
 }

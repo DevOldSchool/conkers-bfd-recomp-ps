@@ -29,7 +29,7 @@ void enter_data_folder() {
     } else {
         return;
     }
-    const std::filesystem::path folder = data / "ConkersBadFurDay";
+    const std::filesystem::path folder = data / "ConkersBadFurDayRecompiled";
     std::filesystem::create_directories(folder / "conker-recomp-data", error);
     std::filesystem::current_path(folder, error);
     if (error || !from_desktop()) {

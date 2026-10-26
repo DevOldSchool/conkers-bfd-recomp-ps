@@ -15,9 +15,10 @@ bool from_desktop();
 
 // Makes the user's data folder the working directory, so conker-recomp-data lives there, and sends
 // stdout and stderr to conker-recomp-data/last-run.log when from_desktop().
-//   macOS: ~/Library/Application Support/ConkersBadFurDay, inside an .app bundle only.
-//   Linux: $XDG_DATA_HOME/ConkersBadFurDay (~/.local/share/ConkersBadFurDay), unless the working
-//          directory already has a conker-recomp-data folder (a checkout, or an older run there).
+//   macOS: ~/Library/Application Support/ConkersBadFurDayRecompiled, inside an .app bundle only.
+//   Linux: $XDG_DATA_HOME/ConkersBadFurDayRecompiled (~/.local/share/ConkersBadFurDayRecompiled),
+//          unless the working directory already has a conker-recomp-data folder (a checkout, or an
+//          older run there).
 void enter_data_folder();
 
 // Asks for the ROM with an open dialog; empty when it is cancelled. Call on the main thread, on

@@ -21,7 +21,8 @@ void enter_data_folder() {
     if (support == nil) {
         return;
     }
-    const std::filesystem::path folder = std::filesystem::path(support.fileSystemRepresentation) / "ConkersBadFurDay";
+    const std::filesystem::path folder =
+        std::filesystem::path(support.fileSystemRepresentation) / "ConkersBadFurDayRecompiled";
     std::error_code error;
     std::filesystem::create_directories(folder / "conker-recomp-data", error);
     std::filesystem::current_path(folder, error);

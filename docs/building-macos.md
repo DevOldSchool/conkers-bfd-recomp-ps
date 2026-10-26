@@ -70,24 +70,24 @@ From the repository's folder, since settings, saves and texture packs live in
 `conker-recomp-data` in the current folder:
 
 ```sh
-build/rt64/ConkersBadFurDay /path/to/conker-us.z64
+build/rt64/ConkersBadFurDayRecompiled /path/to/conker-us.z64
 ```
 
 The ROM is kept in `conker-recomp-data`, so later runs can leave it out.
 
 ## Packaging for another Mac
 
-`tools/package_macos.sh` turns the RT64 build into `dist/Conker's Bad Fur Day.app` and
+`tools/package_macos.sh` turns the RT64 build into `dist/Conker's Bad Fur Day Recompiled.app` and
 a zip of it to send. The app carries its own SDL, so the other Mac needs no
 Homebrew, but it needs the same kind of chip (Apple silicon) and at least the
 macOS version the build was made on. The app is not notarised: on the other
 Mac, right click it and choose Open the first time, or run
-`xattr -dr com.apple.quarantine "Conker's Bad Fur Day.app"`.
+`xattr -dr com.apple.quarantine "Conker's Bad Fur Day Recompiled.app"`.
 
 The app asks for the player's own ROM the first time it opens and keeps a
 copy, along with settings, saves and `last-run.log`, in
-`~/Library/Application Support/ConkersBadFurDay/conker-recomp-data`.
-`dist/ConkersBadFurDay.dSYM` stays with you, for `tools/symbolicate.sh` on a crash
+`~/Library/Application Support/ConkersBadFurDayRecompiled/conker-recomp-data`.
+`dist/ConkersBadFurDayRecompiled.dSYM` stays with you, for `tools/symbolicate.sh` on a crash
 they send back.
 
 ## After pulling changes

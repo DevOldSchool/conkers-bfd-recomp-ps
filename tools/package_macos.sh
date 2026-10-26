@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Package a built ConkersBadFurDay as "dist/Conker's Bad Fur Day.app" and
-# dist/Conkers-Bad-Fur-Day-<version>-macos.zip, to run on another Mac with no Homebrew or checkout.
+# Package a built ConkersBadFurDayRecompiled as "dist/Conker's Bad Fur Day Recompiled.app" and
+# dist/Conkers-Bad-Fur-Day-Recompiled-<version>-macos.zip, to run on another Mac with no Homebrew or checkout.
 #
 #   tools/package_macos.sh [build dir]
 #
 # Without a build dir, the newer of build/rt64 and cmake-build-relwithdebinfo-rt64 is packaged.
 # Build the RT64 renderer first. The app carries SDL2 (sdl2-compat) and the SDL3 it loads in
 # Contents/Frameworks and is signed ad hoc, not notarised: the first time, the tester opens it with
-# right click > Open, or clears the quarantine with `xattr -dr com.apple.quarantine "Conker's Bad Fur Day.app"`.
+# right click > Open, or clears the quarantine with `xattr -dr com.apple.quarantine "Conker's Bad Fur Day Recompiled.app"`.
 # No ROM is packaged. Opened from Finder the app asks for the tester's own ROM once and keeps its data
-# and last-run.log in ~/Library/Application Support/ConkersBadFurDay (src/platform/launch.hpp).
-# dist/ConkersBadFurDay.dSYM holds the debug information, for tools/symbolicate.sh on a tester's crash.
+# and last-run.log in ~/Library/Application Support/ConkersBadFurDayRecompiled (src/platform/launch.hpp).
+# dist/ConkersBadFurDayRecompiled.dSYM holds the debug information, for tools/symbolicate.sh on a tester's crash.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,13 +18,13 @@ if [ -n "${1:-}" ]; then
     build="$1"
 else
     build="$here/build/rt64"
-    if [ "$here/cmake-build-relwithdebinfo-rt64/ConkersBadFurDay" -nt "$build/ConkersBadFurDay" ]; then
+    if [ "$here/cmake-build-relwithdebinfo-rt64/ConkersBadFurDayRecompiled" -nt "$build/ConkersBadFurDayRecompiled" ]; then
         build="$here/cmake-build-relwithdebinfo-rt64"
     fi
 fi
-binary="$build/ConkersBadFurDay"
+binary="$build/ConkersBadFurDayRecompiled"
 dist="$here/dist"
-app="$dist/Conker's Bad Fur Day.app"
+app="$dist/Conker's Bad Fur Day Recompiled.app"
 
 if [ ! -x "$binary" ]; then
     echo "no $binary: build the RT64 renderer first" >&2
@@ -52,9 +52,9 @@ sdl2="$(realpath "$sdl2_ref")"
 sdl3="$(realpath "$(brew --prefix sdl3)/lib/libSDL3.0.dylib")"
 
 echo "==> $app ($version, $arch, macOS $minos or later)"
-rm -rf "$app" "$dist/ConkersBadFurDay.dSYM" "$dist/ConkerRecomp.app" "$dist/ConkerRecomp.dSYM"
+rm -rf "$app" "$dist/ConkersBadFurDayRecompiled.dSYM" "$dist/Conker's Bad Fur Day.app" "$dist/ConkersBadFurDay.dSYM"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks"
-cp "$binary" "$app/Contents/MacOS/ConkersBadFurDay"
+cp "$binary" "$app/Contents/MacOS/ConkersBadFurDayRecompiled"
 cp "$sdl2" "$app/Contents/Frameworks/libSDL2-2.0.0.dylib"
 cp "$sdl3" "$app/Contents/Frameworks/libSDL3.dylib"
 chmod u+w "$app/Contents/Frameworks/"*.dylib
@@ -64,10 +64,10 @@ cat > "$app/Contents/Info.plist" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>Conker's Bad Fur Day</string>
-    <key>CFBundleDisplayName</key><string>Conker's Bad Fur Day</string>
-    <key>CFBundleExecutable</key><string>ConkersBadFurDay</string>
-    <key>CFBundleIdentifier</key><string>org.conkerrecomp.ConkersBadFurDay</string>
+    <key>CFBundleName</key><string>Conker's Bad Fur Day Recompiled</string>
+    <key>CFBundleDisplayName</key><string>Conker's Bad Fur Day Recompiled</string>
+    <key>CFBundleExecutable</key><string>ConkersBadFurDayRecompiled</string>
+    <key>CFBundleIdentifier</key><string>org.conkerrecomp.ConkersBadFurDayRecompiled</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>0.1.0</string>
     <key>CFBundleVersion</key><string>$version</string>
@@ -97,7 +97,7 @@ iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
 rm -rf "$(dirname "$iconset")"
 
 echo "==> pointing the binary at the bundled SDL"
-exe="$app/Contents/MacOS/ConkersBadFurDay"
+exe="$app/Contents/MacOS/ConkersBadFurDayRecompiled"
 install_name_tool -id @rpath/libSDL2-2.0.0.dylib "$app/Contents/Frameworks/libSDL2-2.0.0.dylib"
 install_name_tool -id @rpath/libSDL3.dylib "$app/Contents/Frameworks/libSDL3.dylib"
 install_name_tool -change "$sdl2_ref" @rpath/libSDL2-2.0.0.dylib "$exe"
@@ -120,8 +120,8 @@ codesign --force --sign - "$app/Contents/Frameworks/"*.dylib
 codesign --force --sign - "$app"
 codesign --verify --strict "$app"
 
-dsymutil "$binary" -o "$dist/ConkersBadFurDay.dSYM"
-zip="$dist/Conkers-Bad-Fur-Day-$version-macos.zip"
+dsymutil "$binary" -o "$dist/ConkersBadFurDayRecompiled.dSYM"
+zip="$dist/Conkers-Bad-Fur-Day-Recompiled-$version-macos.zip"
 rm -f "$zip"
 ditto -c -k --keepParent "$app" "$zip"
 echo "==> $zip ($(du -h "$zip" | cut -f1))"
