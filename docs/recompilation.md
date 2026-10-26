@@ -191,18 +191,33 @@ so an existing build needs `touch lib/rt64/src/shaders/RasterPS.hlsl` to
 rebuild them. A candidate for upstreaming.
 
 `tools/patches/rt64-dl-command-limit.patch` (apply in `lib/rt64`) keeps a
-broken display list from hanging the game. When the gfx thread falls behind
-(the machine busy with a build or other games), the game can run two frames
-ahead and rewrite the display-list buffer RT64 is still reading: Conker has two,
-and its scheduler (func_800049E0) queues up to three frames. RT64 then runs on
-into vertex and matrix data, where a G_POPMTX count can be millions and a G_DL
-can branch back on itself, so the task never ends, no DP-done reaches the
-scheduler, and the game waits for that frame for ever while VIs and audio go on.
-The patch stops a task after 4M commands (a frame is tens of thousands) with
-`RT64: display list at ... stopped after ...` on stderr, and pops at most the
-matrices on the stack. The game then loses that one frame and runs on. How the
-game gets two frames ahead is not known yet: its frame count at 0x800BEAA8 held
-it to one ahead in every logged run, even with RT64 slowed to 200 ms a frame.
+broken display list from hanging the game. If the game rewrites the display-list
+buffer RT64 is still reading, RT64 runs on into vertex and matrix data, where a
+G_POPMTX count can be millions and a G_DL can branch back on itself, so the task
+never ends, no DP-done reaches the scheduler, and the game waits for that frame
+for ever while VIs and audio go on. The patch stops a task after 4M commands (a
+frame is tens of thousands) with `RT64: display list at ... stopped after ...`
+on stderr, and pops at most the matrices on the stack. The game then loses that
+one frame and runs on.
+
+The rewrite came from Rare's scheduler (func_800049E0) under CPU load, and
+`src/fixes/scheduler_yield.cpp` now prevents it. When the audio timer fires
+while a graphics task runs, the scheduler asks the RSP to yield and waits in
+state 3 for the SP completion, which then starts the audio task in D_8002AC54.
+The timer message has already cleared D_8002AC6C, so a retrace that falls in
+that wait takes the next audio task into D_8002AC54 and sets a second timer. On
+hardware the yield takes microseconds. Here yields are ignored and a graphics
+task's SP completion is sent when the gfx thread picks the task up, which on a
+busy machine can be several retraces later. The second audio task is then
+started twice, its second SP completion is taken for a graphics one, and
+func_80005020 completes the frame a second time. The game's pending-frame count
+(D_800BEAA8) is then one below the frames really queued. At the next scene
+change the game sees it reach 0 with a frame still queued, frees both
+display-list buffers, and builds the new scene's first two frames into the same
+memory while RT64 draws that old frame from it. The fix keeps D_8002AC6C set
+while state 3 waits, as the short hardware yield effectively does. In stress
+runs (three games and ten busy loops) 4 of 24 runs reached the rewrite without
+it and 0 of 33 with it.
 
 `tools/patches/rt64-object-picking.patch` (apply in `lib/rt64` after the
 others) is for the debug menu's INSPECT (`src/enhancements/object_inspector`).

@@ -201,8 +201,10 @@ and the audio go on, with the gfx thread busy in RT64's `processDisplayLists`,
 is RT64 reading a display list the game has rewritten. RT64 now stops such a
 task and prints `RT64: display list at ... stopped after ...` instead
 (`tools/patches/rt64-dl-command-limit.patch`, see `docs/recompilation.md`).
-CPU load makes it far more likely, so a freeze in a test run is worth checking
-for leftover game processes.
+The known cause, a frame completed twice by Rare's scheduler under CPU load, is
+fixed (`src/fixes/scheduler_yield.cpp`), so a new stop is worth a look. CPU
+load makes such races far more likely, so a freeze in a test run is worth
+checking for leftover game processes.
 
 A debug report that shows the fault can be replayed by script for this: with
 `CONKER_SKIP_INTRO=1` and the report alone in the run's `debug_reports`, the pad
