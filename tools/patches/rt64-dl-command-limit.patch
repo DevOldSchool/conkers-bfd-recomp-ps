@@ -1,0 +1,56 @@
+--- a/src/hle/rt64_interpreter.cpp
++++ b/src/hle/rt64_interpreter.cpp
+@@ -5,6 +5,7 @@
+ #include "rt64_interpreter.h"
+ 
+ #include <cassert>
++#include <cstdio>
+ 
+ //#define DUMP_DISPLAY_LISTS
+ 
+@@ -170,7 +171,18 @@
+         DisplayList *dl = dlStart;
+         uint8_t opCode;
+         GBIFunction func;
++        // A game that rewrites a display list while it is being read leaves the interpreter in
++        // data that can branch back on itself, and the task would never finish. A frame runs to
++        // tens of thousands of commands, so stop a task far past that.
++        constexpr uint32_t CommandLimit = 1U << 22;
++        uint32_t commandCount = 0;
+         while (dl != nullptr) {
++            if (++commandCount > CommandLimit) {
++                fprintf(stderr, "RT64: display list at 0x%08X stopped after %u commands, at 0x%08X\n",
++                    dlStartAdddress, CommandLimit, uint32_t(reinterpret_cast<uint8_t *>(dl) - state->RDRAM));
++                break;
++            }
++
+             opCode = (dl->w0 >> 24);
+ 
+             if ((extendedOpCode != 0) && (opCode == extendedOpCode)) {
+--- a/src/hle/rt64_rsp.cpp
++++ b/src/hle/rt64_rsp.cpp
+@@ -4,6 +4,7 @@
+ 
+ #include "rt64_rsp.h"
+ 
++#include <algorithm>
+ #include <cassert>
+ #include <cmath>
+ 
+@@ -213,11 +214,11 @@
+     }
+ 
+     void RSP::popMatrix(uint32_t count) {
+-        while (count--) {
+-            if (modelMatrixStackSize > 1) {
+-                modelMatrixStackSize--;
+-                modelViewProjChanged = true;
+-            }
++        // The count comes from the command, so a corrupted one can be in the billions.
++        const uint32_t popped = std::min(count, uint32_t(std::max(modelMatrixStackSize - 1, 0)));
++        if (popped > 0) {
++            modelMatrixStackSize -= int(popped);
++            modelViewProjChanged = true;
+         }
+     }
+ 
