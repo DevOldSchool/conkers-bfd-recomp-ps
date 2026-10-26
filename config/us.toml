@@ -570,10 +570,12 @@ func = "func_1501C880"
 before_vram = 0x1501CC00
 text = "{ void conker_60fps_task_queued(uint8_t*, recomp_context*); conker_60fps_task_queued(rdram, ctx); }"
 
+# The func_800049E0 hook also keeps the scheduler from taking a second audio task while it waits
+# for a graphics task to yield (src/fixes/scheduler_yield.cpp).
 [[patches.hook]]
 func = "func_800049E0"
 before_vram = 0x10004A84
-text = "{ void conker_60fps_scheduler_message(uint8_t*, recomp_context*); conker_60fps_scheduler_message(rdram, ctx); }"
+text = "{ void conker_60fps_scheduler_message(uint8_t*, recomp_context*); conker_60fps_scheduler_message(rdram, ctx); void conker_scheduler_yield_guard(uint8_t*, recomp_context*); conker_scheduler_yield_guard(rdram, ctx); }"
 
 [[patches.hook]]
 func = "func_80004DB0"
