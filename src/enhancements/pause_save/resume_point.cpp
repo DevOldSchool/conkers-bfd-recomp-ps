@@ -259,6 +259,12 @@ constexpr size_t kMaxScriptVariables = 1024;
 constexpr const char* kPointsFormat = "conker-recomp-resume";
 constexpr int kPointsVersion = 2;
 constexpr double kMaxCoordinate = 1.0e6;   // well past any level's size
+// A camera nearer than this to the point it looks at is a first-person one (on a mounted gun it
+// sits on that point, about 1 away). A point keeps the distance as recorded, but a resumed save
+// lets the game place its camera instead: the restored scene puts Conker back on the gun, whose
+// own camera takes over, and making that distance the target one (keep_distance) would leave the
+// third-person camera inside his head once he gets off.
+constexpr float kMinCameraDistance = 50.0f;
 constexpr int kMaxScene = 255;
 
 struct TableState {
@@ -470,7 +476,7 @@ bool parse_point(const nlohmann::json& entry, Point* point, int* slot) {
     point->has_camera = entry.contains("camera_distance") || entry.contains("camera_pitch");
     if (point->has_camera) {
         double distance, pitch;
-        if (!point->has_view || !number_in(entry, "camera_distance", 1, kMaxCoordinate, &distance) ||
+        if (!point->has_view || !number_in(entry, "camera_distance", 0, kMaxCoordinate, &distance) ||
             !number_in(entry, "camera_pitch", -90, 90, &pitch)) {
             return false;
         }
@@ -2002,7 +2008,7 @@ bool report_camera(const nlohmann::json& report, Point* point) {
         d[i] = static_cast<float>(at[i].get<double>() - eye[i].get<double>());
     }
     const float distance = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-    if (!(distance >= 1.0f)) {
+    if (!(distance >= kMinCameraDistance)) {
         return false;
     }
     point->has_camera = true;
@@ -2270,8 +2276,8 @@ extern "C" void conker_resume_start(uint8_t* rdram, recomp_context* ctx) {
         g_camera_still = 0;
         g_camera_wait = 0;
         g_camera_hold = 0;
-        g_camera_saved = point.has_camera;
-        if (point.has_camera) {
+        g_camera_saved = point.has_camera && point.camera_distance >= kMinCameraDistance;
+        if (g_camera_saved) {
             g_camera_distance = point.camera_distance;
             g_camera_pitch = point.camera_pitch;
         }
