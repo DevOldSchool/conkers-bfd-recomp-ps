@@ -151,6 +151,34 @@ std::shared_ptr<RT64::FileSystem> make_pack(Style style, bool camera_swapped) {
                       plate[i].height, plate[i].rgba.data());
         }
         if (plate.empty()) std::fprintf(stderr, "[conker] pad buttons: no round stone B plate textures in the ROM; left as they are\n");
+        const std::vector<Texture> crate = crate_pad(shape);
+        for (size_t i = 0; i < crate.size(); i++) {
+            pack->add(pads + "crate_pad_" + std::to_string(i) + ".png", crate[i].hash, crate[i].width,
+                      crate[i].height, crate[i].rgba.data());
+        }
+        if (crate.empty()) std::fprintf(stderr, "[conker] pad buttons: no crate-top B pad textures in the ROM; left as they are\n");
+        if (const std::optional<Texture> block = block_pad(shape)) {
+            pack->add(pads + "block_pad.png", block->hash, block->width, block->height, block->rgba.data());
+        } else {
+            std::fprintf(stderr, "[conker] pad buttons: no stone block B pad texture in the ROM; left as it is\n");
+        }
+        const std::vector<Texture> disc = disc_pad(shape);
+        for (size_t i = 0; i < disc.size(); i++) {
+            pack->add(pads + "disc_pad_" + std::to_string(i) + ".png", disc[i].hash, disc[i].width,
+                      disc[i].height, disc[i].rgba.data());
+        }
+        if (disc.empty()) std::fprintf(stderr, "[conker] pad buttons: no purple disc B pad textures in the ROM; left as they are\n");
+        const std::vector<Texture> rust = rust_pad(shape);
+        for (size_t i = 0; i < rust.size(); i++) {
+            pack->add(pads + "rust_pad_" + std::to_string(i) + ".png", rust[i].hash, rust[i].width,
+                      rust[i].height, rust[i].rgba.data());
+        }
+        if (rust.empty()) std::fprintf(stderr, "[conker] pad buttons: no rusty B plate textures in the ROM; left as they are\n");
+        if (const std::optional<Texture> riveted = riveted_pad(shape)) {
+            pack->add(pads + "riveted_pad.png", riveted->hash, riveted->width, riveted->height, riveted->rgba.data());
+        } else {
+            std::fprintf(stderr, "[conker] pad buttons: no riveted B plate texture in the ROM; left as it is\n");
+        }
     }
     if (pack->files.empty()) return nullptr;
     pack->finish();
