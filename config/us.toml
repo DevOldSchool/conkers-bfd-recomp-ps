@@ -478,6 +478,15 @@ func = "func_15154D80"
 before_vram = 0x1515547C
 text = "{ void conker_widescreen_frame_end(uint8_t*, recomp_context*); conker_widescreen_frame_end(rdram, ctx); }"
 
+# Widescreen: the countdown timer (a HUD model hung on chains, as over the bomb in scene 35) keeps
+# its distance from the right side of the widened picture instead of the 4:3 one. func_150938BC
+# places it with func_150A7D00(matrix, x, y, z); x ($a1) is moved right by the widening. See
+# src/enhancements/display_options/widescreen_timer.cpp.
+[[patches.hook]]
+func = "func_150938BC"
+before_vram = 0x15093AD8
+text = "{ uint32_t conker_widescreen_timer_x(uint8_t*, uint32_t); ctx->r5 = (gpr)(int32_t)conker_widescreen_timer_x(rdram, (uint32_t)ctx->r5); }"
+
 # In widescreen the intro (scene 0x21) does not draw Conker while he waits for his cue just past
 # the right edge of the 4:3 view, nor what he holds: func_1502C974, which draws an actor, and
 # func_150311C4, which draws an attachment (the chainsaw, a glove) on its parent actor, return

@@ -28,7 +28,9 @@ The OPTIONS page of the title menu has five rows under the sound setting.
   vertex buffers big enough for the extra tiles. The metal frame of the
   turret's first-person view reaches the sides, its plates carrying on with
   more bolts (in 4:3 too it now closes the pixel of scene the game leaves
-  past each end). Every view of a multiplayer split screen is widened alike
+  past each end). The countdown timer hung on chains (over the bomb in the
+  little girl's room, for one) moves out to the right side, so its chain
+  runs off the edge as it does in 4:3. Every view of a multiplayer split screen is widened alike
   (tools/patches/rt64-split-screen-wide.patch): RT64 used to widen only a view
   as wide as everything else it was drawn with, so of two players' views one
   could stay 4:3. A view's own fades, the circle wipe when a player dies and
