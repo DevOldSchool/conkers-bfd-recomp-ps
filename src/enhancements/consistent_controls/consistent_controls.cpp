@@ -23,12 +23,20 @@
 // stick aims, up aiming down, and C-up and C-down walk. So while scoped it gets the shotgun's aim:
 // the right stick aims, up aiming up, and the left stick walks. Unscoped it walks with the stick.
 // The matches' scoped gun, item 0x24, scopes with R the same way and gets the same.
+// The mounted machine guns (the wasps' hive, scene 39; It's War's, scene 38) aim with the stick,
+// pushed up to aim down, as R's look does, and get the same: up aims up, the mouse aiming too.
 // The tanks (TANK in MULTI, any player): C-left and C-right turn the turret, C-left to the left,
 // so the camera's swap turned it the wrong way; a player in a tank gets them back the N64's way,
 // the right stick pushed left turning the turret left, and none of the above, as a tank's player
 // block can read as holding a gun. A player's tank in TANK (scene 36) is an actor of model 0x77
 // (logged in a match); 0x28 is what Rare's func_15075548 tests for too. Player n is actor n and
 // reads the pad D_80084060[n] names.
+// The story's tank (Saving Private Rodent, scene 14) is actor 1, model 0x28, and Conker stays
+// actor 0 inside it: the tank's u8 +0x13C is 100 + its rider's index (as func_150BDB70 reads a
+// mounted gun's), 100 for Conker, so a player riding a tank gets the tank's controls too.
+// Aiming its gun with R (+0x197 2 as on a mounted gun, item 0x1F), the stick aims, X turning the
+// turret and, pushed up, aiming down, and the C buttons do nothing; there the right stick aims,
+// up aiming up, as the shotgun's does.
 // The matches' guns (picked up; TEMPLE's shotgun is item 0x37) handle as the story's shotgun
 // does, so they get its controls too; every player in a match gets all of the above on their own
 // pad, controller 1 alone the mouse.
@@ -46,6 +54,9 @@
 // 0x16, and u8 +0x197 is 2 while its scope is up (the mounted gun's "mounted" too).
 // The slingshot by logging them in scene 6 (debug report scene6-20261023-133408, B on its pad):
 // item 0x02, and +0x198 is 2 while it is out, R or not; the stick pushed up turned +0x130 down.
+// The mounted gun by logging them in scene 38 (debug report scene38-20261027-213708, on the gun):
+// +0x197 is 2 and the held item 0x1B; the stick pushed up turned +0x130 down and the gun's pitch
+// (f32 +0x170, func_150BDB70 aims the gun with it) up to 50, its lowest.
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -73,14 +84,17 @@ constexpr uint8_t kItemHeld = 2;
 constexpr uint8_t kRocketLauncher = 0x16;
 constexpr uint8_t kScopedGun = 0x24;  // a match's gun with a scope on R, as the launcher's
 constexpr uint8_t kSlingshot = 0x02;  // out with B on its pad, aimed without R
-constexpr uint32_t kPlayerScoped = 0x197;  // u8: 2 while the launcher's scope is up
+constexpr uint32_t kPlayerScoped = 0x197;  // u8: 2 while the launcher's scope is up, or mounted
 constexpr uint8_t kScoped = 2;
 constexpr uint32_t kPlayerLook = 0x198;  // u8: 1 going into R's look, 2 looking, 3 coming out
 
 constexpr uint32_t kActors = 0x800CC2D0;       // D_800CC2D0: the actors; player n is actor n in a match
 constexpr uint32_t kActorSize = 0x32C;
 constexpr uint32_t kActorModel = 0x4;          // u8
+constexpr int kActorCount = 25;
 constexpr uint8_t kTankModels[] = {0x28, 0x77};
+constexpr uint32_t kActorRider = 0x13C;  // u8: the actor riding it, as kRiderBias + its index
+constexpr int kRiderBias = 100;
 constexpr uint32_t kMultiplayer = 0x800BE616;  // D_800BE616: nonzero during a multiplayer match
 constexpr uint32_t kPlayerPads = 0x80084060;   // D_80084060: u8 per player, the pad it reads
 
@@ -194,15 +208,43 @@ uint16_t swap_c_left_right(uint16_t buttons) {
                                  ((c & kCRight) ? kCLeft : 0));
 }
 
-// Whether player n drives a tank.
-bool in_tank(uint8_t* rdram, int player) {
-    const uint8_t model = MEM_BU(kActorModel, kseg0(player_actor(rdram, player)));
+bool tank(uint8_t* rdram, uint32_t actor) {
+    const uint8_t model = MEM_BU(kActorModel, kseg0(actor));
     return std::find(std::begin(kTankModels), std::end(kTankModels), model) != std::end(kTankModels);
+}
+
+// Whether player n drives a tank: is one (a match's) or rides one (the story's).
+bool in_tank(uint8_t* rdram, int player) {
+    if (tank(rdram, player_actor(rdram, player))) {
+        return true;
+    }
+    for (int i = 0; i < kActorCount; i++) {
+        const uint32_t actor = kActors + i * kActorSize;
+        if (MEM_BU(kActorRider, kseg0(actor)) == kRiderBias + player && tank(rdram, actor)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool looking(uint8_t* rdram, uint32_t player) {
     const uint8_t look = MEM_BU(kPlayerLook, kseg0(player));
     return look == 1 || look == 2;
+}
+
+// On a mounted gun (the binocular frame up): u8 +0x197 is 2 there too, whatever he held.
+bool mounted(uint8_t* rdram, uint32_t player) { return MEM_BU(kPlayerScoped, kseg0(player)) == kScoped; }
+
+// The stick, where the game aims down with it pushed up, turned round to aim up; the mouse adds
+// to it.
+void aim_upright(uint8_t* rdram, recomp_context* ctx, int pad, int at) {
+    float mouse_x;
+    float mouse_y;
+    mouse_aim(pad, &mouse_x, &mouse_y);
+    const float x = MEM_B(at + 2, ctx->r29) / kStickRange + mouse_x;
+    const float y = -MEM_B(at + 3, ctx->r29) / kStickRange - mouse_y;
+    MEM_B(at + 2, ctx->r29) = stick_axis(x);
+    MEM_B(at + 3, ctx->r29) = stick_axis(y);
 }
 
 // Rewrites the pad of the player whose block this is, read from controller `pad`.
@@ -215,17 +257,14 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t player, int pad) {
         }
         return;
     }
+    if (mounted(rdram, player)) {
+        aim_upright(rdram, ctx, pad, at);
+        return;
+    }
     if (!holding_gun(rdram, player)) {
         const bool aiming = (buttons & kR) != 0 || holding(rdram, player, kSlingshot);
         if (aiming && looking(rdram, player)) {
-            // The game looks down with the stick pushed up; the mouse adds to it.
-            float mouse_x;
-            float mouse_y;
-            mouse_aim(pad, &mouse_x, &mouse_y);
-            const float x = MEM_B(at + 2, ctx->r29) / kStickRange + mouse_x;
-            const float y = -MEM_B(at + 3, ctx->r29) / kStickRange - mouse_y;
-            MEM_B(at + 2, ctx->r29) = stick_axis(x);
-            MEM_B(at + 3, ctx->r29) = stick_axis(y);
+            aim_upright(rdram, ctx, pad, at);
         }
         return;
     }
@@ -249,6 +288,17 @@ extern "C" void conker_consistent_controls(uint8_t* rdram, recomp_context* ctx) 
         const int pad = player_pad(rdram, player);
         if (pad >= 0 && in_tank(rdram, player)) {
             const int at = kPad + pad * kPadSize;
+            const uint32_t block = player_block(rdram, player);
+            if (block != 0 && mounted(rdram, block)) {
+                // Aiming (R): the right stick aims, up aiming up, or the stick turned upright.
+                uint16_t buttons = MEM_HU(at, ctx->r29);
+                if (twin_stick_aim(rdram, ctx, pad, at, buttons)) {
+                    MEM_H(at, ctx->r29) = static_cast<int16_t>(buttons);
+                } else {
+                    aim_upright(rdram, ctx, pad, at);
+                }
+                continue;
+            }
             if (camera_swapped()) {
                 MEM_H(at, ctx->r29) = static_cast<int16_t>(swap_c_left_right(MEM_HU(at, ctx->r29)));
             }
