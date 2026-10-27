@@ -31,6 +31,12 @@
 // block can read as holding a gun. A player's tank in TANK (scene 36) is an actor of model 0x77
 // (logged in a match); 0x28 is what Rare's func_15075548 tests for too. Player n is actor n and
 // reads the pad D_80084060[n] names.
+// The story's tank (Saving Private Rodent, scene 14) is actor 1, model 0x28, and Conker stays
+// actor 0 inside it: the tank's u8 +0x13C is 100 + its rider's index (as func_150BDB70 reads a
+// mounted gun's), 100 for Conker, so a player riding a tank gets the tank's controls too.
+// Aiming its gun with R (+0x197 2 as on a mounted gun, item 0x1F), the stick aims, X turning the
+// turret and, pushed up, aiming down, and the C buttons do nothing; there the right stick aims,
+// up aiming up, as the shotgun's does.
 // The matches' guns (picked up; TEMPLE's shotgun is item 0x37) handle as the story's shotgun
 // does, so they get its controls too; every player in a match gets all of the above on their own
 // pad, controller 1 alone the mouse.
@@ -85,7 +91,10 @@ constexpr uint32_t kPlayerLook = 0x198;  // u8: 1 going into R's look, 2 looking
 constexpr uint32_t kActors = 0x800CC2D0;       // D_800CC2D0: the actors; player n is actor n in a match
 constexpr uint32_t kActorSize = 0x32C;
 constexpr uint32_t kActorModel = 0x4;          // u8
+constexpr int kActorCount = 25;
 constexpr uint8_t kTankModels[] = {0x28, 0x77};
+constexpr uint32_t kActorRider = 0x13C;  // u8: the actor riding it, as kRiderBias + its index
+constexpr int kRiderBias = 100;
 constexpr uint32_t kMultiplayer = 0x800BE616;  // D_800BE616: nonzero during a multiplayer match
 constexpr uint32_t kPlayerPads = 0x80084060;   // D_80084060: u8 per player, the pad it reads
 
@@ -199,10 +208,23 @@ uint16_t swap_c_left_right(uint16_t buttons) {
                                  ((c & kCRight) ? kCLeft : 0));
 }
 
-// Whether player n drives a tank.
-bool in_tank(uint8_t* rdram, int player) {
-    const uint8_t model = MEM_BU(kActorModel, kseg0(player_actor(rdram, player)));
+bool tank(uint8_t* rdram, uint32_t actor) {
+    const uint8_t model = MEM_BU(kActorModel, kseg0(actor));
     return std::find(std::begin(kTankModels), std::end(kTankModels), model) != std::end(kTankModels);
+}
+
+// Whether player n drives a tank: is one (a match's) or rides one (the story's).
+bool in_tank(uint8_t* rdram, int player) {
+    if (tank(rdram, player_actor(rdram, player))) {
+        return true;
+    }
+    for (int i = 0; i < kActorCount; i++) {
+        const uint32_t actor = kActors + i * kActorSize;
+        if (MEM_BU(kActorRider, kseg0(actor)) == kRiderBias + player && tank(rdram, actor)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool looking(uint8_t* rdram, uint32_t player) {
@@ -266,6 +288,17 @@ extern "C" void conker_consistent_controls(uint8_t* rdram, recomp_context* ctx) 
         const int pad = player_pad(rdram, player);
         if (pad >= 0 && in_tank(rdram, player)) {
             const int at = kPad + pad * kPadSize;
+            const uint32_t block = player_block(rdram, player);
+            if (block != 0 && mounted(rdram, block)) {
+                // Aiming (R): the right stick aims, up aiming up, or the stick turned upright.
+                uint16_t buttons = MEM_HU(at, ctx->r29);
+                if (twin_stick_aim(rdram, ctx, pad, at, buttons)) {
+                    MEM_H(at, ctx->r29) = static_cast<int16_t>(buttons);
+                } else {
+                    aim_upright(rdram, ctx, pad, at);
+                }
+                continue;
+            }
             if (camera_swapped()) {
                 MEM_H(at, ctx->r29) = static_cast<int16_t>(swap_c_left_right(MEM_HU(at, ctx->r29)));
             }
