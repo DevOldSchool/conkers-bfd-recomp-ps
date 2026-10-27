@@ -23,6 +23,8 @@
 // stick aims, up aiming down, and C-up and C-down walk. So while scoped it gets the shotgun's aim:
 // the right stick aims, up aiming up, and the left stick walks. Unscoped it walks with the stick.
 // The matches' scoped gun, item 0x24, scopes with R the same way and gets the same.
+// The mounted machine guns (the wasps' hive, scene 39; It's War's, scene 38) aim with the stick,
+// pushed up to aim down, as R's look does, and get the same: up aims up, the mouse aiming too.
 // The tanks (TANK in MULTI, any player): C-left and C-right turn the turret, C-left to the left,
 // so the camera's swap turned it the wrong way; a player in a tank gets them back the N64's way,
 // the right stick pushed left turning the turret left, and none of the above, as a tank's player
@@ -46,6 +48,9 @@
 // 0x16, and u8 +0x197 is 2 while its scope is up (the mounted gun's "mounted" too).
 // The slingshot by logging them in scene 6 (debug report scene6-20261023-133408, B on its pad):
 // item 0x02, and +0x198 is 2 while it is out, R or not; the stick pushed up turned +0x130 down.
+// The mounted gun by logging them in scene 38 (debug report scene38-20261027-213708, on the gun):
+// +0x197 is 2 and the held item 0x1B; the stick pushed up turned +0x130 down and the gun's pitch
+// (f32 +0x170, func_150BDB70 aims the gun with it) up to 50, its lowest.
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -73,7 +78,7 @@ constexpr uint8_t kItemHeld = 2;
 constexpr uint8_t kRocketLauncher = 0x16;
 constexpr uint8_t kScopedGun = 0x24;  // a match's gun with a scope on R, as the launcher's
 constexpr uint8_t kSlingshot = 0x02;  // out with B on its pad, aimed without R
-constexpr uint32_t kPlayerScoped = 0x197;  // u8: 2 while the launcher's scope is up
+constexpr uint32_t kPlayerScoped = 0x197;  // u8: 2 while the launcher's scope is up, or mounted
 constexpr uint8_t kScoped = 2;
 constexpr uint32_t kPlayerLook = 0x198;  // u8: 1 going into R's look, 2 looking, 3 coming out
 
@@ -205,6 +210,21 @@ bool looking(uint8_t* rdram, uint32_t player) {
     return look == 1 || look == 2;
 }
 
+// On a mounted gun (the binocular frame up): u8 +0x197 is 2 there too, whatever he held.
+bool mounted(uint8_t* rdram, uint32_t player) { return MEM_BU(kPlayerScoped, kseg0(player)) == kScoped; }
+
+// The stick, where the game aims down with it pushed up, turned round to aim up; the mouse adds
+// to it.
+void aim_upright(uint8_t* rdram, recomp_context* ctx, int pad, int at) {
+    float mouse_x;
+    float mouse_y;
+    mouse_aim(pad, &mouse_x, &mouse_y);
+    const float x = MEM_B(at + 2, ctx->r29) / kStickRange + mouse_x;
+    const float y = -MEM_B(at + 3, ctx->r29) / kStickRange - mouse_y;
+    MEM_B(at + 2, ctx->r29) = stick_axis(x);
+    MEM_B(at + 3, ctx->r29) = stick_axis(y);
+}
+
 // Rewrites the pad of the player whose block this is, read from controller `pad`.
 void remap(uint8_t* rdram, recomp_context* ctx, uint32_t player, int pad) {
     const int at = kPad + pad * kPadSize;
@@ -215,17 +235,14 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t player, int pad) {
         }
         return;
     }
+    if (mounted(rdram, player)) {
+        aim_upright(rdram, ctx, pad, at);
+        return;
+    }
     if (!holding_gun(rdram, player)) {
         const bool aiming = (buttons & kR) != 0 || holding(rdram, player, kSlingshot);
         if (aiming && looking(rdram, player)) {
-            // The game looks down with the stick pushed up; the mouse adds to it.
-            float mouse_x;
-            float mouse_y;
-            mouse_aim(pad, &mouse_x, &mouse_y);
-            const float x = MEM_B(at + 2, ctx->r29) / kStickRange + mouse_x;
-            const float y = -MEM_B(at + 3, ctx->r29) / kStickRange - mouse_y;
-            MEM_B(at + 2, ctx->r29) = stick_axis(x);
-            MEM_B(at + 3, ctx->r29) = stick_axis(y);
+            aim_upright(rdram, ctx, pad, at);
         }
         return;
     }
