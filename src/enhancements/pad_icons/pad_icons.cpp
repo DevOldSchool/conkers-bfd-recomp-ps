@@ -179,6 +179,11 @@ std::shared_ptr<RT64::FileSystem> make_pack(Style style, bool camera_swapped) {
         } else {
             std::fprintf(stderr, "[conker] pad buttons: no riveted B plate texture in the ROM; left as it is\n");
         }
+        if (const std::optional<Texture> panel = panel_pad(shape)) {
+            pack->add(pads + "panel_pad.png", panel->hash, panel->width, panel->height, panel->rgba.data());
+        } else {
+            std::fprintf(stderr, "[conker] pad buttons: no dark stone panel B pad texture in the ROM; left as it is\n");
+        }
     }
     if (pack->files.empty()) return nullptr;
     pack->finish();
