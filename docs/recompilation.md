@@ -219,6 +219,18 @@ while state 3 waits, as the short hardware yield effectively does. In stress
 runs (three games and ten busy loops) 4 of 24 runs reached the rewrite without
 it and 0 of 33 with it.
 
+`tools/patches/rt64-thread-exit.patch` (apply in `lib/rt64` after the others)
+keeps quitting from hanging. RT64 stops its shader compiler, texture upload and
+stream, workload and present threads by clearing a "running" flag and waking
+the condition variable they wait on, but cleared the flag without holding that
+condition's mutex. A thread that had just checked the flag and was about to
+wait missed the wakeup, slept for ever, and `RT64::Application::end` waited on
+it, with the main thread stuck behind (seen as a hang report with the gfx
+thread in `~CompilationThread` and all three `RT64 Shader` threads in
+`condition_variable::wait`). The patch clears each flag under its mutex, and
+sets the shader and upload flags before their threads start, so an early stop
+is not overwritten by the thread's own `= true`.
+
 `tools/patches/rt64-object-picking.patch` (apply in `lib/rt64` after the
 others) is for the debug menu's INSPECT (`src/enhancements/object_inspector`).
 While `RT64::SetDrawTagging` is on, a G_SPNOOP whose low 24 bits are
