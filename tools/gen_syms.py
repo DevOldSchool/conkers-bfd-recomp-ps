@@ -7,7 +7,9 @@ Inputs come from the sibling decomp checkout (https://github.com/DevOldSchool/co
 * ``config/overlays.json``     - ROM code ranges and overlay base addresses
 * ``config/game/us-sdk.ld``    - SDK symbols that live in the game overlay tail
 * ``build/us/original-assets/conker.us.elf`` (optional) - main-executable symbols,
-  including SDK functions that functions.json does not track
+  including SDK functions that functions.json does not track. Only a built decomp has
+  it, so the symbols used from it are kept in ``config/us.elf-functions.txt``, which
+  stands in for the ELF when it is missing and is refreshed when it is present
 * the US ROM plus the decompressed game code/data images produced by
   ``scripts/rzip_extract.py``
 
@@ -259,6 +261,8 @@ def main() -> int:
     parser.add_argument("--game-code", type=Path, help="decompressed game code image (game/code.bin)")
     parser.add_argument("--game-data", type=Path, help="decompressed game data image (game/data.bin)")
     parser.add_argument("--elf", type=Path, help="decomp main ELF (default: <decomp>/build/us/original-assets/conker.us.elf)")
+    parser.add_argument("--elf-functions", type=Path, default=Path(__file__).resolve().parents[1] / "config" / "us.elf-functions.txt",
+                        help="saved ELF function list, used without the ELF and refreshed with it")
     parser.add_argument("--out-syms", type=Path, required=True)
     parser.add_argument("--out-rom", type=Path, required=True)
     parser.add_argument("--report", type=Path, help="write a JSON report about coverage and discovered functions")
@@ -330,14 +334,30 @@ def main() -> int:
         overlays[overlay].add(vram, size, name, "functions.json")
 
     # 2. Main ELF symbols (SDK functions and anything else the link knows about).
+    def elf_function_wanted(value: int) -> bool:
+        main = (value >> 28) == 0x8 and DECOMP_MAIN_VRAM + main_code_start <= value < DECOMP_MAIN_VRAM + main_code_end
+        return main or (value >> 24) == 0x16
+
     if elf_path.exists():
-        for value, size, name in read_elf_functions(elf_path):
-            if (value >> 28) == 0x8 and DECOMP_MAIN_VRAM + main_code_start <= value < DECOMP_MAIN_VRAM + main_code_end:
-                main_ovl.add(value - DECOMP_MAIN_VRAM + MAIN_VRAM, size, name, "elf")
-            elif (value >> 24) == 0x16:
-                dbg_ovl.add(value, size, name, "elf")
+        elf_functions = [f for f in read_elf_functions(elf_path) if elf_function_wanted(f[0])]
+        args.elf_functions.write_text(
+            "# Function symbols from the decomp's conker.us.elf that tools/gen_syms.py uses, saved so\n"
+            "# a decomp checkout that has not been built still gets them. Rewritten when the ELF exists.\n"
+            + "".join(f"{value:#010x} {size:#x} {name}\n" for value, size, name in elf_functions))
+    elif args.elf_functions.exists():
+        elf_functions = []
+        for line in args.elf_functions.read_text().splitlines():
+            if line and not line.startswith("#"):
+                value, size, name = line.split()
+                elf_functions.append((int(value, 16), int(size, 16), name))
     else:
-        print(f"warning: {elf_path} not found; main SDK functions will be discovered from call targets only", file=sys.stderr)
+        elf_functions = []
+        print(f"warning: neither {elf_path} nor {args.elf_functions} found; main SDK functions will be discovered from call targets only", file=sys.stderr)
+    for value, size, name in elf_functions:
+        if (value >> 28) == 0x8:
+            main_ovl.add(value - DECOMP_MAIN_VRAM + MAIN_VRAM, size, name, "elf")
+        else:
+            dbg_ovl.add(value, size, name, "elf")
 
     # 3. SDK symbols the game overlay carries in its tail (names only; sizes from gaps).
     sdk_ld = decomp / "config" / "game" / "us-sdk.ld"

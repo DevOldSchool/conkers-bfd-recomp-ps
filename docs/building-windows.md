@@ -59,7 +59,7 @@ From the repository's folder, since settings, saves and texture packs live in
 `conker-recomp-data` in the current folder:
 
 ```sh
-build/rt64/ConkerRecomp.exe /path/to/conker-us.z64
+build/rt64/ConkersBadFurDayRecompiled.exe /path/to/conker-us.z64
 ```
 
 ## After pulling changes

@@ -56,8 +56,24 @@ From the repository's folder, since settings, saves and texture packs live in
 `conker-recomp-data` in the current folder:
 
 ```sh
-build/rt64/ConkerRecomp /path/to/conker-us.z64
+build/rt64/ConkersBadFurDayRecompiled /path/to/conker-us.z64
 ```
+
+## Building in Docker
+
+`tools/linux/build.sh` builds in an Ubuntu 24.04 Docker container for the
+machine Docker runs on (arm64 on Apple silicon), into `build/linux-arm64`, and
+packages `dist/Conkers-Bad-Fur-Day-Recompiled-<version>-linux-arm64.tar.gz`. It runs on
+Ubuntu 24.04 or newer with SDL2, GTK 3 and a Vulkan driver; the README in the
+tarball has the `apt` line. It needs `tools/regenerate.sh` to have been run
+first.
+
+In the tarball, `install.sh` adds the game to the desktop's applications with
+its icon. Started from there, it asks for the player's own ROM the first time
+and keeps a copy, with settings, saves and `last-run.log`, in
+`~/.local/share/ConkersBadFurDayRecompiled/conker-recomp-data`. A run from a folder that
+already has a `conker-recomp-data` folder, such as this checkout, keeps using
+that one.
 
 ## After pulling changes
 

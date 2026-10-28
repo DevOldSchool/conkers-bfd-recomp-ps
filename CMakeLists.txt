@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(ConkerRecomp LANGUAGES C CXX)
+project(ConkersBadFurDayRecompiled LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -62,7 +62,7 @@ endif()
 # src/platform: host backends (audio, input, window, renderer); the renderer-specific ones are
 # added below. src/fixes: hooks that make the recompiled game behave as it does on hardware.
 # src/enhancements: one folder per feature the console does not have, each with its own switch.
-add_executable(ConkerRecomp
+add_executable(ConkersBadFurDayRecompiled
     src/main.cpp
     src/runtime/game.cpp
     src/runtime/heap_check.cpp
@@ -109,12 +109,12 @@ add_executable(ConkerRecomp
     src/enhancements/sharp_menus/pause_signs.cpp
     src/enhancements/surround_default/surround_default.cpp
 )
-target_include_directories(ConkerRecomp PRIVATE
+target_include_directories(ConkersBadFurDayRecompiled PRIVATE
     "${CMAKE_SOURCE_DIR}/src"
     "${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/include"
     "${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/thirdparty/miniz"
 )
-target_link_libraries(ConkerRecomp PRIVATE ConkerRecompiled librecomp ultramodern miniz)
+target_link_libraries(ConkersBadFurDayRecompiled PRIVATE ConkerRecompiled librecomp ultramodern miniz)
 # The build a debug report names (src/enhancements/debug_menu): build_version.h, from git describe
 # on every build (tools/build_version.cmake).
 set(CONKER_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
@@ -122,9 +122,9 @@ add_custom_target(build_version
     COMMAND ${CMAKE_COMMAND} -DSOURCE=${CMAKE_SOURCE_DIR} -DOUT=${CONKER_GENERATED_DIR}/build_version.h
             -P ${CMAKE_SOURCE_DIR}/tools/build_version.cmake
     BYPRODUCTS ${CONKER_GENERATED_DIR}/build_version.h)
-add_dependencies(ConkerRecomp build_version)
+add_dependencies(ConkersBadFurDayRecompiled build_version)
 # The JSON library the runtime ships (nlohmann/json), for debug reports.
-target_include_directories(ConkerRecomp PRIVATE "${CONKER_GENERATED_DIR}"
+target_include_directories(ConkersBadFurDayRecompiled PRIVATE "${CONKER_GENERATED_DIR}"
     "${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/thirdparty")
 # The microcode runs once per audio frame on the audio thread; keep it optimised in Debug builds.
 set_source_files_properties("${CONKER_RSP_DIR}/aspMain.cpp" PROPERTIES COMPILE_OPTIONS "-O2;-w")
@@ -147,6 +147,10 @@ if(CONKER_RENDERER STREQUAL "rt64")
         endif()
     endif()
     set(RT64_STATIC ON CACHE BOOL "" FORCE)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # On Linux RT64 takes the SDL window and makes its Vulkan surface through SDL (X11 or Wayland).
+        set(RT64_SDL_WINDOW_VULKAN ON CACHE BOOL "" FORCE)
+    endif()
     add_subdirectory(lib/rt64 EXCLUDE_FROM_ALL)
     if(APPLE)
         # RT64 turns plume's Retina support off, which sizes the swap chain in points and leaves macOS
@@ -154,11 +158,11 @@ if(CONKER_RENDERER STREQUAL "rt64")
         # so the swap chain should be too.
         target_compile_definitions(plume PRIVATE PLUME_APPLE_RETINA_ENABLED)
     endif()
-    target_sources(ConkerRecomp PRIVATE
+    target_sources(ConkersBadFurDayRecompiled PRIVATE
         src/platform/renderer_rt64.cpp src/platform/object_picker_rt64.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/enhancements/sharp_menus/sharp_menus.cpp src/platform/window_sdl.cpp src/platform/hang_watch.cpp src/platform/input_sdl.cpp
         src/enhancements/pad_icons/pad_icons.cpp src/enhancements/pad_icons/b_pad.cpp src/enhancements/pad_icons/stone_pad.cpp src/enhancements/pad_icons/hex_pad.cpp src/enhancements/pad_icons/square_pad.cpp src/enhancements/pad_icons/oval_pad.cpp src/enhancements/pad_icons/rock_pad.cpp src/enhancements/pad_icons/rug_pad.cpp src/enhancements/pad_icons/plate_pad.cpp src/enhancements/pad_icons/crate_pad.cpp src/enhancements/pad_icons/block_pad.cpp src/enhancements/pad_icons/disc_pad.cpp src/enhancements/pad_icons/rust_pad.cpp src/enhancements/pad_icons/riveted_pad.cpp
         src/enhancements/pad_icons/button_art.cpp)
-    target_include_directories(ConkerRecomp PRIVATE
+    target_include_directories(ConkersBadFurDayRecompiled PRIVATE
         ${SDL2_INCLUDE_DIRS}
         "${CMAKE_SOURCE_DIR}/lib/rt64/src"
         "${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib"
@@ -166,24 +170,40 @@ if(CONKER_RENDERER STREQUAL "rt64")
         "${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/hlslpp/include"
         "${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/imgui"
     )
-    target_compile_definitions(ConkerRecomp PRIVATE CONKER_RENDERER_RT64=1 CONKER_AUDIO_SDL=1 HLSL_CPU FFX_GCC)
-    target_link_libraries(ConkerRecomp PRIVATE rt64 ${SDL2_LIBRARIES})
+    target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_RENDERER_RT64=1 CONKER_AUDIO_SDL=1 HLSL_CPU FFX_GCC)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # RT64 defines these for itself only; its headers need them here too (an SDL_Window* window).
+        target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE RT64_SDL_WINDOW_VULKAN PLUME_SDL_VULKAN_ENABLED)
+    endif()
+    target_link_libraries(ConkersBadFurDayRecompiled PRIVATE rt64 ${SDL2_LIBRARIES})
     if(APPLE)
         # DualSense haptic effects and adaptive triggers through Apple's GameController framework
         # and Core Haptics.
         enable_language(OBJCXX)
-        target_sources(ConkerRecomp PRIVATE src/platform/haptics_apple.mm src/platform/adaptive_triggers_apple.mm)
+        target_sources(ConkersBadFurDayRecompiled PRIVATE src/platform/haptics_apple.mm src/platform/adaptive_triggers_apple.mm)
         set_source_files_properties(src/platform/haptics_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
-        target_link_libraries(ConkerRecomp PRIVATE "-framework GameController" "-framework CoreHaptics")
+        target_link_libraries(ConkersBadFurDayRecompiled PRIVATE "-framework GameController" "-framework CoreHaptics")
+        # Started from the desktop: data folder, log and ROM panel (src/platform/launch.hpp).
+        target_sources(ConkersBadFurDayRecompiled PRIVATE src/platform/launch_apple.mm)
+        set_source_files_properties(src/platform/launch_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+        target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_LAUNCH_UI=1)
+        target_link_libraries(ConkersBadFurDayRecompiled PRIVATE "-framework AppKit")
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # Started from the desktop: data folder, log and the GTK ROM dialog RT64 builds (nfd).
+        target_sources(ConkersBadFurDayRecompiled PRIVATE src/platform/launch_linux.cpp)
+        target_include_directories(ConkersBadFurDayRecompiled PRIVATE
+            "${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/nativefiledialog-extended/src/include")
+        target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_LAUNCH_UI=1)
+        target_link_libraries(ConkersBadFurDayRecompiled PRIVATE nfd)
     endif()
 else()
-    target_sources(ConkerRecomp PRIVATE
+    target_sources(ConkersBadFurDayRecompiled PRIVATE
         src/platform/renderer_null.cpp src/platform/window_headless.cpp src/platform/input_headless.cpp)
 endif()
 
 if(APPLE)
-    target_compile_definitions(ConkerRecomp PRIVATE CONKER_PLATFORM_POSIX=1)
+    target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_PLATFORM_POSIX=1)
 elseif(UNIX)
-    target_compile_definitions(ConkerRecomp PRIVATE CONKER_PLATFORM_POSIX=1)
-    target_link_libraries(ConkerRecomp PRIVATE rt)
+    target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_PLATFORM_POSIX=1)
+    target_link_libraries(ConkersBadFurDayRecompiled PRIVATE rt)
 endif()

@@ -19,7 +19,7 @@ from the restored scene. Then each capture is compared with the report's own sav
             record must be the same but for its sequence number and checksum.
 
 Usage:
-  tools/save_check.py [--binary build/host/ConkerRecomp] [--rom <conker-us.z64>] [--out <dir>]
+  tools/save_check.py [--binary build/host/ConkersBadFurDayRecompiled] [--rom <conker-us.z64>] [--out <dir>]
                       [--jobs 6] [--at 0,6,30] [--no-run] [--repeat N] [reports...]
 Reports are folders or names in debug_reports; none means all of them. --no-run only compares
 what an earlier run left in --out. The summary goes to <out>/summary.md, the details to
@@ -481,7 +481,7 @@ def run_once(binary, rom, report_dir, run_dir, at, make_report, timeout):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("reports", nargs="*")
-    parser.add_argument("--binary", default=str(ROOT / "build/host/ConkerRecomp"))
+    parser.add_argument("--binary", default=str(ROOT / "build/host/ConkersBadFurDayRecompiled"))
     parser.add_argument("--rom", default=str(DEFAULT_ROM))
     parser.add_argument("--out", default=str(ROOT / "build/save-check"))
     parser.add_argument("--jobs", type=int, default=6)

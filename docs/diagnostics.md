@@ -2,7 +2,7 @@
 
 On a crash the binary prints the faulting N64 address, the MIPS registers,
 the last 64 recompiled function entries on that thread and the image slide;
-`tools/symbolicate.sh build/host/ConkerRecomp <log>` maps the host backtrace
+`tools/symbolicate.sh build/host/ConkersBadFurDayRecompiled <log>` maps the host backtrace
 to generated C lines and N64 instruction addresses.
 
 The game's heap is checked once a frame, just before the game's own walk of it
@@ -216,7 +216,7 @@ lines `600 8 back`, eight `dpdown`s and two `a`s load it from the title.
 SAVE and LOAD) over the debug reports in `conker-recomp-data/debug_reports/`, a
 report at a time, each in a folder of its own under `build/save-check/`
 (`--out`), several at once (`--jobs`). It starts the null build
-(`build/host/ConkerRecomp`, `--binary`; the ROM is `--rom`) with
+(`build/host/ConkersBadFurDayRecompiled`, `--binary`; the ROM is `--rom`) with
 `CONKER_SAVE_CHECK=<report>`, which loads the report a few seconds after boot
 as LOAD REPORT does, writes the scene as the game loaded it just before the
 restore (`capture-pre.resume`), as the restore left it (`capture-0.resume`) and

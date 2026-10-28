@@ -15,6 +15,11 @@ build needs and the build options.
    sudo xcodebuild -runFirstLaunch
    ```
 
+   If `xcode-select` says `invalid developer directory`, Xcode is not at that
+   path: it is not installed yet, the App Store download has not finished, or
+   the app has another name (such as `Xcode-beta.app`). `ls -d /Applications/Xcode*.app`
+   shows what is there; pass that path to `xcode-select -s` instead.
+
    On Xcode 26 or later the Metal toolchain is a separate download (it fails
    with a missing `CoreSimulator` framework if `-runFirstLaunch` has not run):
 
@@ -54,8 +59,10 @@ cmake -S . -B build/rt64 -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_REN
 cmake --build build/rt64
 ```
 
-`regenerate.sh` builds N64Recomp itself the first time. The build compiles
-about 54 MB of generated C, so it takes a while.
+`regenerate.sh` builds N64Recomp itself the first time, and should end with
+`done: N files in build/us/RecompiledFuncs`. If it stops before that, fix what
+it reports before running `cmake`, which otherwise fails with
+`No recompiled sources`. The build compiles about 54 MB of generated C, so it takes a while.
 
 ## Run
 
@@ -63,8 +70,25 @@ From the repository's folder, since settings, saves and texture packs live in
 `conker-recomp-data` in the current folder:
 
 ```sh
-build/rt64/ConkerRecomp /path/to/conker-us.z64
+build/rt64/ConkersBadFurDayRecompiled /path/to/conker-us.z64
 ```
+
+The ROM is kept in `conker-recomp-data`, so later runs can leave it out.
+
+## Packaging for another Mac
+
+`tools/package_macos.sh` turns the RT64 build into `dist/Conker's Bad Fur Day Recompiled.app` and
+a zip of it to send. The app carries its own SDL, so the other Mac needs no
+Homebrew, but it needs the same kind of chip (Apple silicon) and at least the
+macOS version the build was made on. The app is not notarised: on the other
+Mac, right click it and choose Open the first time, or run
+`xattr -dr com.apple.quarantine "Conker's Bad Fur Day Recompiled.app"`.
+
+The app asks for the player's own ROM the first time it opens and keeps a
+copy, along with settings, saves and `last-run.log`, in
+`~/Library/Application Support/ConkersBadFurDayRecompiled/conker-recomp-data`.
+`dist/ConkersBadFurDayRecompiled.dSYM` stays with you, for `tools/symbolicate.sh` on a crash
+they send back.
 
 ## After pulling changes
 

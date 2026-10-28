@@ -1,5 +1,6 @@
 # Build trees, generated recompiler output, extracted game images, virtual ROM
 build/
+dist/
 conker-recomp-data/
 
 # Never commit ROMs or anything derived from ROM bytes

@@ -40,6 +40,9 @@
 #if defined(__APPLE__)
 #include <objc/message.h>
 #include <objc/runtime.h>
+#elif defined(__linux__)
+#include <filesystem>
+#include "stb/stb_image.h"  // implemented in RT64 (rt64_texture_cache.cpp)
 #endif
 
 namespace conker::window {
@@ -319,6 +322,32 @@ void run_scheduled_switches() {
 
 } // namespace
 
+#if defined(__linux__)
+// The window's icon: conkers-bad-fur-day-recompiled.png beside the executable (tools/linux/build.sh
+// puts it there).
+// The desktop's own icon for the game comes from the .desktop file install.sh writes, matched to
+// the window by its class, which SDL names after the executable: ConkersBadFurDayRecompiled.
+static void set_window_icon() {
+    std::error_code error;
+    const std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", error);
+    if (error) {
+        return;
+    }
+    const std::string path = (exe.parent_path() / "conkers-bad-fur-day-recompiled.png").string();
+    int width = 0, height = 0, channels = 0;
+    unsigned char* pixels = stbi_load(path.c_str(), &width, &height, &channels, 4);
+    if (pixels == nullptr) {
+        return;
+    }
+    SDL_Surface* icon = SDL_CreateRGBSurfaceWithFormatFrom(pixels, width, height, 32, width * 4, SDL_PIXELFORMAT_RGBA32);
+    if (icon != nullptr) {
+        SDL_SetWindowIcon(g_window, icon);
+        SDL_FreeSurface(icon);
+    }
+    stbi_image_free(pixels);
+}
+#endif
+
 void* create_gfx() {
     // SDL 3's SDL_HINT_VIDEO_SYNC_WINDOW_OPERATIONS (through sdl2-compat): leaving full screen
     // finishes before the next window change, so a borderless window is not resized mid-animation.
@@ -340,12 +369,15 @@ ultramodern::renderer::WindowHandle create_window(void* /*gfx_data*/) {
     flags |= SDL_WINDOW_VULKAN;
 #endif
     // Hidden until it is measured: the size in points depends on the display's pixels per point.
-    g_window = SDL_CreateWindow("Conker's Bad Fur Day: Recompiled", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+    g_window = SDL_CreateWindow("Conker's Bad Fur Day Recompiled", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                 kOriginalWidth, kOriginalHeight, flags);
     if (g_window == nullptr) {
         std::fprintf(stderr, "[conker] SDL_CreateWindow failed: %s\n", SDL_GetError());
         return {};
     }
+#if defined(__linux__)
+    set_window_icon();
+#endif
     g_display = std::max(SDL_GetWindowDisplayIndex(g_window), 0);
     g_density = measure_density();
     find_limits();
