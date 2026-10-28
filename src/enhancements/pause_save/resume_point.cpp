@@ -60,6 +60,7 @@ extern "C" void func_15082A44(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_15060F28(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_1501D348(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_1509B5AC(uint8_t* rdram, recomp_context* ctx);
+extern "C" void func_15063404(uint8_t* rdram, recomp_context* ctx);
 // librecomp's copy of the save (lib/N64ModernRuntime/librecomp/src/pi.cpp), read from and written
 // to RDRAM.
 void save_read(uint8_t* rdram, int32_t rdram_address, uint32_t offset, uint32_t count);
@@ -92,6 +93,17 @@ constexpr int kCameraForward = 0x130;
 constexpr int kPlayerActions[] = {0x74, 0x75};
 constexpr uint8_t kActionSticky = 0x80;
 constexpr int kPlayerDrunk = 0x8;
+// What Conker holds is u8 +0x78 of the block (9 the Uzis, 0x3B the shotgun), and u8 +0x11A how far
+// (2 in his hands). The Uzis come from an event script (command 0x6C, func_15097A8C), which calls
+// func_15063404(Conker): +0x78 9, the two guns put on (parts 0x1D and 0x1E), +0x11A 2, their
+// stance. In the Vertex lobby (scene 54) the shootout's script hands them over as the scene starts,
+// but once it is over nothing does, and a save from the elevator cutscene after it resumed with
+// Conker's hands empty. So a point keeps what he held (conker_held) and the Uzis are handed back the
+// game's way. A point from before conker_held has his sticky Uzi action (0x89) to go by.
+constexpr int kPlayerHeld = 0x78;
+constexpr int kPlayerHeldState = 0x11A;
+constexpr uint8_t kHeldInHands = 2;
+constexpr uint8_t kHeldUzis = 9;
 constexpr int kCameraEye = 0x13C;
 constexpr int kCameraAt = 0x148;
 // The camera keeps its own place in the world and is pulled along after Conker; its angles are
@@ -245,6 +257,18 @@ constexpr int kBeeSwarm = 0x14;
 constexpr int kBeePosition = 0x20;
 constexpr int kMaxSwarms = 32;
 constexpr int kMaxBees = 1024;
+// The laser emitters on the Vertex lobby's walls (scene 54): effect objects of type 28 in the second
+// group's list (D_800DCE50 + 0x1A0 + 4 * 28), each with the beams of type 73 that run from it to the
+// pillar (their +0x170). A beam is drawn only while bit 0x02 of its emitter's u8 +0x196 is set
+// (func_151C96DC, the view test func_1513DB00 asks first), which the shootout sets row by row. Like
+// the swarms, the game makes them again at a load, all off but the row nearest the door, so the point
+// keeps which are on, each by its place (floats at +0x34).
+constexpr uint32_t kEmitters = 0x800DD060;
+constexpr int kEmitterPosition = 0x34;
+constexpr int kEmitterState = 0x196;
+constexpr uint8_t kEmitterOn = 0x02;
+constexpr int kMaxEmitters = 64;
+constexpr float kEmitterMatch = 2.0f;  // a saved emitter is the one now this near its place
 // The running event scripts: a list {u16 count, head, tail} of nodes {u16 key (event id in the low
 // 10 bits), ..., u16 +6 variables' size, u16 +0xA their offset in the node, ..., next +0x18}. Their
 // variables are kept per event, as the nodes are allocated anywhere.
@@ -278,6 +302,11 @@ struct ScriptVariables {
     std::vector<uint8_t> bytes;
 };
 
+struct Emitter {
+    float position[3] = {};
+    bool on = false;
+};
+
 struct Swarm {
     int id = 0;
     int32_t position[3] = {};
@@ -300,10 +329,12 @@ struct Point {
     std::vector<TableState> tables;      // the scene as it was (see the top of the file)
     std::vector<ScriptVariables> scripts;
     bool has_swarms = false;             // recorded (an older point has none)
+    std::vector<Emitter> emitters;       // laser emitters (kEmitters), none in most scenes
     std::vector<Swarm> swarms;
     int cutscene = -1;                   // the scene's cutscene to play again once placed, or -1
     uint8_t actions[2] = {};             // Conker's sticky B actions (kPlayerActions), 0 for none
     int drunk = 0;                       // frames he has left drunk (kPlayerDrunk)
+    int held = -1;                       // what he held (kPlayerHeld), 0 nothing, -1 not recorded
 };
 
 Point g_pending;           // remembered, waiting for the save to be written
@@ -592,6 +623,26 @@ bool parse_point(const nlohmann::json& entry, Point* point, int* slot) {
         }
         point->has_swarms = true;
     }
+    if (entry.contains("emitters")) {
+        const nlohmann::json& emitters = entry["emitters"];
+        if (!emitters.is_array() || emitters.size() > kMaxEmitters) {
+            return false;
+        }
+        for (const nlohmann::json& item : emitters) {
+            if (!item.is_array() || item.size() != 4 || !item[3].is_boolean()) {
+                return false;
+            }
+            Emitter emitter;
+            for (int axis = 0; axis < 3; axis++) {
+                if (!item[axis].is_number() || std::fabs(item[axis].get<double>()) > kMaxCoordinate) {
+                    return false;
+                }
+                emitter.position[axis] = item[axis].get<float>();
+            }
+            emitter.on = item[3].get<bool>();
+            point->emitters.push_back(emitter);
+        }
+    }
     if (entry.contains("conker_actions")) {
         const nlohmann::json& actions = entry["conker_actions"];
         if (!actions.is_array() || actions.size() != std::size(kPlayerActions)) {
@@ -613,6 +664,13 @@ bool parse_point(const nlohmann::json& entry, Point* point, int* slot) {
         }
         point->drunk = static_cast<int>(drunk);
     }
+    if (entry.contains("conker_held")) {
+        double held;
+        if (!whole_in(entry, "conker_held", 0, 255, &held)) {
+            return false;
+        }
+        point->held = static_cast<int>(held);
+    }
     if (entry.contains("cutscene")) {
         double cutscene;
         if (!whole_in(entry, "cutscene", 0, 255, &cutscene)) {
@@ -631,7 +689,8 @@ bool parse_point(const nlohmann::json& entry, Point* point, int* slot) {
 // "camera_distance" and "camera_pitch" (degrees) in newer points, and the scene as
 // it was: "tables" [{"name", "count", "record_size", "bytes", hex}] (see kTables), "scripts"
 // [{"key", "variables", hex}] and "swarms" [{"id", "position" [x, y, z], "target_actor" or "target"
-// [x, y, z], "speed"}] (see kSwarms), and "cutscene" when the save was made during one (see
+// [x, y, z], "speed"}] (see kSwarms), "emitters" [[x, y, z, on]] (see kEmitters), "conker_held"
+// (see kPlayerHeld), and "cutscene" when the save was made during one (see
 // note_cutscene). Everything is checked (a report's may come from anyone); false with
 // the reason in `problem`. `first_slot` is the first point's slot, or -1 when there is none.
 bool parse_points(const std::string& text, std::array<Point, kSlots>* points, int* first_slot, std::string* problem) {
@@ -736,6 +795,13 @@ void write_points(const std::array<Point, kSlots>& points, const std::filesystem
             }
             entry["swarms"] = std::move(swarms);
         }
+        if (!p.emitters.empty()) {
+            nlohmann::json emitters = nlohmann::json::array();
+            for (const Emitter& emitter : p.emitters) {
+                emitters.push_back({emitter.position[0], emitter.position[1], emitter.position[2], emitter.on});
+            }
+            entry["emitters"] = std::move(emitters);
+        }
         if (p.cutscene >= 0) {
             entry["cutscene"] = p.cutscene;
         }
@@ -744,6 +810,9 @@ void write_points(const std::array<Point, kSlots>& points, const std::filesystem
         }
         if (p.drunk > 0) {
             entry["conker_drunk"] = p.drunk;
+        }
+        if (p.held >= 0) {
+            entry["conker_held"] = p.held;
         }
         slots.push_back(std::move(entry));
     };
@@ -858,6 +927,45 @@ void capture_swarms(uint8_t* rdram, Point* point) {
     }
 }
 
+// Records the laser emitters (see kEmitters) in `point`, on or off.
+void capture_emitters(uint8_t* rdram, Point* point) {
+    point->emitters.clear();
+    for_each_effect(rdram, kEmitters, kMaxEmitters, [&](uint32_t node) {
+        Emitter emitter;
+        for (int axis = 0; axis < 3; axis++) {
+            emitter.position[axis] = read_float(rdram, node + kEmitterPosition + 4 * axis);
+        }
+        emitter.on = (MEM_BU(kEmitterState, kseg0(node)) & kEmitterOn) != 0;
+        point->emitters.push_back(emitter);
+    });
+}
+
+// Switches each laser emitter on or off as `point` recorded the one at its place.
+void restore_emitters(uint8_t* rdram, const Point& point, std::string* restored) {
+    int matched = 0, on = 0;
+    for_each_effect(rdram, kEmitters, kMaxEmitters, [&](uint32_t node) {
+        float position[3];
+        for (int axis = 0; axis < 3; axis++) {
+            position[axis] = read_float(rdram, node + kEmitterPosition + 4 * axis);
+        }
+        for (const Emitter& emitter : point.emitters) {
+            if (std::fabs(emitter.position[0] - position[0]) > kEmitterMatch ||
+                std::fabs(emitter.position[1] - position[1]) > kEmitterMatch ||
+                std::fabs(emitter.position[2] - position[2]) > kEmitterMatch) {
+                continue;
+            }
+            const uint8_t state = MEM_BU(kEmitterState, kseg0(node));
+            MEM_B(kEmitterState, kseg0(node)) =
+                static_cast<int8_t>(emitter.on ? state | kEmitterOn : state & ~kEmitterOn);
+            matched++;
+            on += emitter.on;
+            break;
+        }
+    });
+    *restored += " emitters " + std::to_string(matched) + "/" + std::to_string(point.emitters.size()) + " (" +
+                 std::to_string(on) + " on)";
+}
+
 // Puts the swarms back as `point` recorded them, each by its id: where it was, what it flew after
 // and how fast, with its bees moved along with it (they would otherwise stream across the level
 // from the swarm's home). A swarm the point did not have (one already gone then) is taken away
@@ -931,12 +1039,16 @@ uint32_t player_block(uint8_t* rdram) {
 // Records the scene as it is now (see the top of the file) in `point`.
 void capture_scene(uint8_t* rdram, Point* point) {
     capture_swarms(rdram, point);
+    capture_emitters(rdram, point);
     const uint32_t player = player_block(rdram);
     for (size_t i = 0; i < std::size(kPlayerActions); i++) {
         const uint8_t action = player != 0 ? MEM_BU(kPlayerActions[i], kseg0(player)) : 0;
         point->actions[i] = (action & kActionSticky) ? action : 0;
     }
     point->drunk = player != 0 ? std::max<int>(0, MEM_H(kPlayerDrunk, kseg0(player))) : 0;
+    point->held = player == 0                                                 ? -1
+                  : MEM_BU(kPlayerHeldState, kseg0(player)) == kHeldInHands ? MEM_BU(kPlayerHeld, kseg0(player))
+                                                                            : 0;
     point->tables.clear();
     point->scripts.clear();
     for (const TableSpec& spec : kTables) {
@@ -1246,6 +1358,9 @@ void restore_scene(uint8_t* rdram, recomp_context* ctx, const Point& point) {
     if (point.has_swarms) {
         restore_swarms(rdram, ctx, point, actor_slots, &restored);
     }
+    if (!point.emitters.empty()) {
+        restore_emitters(rdram, point, &restored);
+    }
     if (const uint32_t player = player_block(rdram); player != 0) {
         char kept[64];
         if (point.actions[0] != 0 || point.actions[1] != 0) {
@@ -1261,6 +1376,13 @@ void restore_scene(uint8_t* rdram, recomp_context* ctx, const Point& point) {
             MEM_H(kPlayerDrunk, kseg0(player)) = static_cast<int16_t>(point.drunk);
             std::snprintf(kept, sizeof(kept), " drunk %d frames", point.drunk);
             restored += kept;
+        }
+        const bool uzis = point.held >= 0 ? point.held == kHeldUzis
+                                          : point.actions[0] == (kActionSticky | kHeldUzis) ||
+                                                point.actions[1] == (kActionSticky | kHeldUzis);
+        if (uzis && MEM_BU(kPlayerHeld, kseg0(player)) != kHeldUzis) {
+            call_game(rdram, ctx, func_15063404, kActors, 0);
+            restored += " Uzis handed back";
         }
     }
     char tail[64];
@@ -2374,6 +2496,23 @@ extern "C" void conker_resume_saved(uint8_t* /*rdram*/, recomp_context* ctx) {
                 slot, points[slot].counter, g_pending.scene, g_pending.entrance, g_pending.x, g_pending.y, g_pending.z,
                 g_pending.facing, g_pending.camera_yaw);
     g_pending.valid = false;
+}
+
+// In func_1501D348 (start a cutscene: $s1 scene, $s0 script) at its test of D_800C35C4 ($t9), which
+// returns without starting one while it is set. While a resumed save is still being put back, the
+// scene's entry has started its own cutscene: the Vertex lobby (scene 54) played the metal detector
+// and the shootout after it again, ending with Conker back at the door, the lasers off and the B pads
+// gone. The saved game had long seen it, so it is refused. Not for a save made during a cutscene
+// (g_resuming.cutscene): there the cutscene starting is often that very one, started by an event
+// script that then waits for it to end (scene 6's Tediz briefing, 24), and refusing it ended the
+// script at once, setting its event early.
+extern "C" void conker_resume_cutscene(uint8_t* rdram, recomp_context* ctx) {
+    if (!g_resuming.valid || g_resuming.cutscene >= 0 || MEM_W(0, kseg0(kScene)) != g_resuming.scene) {
+        return;
+    }
+    std::printf("[conker] resuming: cutscene %d of scene %d not started\n", static_cast<int>(ctx->r16),
+                static_cast<int>(ctx->r17));
+    ctx->r25 = 1;
 }
 
 // In func_151E327C (start the loaded game, PLAY on the title menu) before
