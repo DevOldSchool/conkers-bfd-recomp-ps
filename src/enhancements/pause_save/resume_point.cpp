@@ -334,6 +334,10 @@ float g_last_eye[3] = {};
 constexpr int kCameraStillFrames = 10;
 constexpr int kCameraWaitFrames = 150;  // about 5 s
 bool g_at_checkpoint = false;  // start the next save at its checkpoint, not its point (load_report)
+bool g_on_report_copy = false;  // playing on a debug report's copy of the save (load_report)
+bool g_keep_pending = false;    // a pause save on that copy to put in the player's save once written
+int g_keep_slot = 0;
+Point g_keep_point;
 int g_checkpoint[2] = {-1, -1};  // the resumed save's checkpoint (scene, entrance), to put back; -1 none
 int g_resumed_slot = -1;   // the slot last started at its point, and when
 std::chrono::steady_clock::time_point g_resumed_at;
@@ -1769,6 +1773,12 @@ std::filesystem::path data_folder() {
     return folder;
 }
 
+std::filesystem::path player_save_path() {
+    // As data_folder: the player's own save file, before a report's save moves the game off it.
+    static const std::filesystem::path path = ultramodern::get_save_file_path();
+    return path;
+}
+
 std::vector<Snapshot> list_snapshots() {
     std::vector<Snapshot> snapshots;
     std::error_code error;
@@ -2021,7 +2031,7 @@ bool report_camera(const nlohmann::json& report, Point* point) {
 
 bool load_report(uint8_t* rdram, const std::filesystem::path& path, std::string* problem, bool at_checkpoint) {
     if (MEM_B(0, kseg0(kEepromAction)) != 0 || MEM_W(0, kseg0(kEepromWriting)) != 0 || g_snapshot_pending ||
-        g_report.active) {
+        g_keep_pending || g_report.active) {
         *problem = "saving, try again";
         return false;
     }
@@ -2053,7 +2063,9 @@ bool load_report(uint8_t* rdram, const std::filesystem::path& path, std::string*
     save_file.close();
     points_file.close();
     // The game now plays on the copy: its saves, and their snapshots, go there until it is closed.
+    player_save_path();
     ultramodern::change_save_file(u8"debug", std::u8string(name.begin(), name.end()));
+    g_on_report_copy = true;
     int slot;
     std::array<Point, kSlots> report_points = read_points(points_path(), &slot);
     if (slot >= 0 && report_camera(files.report, &report_points[slot])) {
@@ -2134,6 +2146,127 @@ void start_save(uint8_t* rdram, const std::array<Point, kSlots>& points, int slo
     g_cover_changed = false;
     g_cover_frames = 0;
     g_cover_since = std::chrono::steady_clock::now();
+}
+
+// Save records in a whole EEPROM image (see note_records).
+uint8_t* record_at(std::array<uint8_t, kEepromSize>& image, int record) {
+    return image.data() + (kFirstRecordBlock + static_cast<uint32_t>(record) * kRecordBlocks) * 8;
+}
+
+uint32_t record_sum(const uint8_t* record) {
+    uint32_t sum = kRecordChecksumStart;
+    for (uint32_t i = 2; i < kRecordSize; i++) {
+        sum = (sum + (static_cast<uint32_t>(record[i]) << (i & 3))) & 0xFFFF;
+    }
+    return sum;
+}
+
+// The slot `record` holds, or -1 when its checksum does not hold.
+int record_slot(const uint8_t* record) {
+    if (record_sum(record) != ((static_cast<uint32_t>(record[0]) << 8) | record[1]) || record[kSavedSlot] >= kSlots) {
+        return -1;
+    }
+    return record[kSavedSlot];
+}
+
+uint32_t record_counter(const uint8_t* record) {
+    return (static_cast<uint32_t>(record[3]) << 24) | (record[4] << 16) | (record[5] << 8) | record[6];
+}
+
+// Each slot's newest record in `image`, -1 for none.
+std::array<int, kSlots> newest_records(std::array<uint8_t, kEepromSize>& image) {
+    std::array<int, kSlots> newest = {-1, -1, -1};
+    for (int record = 0; record < kRecords; record++) {
+        const int slot = record_slot(record_at(image, record));
+        if (slot >= 0 && (newest[slot] < 0 || record_counter(record_at(image, record)) >
+                                                  record_counter(record_at(image, newest[slot])))) {
+            newest[slot] = record;
+        }
+    }
+    return newest;
+}
+
+bool read_image(const std::filesystem::path& path, std::array<uint8_t, kEepromSize>* image) {
+    std::ifstream file(path, std::ios::binary);
+    return file.read(reinterpret_cast<char*>(image->data()), kEepromSize) && file.gcount() == kEepromSize;
+}
+
+// Playing on a debug report's copy of the save, a game saved from the pause menu goes into the
+// player's own save too, or it would be gone once the game is closed (the copy is only played
+// until then). The slot's newest record is written over a record of the player's save that is no
+// slot's newest, numbered after every save of the slot there, and its point goes into the player's
+// .resume with that number; the player's other games, and the rest of the EEPROM, are kept. With no
+// save of the player's yet, the copy is taken without the report's other games.
+void keep_in_player_save(uint8_t* rdram) {
+    save_read(rdram, static_cast<int32_t>(kSnapshotScratch), 0, kEepromSize);
+    std::array<uint8_t, kEepromSize> copy;
+    for (uint32_t i = 0; i < kEepromSize; i++) {
+        copy[i] = MEM_BU(static_cast<int>(i), kseg0(kSnapshotScratch));
+    }
+    const int slot = g_keep_slot;
+    const int saved = newest_records(copy)[slot];
+    if (saved < 0) {
+        std::printf("[conker] slot %d has no save in the report's copy; the player's save is left as it was\n", slot);
+        return;
+    }
+    const std::filesystem::path path = player_save_path();
+    std::array<uint8_t, kEepromSize> image;
+    if (!read_image(path, &image)) {
+        image = copy;
+        for (int record = 0; record < kRecords; record++) {
+            if (record_slot(record_at(image, record)) != slot) {
+                std::memset(record_at(image, record), 0, kRecordSize);
+            }
+        }
+    }
+    const std::array<int, kSlots> newest = newest_records(image);
+    int target = -1;
+    uint32_t counter = record_counter(record_at(copy, saved));
+    bool numbered = false;
+    for (int record = 0; record < kRecords; record++) {
+        const uint8_t* bytes = record_at(image, record);
+        if (std::find(newest.begin(), newest.end(), record) == newest.end() && target < 0) {
+            target = record;
+        }
+        if (record_slot(bytes) == slot && (!numbered || record_counter(bytes) >= counter)) {
+            counter = (record_counter(bytes) + 1) & 0x7FFFFFFF;
+            numbered = true;
+        }
+    }
+    uint8_t* record = record_at(image, target);  // three slots, four records: one is always free
+    std::memcpy(record, record_at(copy, saved), kRecordSize);
+    record[3] = static_cast<uint8_t>(counter >> 24);
+    record[4] = static_cast<uint8_t>(counter >> 16);
+    record[5] = static_cast<uint8_t>(counter >> 8);
+    record[6] = static_cast<uint8_t>(counter);
+    const uint32_t sum = record_sum(record);
+    record[0] = static_cast<uint8_t>(sum >> 8);
+    record[1] = static_cast<uint8_t>(sum);
+
+    std::filesystem::path temp = path;
+    temp += ".keep";
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    {
+        std::ofstream file(temp, std::ios::binary | std::ios::trunc);
+        if (!file.write(reinterpret_cast<const char*>(image.data()), image.size())) {
+            std::printf("[conker] could not write %s\n", temp.string().c_str());
+            return;
+        }
+    }
+    std::filesystem::rename(temp, path, error);
+    if (error) {
+        std::printf("[conker] could not replace %s: %s\n", path.string().c_str(), error.message().c_str());
+        return;
+    }
+    std::filesystem::path resume = path;
+    resume.replace_extension(".resume");
+    std::array<Point, kSlots> points = read_points(resume);
+    points[slot] = g_keep_point;
+    points[slot].counter = counter;
+    write_points(points, resume);
+    std::printf("[conker] slot %d's save kept in %s too (record %d, save %u)\n", slot, path.string().c_str(), target,
+                counter);
 }
 
 }  // namespace
@@ -2225,6 +2358,11 @@ extern "C" void conker_resume_saved(uint8_t* /*rdram*/, recomp_context* ctx) {
     points[slot] = g_pending;
     points[slot].counter = counter;
     write_points(points);
+    if (g_on_report_copy) {
+        g_keep_pending = true;
+        g_keep_slot = slot;
+        g_keep_point = points[slot];
+    }
     if (snapshots_enabled()) {
         g_snapshot_pending = true;
         g_snapshot_scene = g_pending.scene;
@@ -2299,10 +2437,15 @@ extern "C" void conker_resume_start(uint8_t* rdram, recomp_context* ctx) {
 // resumed once its scene is running.
 extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
     data_folder();  // fixed from the first frame, before any report is loaded
+    player_save_path();
     check::tick(rdram, ctx);
     if (g_snapshot_pending && MEM_B(0, kseg0(kEepromAction)) == 0 && MEM_W(0, kseg0(kEepromWriting)) == 0) {
         g_snapshot_pending = false;
         write_snapshot(rdram);
+    }
+    if (g_keep_pending && MEM_B(0, kseg0(kEepromAction)) == 0 && MEM_W(0, kseg0(kEepromWriting)) == 0) {
+        g_keep_pending = false;
+        keep_in_player_save(rdram);
     }
     if (g_report.capturing && (g_report.saved || std::chrono::steady_clock::now() - g_report.requested > kReportSaveWait) &&
         MEM_B(0, kseg0(kEepromAction)) == 0) {
