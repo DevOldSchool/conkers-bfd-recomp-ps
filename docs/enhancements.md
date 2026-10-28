@@ -112,7 +112,15 @@ was and what it flew after (so a swarm already led to the sunflower stays
 there, and one following Conker goes on following him), what a script has
 left B doing for Conker away from any B pad and how long he has left drunk
 (so after drinking at Rock Solid he is still drunk: he hiccups and staggers,
-and B pees).
+and B pees), what he holds (the Uzis, handed back the way the Heist's
+script hands them over, so he still carries them into the Vertex elevator),
+and which of the Vertex lobby's laser emitters are on (the game makes them
+again at a load with only the row by the door lit).
+A cutscene the scene starts by itself while a spot saved outside a cutscene
+is being put back is not played: the scene's entry cutscene, long seen in
+the saved game, would
+otherwise play again (in the Vertex lobby, the metal detector and the whole
+shootout, leaving Conker back at the door with the lasers off and no B pads).
 Each character is
 put back over the same character, found by the number the scene gives it,
 since a scene does not always fill its character slots in the same order;

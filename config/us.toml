@@ -304,6 +304,14 @@ func = "func_1501C57C"
 before_vram = 0x1501C57C
 text = "{ void conker_resume_tick(uint8_t*, recomp_context*); conker_resume_tick(rdram, ctx); }"
 
+# A cutscene the scene starts while a resumed save is still being put back is the one its entry
+# plays, already seen in the saved game: func_1501D348 is sent down its own "busy" return ($t9,
+# D_800C35C4, read as set).
+[[patches.hook]]
+func = "func_1501D348"
+before_vram = 0x1501D3A8
+text = "{ void conker_resume_cutscene(uint8_t*, recomp_context*); conker_resume_cutscene(rdram, ctx); }"
+
 # Surround as the default sound option. func_15007440 loads the options from EEPROM block 0 at boot
 # and, when there are none, func_151DD9E4 gives every field its default from D_8008FE54: stereo
 # for sound (D_800E0BE9). It becomes surround; a saved sound option is kept. See
