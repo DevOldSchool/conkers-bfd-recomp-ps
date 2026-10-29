@@ -478,6 +478,19 @@ func = "func_15154D80"
 before_vram = 0x1515547C
 text = "{ void conker_widescreen_frame_end(uint8_t*, recomp_context*); conker_widescreen_frame_end(rdram, ctx); }"
 
+# Widescreen: the black over a multiplayer player's view once they are out of lives covers the
+# widened view. func_15180580 draws a player's death wipe; once closed, its one FILLRECT is drawn
+# stretched. See src/enhancements/display_options/widescreen_out.cpp.
+[[patches.hook]]
+func = "func_15180580"
+before_vram = 0x15180584
+text = "{ void conker_widescreen_out_begin(uint8_t*, recomp_context*); conker_widescreen_out_begin(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_15180580"
+before_vram = 0x151814C8
+text = "{ void conker_widescreen_out_end(uint8_t*, recomp_context*); conker_widescreen_out_end(rdram, ctx); }"
+
 # Widescreen: the countdown timer (a HUD model hung on chains, as over the bomb in scene 35) keeps
 # its distance from the right side of the widened picture instead of the 4:3 one. func_150938BC
 # places it with func_150A7D00(matrix, x, y, z); x ($a1) is moved right by the widening. See

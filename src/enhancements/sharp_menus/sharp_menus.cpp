@@ -4,7 +4,7 @@
 // keeping Rare's pixels and soft edges, and hands the tiles to RT64 as a texture pack in memory,
 // keyed by the hash RT64 computes for each tile as the game loads it (TMEMHasher). Tiles drawn
 // side by side are enlarged together, so no seams show between them. The button prompts and the
-// multiplayer heads, player pieces and death skull are enlarged too; other pictures (the small statistics icons)
+// multiplayer heads, player pieces and skulls are enlarged too; other pictures (the small statistics icons)
 // are left as they are: they lose their detail when enlarged.
 //
 // The speech and thought bubbles are not menu art but come from the same resources, and are
@@ -104,9 +104,13 @@ constexpr Title kTitles[] = {
 constexpr int kSmallBadges = 2115;
 constexpr int kLargeBadges = 2196;
 
-// The multiplayer death skull is a 64x64 picture of four tiles in column order: 1980 top left, 1981
+// The multiplayer menus' skull is a 64x64 picture of four tiles in column order: 1980 top left, 1981
 // bottom left, 1982 top right, 1983 bottom right.
 constexpr int kSkull = 1980;
+
+// The skull a multiplayer player out of lives sees over their blacked-out view is a narrower 32x32
+// tile of its own, resource 3343, drawn at its own size.
+constexpr int kDeathSkull = 3343;
 
 // The speech and thought bubbles are 64x64 IA8 pictures, resources 4167 and 4168 (the literal
 // descriptors at 0x8009055C and 0x8009056C), each drawn stretched over the text; the shadow is the
@@ -212,19 +216,46 @@ std::vector<Replacement> split(const std::string& name, const menu_art::Image& i
     return out;
 }
 
-// The skull's four tiles, enlarged together so no seams show where they meet.
-std::vector<Replacement> skull() {
+// The whole 64x64 skull, and the hashes of its four tiles.
+std::optional<menu_art::Image> large_skull(std::vector<uint64_t>& hashes) {
     menu_art::Image whole(kTile * 2, kTile * 2);
-    std::vector<uint64_t> hashes;
     for (int i = 0; i < 4; i++) {
         const std::optional<menu_art::StoredTile> tile = menu_art::load_tile(kSkull + i);
-        if (!tile) return {};
+        if (!tile) return std::nullopt;
         hashes.push_back(hash(*tile));
         const menu_art::Image image = menu_art::decode_tile(*tile);
         const int x0 = (i / 2) * kTile, y0 = (i % 2) * kTile;
         for (int y = 0; y < kTile; y++) std::copy_n(image.at(0, y), kTile * 4, whole.at(x0, y0 + y));
     }
-    const std::vector<uint8_t> rgba = menu_art::to_rgba8(menu_art::super_xbr(whole, kScale));
+    return whole;
+}
+
+// The death skull, four times larger: the large skull enlarged and fitted over the small one's
+// outline, as the small badges are, since at 32 pixels it has too little detail to enlarge well.
+std::optional<menu_art::Image> death_skull() {
+    const std::optional<menu_art::Image> small = menu_art::load_row(kDeathSkull, 1);
+    std::vector<uint64_t> hashes;
+    const std::optional<menu_art::Image> large = large_skull(hashes);
+    if (!small || !large) return std::nullopt;
+    const menu_art::Box to = menu_art::opaque_box(*small, 100);
+    const menu_art::Box from = menu_art::opaque_box(*large, 100);
+    if (to.x1 == 0 || from.x1 == 0) return std::nullopt;
+    const menu_art::Image fitted = menu_art::resize(
+        menu_art::super_xbr(*large, kScale), {from.x0 * kScale, from.x1 * kScale, from.y0 * kScale, from.y1 * kScale},
+        (to.x1 - to.x0) * kScale, (to.y1 - to.y0) * kScale);
+    menu_art::Image out(kTile * kScale, kTile * kScale);
+    for (int y = 0; y < fitted.height; y++) {
+        std::copy_n(fitted.at(0, y), fitted.width * 4, out.at(to.x0 * kScale, to.y0 * kScale + y));
+    }
+    return out;
+}
+
+// The skull's four tiles, enlarged together so no seams show where they meet.
+std::vector<Replacement> skull() {
+    std::vector<uint64_t> hashes;
+    const std::optional<menu_art::Image> whole = large_skull(hashes);
+    if (!whole) return {};
+    const std::vector<uint8_t> rgba = menu_art::to_rgba8(menu_art::super_xbr(*whole, kScale));
     const int size = kTile * kScale, width = size * 2;
     std::vector<Replacement> out;
     std::vector<uint8_t> tile(size_t(size) * size * 4);
@@ -317,6 +348,11 @@ std::shared_ptr<RT64::FileSystem> make_pack() {
         }
     }
     for (Replacement& r : skull()) pack->add(r.path, r.hash, std::move(r.png));
+    if (const std::optional<menu_art::Image> death = death_skull()) {
+        for (Replacement& r : split("death_skull", *death, {hash(*menu_art::load_tile(kDeathSkull))})) {
+            pack->add(r.path, r.hash, std::move(r.png));
+        }
+    }
     for (const Bubble& b : kBubbles) {
         if (std::optional<Replacement> r = bubble(b)) pack->add(r->path, r->hash, std::move(r->png));
     }
