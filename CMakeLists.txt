@@ -49,6 +49,16 @@ if(CONKER_TRACE)
     target_compile_definitions(ConkerRecompiled PRIVATE CONKER_TRACE=1)
 endif()
 
+# The recompiled code must come from this checkout's config/us.toml, or its hooks are silently
+# missing: checked on every build (tools/check_recompiled.cmake).
+option(CONKER_ALLOW_STALE_RECOMPILED "Build even when config/us.toml changed since tools/regenerate.sh ran" OFF)
+if(NOT CONKER_ALLOW_STALE_RECOMPILED)
+    add_custom_target(recompiled_check
+        COMMAND ${CMAKE_COMMAND} -DSOURCE=${CMAKE_SOURCE_DIR} -DRECOMPILED=${CONKER_RECOMPILED_DIR}
+                -P ${CMAKE_SOURCE_DIR}/tools/check_recompiled.cmake)
+    add_dependencies(ConkerRecompiled recompiled_check)
+endif()
+
 # ---------------------------------------------------------------------------------------------
 # Runtime executable
 # ---------------------------------------------------------------------------------------------

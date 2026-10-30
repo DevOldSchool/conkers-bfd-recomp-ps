@@ -57,4 +57,14 @@ mkdir -p "$here/build/us/rsp"
 
 echo "==> declaring runtime-provided functions"
 python3 "$here/tools/gen_extras_decl.py" "$here/build/us/RecompiledFuncs"
+echo "==> recording the config the code was recompiled from"
+# The build refuses recompiled code from another config (tools/check_recompiled.cmake): a hook
+# added to config/us.toml does nothing until this script runs again.
+python3 - "$here" <<'EOF'
+import hashlib, pathlib, sys
+here = pathlib.Path(sys.argv[1])
+lines = [f"{hashlib.sha256((here / name).read_bytes()).hexdigest()}  {name}\n"
+         for name in ("config/us.toml", "config/us.syms.toml")]
+(here / "build/us/RecompiledFuncs/config.sha256").write_text("".join(lines))
+EOF
 echo "done: $(ls "$here/build/us/RecompiledFuncs" | wc -l | tr -d ' ') files in build/us/RecompiledFuncs (log: build/us/recomp-run.log)"

@@ -70,3 +70,7 @@ tools/apply_patches.sh
 tools/regenerate.sh
 cmake --build build/rt64
 ```
+
+The build stops with `config/us.toml changed since the code in ... was recompiled`
+when `regenerate.sh` was skipped: the game's hooks live in that file and only reach
+the build through `regenerate.sh`.
