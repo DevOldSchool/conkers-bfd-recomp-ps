@@ -30,8 +30,10 @@
 // copies the frame back over the player's view, tinted, in two passes: the first 256 columns in
 // 8-line pieces, then the rest in 54-line pieces. Neither piece spans the picture, so RT64 placed
 // them against its widened frame differently, and the scope came out as a 4:3 band with a smeared
-// edge. In widescreen they are replaced the same way, by strips spanning the view (as many lines
-// as fit TMEM), which RT64 stretches over the widened view like any copy spanning the picture.
+// edge. They are replaced the same way, by strips spanning the view (as many lines as fit TMEM),
+// which RT64 stretches over the widened view like any copy spanning the picture. In 4:3 too: there
+// RT64 drew the game's 8-line pieces with a black line along the bottom of each and the last 36
+// columns pixelated, so the scope was striped.
 #include <algorithm>
 #include <cstdint>
 #include <vector>
@@ -164,7 +166,7 @@ extern "C" void conker_widescreen_copy_end(uint8_t* rdram, recomp_context* ctx) 
 
 // At func_151A5170's entry: $a0 is the display list pointer it writes from.
 extern "C" void conker_widescreen_scope_begin(uint8_t* /*rdram*/, recomp_context* ctx) {
-    g_scope_rewriting = conker::display::rendered_widescreen();
+    g_scope_rewriting = true;
     g_scope_start = ctx->r4;
 }
 
