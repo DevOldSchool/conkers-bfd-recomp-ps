@@ -93,6 +93,14 @@ func = "func_8000853C"
 before_vram = 0x10008560
 text = "{ void conker_seqp_state_hook(uint8_t*, recomp_context*); conker_seqp_state_hook(rdram, ctx); }"
 
+# func_151E6964 loads a text set of bank 0x1C; just after it is inflated (and before its string
+# table is made), the ending credits get the port's own card after Rare's last one. See
+# conker_credits_text_hook in src/credits/credits.cpp.
+[[patches.hook]]
+func = "func_151E6964"
+before_vram = 0x151E6A58
+text = "{ void conker_credits_text_hook(uint8_t*, recomp_context*); conker_credits_text_hook(rdram, ctx); }"
+
 # L skips from the boot logos or the intro (scene 0x21, Conker sawing the N64 logo) straight to
 # the title menu, as it skips cutscenes. On hardware Start only skips the intro after a warm reset
 # and after 301 ticks, and the title scene's opening (scene 0x1D script 1) needs a press of its
