@@ -650,7 +650,7 @@ text = "{ void conker_sky_tile_fits(uint8_t*, recomp_context*); conker_sky_tile_
 # The title menu's "INSERT RUMBLE PAK" banner (message 0x8F) shows for a few seconds whenever the
 # menu comes up, pak or not, while the countdown D_8008FEFC is above 60. With a pad that can rumble
 # there is a pak, so the countdown is cleared just before func_151DE8F0 reads it. See
-# src/enhancements/rumble_banner/rumble_banner.cpp; CONKER_RUMBLE_BANNER=1 shows it anyway.
+# src/fixes/rumble_banner.cpp; CONKER_RUMBLE_BANNER=1 shows it anyway.
 [[patches.hook]]
 func = "func_151DE8F0"
 before_vram = 0x151DEDF8

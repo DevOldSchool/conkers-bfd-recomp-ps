@@ -107,6 +107,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/fixes/frame_effects.cpp
     src/fixes/level_seams.cpp
     src/fixes/music_start.cpp
+    src/fixes/rumble_banner.cpp
     src/fixes/scheduler_yield.cpp
     src/enhancements/cutscene_skip/cutscene_skip.cpp
     src/enhancements/draw_distance/draw_distance.cpp
@@ -128,7 +129,6 @@ add_executable(ConkersBadFurDayRecompiled
     src/enhancements/pause_save/pause_save.cpp
     src/enhancements/pause_save/resume_point.cpp
     src/enhancements/pause_save/save_check.cpp
-    src/enhancements/rumble_banner/rumble_banner.cpp
     src/enhancements/haptics/haptics.cpp
     src/enhancements/adaptive_triggers/adaptive_triggers.cpp
     src/enhancements/consistent_controls/consistent_controls.cpp
