@@ -36,6 +36,11 @@
 //
 // Command buffers the GPU fails are logged with the RT64 worker that sent them and the renderer's
 // recent resource changes, noted here (src/platform/gpu_faults.cpp).
+#if defined(_WIN32)
+// Before ultramodern's headers include a lean windows.h: RT64's D3D12 and DXC headers need the COM
+// types it leaves out.
+#include <windows.h>
+#endif
 #include "platform/renderer_rt64.hpp"
 #include "platform/present_focus.hpp"
 #include "platform/render_debug.hpp"

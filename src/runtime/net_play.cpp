@@ -49,24 +49,18 @@
 #include <thread>
 #include <vector>
 
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
 #include "recomp.h"
 #include "build_version.h"
 #include "miniz.h"
 
 #include "platform/audio.hpp"
 #include "platform/display_mode.hpp"
+#include "platform/process.hpp"
 #include "runtime/game.hpp"
 #include "runtime/net_codes.hpp"
 #include "runtime/net_lobby.hpp"
 #include "runtime/net_portmap.hpp"
+#include "runtime/net_socket.hpp"
 #include "runtime/snapshot.hpp"
 #include "ultramodern/ultramodern.hpp"
 
@@ -75,6 +69,14 @@ namespace {
 using conker::frame_input::Mouse;
 using conker::frame_input::Port;
 using conker::frame_input::Record;
+using conker::net::socket_error_text;
+using conker::net::socket_poll;
+using conker::net::socket_poll_in;
+using conker::net::socket_prepare;
+using conker::net::socket_receive_from;
+using conker::net::socket_send_to;
+using conker::net::socket_set_option;
+namespace process = conker::process;
 using Clock = std::chrono::steady_clock;
 
 inline gpr kseg0(uint32_t address) { return static_cast<gpr>(static_cast<int32_t>(address)); }
@@ -150,10 +152,12 @@ constexpr size_t kMaxPacket = 1500;
 constexpr const char* kOs = "macos";
 #elif defined(__linux__)
 constexpr const char* kOs = "linux";
+#elif defined(_WIN32)
+constexpr const char* kOs = "windows";
 #else
 constexpr const char* kOs = "other";
 #endif
-#if defined(__aarch64__) || defined(__arm64__)
+#if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
 constexpr const char* kCpu = "arm64";
 #else
 constexpr const char* kCpu = "x86_64";
@@ -482,7 +486,7 @@ void answer_old_hello(int socket, const uint8_t* data, size_t size, const sockad
     reply[9] = static_cast<uint8_t>(sizeof(kWhy) - 1);
     std::memcpy(reply + 11, kWhy, sizeof(kWhy) - 1);
     if (sizeof(reply) <= size) {
-        sendto(socket, reply, sizeof(reply), 0, reinterpret_cast<const sockaddr*>(&from), from_len);
+        socket_send_to(socket, reply, sizeof(reply), reinterpret_cast<const sockaddr*>(&from), from_len);
     }
 }
 
@@ -612,7 +616,7 @@ bool sim_outage(int64_t now) {
 
 void send_datagram(const sockaddr_storage& addr, socklen_t len, const uint8_t* data, size_t size) {
     if (!g_sim.on) {
-        sendto(g_socket, data, size, 0, reinterpret_cast<const sockaddr*>(&addr), len);
+        socket_send_to(g_socket, data, size, reinterpret_cast<const sockaddr*>(&addr), len);
         return;
     }
     const int64_t now = now_ms();
@@ -641,7 +645,7 @@ int64_t sim_pump() {
     for (size_t i = 0; i < g_sim_out.size();) {
         Delayed& d = g_sim_out[i];
         if (d.due <= now) {
-            sendto(g_socket, d.data.data(), d.data.size(), 0, reinterpret_cast<const sockaddr*>(&d.addr), d.addr_len);
+            socket_send_to(g_socket, d.data.data(), d.data.size(), reinterpret_cast<const sockaddr*>(&d.addr), d.addr_len);
             g_sim_out[i] = std::move(g_sim_out.back());
             g_sim_out.pop_back();
             continue;
@@ -1708,23 +1712,16 @@ void relaunch_to_rejoin() {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         std::printf("[conker] net: starting again to rejoin the session as player %d\n", g_local_port + 1);
         const std::string port = std::to_string(g_local_port + 1);
-        setenv("CONKER_NET_REJOIN_PORT", port.c_str(), 1);
+        process::set_env("CONKER_NET_REJOIN_PORT", port.c_str());
         char secret[17];
         std::snprintf(secret, sizeof(secret), "%016llx", static_cast<unsigned long long>(g_secret));
-        setenv("CONKER_NET_REJOIN_SECRET", secret, 1);
-        setenv("CONKER_NET_REJOIN_COUNT", std::to_string(count + 1).c_str(), 1);
+        process::set_env("CONKER_NET_REJOIN_SECRET", secret);
+        process::set_env("CONKER_NET_REJOIN_COUNT", std::to_string(count + 1).c_str());
         if (std::getenv("CONKER_NET_TEST_KEEP") == nullptr) {
-            unsetenv("CONKER_NET_TEST_DESYNC");  // the forced trouble happened once; the replay plays clean
-            unsetenv("CONKER_NET_TEST_HANG");
+            process::unset_env("CONKER_NET_TEST_DESYNC");  // the forced trouble happened once; the replay plays clean
+            process::unset_env("CONKER_NET_TEST_HANG");
         }
-        std::vector<char*> args;
-        for (std::string& arg : g_argv) {
-            args.push_back(arg.data());
-        }
-        args.push_back(nullptr);
-        std::fflush(nullptr);
-        execv(args[0], args.data());
-        std::perror("[conker] net: could not start again");
+        process::start_again(g_argv);
     }).detach();
 }
 
@@ -1928,17 +1925,17 @@ std::vector<uint8_t> session_blob(int port, uint32_t rejoin_from, bool snapshot)
 }
 
 bool open_socket(int family, uint16_t bind_port) {
-    g_socket = socket(family, SOCK_DGRAM, 0);
+    g_socket = static_cast<int>(socket(family, SOCK_DGRAM, 0));
     if (g_socket < 0) {
-        std::perror("[conker] net: socket");
+        std::fprintf(stderr, "[conker] net: socket: %s\n", socket_error_text().c_str());
         return false;
     }
+    socket_prepare(g_socket);
     if (bind_port == 0) {
         return true;
     }
     if (family == AF_INET6) {
-        int off = 0;
-        setsockopt(g_socket, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off));
+        socket_set_option(g_socket, IPPROTO_IPV6, IPV6_V6ONLY, 0);
         sockaddr_in6 addr{};
         addr.sin6_family = AF_INET6;
         addr.sin6_addr = in6addr_any;
@@ -1955,7 +1952,7 @@ bool open_socket(int family, uint16_t bind_port) {
             return true;
         }
     }
-    std::fprintf(stderr, "[conker] net: cannot use UDP port %u: %s\n", bind_port, std::strerror(errno));
+    std::fprintf(stderr, "[conker] net: cannot use UDP port %u: %s\n", bind_port, socket_error_text().c_str());
     return false;
 }
 
@@ -1992,11 +1989,11 @@ ssize_t receive(uint8_t* buffer, size_t size, sockaddr_storage* from, socklen_t*
                 wait = std::min(wait, g_sim_in[i].due - now);
             }
         }
-        pollfd fd{g_socket, POLLIN, 0};
-        const bool ready = poll(&fd, 1, static_cast<int>(wait)) > 0;
+        pollfd fd = socket_poll_in(g_socket);
+        const bool ready = socket_poll(&fd, 1, static_cast<int>(wait)) > 0;
         if (ready) {
             *from_len = sizeof(*from);
-            const ssize_t got = recvfrom(g_socket, buffer, size, MSG_DONTWAIT, reinterpret_cast<sockaddr*>(from), from_len);
+            const ssize_t got = socket_receive_from(g_socket, buffer, size, reinterpret_cast<sockaddr*>(from), from_len);
             // Outside the LAN, with internet play off: dropped before anything looks at it or answers.
             if (got > 0 && !conker::net::sender_allowed(*from)) {
                 continue;
@@ -2658,6 +2655,9 @@ void draw_text(ListWriter& list, const std::string& text, int x0, int y0) {
 namespace conker::net {
 
 bool parse_args(int* argc, char** argv) {
+    if (!sockets_init()) {
+        std::fprintf(stderr, "[conker] net: sockets cannot be used: %s\n", socket_error_text().c_str());
+    }
     g_argv.assign(argv, argv + *argc);
     std::vector<char*> kept;
     for (int i = 0; i < *argc; i++) {
@@ -2755,14 +2755,7 @@ void relaunch(const std::vector<std::string>& net_args) {
     line.insert(line.end(), net_args.begin(), net_args.end());
     // The session keeps the lobby's choice, whichever way this build starts.
     line.push_back(g_options.internet ? "--net-unsafe-internet" : "--net-lan-only");
-    std::vector<char*> args;
-    for (std::string& arg : line) {
-        args.push_back(arg.data());
-    }
-    args.push_back(nullptr);
-    std::fflush(nullptr);
-    execv(args[0], args.data());
-    std::perror("[conker] net: could not start again");
+    process::start_again(line);
 }
 
 void say_goodbye();
@@ -2774,7 +2767,11 @@ bool connect() {
     for (int port = 0; port < kPorts; port++) {
         g_input_upto[port] = 0;
     }
+#if defined(SIGHUP)
     const int stop_signals[] = {SIGTERM, SIGINT, SIGHUP};
+#else
+    const int stop_signals[] = {SIGTERM, SIGINT};
+#endif
     for (int sig : stop_signals) {
         std::signal(sig, [](int caught) { g_stop_signal = caught; });
     }
@@ -2792,9 +2789,6 @@ bool connect() {
     g_merged_upto = static_cast<uint32_t>(g_delay);
     g_session_start.store(now_ms());
     conker::display::set_logic_aspect(g_wide ? 16.0f / 9.0f : float(conker::display::kPictureWidth) / conker::display::kPictureHeight);
-    const int flags = fcntl(g_socket, F_GETFL, 0);
-    fcntl(g_socket, F_SETFL, flags | O_NONBLOCK);
-    fcntl(g_socket, F_SETFD, FD_CLOEXEC);  // not handed on when the game starts again to rejoin
     g_thread = std::thread(network_thread);
     g_thread.detach();
     std::atexit(say_goodbye);
@@ -2823,7 +2817,7 @@ void say_goodbye() {
             }
             Writer w;
             begin(w, kLeave, is_host() ? peer.secret : g_secret);
-            sendto(g_socket, w.data, w.size, 0, reinterpret_cast<const sockaddr*>(&peer.addr), peer.addr_len);
+            socket_send_to(g_socket, w.data, w.size, reinterpret_cast<const sockaddr*>(&peer.addr), peer.addr_len);
         }
     }
 }

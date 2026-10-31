@@ -228,12 +228,12 @@ std::vector<Texture> plate_pad(Mark::Shape shape) {
                 from = at(x, y);
             } else {
                 // Nearest on the plate: a texel is twice as long across as down.
-                auto far = [&](int c) {
+                auto distance = [&](int c) {
                     const float dx = float(c % W - x), dy = float(c / W - y) / 2;
                     return dx * dx + dy * dy;
                 };
                 for (int c : core)
-                    if (far(c) < far(from)) from = c;
+                    if (distance(c) < distance(from)) from = c;
             }
             for (int c = 0; c < 3; c++) out[at(x, y)][c] = stone[at(x, y)][c] * (1 - cover) + rgb[from][c] * cover;
         }

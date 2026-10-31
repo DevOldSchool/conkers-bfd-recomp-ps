@@ -10,11 +10,12 @@
 #include <mutex>
 #include <random>
 
-#include <arpa/inet.h>
+#if defined(_WIN32)
+#include <iphlpapi.h>
+#else
 #include <ifaddrs.h>
 #include <net/if.h>
-#include <netdb.h>
-#include <netinet/in.h>
+#endif
 
 namespace conker::net {
 
@@ -335,35 +336,26 @@ AddressKind ipv4_kind(uint32_t a) {
 
 LocalAddresses local_addresses() {
     LocalAddresses out;
-    ifaddrs* list = nullptr;
-    if (getifaddrs(&list) != 0) {
-        return out;
-    }
-    for (ifaddrs* ifa = list; ifa != nullptr; ifa = ifa->ifa_next) {
-        if (ifa->ifa_addr == nullptr || (ifa->ifa_flags & IFF_UP) == 0 || (ifa->ifa_flags & IFF_LOOPBACK) != 0) {
-            continue;
-        }
+    // One address of an interface that is up and not loopback, with its IPv4 broadcast address if any.
+    const auto add = [&out](const sockaddr* address, const uint32_t* broadcast) {
         sockaddr_storage addr{};
-        if (ifa->ifa_addr->sa_family == AF_INET) {
-            std::memcpy(&addr, ifa->ifa_addr, sizeof(sockaddr_in));
+        if (address->sa_family == AF_INET) {
+            std::memcpy(&addr, address, sizeof(sockaddr_in));
             const uint32_t a = ntohl(reinterpret_cast<sockaddr_in&>(addr).sin_addr.s_addr);
             const AddressKind kind = ipv4_kind(a);
             if (kind == AddressKind::Loopback || kind == AddressKind::LinkLocal || kind == AddressKind::Other) {
-                continue;
+                return;
             }
             out.ipv4.push_back(addr);
-            if ((ifa->ifa_flags & IFF_BROADCAST) != 0 && ifa->ifa_broadaddr != nullptr &&
-                ifa->ifa_broadaddr->sa_family == AF_INET) {
-                const uint32_t broadcast = ntohl(reinterpret_cast<const sockaddr_in*>(ifa->ifa_broadaddr)->sin_addr.s_addr);
-                if (std::find(out.ipv4_broadcasts.begin(), out.ipv4_broadcasts.end(), broadcast) == out.ipv4_broadcasts.end()) {
-                    out.ipv4_broadcasts.push_back(broadcast);
-                }
+            if (broadcast != nullptr &&
+                std::find(out.ipv4_broadcasts.begin(), out.ipv4_broadcasts.end(), *broadcast) == out.ipv4_broadcasts.end()) {
+                out.ipv4_broadcasts.push_back(*broadcast);
             }
-        } else if (ifa->ifa_addr->sa_family == AF_INET6) {
-            std::memcpy(&addr, ifa->ifa_addr, sizeof(sockaddr_in6));
+        } else if (address->sa_family == AF_INET6) {
+            std::memcpy(&addr, address, sizeof(sockaddr_in6));
             const in6_addr& a = reinterpret_cast<sockaddr_in6&>(addr).sin6_addr;
             if ((a.s6_addr[0] & 0xE0) != 0x20) {  // global unicast only
-                continue;
+                return;
             }
             bool seen = false;
             for (const sockaddr_storage& other : out.ipv6) {
@@ -373,8 +365,57 @@ LocalAddresses local_addresses() {
                 out.ipv6.push_back(addr);
             }
         }
+    };
+#if defined(_WIN32)
+    ULONG size = 16 * 1024;
+    std::vector<uint8_t> buffer;
+    ULONG result = ERROR_BUFFER_OVERFLOW;
+    for (int tries = 0; tries < 3 && result == ERROR_BUFFER_OVERFLOW; tries++) {
+        buffer.resize(size);
+        result = GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+                                      nullptr, reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()), &size);
+    }
+    if (result != NO_ERROR) {
+        return out;
+    }
+    for (auto* adapter = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()); adapter != nullptr; adapter = adapter->Next) {
+        if (adapter->OperStatus != IfOperStatusUp || adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK) {
+            continue;
+        }
+        for (auto* unicast = adapter->FirstUnicastAddress; unicast != nullptr; unicast = unicast->Next) {
+            const sockaddr* address = unicast->Address.lpSockaddr;
+            if (address == nullptr) {
+                continue;
+            }
+            uint32_t broadcast = 0;
+            const bool has_broadcast = address->sa_family == AF_INET && unicast->OnLinkPrefixLength < 31;
+            if (has_broadcast) {
+                const uint32_t a = ntohl(reinterpret_cast<const sockaddr_in*>(address)->sin_addr.s_addr);
+                const uint32_t host_bits = unicast->OnLinkPrefixLength == 0 ? 0xFFFFFFFFu : (0xFFFFFFFFu >> unicast->OnLinkPrefixLength);
+                broadcast = a | host_bits;
+            }
+            add(address, has_broadcast ? &broadcast : nullptr);
+        }
+    }
+#else
+    ifaddrs* list = nullptr;
+    if (getifaddrs(&list) != 0) {
+        return out;
+    }
+    for (ifaddrs* ifa = list; ifa != nullptr; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == nullptr || (ifa->ifa_flags & IFF_UP) == 0 || (ifa->ifa_flags & IFF_LOOPBACK) != 0) {
+            continue;
+        }
+        uint32_t broadcast = 0;
+        const bool has_broadcast = ifa->ifa_addr->sa_family == AF_INET && (ifa->ifa_flags & IFF_BROADCAST) != 0 &&
+                                   ifa->ifa_broadaddr != nullptr && ifa->ifa_broadaddr->sa_family == AF_INET;
+        if (has_broadcast) {
+            broadcast = ntohl(reinterpret_cast<const sockaddr_in*>(ifa->ifa_broadaddr)->sin_addr.s_addr);
+        }
+        add(ifa->ifa_addr, has_broadcast ? &broadcast : nullptr);
     }
     freeifaddrs(list);
+#endif
     return out;
 }
 

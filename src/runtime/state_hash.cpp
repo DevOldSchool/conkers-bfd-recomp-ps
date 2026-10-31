@@ -4,8 +4,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#if !defined(_WIN32)
 #include <dlfcn.h>
 #include <execinfo.h>
+#endif
 #include <vector>
 
 #include "recomp.h"
@@ -206,6 +208,7 @@ extern "C" void conker_alloc_log(uint8_t* /*rdram*/, recomp_context* ctx, int is
     }
     std::fprintf(file, "%u %s %08x %x", conker::state_hash::current_frame(), is_free ? "free" : "alloc",
                  static_cast<uint32_t>(ctx->r4), static_cast<uint32_t>(ctx->r5));
+#if !defined(_WIN32)  // the callers' names come from dladdr, which Windows does not have
     void* frames[8];
     const int count = backtrace(frames, 8);
     for (int i = 1; i < count; i++) {
@@ -214,5 +217,6 @@ extern "C" void conker_alloc_log(uint8_t* /*rdram*/, recomp_context* ctx, int is
             std::fprintf(file, " %s", info.dli_sname);
         }
     }
+#endif
     std::fputc('\n', file);
 }

@@ -71,7 +71,11 @@ void finish(const char* status, const std::string& detail, int code) {
 std::string report_json(uint8_t* rdram) {
     const std::time_t now = std::time(nullptr);
     std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &now);
+#else
     localtime_r(&now, &local);
+#endif
     char when[32];
     std::strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", &local);
     nlohmann::json report = {{"format", "conker-recomp-debug-report"}, {"version", 1}, {"made", when},
