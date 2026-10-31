@@ -1,6 +1,6 @@
 // Haptic effects, and the rumble pak's rumble, on a DualSense through Apple's GameController
-// framework and Core Haptics: one engine per grip, made the first time an effect plays on a pad and
-// restarted when the system stops it. input_sdl.cpp calls these on the main thread.
+// framework and Core Haptics: one engine per grip of each port's pad, made the first time an effect
+// plays on it and restarted when the system stops it. input_sdl.cpp calls these on the main thread.
 #include "platform/haptics_apple.hpp"
 
 #include <cstdio>
@@ -13,17 +13,20 @@ namespace conker::input::apple {
 
 namespace {
 
-// The engines for the pad they were made for; remade when a different pad is connected.
-GCController* g_controller = nil;
-CHHapticEngine* g_left = nil;
-CHHapticEngine* g_right = nil;
-id<CHHapticPatternPlayer> g_left_rumble = nil;   // the rumble pak's, while it plays
-id<CHHapticPatternPlayer> g_right_rumble = nil;
-bool g_rumble_failed = false;  // Core Haptics refused the rumble: SDL rumbles the pad instead
+// A port's engines, for the pad they were made for; remade when a different pad takes the port.
+struct Engines {
+    GCController* controller = nil;
+    CHHapticEngine* left = nil;
+    CHHapticEngine* right = nil;
+    id<CHHapticPatternPlayer> left_rumble = nil;  // the rumble pak's, while it plays
+    id<CHHapticPatternPlayer> right_rumble = nil;
+    bool rumble_failed = false;  // Core Haptics refused the rumble: SDL rumbles the pad instead
+};
+Engines g_engines[kPorts];
 bool g_reported = false;  // a failure is printed once, not for every effect
 
-GCController* dualsense() {
-    GCController* controller = port1_dualsense();
+GCController* dualsense(int port) {
+    GCController* controller = port_dualsense(port);
     return controller != nil && controller.haptics != nil ? controller : nil;
 }
 
@@ -53,37 +56,41 @@ CHHapticEngine* make_engine(GCController* controller, GCHapticsLocality locality
     return engine;
 }
 
-bool engines_ready() {
-    GCController* controller = dualsense();
+// The port's engines, made for the DualSense now in the port; nullptr when there are none.
+Engines* engines_ready(int port) {
+    if (port < 0 || port >= kPorts) {
+        return nullptr;
+    }
+    Engines& engines = g_engines[port];
+    GCController* controller = dualsense(port);
     if (controller == nil) {
         if (!g_reported) {
-            std::fprintf(stderr, "[conker] haptics: no DualSense among the GameController framework's pads\n");
+            std::fprintf(stderr, "[conker] haptics: no DualSense among the GameController framework's pads for controller %d\n",
+                         port + 1);
             g_reported = true;
         }
-        g_controller = nil;
-        g_left = g_right = nil;
-        g_left_rumble = g_right_rumble = nil;
-        return false;
+        engines = Engines{};
+        return nullptr;
     }
-    if (controller != g_controller || g_left == nil || g_right == nil) {
-        g_controller = controller;
-        g_left_rumble = g_right_rumble = nil;
-        g_left = make_engine(controller, GCHapticsLocalityLeftHandle);
-        g_right = make_engine(controller, GCHapticsLocalityRightHandle);
-        if (g_left != nil && g_right != nil) {
-            std::printf("[conker] haptics: Core Haptics engines started on %s's grips (player %ld; DualSense pads:",
-                        controller.vendorName.UTF8String, static_cast<long>(controller.playerIndex) + 1);
+    if (controller != engines.controller || engines.left == nil || engines.right == nil) {
+        engines = Engines{};
+        engines.controller = controller;
+        engines.left = make_engine(controller, GCHapticsLocalityLeftHandle);
+        engines.right = make_engine(controller, GCHapticsLocalityRightHandle);
+        if (engines.left != nil && engines.right != nil) {
+            std::printf("[conker] haptics: controller %d: Core Haptics engines started on %s's grips (player %ld; DualSense pads:",
+                        port + 1, controller.vendorName.UTF8String, static_cast<long>(controller.playerIndex) + 1);
             for (GCController* pad in GCController.controllers) {
                 if ([pad.physicalInputProfile isKindOfClass:[GCDualSenseGamepad class]]) {
                     std::printf(" %s as player %ld;", pad.vendorName.UTF8String, static_cast<long>(pad.playerIndex) + 1);
                 }
             }
-            std::printf(" controller 1 is %s)\n", conker::input::controller_name().c_str());
+            std::printf(" controller %d is %s)\n", port + 1, conker::input::controller_name(port).c_str());
         } else {
             g_reported = true;
         }
     }
-    return g_left != nil && g_right != nil;
+    return engines.left != nil && engines.right != nil ? &engines : nullptr;
 }
 
 // The same effect feels stronger in the left grip than the right when it plays in one grip at a
@@ -156,8 +163,8 @@ void stop_rumble(__strong id<CHHapticPatternPlayer>& player) {
 
 }  // namespace
 
-GCController* port1_dualsense() {
-    const std::string name = conker::input::controller_name();
+GCController* port_dualsense(int port) {
+    const std::string name = conker::input::controller_name(port);
     GCController* named = nil;
     GCController* numbered = nil;
     GCController* only = nil;
@@ -172,7 +179,7 @@ GCController* port1_dualsense() {
             named = controller;
             named_count++;
         }
-        if (controller.playerIndex == GCControllerPlayerIndex1 && (has_name || name.empty())) {
+        if (controller.playerIndex == static_cast<GCControllerPlayerIndex>(port) && (has_name || name.empty())) {
             numbered = controller;
         }
         only = controller;
@@ -184,50 +191,55 @@ GCController* port1_dualsense() {
     if (numbered != nil) {
         return numbered;
     }
-    return count == 1 && named_count == 0 && name.empty() ? only : nil;
+    return port == 0 && count == 1 && named_count == 0 && name.empty() ? only : nil;
 }
 
-bool set_dualsense_rumble(bool on) {
+bool set_dualsense_rumble(int port, bool on) {
+    if (port < 0 || port >= kPorts) {
+        return false;
+    }
+    Engines& engines = g_engines[port];
     // Core Haptics raises an exception for what it can't do on a pad's engine (an advanced player,
     // for one); a rumble that won't play must not take the game down.
     @try {
         if (!on) {
-            stop_rumble(g_left_rumble);
-            stop_rumble(g_right_rumble);
+            stop_rumble(engines.left_rumble);
+            stop_rumble(engines.right_rumble);
             return true;
         }
-        if (g_rumble_failed || !engines_ready()) {
+        if (engines.rumble_failed || engines_ready(port) == nullptr) {
             return false;
         }
-        if (g_left_rumble == nil) {
-            g_left_rumble = start_rumble(g_left, 1.0f);
+        if (engines.left_rumble == nil) {
+            engines.left_rumble = start_rumble(engines.left, 1.0f);
         }
-        if (g_right_rumble == nil) {
-            g_right_rumble = start_rumble(g_right, 1.0f);
+        if (engines.right_rumble == nil) {
+            engines.right_rumble = start_rumble(engines.right, 1.0f);
         }
-        g_rumble_failed = g_left_rumble == nil && g_right_rumble == nil;
-        return !g_rumble_failed;
+        engines.rumble_failed = engines.left_rumble == nil && engines.right_rumble == nil;
+        return !engines.rumble_failed;
     } @catch (NSException* exception) {
         if (!g_reported) {
-            std::fprintf(stderr, "[conker] haptics: rumble failed: %s\n", exception.reason.UTF8String);
+            std::fprintf(stderr, "[conker] haptics: controller %d rumble failed: %s\n", port + 1, exception.reason.UTF8String);
             g_reported = true;
         }
-        g_left_rumble = g_right_rumble = nil;
-        g_rumble_failed = true;
+        engines.left_rumble = engines.right_rumble = nil;
+        engines.rumble_failed = true;
         return false;
     }
 }
 
-bool play_dualsense_haptic(const Haptic& haptic) {
-    if (!engines_ready()) {
+bool play_dualsense_haptic(int port, const Haptic& haptic) {
+    Engines* engines = engines_ready(port);
+    if (engines == nullptr) {
         return false;
     }
     if (haptic.grip != Haptic::Grip::Right) {
         const float gain = haptic.grip == Haptic::Grip::Left ? kLeftGripGain : 1.0f;
-        play_on(g_left, pattern(haptic, haptic.intensity * gain));
+        play_on(engines->left, pattern(haptic, haptic.intensity * gain));
     }
     if (haptic.grip != Haptic::Grip::Left) {
-        play_on(g_right, pattern(haptic, haptic.intensity));
+        play_on(engines->right, pattern(haptic, haptic.intensity));
     }
     return true;
 }

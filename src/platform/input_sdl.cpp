@@ -13,8 +13,8 @@
 //
 // A pad that can rumble (SDL_GameControllerHasRumble; a DualSense, DualShock 4, Xbox or Switch
 // Pro pad) counts as a rumble pak in its port, and the game's motor on/off drives both of its
-// motors at full strength, like the pak's single motor. Haptic effects, Core Haptics and adaptive
-// triggers below are controller 1's only. Rumble on Bluetooth PlayStation pads needs
+// motors at full strength, like the pak's single motor. Each port's pad has its own haptic effects,
+// Core Haptics and adaptive triggers below. Rumble on Bluetooth PlayStation pads needs
 // SDL's extended reports, which init() turns on; on macOS those pads go through Apple's
 // GameController framework instead, which rumbles without them. There a DualSense plays the pak
 // through Core Haptics as a deep rumble in both grips (src/platform/haptics_apple.mm), since SDL's
@@ -27,7 +27,7 @@
 // and Series pads, where SDL can reach them) a Grip::Trigger effect plays in that trigger instead.
 // CONKER_HAPTICS_MOTORS=1 plays them on the motors on a DualSense on macOS and on the virtual pad too.
 //
-// A DualSense's adaptive triggers act as set_trigger_effect asks, both triggers alike since
+// A DualSense's adaptive triggers act as set_trigger_effect asks for its port, both triggers alike since
 // both are Z. SDL sends the effect where its own driver reads the pad (HIDAPI); on macOS, where
 // Apple's framework reads it, src/platform/adaptive_triggers_apple.mm sets them instead.
 //
@@ -42,7 +42,7 @@
 // run's mouse counts as captured whenever the game is being played.
 // The virtual pad can rumble and logs each change, logs each haptic effect (or, with
 // CONKER_HAPTICS_MOTORS=1, the motor strengths it plays as), and has adaptive triggers, logging
-// each effect sent to them.
+// each effect sent to them; each line names the virtual pad, and its port when they differ.
 #include "platform/input.hpp"
 #include "platform/input_sdl.hpp"
 
@@ -233,8 +233,38 @@ void update_mouse(uint16_t& buttons, const Uint8* keys, int key_count) {
     }
 }
 
-// A controller port and the pad holding it. Controller 1's pad also has the haptics, adaptive
-// triggers and button pictures below; it plays the keyboard alongside, and has a port without a pad.
+std::atomic<int> g_debug_menu_presses{0};
+std::mutex g_pad_name_mutex;             // the ports' names
+bool g_debug_menu_held = false;          // main thread only
+
+std::atomic<PadKind> g_pad_kind{PadKind::None};
+std::atomic<bool> g_camera_swapped{true};  // C-left and C-right (camera_swapped)
+
+// How a pad plays haptic effects.
+enum class HapticsVia { CoreHaptics, Motors, Log };
+
+// An effect playing on the rumble motors, each strength in [0, 1], until end_ms (SDL_GetTicks64).
+struct MotorEffect {
+    Uint64 end_ms;
+    float low;
+    float high;
+    float left_trigger;
+    float right_trigger;
+};
+constexpr float kSharpTap = 0.04f;         // s: a tap on the motors at sharpness 1, which spin up fast
+constexpr float kSoftTap = 0.09f;          // s: at sharpness 0, a thump the heavy motor needs longer for
+
+const bool g_force_motors = [] {
+    const char* value = std::getenv("CONKER_HAPTICS_MOTORS");
+    return value != nullptr && value[0] == '1';
+}();
+std::mutex g_haptics_mutex;              // the ports' waiting haptics
+constexpr size_t kMaxWaitingHaptics = 8;
+
+std::mutex g_trigger_mutex;              // the ports' trigger_wanted
+
+// A controller port and the pad holding it, with the pad's rumble, haptics and adaptive triggers.
+// Controller 1 also plays the keyboard alongside its pad, and has a port without a pad.
 struct Port {
     SDL_GameController* pad = nullptr;  // main thread only
     SDL_JoystickID id = -1;             // main thread only
@@ -248,59 +278,34 @@ struct Port {
     std::atomic<bool> has_pad{false};  // a pad is reading the port, not the keyboard alone
     std::atomic<bool> has_rumble{false};  // the pad can rumble
     std::atomic<bool> rumble_on{false};   // the game's motor state, applied by update()
+    std::string name;                     // under g_pad_name_mutex: the pad's, for controller_name()
+    int virtual_number = 0;               // main thread only: its CONKER_VIRTUAL_PAD number, or 0
+
+    // Haptic effects (the rest main thread only).
+    std::atomic<bool> has_haptics{false};  // the pad plays shaped effects
+    std::vector<Haptic> haptics;           // waiting for update(), under g_haptics_mutex
+    HapticsVia haptics_via = HapticsVia::Motors;
+    std::vector<MotorEffect> motor_effects;
+    bool has_trigger_rumble = false;       // SDL_GameControllerHasRumbleTriggers
+    bool trigger_rumble_applied = false;
+    bool pak_rumble_applied = false;       // the pak's rumble playing through Core Haptics
+    Haptic::Grip trigger_grip = Haptic::Grip::Right;  // Grip::Trigger's side
+    bool left_trigger_held = false;
+    bool right_trigger_held = false;
+    bool pad_virtual = false;              // the pad is CONKER_VIRTUAL_PAD's
+
+    // Adaptive triggers (the rest main thread only).
+    std::atomic<bool> adaptive_triggers{false};  // the pad has them
+    TriggerEffect trigger_wanted;                // set_trigger_effect's, under g_trigger_mutex
+    TriggerEffect trigger_applied;
+    bool trigger_stale = true;                   // the pad has not had trigger_applied
+
+    int number() const;
 };
 Port g_ports[kPorts];
 Port& g_port1 = g_ports[0];
 
-
-std::atomic<int> g_debug_menu_presses{0};
-std::mutex g_pad_name_mutex;
-std::string g_pad_name;                  // controller 1's, for controller_name()
-bool g_debug_menu_held = false;          // main thread only
-
-std::atomic<PadKind> g_pad_kind{PadKind::None};
-std::atomic<bool> g_camera_swapped{true};  // C-left and C-right (camera_swapped)
-bool g_pak_rumble_applied = false;      // main thread only: the pak's rumble playing through Core Haptics
-
-std::atomic<bool> g_has_haptics{false};  // the open pad plays shaped effects
-
-// How the open pad plays haptic effects (main thread only).
-enum class HapticsVia { CoreHaptics, Motors, Log };
-HapticsVia g_haptics_via = HapticsVia::Motors;
-bool g_has_trigger_rumble = false;       // main thread only: SDL_GameControllerHasRumbleTriggers
-bool g_trigger_rumble_applied = false;   // main thread only
-
-// An effect playing on the rumble motors, each strength in [0, 1], until end_ms (SDL_GetTicks64).
-struct MotorEffect {
-    Uint64 end_ms;
-    float low;
-    float high;
-    float left_trigger;
-    float right_trigger;
-};
-std::vector<MotorEffect> g_motor_effects;  // main thread only
-constexpr float kSharpTap = 0.04f;         // s: a tap on the motors at sharpness 1, which spin up fast
-constexpr float kSoftTap = 0.09f;          // s: at sharpness 0, a thump the heavy motor needs longer for
-
-const bool g_force_motors = [] {
-    const char* value = std::getenv("CONKER_HAPTICS_MOTORS");
-    return value != nullptr && value[0] == '1';
-}();
-std::mutex g_haptics_mutex;
-std::vector<Haptic> g_haptics;           // waiting for update(), under g_haptics_mutex
-std::vector<Haptic> g_port_haptics[kPorts];          // controllers 2 to 4's, likewise
-std::vector<MotorEffect> g_port_motor_effects[kPorts];  // main thread only: controllers 2 to 4's
-constexpr size_t kMaxWaitingHaptics = 8;
-Haptic::Grip g_trigger_grip = Haptic::Grip::Right;  // main thread only: Grip::Trigger's side
-bool g_left_trigger_held = false;                   // main thread only
-bool g_right_trigger_held = false;                  // main thread only
-
-std::atomic<bool> g_adaptive_triggers{false};  // the open pad has them
-std::mutex g_trigger_mutex;
-TriggerEffect g_trigger_wanted;                // set_trigger_effect's, under g_trigger_mutex
-TriggerEffect g_trigger_applied;               // main thread only
-bool g_trigger_stale = true;                   // main thread only: the pad has not had g_trigger_applied
-bool g_pad_virtual = false;                    // main thread only: the open pad is CONKER_VIRTUAL_PAD's
+int Port::number() const { return static_cast<int>(this - g_ports) + 1; }
 
 PadKind pad_kind(SDL_GameController* pad) {
     switch (SDL_GameControllerGetType(pad)) {
@@ -325,50 +330,72 @@ void rumble_test(const Port& port) {
     }
 }
 
-// Controller 1's pad: its name and picture kind, haptics and adaptive triggers.
-void open_port1_extras(int device_index) {
+int virtual_pad_number(SDL_JoystickID id);
+
+// A port's new pad: its name, haptics and adaptive triggers, and for controller 1 its picture kind.
+void open_pad_extras(Port& port, int device_index) {
     {
         std::lock_guard lock(g_pad_name_mutex);
-        g_pad_name = SDL_GameControllerName(g_port1.pad) ? SDL_GameControllerName(g_port1.pad) : "controller";
+        port.name = SDL_GameControllerName(port.pad) ? SDL_GameControllerName(port.pad) : "controller";
     }
-    g_pad_kind.store(pad_kind(g_port1.pad));
+    if (&port == &g_port1) {
+        g_pad_kind.store(pad_kind(port.pad));
+    }
 #ifdef __APPLE__
-    if (g_pak_rumble_applied) {
-        apple::set_dualsense_rumble(false);
+    if (port.pak_rumble_applied) {
+        apple::set_dualsense_rumble(port.number() - 1, false);
     }
 #endif
-    g_pak_rumble_applied = false;
-    g_pad_virtual = SDL_JoystickIsVirtual(device_index) == SDL_TRUE;
-    g_has_trigger_rumble = SDL_GameControllerHasRumbleTriggers(g_port1.pad) == SDL_TRUE;
-    g_trigger_rumble_applied = false;
-    g_motor_effects.clear();
-    g_haptics_via = HapticsVia::Motors;
+    port.pak_rumble_applied = false;
+    port.pad_virtual = SDL_JoystickIsVirtual(device_index) == SDL_TRUE;
+    port.virtual_number = port.pad_virtual ? virtual_pad_number(port.id) : 0;
+    port.has_trigger_rumble = SDL_GameControllerHasRumbleTriggers(port.pad) == SDL_TRUE;
+    port.trigger_rumble_applied = false;
+    port.motor_effects.clear();
+    port.trigger_grip = Haptic::Grip::Right;
+    port.left_trigger_held = port.right_trigger_held = false;
+    port.haptics_via = HapticsVia::Motors;
 #ifdef __APPLE__
-    if (SDL_GameControllerGetType(g_port1.pad) == SDL_CONTROLLER_TYPE_PS5 && !g_force_motors) {
-        g_haptics_via = HapticsVia::CoreHaptics;
+    if (SDL_GameControllerGetType(port.pad) == SDL_CONTROLLER_TYPE_PS5 && !g_force_motors) {
+        port.haptics_via = HapticsVia::CoreHaptics;
     }
 #endif
-    if (g_pad_virtual && !g_force_motors) {
-        g_haptics_via = HapticsVia::Log;
+    if (port.pad_virtual && !g_force_motors) {
+        port.haptics_via = HapticsVia::Log;
     }
-    g_has_haptics.store(g_port1.has_rumble.load() || g_pad_virtual);
+    port.has_haptics.store(port.has_rumble.load() || port.pad_virtual);
     static const char* const kVia[] = {"Core Haptics", "motors", "logged"};
-    g_adaptive_triggers.store(SDL_GameControllerGetType(g_port1.pad) == SDL_CONTROLLER_TYPE_PS5 || g_pad_virtual);
-    g_trigger_stale = true;
-    std::printf("[conker] controller 1: %s (%s%s%s%s%s)\n", SDL_GameControllerName(g_port1.pad),
-                g_port1.has_rumble.load() ? "rumble pak" : "no rumble", g_has_haptics.load() ? ", haptics on " : "",
-                g_has_haptics.load() ? kVia[static_cast<int>(g_haptics_via)] : "",
-                g_has_trigger_rumble ? ", trigger motors" : "", g_adaptive_triggers.load() ? ", adaptive triggers" : "");
+    port.adaptive_triggers.store(SDL_GameControllerGetType(port.pad) == SDL_CONTROLLER_TYPE_PS5 || port.pad_virtual);
+    port.trigger_stale = true;
+    const std::string which = port.virtual_number != 0 ? " (virtual pad " + std::to_string(port.virtual_number) + ")" : "";
+    std::printf("[conker] controller %d: %s%s (%s%s%s%s%s)\n", port.number(), SDL_GameControllerName(port.pad),
+                which.c_str(), port.has_rumble.load() ? "rumble pak" : "no rumble",
+                port.has_haptics.load() ? ", haptics on " : "",
+                port.has_haptics.load() ? kVia[static_cast<int>(port.haptics_via)] : "",
+                port.has_trigger_rumble ? ", trigger motors" : "", port.adaptive_triggers.load() ? ", adaptive triggers" : "");
 }
 
-void close_port1_extras() {
+void close_pad_extras(Port& port) {
+#ifdef __APPLE__
+    if (port.pak_rumble_applied) {
+        apple::set_dualsense_rumble(port.number() - 1, false);
+    }
+#endif
+    port.pak_rumble_applied = false;
     {
         std::lock_guard lock(g_pad_name_mutex);
-        g_pad_name.clear();
+        port.name.clear();
     }
-    g_has_haptics.store(false);
-    g_adaptive_triggers.store(false);
-    g_pad_kind.store(PadKind::None);
+    {
+        std::lock_guard lock(g_haptics_mutex);
+        port.haptics.clear();
+    }
+    port.motor_effects.clear();
+    port.has_haptics.store(false);
+    port.adaptive_triggers.store(false);
+    if (&port == &g_port1) {
+        g_pad_kind.store(PadKind::None);
+    }
 }
 
 // Gives the pad the lowest free port, unless it already has one or all four are taken.
@@ -403,19 +430,14 @@ void open_pad(int device_index) {
     }
     port.id = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(port.pad));
     // The port as the pad's player number: lit on a DualSense, and how src/platform/haptics_apple.mm
-    // and adaptive_triggers_apple.mm find controller 1's pad among the GameController framework's.
+    // and adaptive_triggers_apple.mm find each port's pad among the GameController framework's.
     SDL_GameControllerSetPlayerIndex(port.pad, number - 1);
     port.has_rumble.store(SDL_GameControllerHasRumble(port.pad) == SDL_TRUE);
     port.rumble_applied = false;
     port.buttons.store(0);
     port.stick_x.store(0.0f);
     port.stick_y.store(0.0f);
-    if (number == 1) {
-        open_port1_extras(device_index);
-    } else {
-        std::printf("[conker] controller %d: %s (%s)\n", number, SDL_GameControllerName(port.pad),
-                    port.has_rumble.load() ? "rumble pak" : "no rumble");
-    }
+    open_pad_extras(port, device_index);
     port.connected.store(true);
     rumble_test(port);
 }
@@ -427,8 +449,8 @@ void open_all_pads() {
 }
 
 void close_pad(Port& port) {
-    const int number = static_cast<int>(&port - g_ports) + 1;
-    std::printf("[conker] controller %d disconnected\n", number);
+    std::printf("[conker] controller %d disconnected\n", port.number());
+    close_pad_extras(port);
     port.connected.store(false);
     port.has_rumble.store(false);
     port.buttons.store(0);
@@ -437,9 +459,6 @@ void close_pad(Port& port) {
     SDL_GameControllerClose(port.pad);
     port.pad = nullptr;
     port.id = -1;
-    if (number == 1) {
-        close_port1_extras();
-    }
 }
 
 // --- scripted virtual pad (CONKER_VIRTUAL_PAD) ---
@@ -473,6 +492,16 @@ struct VirtualPad {
 };
 
 std::vector<VirtualPad> g_virtual_pads;
+
+// The virtual pad with that joystick, numbered from 1, or 0.
+int virtual_pad_number(SDL_JoystickID id) {
+    for (const VirtualPad& pad : g_virtual_pads) {
+        if (pad.joystick != nullptr && SDL_JoystickInstanceID(pad.joystick) == id) {
+            return pad.number;
+        }
+    }
+    return 0;
+}
 
 bool load_script(const std::string& path, VirtualPad& pad) {
     std::ifstream file(path);
@@ -535,10 +564,18 @@ bool load_script(const std::string& path, VirtualPad& pad) {
 }
 
 // The rumble pak's on and off print as such; haptic effects on the motors print their strengths.
-// "virtual pad" for the only one, "virtual pad 2" and so on when there are several.
-std::string virtual_pad_name(const VirtualPad& pad) {
-    return g_virtual_pads.size() == 1 ? "virtual pad" : "virtual pad " + std::to_string(pad.number);
+// "virtual pad" for the only one, "virtual pad 2" and so on when there are several, with the port
+// it plays when that has another number (one unplugged before it frees a lower port).
+std::string virtual_pad_name(int number) {
+    std::string name = g_virtual_pads.size() == 1 ? "virtual pad" : "virtual pad " + std::to_string(number);
+    for (const Port& port : g_ports) {
+        if (port.pad != nullptr && port.virtual_number == number && port.number() != number) {
+            name += " (controller " + std::to_string(port.number()) + ")";
+        }
+    }
+    return name;
 }
+std::string virtual_pad_name(const VirtualPad& pad) { return virtual_pad_name(pad.number); }
 
 int SDLCALL virtual_pad_rumble(void* userdata, Uint16 low, Uint16 high) {
     VirtualPad& pad = g_virtual_pads[reinterpret_cast<uintptr_t>(userdata)];
@@ -637,30 +674,32 @@ struct DualSenseEffects {
 };
 static_assert(sizeof(DualSenseEffects) == 32);
 
-int SDLCALL virtual_pad_effect(void* /*userdata*/, const void* data, int size) {
+int SDLCALL virtual_pad_effect(void* userdata, const void* data, int size) {
     if (size < static_cast<int>(sizeof(DualSenseEffects))) {
         return -1;
     }
+    const VirtualPad& pad = g_virtual_pads[reinterpret_cast<uintptr_t>(userdata)];
     const auto* effects = static_cast<const DualSenseEffects*>(data);
-    std::printf("[conker] virtual pad: VI %llu: triggers", static_cast<unsigned long long>(conker::current_vi()));
+    std::printf("[conker] %s: VI %llu: triggers", virtual_pad_name(pad).c_str(),
+                static_cast<unsigned long long>(conker::current_vi()));
     for (Uint8 byte : effects->right_trigger) std::printf(" %02x", byte);
     std::printf("\n");
     return 0;
 }
 
-// Sends the effect to the open pad: SDL's own DualSense driver takes the effect report, and on
+// Sends the effect to the port's pad: SDL's own DualSense driver takes the effect report, and on
 // macOS a pad read through Apple's framework is set there.
-bool send_triggers(const TriggerEffect& trigger) {
+bool send_triggers(Port& port, const TriggerEffect& trigger) {
     DualSenseEffects effects{};
     effects.enable_bits1 = 0x04 | 0x08;
     encode_trigger(trigger, effects.right_trigger);
     encode_trigger(trigger, effects.left_trigger);
     // sdl2-compat reports a virtual pad's effect as failed even when the pad takes it.
-    if (SDL_GameControllerSendEffect(g_port1.pad, &effects, sizeof(effects)) == 0 || g_pad_virtual) {
+    if (SDL_GameControllerSendEffect(port.pad, &effects, sizeof(effects)) == 0 || port.pad_virtual) {
         return true;
     }
 #ifdef __APPLE__
-    return apple::set_dualsense_triggers(trigger);
+    return apple::set_dualsense_triggers(port.number() - 1, trigger);
 #else
     return false;
 #endif
@@ -668,8 +707,10 @@ bool send_triggers(const TriggerEffect& trigger) {
 
 // Leaves the triggers free when the game quits: a DualSense keeps an effect until told otherwise.
 void release_triggers() {
-    if (g_port1.pad != nullptr && g_adaptive_triggers.load() && !(g_trigger_applied == TriggerEffect{})) {
-        send_triggers(TriggerEffect{});
+    for (Port& port : g_ports) {
+        if (port.pad != nullptr && port.adaptive_triggers.load() && !(port.trigger_applied == TriggerEffect{})) {
+            send_triggers(port, TriggerEffect{});
+        }
     }
 }
 
@@ -866,12 +907,12 @@ void store(Port& port, uint16_t buttons, float x, float y, float right_x, float 
 // A tap lasts long enough for the motor to spin up, longer the softer it is. A Grip::Both effect
 // leans on the light motor the sharper it is and on the heavy one the softer: both run at full
 // strength at sharpness 0.5. `on_trigger` is a Grip::Trigger effect, resolved to haptic.grip's side.
-MotorEffect motor_effect(const Haptic& haptic, bool on_trigger, Uint64 now) {
+MotorEffect motor_effect(const Port& port, const Haptic& haptic, bool on_trigger, Uint64 now) {
     const float sharpness = std::clamp(haptic.sharpness, 0.0f, 1.0f);
     const float intensity = std::clamp(haptic.intensity, 0.0f, 1.0f);
     const float seconds = haptic.duration > 0.0f ? haptic.duration : kSoftTap + (kSharpTap - kSoftTap) * sharpness;
     MotorEffect effect{now + static_cast<Uint64>(seconds * 1000.0f + 0.5f), 0.0f, 0.0f, 0.0f, 0.0f};
-    if (on_trigger && g_has_trigger_rumble) {
+    if (on_trigger && port.has_trigger_rumble) {
         (haptic.grip == Haptic::Grip::Left ? effect.left_trigger : effect.right_trigger) = intensity;
         return effect;
     }
@@ -892,47 +933,16 @@ MotorEffect motor_effect(const Haptic& haptic, bool on_trigger, Uint64 now) {
 
 Uint16 motor_strength(float level) { return static_cast<Uint16>(std::clamp(level, 0.0f, 1.0f) * 65535.0f + 0.5f); }
 
-// Controllers 2 to 4: the rumble pak's motor on both grip motors at full strength, held
-// kRumbleHoldMs so a stalled game stops it, and otherwise the strongest haptic effect still playing
-// on each motor, until the next one ends (as apply_rumble does for controller 1).
-void apply_pak_rumble(int index, Uint64 now) {
-    Port& port = g_ports[index];
-    std::vector<MotorEffect>& effects = g_port_motor_effects[index];
-    std::erase_if(effects, [now](const MotorEffect& effect) { return effect.end_ms <= now; });
-    if (port.pad == nullptr || !port.has_rumble.load(std::memory_order_relaxed)) {
-        effects.clear();
-        return;
-    }
-    float low = 0.0f;
-    float high = 0.0f;
-    Uint64 next_end = now + kRumbleHoldMs;
-    for (const MotorEffect& effect : effects) {
-        low = std::fmax(low, effect.low);
-        high = std::fmax(high, effect.high);
-        next_end = std::min(next_end, effect.end_ms);
-    }
-    const bool pak = port.rumble_on.load(std::memory_order_relaxed);
-    const Uint16 low_strength = pak ? kRumbleStrength : motor_strength(low);
-    const Uint16 high_strength = pak ? kRumbleStrength : motor_strength(high);
-    const bool on = low_strength != 0 || high_strength != 0;
-    if (on) {
-        SDL_GameControllerRumble(port.pad, low_strength, high_strength, pak ? kRumbleHoldMs : static_cast<Uint32>(next_end - now));
-    } else if (port.rumble_applied) {
-        SDL_GameControllerRumble(port.pad, 0, 0, 0);
-    }
-    port.rumble_applied = on;
-}
-
-// Sets the motors from the rumble pak and the haptic effects still playing, the strongest of them
-// for each motor. The pak's motor is on or off and drives both grip motors at full strength (on a
-// DualSense through Core Haptics, its own rumble in both grips instead). A
+// Sets a port's motors from the rumble pak and the haptic effects still playing, the strongest of
+// them for each motor. The pak's motor is on or off and drives both grip motors at full strength (on
+// a DualSense through Core Haptics, its own rumble in both grips instead). A
 // motor set for an effect stops by itself when the next effect ends, so a late update cuts an
 // effect short rather than holding it; the pak's is held kRumbleHoldMs, so a stalled game stops it.
 // SDL only renews the expiry when the strength is unchanged, so this costs nothing per frame.
-void apply_rumble(Uint64 now) {
-    std::erase_if(g_motor_effects, [now](const MotorEffect& effect) { return effect.end_ms <= now; });
-    if (g_port1.pad == nullptr || !g_port1.has_rumble.load(std::memory_order_relaxed)) {
-        g_motor_effects.clear();
+void apply_rumble(Port& port, Uint64 now) {
+    std::erase_if(port.motor_effects, [now](const MotorEffect& effect) { return effect.end_ms <= now; });
+    if (port.pad == nullptr || !port.has_rumble.load(std::memory_order_relaxed)) {
+        port.motor_effects.clear();
         return;
     }
     float low = 0.0f;
@@ -941,7 +951,7 @@ void apply_rumble(Uint64 now) {
     float right_trigger = 0.0f;
     Uint64 next_end = now + kRumbleHoldMs;
     Uint64 next_trigger_end = now + kRumbleHoldMs;
-    for (const MotorEffect& effect : g_motor_effects) {
+    for (const MotorEffect& effect : port.motor_effects) {
         low = std::fmax(low, effect.low);
         high = std::fmax(high, effect.high);
         left_trigger = std::fmax(left_trigger, effect.left_trigger);
@@ -949,15 +959,15 @@ void apply_rumble(Uint64 now) {
         if (effect.low > 0.0f || effect.high > 0.0f) next_end = std::min(next_end, effect.end_ms);
         if (effect.left_trigger > 0.0f || effect.right_trigger > 0.0f) next_trigger_end = std::min(next_trigger_end, effect.end_ms);
     }
-    bool pak = g_port1.rumble_on.load(std::memory_order_relaxed);
+    bool pak = port.rumble_on.load(std::memory_order_relaxed);
 #ifdef __APPLE__
     // A DualSense played through Core Haptics takes the pak as a deep rumble in both grips: SDL's
     // own rumble on it is a thin buzz.
-    if (g_haptics_via == HapticsVia::CoreHaptics) {
-        if (pak != g_pak_rumble_applied && apple::set_dualsense_rumble(pak)) {
-            g_pak_rumble_applied = pak;
+    if (port.haptics_via == HapticsVia::CoreHaptics) {
+        if (pak != port.pak_rumble_applied && apple::set_dualsense_rumble(port.number() - 1, pak)) {
+            port.pak_rumble_applied = pak;
         }
-        if (g_pak_rumble_applied == pak) {
+        if (port.pak_rumble_applied == pak) {
             pak = false;
         }
     }
@@ -968,31 +978,99 @@ void apply_rumble(Uint64 now) {
     const bool on = low_strength != 0 || high_strength != 0;
     int result = 0;
     if (on) {
-        result = SDL_GameControllerRumble(g_port1.pad, low_strength, high_strength, hold);
-    } else if (g_port1.rumble_applied) {
-        result = SDL_GameControllerRumble(g_port1.pad, 0, 0, 0);
+        result = SDL_GameControllerRumble(port.pad, low_strength, high_strength, hold);
+    } else if (port.rumble_applied) {
+        result = SDL_GameControllerRumble(port.pad, 0, 0, 0);
     }
-    g_port1.rumble_applied = on;
+    port.rumble_applied = on;
 
-    if (g_has_trigger_rumble) {
+    if (port.has_trigger_rumble) {
         const Uint16 left_strength = motor_strength(left_trigger);
         const Uint16 right_strength = motor_strength(right_trigger);
         const bool triggers_on = left_strength != 0 || right_strength != 0;
         int trigger_result = 0;
         if (triggers_on) {
-            trigger_result = SDL_GameControllerRumbleTriggers(g_port1.pad, left_strength, right_strength,
+            trigger_result = SDL_GameControllerRumbleTriggers(port.pad, left_strength, right_strength,
                                                               static_cast<Uint32>(next_trigger_end - now));
-        } else if (g_trigger_rumble_applied) {
-            trigger_result = SDL_GameControllerRumbleTriggers(g_port1.pad, 0, 0, 0);
+        } else if (port.trigger_rumble_applied) {
+            trigger_result = SDL_GameControllerRumbleTriggers(port.pad, 0, 0, 0);
         }
-        g_trigger_rumble_applied = triggers_on;
+        port.trigger_rumble_applied = triggers_on;
         result = result != 0 ? result : trigger_result;
     }
-    static bool reported = false;
-    if (result != 0 && !reported) {
-        reported = true;
-        std::fprintf(stderr, "[conker] controller 1 rumble failed: %s\n", SDL_GetError());
+    static bool reported[kPorts] = {};
+    // sdl2-compat reports a virtual pad's rumble as failed (with no error) even when it takes it.
+    if (result != 0 && !port.pad_virtual && !reported[port.number() - 1]) {
+        reported[port.number() - 1] = true;
+        std::fprintf(stderr, "[conker] controller %d rumble failed: %s\n", port.number(), SDL_GetError());
     }
+}
+
+// Plays the haptic effects waiting for a port's pad, as its pad plays them.
+void play_haptics(Port& port, const std::vector<Haptic>& haptics, Uint64 now) {
+    if (port.pad == nullptr || !port.has_haptics.load(std::memory_order_relaxed)) {
+        return;
+    }
+    for (Haptic haptic : haptics) {
+        const bool on_trigger = haptic.grip == Haptic::Grip::Trigger;
+        if (on_trigger) {
+            haptic.grip = port.trigger_grip;
+        }
+        if (port.haptics_via == HapticsVia::Log) {
+            static const char* const kGrips[] = {"left", "right", "both"};
+            std::printf("[conker] %s: VI %llu: haptic %.2f sharpness %.2f for %.2f s, %s\n",
+                        virtual_pad_name(port.virtual_number).c_str(), static_cast<unsigned long long>(conker::current_vi()),
+                        haptic.intensity, haptic.sharpness, haptic.duration, kGrips[static_cast<int>(haptic.grip)]);
+            continue;
+        }
+#ifdef __APPLE__
+        // No DualSense among the GameController framework's pads (SDL_JOYSTICK_HIDAPI_PS5=1 reads
+        // it through SDL's own driver): the motors, which SDL rumbles.
+        if (port.haptics_via == HapticsVia::CoreHaptics && apple::play_dualsense_haptic(port.number() - 1, haptic)) {
+            continue;
+        }
+#endif
+        port.motor_effects.push_back(motor_effect(port, haptic, on_trigger, now));
+    }
+}
+
+// Sends the port's wanted trigger effect when it has changed.
+void apply_triggers(Port& port) {
+    if (port.pad == nullptr || !port.adaptive_triggers.load(std::memory_order_relaxed)) {
+        return;
+    }
+    TriggerEffect wanted;
+    {
+        std::lock_guard lock(g_trigger_mutex);
+        wanted = port.trigger_wanted;
+    }
+    if (port.trigger_stale || !(wanted == port.trigger_applied)) {
+        static bool reported[kPorts] = {};
+        if (!send_triggers(port, wanted) && !reported[port.number() - 1]) {
+            reported[port.number() - 1] = true;
+            std::fprintf(stderr, "[conker] controller %d adaptive triggers failed: %s\n", port.number(), SDL_GetError());
+        }
+        port.trigger_applied = wanted;
+        port.trigger_stale = false;
+    }
+}
+
+// Reads a port's pad into buttons and the sticks, with Z where its trigger effect puts it, and
+// notes the trigger last pulled for Grip::Trigger.
+void read_port_pad(Port& port, uint16_t& buttons, float& x, float& y, float& right_x, float& right_y) {
+    // A trigger effect on adaptive triggers can move how far they are pulled for Z.
+    float z_at = kTriggerZ;
+    if (port.adaptive_triggers.load(std::memory_order_relaxed)) {
+        std::lock_guard lock(g_trigger_mutex);
+        z_at = port.trigger_wanted.z_at;
+    }
+    bool left_trigger = false;
+    bool right_trigger = false;
+    read_pad(port.pad, z_at, buttons, x, y, right_x, right_y, left_trigger, right_trigger);
+    if (left_trigger && !port.left_trigger_held) port.trigger_grip = Haptic::Grip::Left;
+    if (right_trigger && !port.right_trigger_held) port.trigger_grip = Haptic::Grip::Right;
+    port.left_trigger_held = left_trigger;
+    port.right_trigger_held = right_trigger;
 }
 
 } // namespace
@@ -1073,19 +1151,7 @@ void update() {
 
     if (g_port1.pad != nullptr) {
         debug_menu = debug_menu || SDL_GameControllerGetButton(g_port1.pad, SDL_CONTROLLER_BUTTON_BACK);
-        // A trigger effect on adaptive triggers can move how far they are pulled for Z.
-        float z_at = kTriggerZ;
-        if (g_adaptive_triggers.load(std::memory_order_relaxed)) {
-            std::lock_guard lock(g_trigger_mutex);
-            z_at = g_trigger_wanted.z_at;
-        }
-        bool left_trigger = false;
-        bool right_trigger = false;
-        read_pad(g_port1.pad, z_at, buttons, x, y, right_x, right_y, left_trigger, right_trigger);
-        if (left_trigger && !g_left_trigger_held) g_trigger_grip = Haptic::Grip::Left;
-        if (right_trigger && !g_right_trigger_held) g_trigger_grip = Haptic::Grip::Right;
-        g_left_trigger_held = left_trigger;
-        g_right_trigger_held = right_trigger;
+        read_port_pad(g_port1, buttons, x, y, right_x, right_y);
     }
     store(g_port1, buttons, x, y, right_x, right_y);
     if (debug_menu && !g_debug_menu_held) {
@@ -1093,80 +1159,29 @@ void update() {
     }
     g_debug_menu_held = debug_menu;
 
-    std::vector<Haptic> port_haptics[kPorts];
-    {
-        std::lock_guard lock(g_haptics_mutex);
-        for (int i = 1; i < kPorts; i++) port_haptics[i].swap(g_port_haptics[i]);
-    }
-    const Uint64 port_now = SDL_GetTicks64();
     for (int i = 1; i < kPorts; i++) {
         Port& port = g_ports[i];
-        if (port.pad != nullptr && port.has_rumble.load(std::memory_order_relaxed)) {
-            for (const Haptic& haptic : port_haptics[i]) {
-                g_port_motor_effects[i].push_back(motor_effect(haptic, false, port_now));
-            }
-        }
         if (port.pad != nullptr) {
             uint16_t port_buttons = 0;
             float port_x = 0.0f;
             float port_y = 0.0f;
             float port_right_x = 0.0f;
             float port_right_y = 0.0f;
-            bool left_trigger = false;
-            bool right_trigger = false;
-            read_pad(port.pad, kTriggerZ, port_buttons, port_x, port_y, port_right_x, port_right_y, left_trigger,
-                     right_trigger);
+            read_port_pad(port, port_buttons, port_x, port_y, port_right_x, port_right_y);
             store(port, port_buttons, port_x, port_y, port_right_x, port_right_y);
         }
-        apply_pak_rumble(i, port_now);
     }
 
-    std::vector<Haptic> haptics;
+    std::vector<Haptic> haptics[kPorts];
     {
         std::lock_guard lock(g_haptics_mutex);
-        haptics.swap(g_haptics);
+        for (int i = 0; i < kPorts; i++) haptics[i].swap(g_ports[i].haptics);
     }
     const Uint64 now = SDL_GetTicks64();
-    if (g_port1.pad != nullptr && g_has_haptics.load(std::memory_order_relaxed)) {
-        for (Haptic haptic : haptics) {
-            const bool on_trigger = haptic.grip == Haptic::Grip::Trigger;
-            if (on_trigger) {
-                haptic.grip = g_trigger_grip;
-            }
-            if (g_haptics_via == HapticsVia::Log) {
-                static const char* const kGrips[] = {"left", "right", "both"};
-                std::printf("[conker] virtual pad: VI %llu: haptic %.2f sharpness %.2f for %.2f s, %s\n",
-                            static_cast<unsigned long long>(conker::current_vi()), haptic.intensity, haptic.sharpness,
-                            haptic.duration, kGrips[static_cast<int>(haptic.grip)]);
-                continue;
-            }
-#ifdef __APPLE__
-            // No DualSense among the GameController framework's pads (SDL_JOYSTICK_HIDAPI_PS5=1 reads
-            // it through SDL's own driver): the motors, which SDL rumbles.
-            if (g_haptics_via == HapticsVia::CoreHaptics && apple::play_dualsense_haptic(haptic)) {
-                continue;
-            }
-#endif
-            g_motor_effects.push_back(motor_effect(haptic, on_trigger, now));
-        }
-    }
-    apply_rumble(now);
-
-    if (g_port1.pad != nullptr && g_adaptive_triggers.load(std::memory_order_relaxed)) {
-        TriggerEffect wanted;
-        {
-            std::lock_guard lock(g_trigger_mutex);
-            wanted = g_trigger_wanted;
-        }
-        if (g_trigger_stale || !(wanted == g_trigger_applied)) {
-            static bool reported = false;
-            if (!send_triggers(wanted) && !reported) {
-                reported = true;
-                std::fprintf(stderr, "[conker] controller 1 adaptive triggers failed: %s\n", SDL_GetError());
-            }
-            g_trigger_applied = wanted;
-            g_trigger_stale = false;
-        }
+    for (int i = 0; i < kPorts; i++) {
+        play_haptics(g_ports[i], haptics[i], now);
+        apply_rumble(g_ports[i], now);
+        apply_triggers(g_ports[i]);
     }
 }
 
@@ -1209,9 +1224,12 @@ bool right_stick(float* x, float* y, int port) {
 
 bool connected(int port) { return port == 0 || (port > 0 && port < kPorts && g_ports[port].connected.load(std::memory_order_relaxed)); }
 
-std::string controller_name() {
+std::string controller_name(int port) {
+    if (port < 0 || port >= kPorts) {
+        return "";
+    }
     std::lock_guard lock(g_pad_name_mutex);
-    return g_pad_name;
+    return g_ports[port].name;
 }
 
 PadKind controller_kind() { return g_pad_kind.load(std::memory_order_relaxed); }
@@ -1227,7 +1245,7 @@ void set_rumble(int port, bool on) {
 }
 
 bool has_haptics(int port) {
-    return port == 0 ? g_has_haptics.load(std::memory_order_relaxed) : has_rumble(port);
+    return port >= 0 && port < kPorts && g_ports[port].has_haptics.load(std::memory_order_relaxed);
 }
 
 void play_haptic(const Haptic& haptic, int port) {
@@ -1235,17 +1253,22 @@ void play_haptic(const Haptic& haptic, int port) {
         return;
     }
     std::lock_guard lock(g_haptics_mutex);
-    std::vector<Haptic>& waiting = port == 0 ? g_haptics : g_port_haptics[port];
+    std::vector<Haptic>& waiting = g_ports[port].haptics;
     if (waiting.size() < kMaxWaitingHaptics) {
         waiting.push_back(haptic);
     }
 }
 
-bool has_adaptive_triggers() { return g_adaptive_triggers.load(std::memory_order_relaxed); }
+bool has_adaptive_triggers(int port) {
+    return port >= 0 && port < kPorts && g_ports[port].adaptive_triggers.load(std::memory_order_relaxed);
+}
 
-void set_trigger_effect(const TriggerEffect& effect) {
+void set_trigger_effect(const TriggerEffect& effect, int port) {
+    if (port < 0 || port >= kPorts) {
+        return;
+    }
     std::lock_guard lock(g_trigger_mutex);
-    g_trigger_wanted = effect;
+    g_ports[port].trigger_wanted = effect;
 }
 
 bool camera_swapped() { return g_camera_swapped.load(std::memory_order_relaxed); }

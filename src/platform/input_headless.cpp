@@ -25,7 +25,7 @@ void take_mouse(float* dx, float* dy, int* zoom) {
 
 bool connected(int port) { return port == 0; }
 
-std::string controller_name() { return ""; }
+std::string controller_name(int /*port*/) { return ""; }
 
 PadKind controller_kind() { return PadKind::None; }
 
@@ -37,8 +37,8 @@ void set_rumble(int /*port*/, bool /*on*/) {}
 bool has_haptics(int /*port*/) { return false; }
 void play_haptic(const Haptic& /*haptic*/, int /*port*/) {}
 
-bool has_adaptive_triggers() { return false; }
-void set_trigger_effect(const TriggerEffect& /*effect*/) {}
+bool has_adaptive_triggers(int /*port*/) { return false; }
+void set_trigger_effect(const TriggerEffect& /*effect*/, int /*port*/) {}
 
 bool camera_swapped() { return true; }
 void set_camera_swapped(bool /*swapped*/) {}
