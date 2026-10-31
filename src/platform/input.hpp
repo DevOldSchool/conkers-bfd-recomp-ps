@@ -43,6 +43,11 @@ bool right_stick(float* x, float* y, int port = 0);
 // gives the motion (pixels, +x right, +y down) and zoom steps (+ in, - out) since the last call,
 // and clears them. Safe to call from any thread.
 void set_mouse_play(bool playing);
+
+// While a window over the game takes the input (the ONLINE lobby, src/platform/lobby_ui_rt64.cpp):
+// the game reads every port as nothing pressed, no mouse motion and no debug menu press, and the
+// mouse is not captured. Safe to call from any thread.
+void set_blocked(bool blocked);
 bool mouse_captured();
 void take_mouse(float* dx, float* dy, int* zoom);
 
@@ -53,6 +58,11 @@ bool connected(int port);
 // A port's pad's name, or "" when none is connected (controller 1 on the keyboard only). Safe to
 // call from any thread.
 std::string controller_name(int port = 0);
+
+// Controller 1's make and model in general terms ("DualSense", "Xbox", "Controller"), or "" when none
+// is connected: what other players, logs and reports get. The name is often the owner's (macOS names a
+// Bluetooth pad after its owner), so it is shown on this machine only. Safe to call from any thread.
+std::string controller_model();
 
 // The kind of pad controller 1 is, for its button pictures (src/enhancements/pad_icons): None for
 // the keyboard alone, Other for pads that are neither Xbox nor PlayStation ones. Safe to call from

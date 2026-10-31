@@ -1,0 +1,7 @@
+# e5: JOIN a host the LAN list shows but whose game port does not answer (the firewall message),
+# then an address nobody is at (the usual "No answer")
+1500 name Guest
+5000 join @A:37810
+11000 shot @L.g.view1
+12000 join @A:37811
+18000 shot @L.g.view2

@@ -96,7 +96,7 @@ nlohmann::json settings() {
     for (const std::string& pack : conker::renderer::texture_packs()) {
         packs.push_back(pack);
     }
-    const std::string pad = conker::input::controller_name();
+    const std::string pad = conker::input::controller_model();  // not its name: often the owner's
     return {
         {"display",
          {{"mode", conker::display::name(mode)},
@@ -107,7 +107,7 @@ nlohmann::json settings() {
           {"fill", conker::display::fill(mode)},
           {"sharp", conker::display::sharp()}}},
         {"texture_packs", packs},
-        {"controller", {{"name", pad.empty() ? nlohmann::json(nullptr) : nlohmann::json(pad)},
+        {"controller", {{"model", pad.empty() ? nlohmann::json(nullptr) : nlohmann::json(pad)},
                         {"rumble", conker::input::has_rumble()}}},
     };
 }

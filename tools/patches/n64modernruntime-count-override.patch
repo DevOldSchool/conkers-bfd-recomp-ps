@@ -1,0 +1,20 @@
+diff --git a/librecomp/src/ultra_translation.cpp b/librecomp/src/ultra_translation.cpp
+index e0d367e..9809248 100644
+--- a/librecomp/src/ultra_translation.cpp
++++ b/librecomp/src/ultra_translation.cpp
+@@ -69,7 +69,15 @@ extern "C" void osViSetEvent_recomp(uint8_t * rdram, recomp_context * ctx) {
+     osViSetEvent(rdram, (int32_t)ctx->r4, (OSMesg)ctx->r5, (u32)ctx->r6);
+ }
+ 
++// Set by the game to supply osGetCount itself (for repeatable runs); returns false to use the clock.
++extern "C" bool (*recomp_get_count_override)(uint32_t* count) = nullptr;
++
+ extern "C" void osGetCount_recomp(uint8_t * rdram, recomp_context * ctx) {
++    uint32_t count;
++    if (recomp_get_count_override != nullptr && recomp_get_count_override(&count)) {
++        ctx->r2 = (int32_t)count;
++        return;
++    }
+     ctx->r2 = osGetCount();
+ }
+ 

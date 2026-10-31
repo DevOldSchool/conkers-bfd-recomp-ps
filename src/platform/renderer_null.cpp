@@ -7,6 +7,8 @@
 #include <set>
 #include <string>
 
+#include "runtime/frame_input.hpp"
+
 namespace conker::renderer {
 
 namespace {
@@ -272,6 +274,7 @@ public:
             }
             last_commands_ = s.commands;
         }
+        conker::frame_input::gfx_task_done();
     }
 
     void write_rdram_image() const {

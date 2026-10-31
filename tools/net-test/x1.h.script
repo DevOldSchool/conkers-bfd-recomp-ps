@@ -1,0 +1,6 @@
+# two machines, joined from the LAN list: the host STARTs once its guest is READY, and plays f1.pad
+1500 name Host
+2000 host 37810
+12000 setenv CONKER_VIRTUAL_PAD=@N/f1.pad
+20000 shot @L.h.view1
+20500 start

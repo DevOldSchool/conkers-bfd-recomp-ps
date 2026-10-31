@@ -1,0 +1,5 @@
+# pn.h/pn.g (lrun.sh): pad names stay on their machine; each view lists makes and models for the
+# other machine and its own pad by name
+1500 name Host
+3000 host 37810
+14000 shot @L.h.view

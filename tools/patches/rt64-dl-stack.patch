@@ -1,0 +1,43 @@
+diff --git a/src/hle/rt64_interpreter.cpp b/src/hle/rt64_interpreter.cpp
+--- a/src/hle/rt64_interpreter.cpp
++++ b/src/hle/rt64_interpreter.cpp
+@@ -177,5 +178,15 @@ namespace RT64 {
+         constexpr uint32_t CommandLimit = 1U << 22;
+         uint32_t commandCount = 0;
++
++        // Return addresses are this task's alone: a list stopped early must not leave its own behind.
++        state->returnAddressStack.clear();
++        state->returnAddressStackFull = false;
+         while (dl != nullptr) {
++            if (state->returnAddressStackFull) {
++                fprintf(stderr, "RT64: display list at 0x%08X stopped: it called lists %zu deep\n",
++                    dlStartAdddress, State::ReturnAddressStackLimit);
++                break;
++            }
++
+             if (++commandCount > CommandLimit) {
+                 fprintf(stderr, "RT64: display list at 0x%08X stopped after %u commands, at 0x%08X\n",
+diff --git a/src/hle/rt64_state.cpp b/src/hle/rt64_state.cpp
+--- a/src/hle/rt64_state.cpp
++++ b/src/hle/rt64_state.cpp
+@@ -2775,4 +2781,9 @@ namespace RT64 {
+     void State::pushReturnAddress(DisplayList *dl) {
+         assert(dl != nullptr);
++        if (returnAddressStack.size() >= ReturnAddressStackLimit) {
++            returnAddressStackFull = true;
++            return;
++        }
++
+         returnAddressStack.push_back(dl);
+     }
+diff --git a/src/hle/rt64_state.h b/src/hle/rt64_state.h
+--- a/src/hle/rt64_state.h
++++ b/src/hle/rt64_state.h
+@@ -101,4 +101,7 @@ namespace RT64 {
+         std::vector<uint32_t> drawFbDiscards;
+         std::vector<DisplayList *> returnAddressStack;
++        // Real microcode keeps 10 to 18 return addresses; a deeper call ends the display list.
++        static constexpr size_t ReturnAddressStackLimit = 64;
++        bool returnAddressStackFull = false;
+ 
+         // Draw tags (RT64::SetDrawTagging), for the display list task being processed.

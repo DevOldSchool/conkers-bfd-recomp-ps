@@ -307,8 +307,26 @@ void set_frequency(uint32_t freq) {
 #endif
 }
 
+std::atomic<bool> discarding{false};
+
+void set_discard(bool discard) {
+    std::lock_guard lock{audio_mutex};
+    discarding.store(discard);
+#if CONKER_AUDIO_SDL
+    if (discard && sdl_device != 0) {
+        SDL_ClearQueuedAudio(sdl_device);
+    }
+#endif
+    if (discard) {
+        clock_queued_frames = 0;
+    }
+}
+
 void queue_samples(int16_t* samples, size_t sample_count) {
     std::lock_guard lock{audio_mutex};
+    if (discarding.load()) {
+        return;
+    }
     const size_t frame_count = sample_count / 2;
     // The buffer is in RDRAM, which holds 32-bit words in host order: each word is one stereo
     // frame with the left sample in its high half, so the host's int16 view is R, L.

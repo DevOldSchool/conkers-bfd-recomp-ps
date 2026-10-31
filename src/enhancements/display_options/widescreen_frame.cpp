@@ -108,7 +108,7 @@ struct Layout {
 bool widened_layout(Layout& layout) {
     // RT64 widens the picture around its centre; in 4:3 pixels its visible sides are
     // kUndrawnColumns in from the frame buffer's edges, scaled by the widening.
-    const float widening = conker::display::rendered_aspect() / (kPictureWidth / kPictureHeight);
+    const float widening = conker::display::logic_aspect() / (kPictureWidth / kPictureHeight);
     if (widening < 0.999f) {
         return false;
     }

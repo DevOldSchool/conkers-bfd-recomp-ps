@@ -19,7 +19,10 @@
 
 #include "runtime/game.hpp"
 #include "platform/input.hpp"
+#include "runtime/frame_input.hpp"
 #include "runtime/memory.hpp"
+#include "runtime/net_play.hpp"
+#include "runtime/snapshot.hpp"
 
 namespace {
 
@@ -47,11 +50,13 @@ constexpr uint32_t kViContextScratch = 0x807F0000;
 // --- PIF shim -------------------------------------------------------------------------------
 // Rare's EEPROM and controller-pak code bypasses libultra's high-level routines and talks to
 // the PIF through __osSiRawStartDma. The 64-byte PIF RAM is modelled here with a tiny command
-// interpreter: a controller on each of channels 0-3 that has one (conker::input::connected), a
+// interpreter: a controller on each of channels 0-3 that has one (conker::frame_input::connected), a
 // 16 kbit EEPROM on channel 4, and "no device" for everything else. EEPROM contents are volatile for now.
 std::mutex pif_mutex;
 uint8_t pif_ram[64];
 uint8_t eeprom_image[2048];
+// Native state the game's memory depends on, carried by a snapshot (runtime/snapshot.hpp).
+const bool g_snapshot_fields = (conker::snapshot::add("ultra_extras.eeprom_image", eeprom_image, sizeof(eeprom_image)), true);
 
 void pif_process_commands() {
     size_t i = 0;
@@ -81,28 +86,22 @@ void pif_process_commands() {
             break;
         }
         bool handled = false;
-        if (channel < 4 && conker::input::connected(channel)) {
+        if (channel < 4 && conker::frame_input::connected(channel)) {
             if (cmd[0] == 0x00 || cmd[0] == 0xFF) {  // status / reset
                 if (rx >= 3) {  // controller; a pak when the host pad can rumble
                     resp[0] = 0x05;
                     resp[1] = 0x00;
-                    resp[2] = conker::input::has_rumble(channel) ? 0x01 : 0x00;
+                    resp[2] = conker::frame_input::has_rumble(channel) ? 0x01 : 0x00;
                     handled = true;
                 }
             } else if (cmd[0] == 0x01) {  // read buttons
                 if (rx >= 4) {
                     report_once("PIF read buttons", "controllers read through raw SI DMA");
-                    uint16_t buttons = 0;
-                    float x = 0.0f;
-                    float y = 0.0f;
-                    conker::input::read(&buttons, &x, &y, channel);
-                    if (channel == 0) {
-                        buttons |= conker::scripted_buttons();
-                    }
-                    resp[0] = static_cast<uint8_t>(buttons >> 8);
-                    resp[1] = static_cast<uint8_t>(buttons);
-                    resp[2] = static_cast<uint8_t>(static_cast<int8_t>(x * 80.0f));
-                    resp[3] = static_cast<uint8_t>(static_cast<int8_t>(y * 80.0f));
+                    const conker::frame_input::Port port = conker::frame_input::port(channel);
+                    resp[0] = static_cast<uint8_t>(port.buttons >> 8);
+                    resp[1] = static_cast<uint8_t>(port.buttons);
+                    resp[2] = static_cast<uint8_t>(port.stick_x);
+                    resp[3] = static_cast<uint8_t>(port.stick_y);
                     handled = true;
                 }
             }
@@ -390,10 +389,10 @@ void __osContGetInitData_recomp(uint8_t* rdram, recomp_context* ctx) {
     gpr pattern = ARG0, data = ARG1;
     uint8_t bits = 0;
     for (int i = 0; i < 4; i++) {
-        const bool present = conker::input::connected(i);
+        const bool present = conker::frame_input::connected(i);
         bits |= present ? (1 << i) : 0;
         MEM_H(i * 4 + 0, data) = static_cast<int16_t>(present ? 0x0500 : 0);
-        MEM_B(i * 4 + 2, data) = static_cast<int8_t>(present && conker::input::has_rumble(i) ? 1 : 0);
+        MEM_B(i * 4 + 2, data) = static_cast<int8_t>(present && conker::frame_input::has_rumble(i) ? 1 : 0);
         MEM_B(i * 4 + 3, data) = static_cast<int8_t>(present ? 0 : 0x80);
     }
     MEM_B(0, pattern) = static_cast<int8_t>(bits);
@@ -444,10 +443,10 @@ constexpr int32_t PFS_ERR_CONTRFAIL = 4;
 constexpr int32_t PFS_ERR_DEVICE = 11;
 
 static int32_t rumble_pak_status(int32_t channel) {
-    if (channel < 0 || channel >= 4 || !conker::input::connected(channel)) {
+    if (channel < 0 || channel >= 4 || !conker::frame_input::connected(channel)) {
         return PFS_ERR_CONTRFAIL;  // no controller in that port
     }
-    return conker::input::has_rumble(channel) ? 0 : PFS_ERR_NOPACK;
+    return conker::frame_input::has_rumble(channel) ? 0 : PFS_ERR_NOPACK;
 }
 
 // Motor init: (OSMesgQueue* queue, device*, int channel). On hardware it selects bank 0x80, reads
@@ -479,8 +478,9 @@ static void motor_access(uint8_t* rdram, recomp_context* ctx, bool on) {
         std::printf("[conker] VI %llu: rumble %s, port %d%s\n", static_cast<unsigned long long>(conker::current_vi()),
                     on ? "on" : "off", channel + 1, status == 0 ? "" : " (no pak, ignored)");
     }
-    if (status == 0) {
-        conker::input::set_rumble(channel, on);
+    // Online, only the port this machine's controller holds rumbles here.
+    if (status == 0 && conker::net::local_controller(channel) >= 0) {
+        conker::input::set_rumble(conker::net::local_controller(channel), on);
     }
     RET(status);
 }

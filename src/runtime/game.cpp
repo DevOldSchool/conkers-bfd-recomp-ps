@@ -7,7 +7,9 @@
 #include "funcs.h"
 #include "ultramodern/ultramodern.hpp"
 #include "runtime/memory.hpp"
+#include "runtime/net_play.hpp"
 #include "runtime/rzip.hpp"
+#include "runtime/snapshot.hpp"
 
 namespace conker {
 
@@ -27,6 +29,7 @@ recomp::GameEntry make_game_entry() {
     entry.thread_create_callback = [](uint8_t*, recomp_context* ctx) {
         set_current_context(ctx);
         use_fr1_float_mode(ctx);
+        snapshot::note_thread(ctx);
     };
     return entry;
 }
@@ -53,9 +56,12 @@ recomp_context* current_context() { return t_current_context; }
 void entrypoint(uint8_t* rdram, recomp_context* ctx) {
     set_current_context(ctx);
     use_fr1_float_mode(ctx);
+    snapshot::note_thread(ctx);
     // ROM 0x1000: clear bss and set the stack pointer.
     std::memset(rdram + memory::rdram_offset(memory::kBssStart), 0, memory::kBssSize);
     ctx->r29 = static_cast<gpr>(static_cast<int32_t>(memory::kInitialSp));
+    // Online, every peer boots on the host's save.
+    net::use_session_save();
 
     // ROM 0x5AB0 installs the 0x10000000 TLB alias (done natively in on_init) and jumps to
     // 0x10001050, which is func_80001050 in the decomp.

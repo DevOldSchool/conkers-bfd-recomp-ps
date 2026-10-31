@@ -1,0 +1,78 @@
+--- a/src/hle/rt64_application.cpp
++++ b/src/hle/rt64_application.cpp
+@@ -749,6 +749,16 @@
+ 
+     void Application::updateUserConfig(bool discardFBs) {
+         sharedQueueResources->setUserConfig(userConfig, discardFBs);
++    }
++
++    void Application::forgetFramebuffers() {
++        FramebufferManager &fbManager = state->framebufferManager;
++        fbManager.framebuffers.clear();
++        fbManager.tileCopies.clear();
++        fbManager.reinterpretTileCache.clear();
++        fbManager.activeRegionsTMEM.clear();
++        state->rdramCheckPending = true;
++        sharedQueueResources->forgetFramebuffers();
+     }
+ 
+     void Application::updateEmulatorConfig() {
+--- a/src/hle/rt64_application.h
++++ b/src/hle/rt64_application.h
+@@ -169,6 +169,9 @@
+         bool usesWindowMessageFilter() override;
+         void processDeveloperShortcut(DeveloperShortcut developerShortcut);
+         void updateUserConfig(bool discardFBs);
++        // On the thread that sends display lists, between them: forgets every framebuffer, as if none had
++        // been drawn yet, so that what is drawn next depends only on RDRAM.
++        void forgetFramebuffers();
+         void updateEmulatorConfig();
+         void updateEnhancementConfig();
+         void setFullScreen(bool fullscreen);
+--- a/src/hle/rt64_shared_queue_resources.h
++++ b/src/hle/rt64_shared_queue_resources.h
+@@ -39,6 +39,7 @@
+         bool rtConfigChanged = true;
+         bool userConfigChanged = true;
+         bool fbConfigChanged = true;
++        bool fbForgetAll = false;
+         bool newConfigValidated = false;
+         std::mutex configurationMutex;
+ 
+@@ -80,6 +81,13 @@
+             newConfigValidated = false;
+         }
+ 
++        // Forgets every framebuffer, as if none had been drawn yet: for a game whose memory was replaced.
++        void forgetFramebuffers() {
++            std::scoped_lock<std::mutex> configurationLock(configurationMutex);
++            fbForgetAll = true;
++            fbConfigChanged = true;
++        }
++
+         void setEmulatorConfig(const EmulatorConfiguration &newEmulatorConfig) {
+             std::scoped_lock<std::mutex> configurationLock(configurationMutex);
+             emulatorConfig = newEmulatorConfig;
+--- a/src/hle/rt64_workload_queue.cpp
++++ b/src/hle/rt64_workload_queue.cpp
+@@ -265,7 +265,7 @@
+         // A new window size only changes the targets when the resolution or the aspect ratio follows the window.
+         const UserConfiguration &sizeConfig = ext.sharedResources->userConfig;
+         const bool sizeDependentTargets = (sizeConfig.resolution != UserConfiguration::Resolution::Manual) || (sizeConfig.aspectRatio == UserConfiguration::AspectRatio::Expand);
+-        if (ext.sharedResources->fbConfigChanged || (sizeChanged && sizeDependentTargets)) {
++        if (ext.sharedResources->fbConfigChanged || ext.sharedResources->fbForgetAll || (sizeChanged && sizeDependentTargets)) {
+             {
+                 // Wait until the other queue has stopped using the interpolated color targets.
+                 std::unique_lock<std::mutex> interpolatedLock(ext.sharedResources->interpolatedMutex);
+@@ -281,6 +281,11 @@
+             renderFramebufferManager->destroyAll();
+             targetManager.destroyAll();
+             fbManager.destroyAllTileCopies();
++            if (ext.sharedResources->fbForgetAll) {
++                fbManager.framebuffers.clear();
++                fbManager.reinterpretTileCache.clear();
++                ext.sharedResources->fbForgetAll = false;
++            }
+             ext.sharedResources->fbConfigChanged = false;
+             ext.sharedResources->interpolatedColorTargets.clear();
+         }

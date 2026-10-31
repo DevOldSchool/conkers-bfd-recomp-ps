@@ -14,6 +14,9 @@ namespace conker::audio {
 
 void init();
 void queue_samples(int16_t* samples, size_t sample_count);
+// While on, the game's sound is dropped instead of played (online, a rejoining machine catching up
+// runs the game faster than real time); turning it on also drops what is queued.
+void set_discard(bool discard);
 size_t get_frames_remaining();
 void set_frequency(uint32_t freq);
 

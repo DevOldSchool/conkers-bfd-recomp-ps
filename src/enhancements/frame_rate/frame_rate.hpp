@@ -10,4 +10,7 @@ namespace conker::frame_rate {
 // either rate.
 bool thirty_hz_step(uint8_t* rdram);
 
+// Whether the 60 fps mode is on (CONKER_60FPS=1, or switched on in the debug menu).
+bool sixty_fps();
+
 }  // namespace conker::frame_rate

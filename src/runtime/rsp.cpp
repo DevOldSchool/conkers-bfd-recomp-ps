@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <mutex>
 #include <set>
+#include <stdexcept>
 
 #include "recomp.h"
 #include "librecomp/rsp.hpp"
@@ -24,6 +25,19 @@ namespace {
 
 RspExitReason silent_task(uint8_t* /*rdram*/, uint32_t /*ucode_addr*/) {
     return RspExitReason::Broke;
+}
+
+// RSPRecomp's overlay switch looks the overlay's addresses up with std::map::at. They come from the
+// task and DMEM, so from game memory; an unknown one throws, which on the SP task thread would end
+// the process with std::terminate. As an exit reason instead, the runtime stops the game cleanly.
+RspExitReason checked_aspMain(uint8_t* rdram, uint32_t ucode_addr) {
+    try {
+        return aspMain(rdram, ucode_addr);
+    } catch (const std::out_of_range&) {
+        std::fprintf(stderr, "[conker] The audio task asked for a microcode overlay that does not exist: the game's memory "
+                             "is not one this run can trust.\n");
+        return RspExitReason::UnhandledJumpTarget;
+    }
 }
 
 bool silent_audio() {
@@ -43,12 +57,13 @@ RspUcodeFunc* get_rsp_microcode(const OSTask* task) {
     RspUcodeFunc* func = silent_task;
     const char* what = "running silently";
     if (task->t.type == M_AUDTASK && !silent_audio()) {
-        func = aspMain;
+        func = checked_aspMain;
         what = "n_aspMain (RSPRecomp)";
     }
     {
         std::lock_guard lock{seen_mutex};
-        if (seen_ucodes.insert(task->t.ucode).second) {
+        // Only the first few: the address is game data, and a new one each task would grow this forever.
+        if (seen_ucodes.size() < 16 && seen_ucodes.insert(task->t.ucode).second) {
             std::printf("[conker] RSP task type %u: ucode 0x%08X (%u bytes), data 0x%08X (%u bytes); %s\n",
                         task->t.type, task->t.ucode, task->t.ucode_size, task->t.ucode_data, task->t.ucode_data_size, what);
         }

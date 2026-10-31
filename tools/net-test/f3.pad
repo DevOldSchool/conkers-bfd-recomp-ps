@@ -1,0 +1,141 @@
+plug 100
+3800 20 start
+4800 20 a
+9400 300 leftx=-1
+9900 200 lefty=-1 rightx=1
+10300 60 righttrigger=1
+10600 78 leftx=0 lefty=-0.5 a
+11060 189 leftx=1 lefty=-1 rightshoulder rightx=-0.6
+11364 121 leftx=-1 lefty=-1 a
+11637 91 leftx=1 lefty=1
+12129 72 leftx=-0.5 lefty=-1 b
+12628 134 leftx=-0.5 lefty=-1 b
+12985 234 leftx=-0.5 lefty=-1 b mousex=2 mousey=-1
+13281 76 leftx=-1 lefty=-0.5 rightshoulder rightx=-0.6 mousex=2 mousey=-1
+13675 169 leftx=-1 lefty=-0.5 a
+14123 152 leftx=0 lefty=1 b
+14449 136 leftx=-0.5 lefty=-0.5 righttrigger=1 mousex=2 mousey=-1
+14833 78 leftx=0.5 lefty=0.5 a mousex=2 mousey=-1
+15113 98 leftx=1 lefty=1 righttrigger=1
+15601 79 leftx=0.5 lefty=1
+16046 212 leftx=1 lefty=0.5 rightshoulder rightx=-0.6
+16423 129 leftx=1 lefty=1
+16794 234 leftx=-1 lefty=-1 rightshoulder rightx=-0.6
+17254 148 leftx=0.5 lefty=0.5 a
+17509 186 leftx=0.5 lefty=0.5 righttrigger=1
+17774 161 leftx=-0.5 lefty=0.5 righttrigger=1
+18124 200 leftx=0.5 lefty=-1 righttrigger=1
+18445 166 leftx=-0.5 lefty=1 b mousex=2 mousey=-1
+18786 98 leftx=0.5 lefty=-0.5 righttrigger=1 mousex=2 mousey=-1
+19095 106 leftx=-0.5 lefty=-1 a
+19412 154 leftx=0 lefty=-1 righttrigger=1
+19818 191 leftx=1 lefty=0.5 righttrigger=1
+20311 234 leftx=1 lefty=-1 a
+20765 86 leftx=1 lefty=1 a mousex=2 mousey=-1
+21138 113 leftx=0.5 lefty=-1 righttrigger=1 mousex=2 mousey=-1
+21500 86 leftx=-0.5 lefty=-1 rightshoulder rightx=-0.6
+21750 153 leftx=1 lefty=-0.5 b mousex=2 mousey=-1
+22157 98 leftx=-1 lefty=-1 righttrigger=1
+22569 91 leftx=0 lefty=0.5 b mousex=2 mousey=-1
+22848 81 leftx=0.5 lefty=1 a
+23134 237 leftx=-1 lefty=0.5 rightshoulder rightx=-0.6
+23425 195 leftx=1 lefty=-1 righttrigger=1
+23767 224 leftx=-0.5 lefty=-1 b mousex=2 mousey=-1
+24238 102 leftx=-1 lefty=0.5 b mousex=2 mousey=-1
+24579 109 leftx=-0.5 lefty=0.5 righttrigger=1
+25035 186 leftx=-0.5 lefty=1 righttrigger=1 mousex=2 mousey=-1
+25376 109 leftx=-1 lefty=-1 rightshoulder rightx=-0.6
+25803 149 leftx=1 lefty=0.5 a
+26297 180 leftx=0 lefty=-1 righttrigger=1 mousex=2 mousey=-1
+26597 216 leftx=0 lefty=-0.5 a
+27062 81 leftx=-1 lefty=1 rightshoulder rightx=-0.6
+27525 105 leftx=-1 lefty=1 righttrigger=1
+27886 81 leftx=0 lefty=-1 a
+28321 211 leftx=-0.5 lefty=-0.5 righttrigger=1 mousex=2 mousey=-1
+28802 181 leftx=0.5 lefty=-0.5 b
+29220 65 leftx=0 lefty=-0.5 b
+29473 109 leftx=-1 lefty=-0.5 a
+29934 188 leftx=-0.5 lefty=-1 rightshoulder rightx=-0.6 mousex=2 mousey=-1
+30245 93 leftx=1 lefty=0.5 rightshoulder rightx=-0.6
+30510 192 leftx=0 lefty=1 b
+30867 190 leftx=1 lefty=-0.5 b mousex=2 mousey=-1
+31121 98 leftx=0.5 lefty=-0.5 b mousex=2 mousey=-1
+31415 202 leftx=-0.5 lefty=1 b
+31680 74 leftx=0 lefty=1
+31993 189 leftx=-0.5 lefty=0.5
+32358 216 leftx=1 lefty=-1
+32857 196 leftx=1 lefty=-0.5 rightshoulder rightx=-0.6
+33313 126 leftx=0.5 lefty=-0.5 b
+33799 91 leftx=1 lefty=-0.5 a mousex=2 mousey=-1
+34149 169 leftx=0.5 lefty=0.5
+34417 99 leftx=-0.5 lefty=0.5
+34907 179 leftx=0 lefty=-0.5 rightshoulder rightx=-0.6
+35213 230 leftx=-1 lefty=1 a mousex=2 mousey=-1
+35676 163 leftx=-0.5 lefty=-0.5 a
+36012 153 leftx=0.5 lefty=-0.5 rightshoulder rightx=-0.6 mousex=2 mousey=-1
+36266 158 leftx=0 lefty=1 a
+36600 88 leftx=1 lefty=0.5 b
+37085 70 leftx=-0.5 lefty=-1  mousex=2 mousey=-1
+37566 233 leftx=-0.5 lefty=0.5 righttrigger=1
+38025 191 leftx=0 lefty=1 righttrigger=1
+38421 236 leftx=0.5 lefty=0.5  mousex=2 mousey=-1
+38717 222 leftx=0.5 lefty=-1 rightshoulder rightx=-0.6
+38989 77 leftx=0 lefty=-1 b
+39306 201 leftx=-1 lefty=1  mousex=2 mousey=-1
+39662 121 leftx=0 lefty=-0.5
+40152 111 leftx=-1 lefty=-0.5 rightshoulder rightx=-0.6 mousex=2 mousey=-1
+40640 134 leftx=0 lefty=0.5 b
+41004 64 leftx=1 lefty=-0.5 rightshoulder rightx=-0.6 mousex=2 mousey=-1
+41318 201 leftx=-1 lefty=-1
+41818 87 leftx=-0.5 lefty=1 righttrigger=1
+42236 160 leftx=0.5 lefty=1 b
+42734 147 leftx=1 lefty=0.5 righttrigger=1
+43034 93 leftx=-0.5 lefty=1 rightshoulder rightx=-0.6
+43287 81 leftx=-1 lefty=0.5 a mousex=2 mousey=-1
+43707 135 leftx=0.5 lefty=0.5 b mousex=2 mousey=-1
+43968 60 leftx=0.5 lefty=-0.5 righttrigger=1 mousex=2 mousey=-1
+44285 68 leftx=0 lefty=0.5 b mousex=2 mousey=-1
+44782 145 leftx=0 lefty=-0.5 rightshoulder rightx=-0.6 mousex=2 mousey=-1
+45129 111 leftx=-1 lefty=1 rightshoulder rightx=-0.6
+45442 82 leftx=1 lefty=-1  mousex=2 mousey=-1
+45728 137 leftx=0.5 lefty=-1 a mousex=2 mousey=-1
+46139 99 leftx=-0.5 lefty=-1 b
+46557 186 leftx=1 lefty=1 rightshoulder rightx=-0.6
+46845 191 leftx=0 lefty=-0.5
+47255 205 leftx=0.5 lefty=-0.5 b
+47718 94 leftx=-1 lefty=-0.5  mousex=2 mousey=-1
+48131 202 leftx=0 lefty=-1 a
+48393 176 leftx=-1 lefty=-0.5 a mousex=2 mousey=-1
+48847 181 leftx=-1 lefty=-1 b mousex=2 mousey=-1
+49161 112 leftx=-1 lefty=0.5 righttrigger=1
+49470 235 leftx=0.5 lefty=1 a mousex=2 mousey=-1
+49793 144 leftx=-1 lefty=-0.5
+50108 184 leftx=0 lefty=-0.5
+50426 192 leftx=-1 lefty=-0.5 a mousex=2 mousey=-1
+50749 200 leftx=0.5 lefty=1 a
+51050 177 leftx=0 lefty=-1 a mousex=2 mousey=-1
+51319 113 leftx=1 lefty=1 rightshoulder rightx=-0.6 mousex=2 mousey=-1
+51588 127 leftx=1 lefty=-1 righttrigger=1
+52081 190 leftx=0 lefty=-0.5 b
+52402 184 leftx=-1 lefty=0.5 righttrigger=1
+52752 234 leftx=-1 lefty=-0.5
+53117 156 leftx=0.5 lefty=0.5 righttrigger=1
+53447 146 leftx=-1 lefty=0.5  mousex=2 mousey=-1
+53911 134 leftx=0.5 lefty=-1 righttrigger=1
+54225 210 leftx=0 lefty=-1 a mousex=2 mousey=-1
+54494 131 leftx=0 lefty=1 rightshoulder rightx=-0.6
+54770 128 leftx=-1 lefty=0.5 righttrigger=1 mousex=2 mousey=-1
+55131 169 leftx=1 lefty=0.5 righttrigger=1
+55607 80 leftx=-1 lefty=1 b
+55869 224 leftx=0.5 lefty=1 b
+56341 200 leftx=0 lefty=1
+56623 136 leftx=-0.5 lefty=1 a mousex=2 mousey=-1
+56938 202 leftx=0 lefty=1 righttrigger=1 mousex=2 mousey=-1
+57359 79 leftx=0.5 lefty=-1 righttrigger=1
+57662 145 leftx=1 lefty=1 b mousex=2 mousey=-1
+58106 122 leftx=0.5 lefty=1 righttrigger=1
+58379 121 leftx=-0.5 lefty=0.5 b mousex=2 mousey=-1
+58723 165 leftx=0 lefty=-0.5
+59071 75 leftx=0.5 lefty=-0.5 a mousex=2 mousey=-1
+59448 195 leftx=0 lefty=0.5 righttrigger=1
+59859 158 leftx=-0.5 lefty=-1 rightshoulder rightx=-0.6

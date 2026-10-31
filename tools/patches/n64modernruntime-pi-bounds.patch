@@ -1,0 +1,87 @@
+diff --git a/librecomp/src/pi.cpp b/librecomp/src/pi.cpp
+--- a/librecomp/src/pi.cpp
++++ b/librecomp/src/pi.cpp
+@@ -61,7 +61,27 @@ extern "C" void osCreatePiManager_recomp(uint8_t* rdram, recomp_context* ctx) {
+     ;
+ }
+ 
++// A transfer's device address and size come from the game, and so from game memory: one that runs
++// outside the ROM (or save) would read the host's own memory. Stop instead.
++[[noreturn]] static void bad_transfer(const char* what, uint32_t physical_addr, size_t num_bytes) {
++    fprintf(stderr, "[ultramodern] A %s of 0x%zX bytes at 0x%08X runs outside the cartridge: the game's memory is not one "
++                    "this run can trust. Stopping.\n", what, num_bytes, physical_addr);
++    ULTRAMODERN_QUICK_EXIT();
++}
++
++static bool rom_range_ok(uint32_t physical_addr, size_t num_bytes) {
++    if (physical_addr < recomp::rom_base) {
++        return false;
++    }
++    const size_t offset = physical_addr - recomp::rom_base;
++    return offset <= rom.size() && num_bytes <= rom.size() - offset;
++}
++
+ void recomp::do_rom_read(uint8_t* rdram, gpr ram_address, uint32_t physical_addr, size_t num_bytes) {
++    if (!rom_range_ok(physical_addr, num_bytes)) {
++        bad_transfer("ROM read", physical_addr, num_bytes);
++    }
++
+     // TODO use word copies when possible
+ 
+     // TODO handle misaligned DMA
+@@ -75,6 +95,10 @@ void recomp::do_rom_read(uint8_t* rdram, gpr ram_address, uint32_t physical_addr
+ }
+ 
+ void recomp::do_rom_pio(uint8_t* rdram, gpr ram_address, uint32_t physical_addr) {
++    if (!rom_range_ok(physical_addr, 4)) {
++        bad_transfer("ROM word read", physical_addr, 4);
++    }
++
+     assert((physical_addr & 0x3) == 0 && "PIO not 4-byte aligned in device, currently unsupported");
+     assert((ram_address & 0x3) == 0 && "PIO not 4-byte aligned in RDRAM, currently unsupported");
+     uint8_t* rom_addr = rom.data() + physical_addr - recomp::rom_base;
+@@ -175,6 +199,9 @@ void save_write_ptr(const void* in, uint32_t offset, uint32_t count) {
+ 
+ void save_write(RDRAM_ARG PTR(void) rdram_address, uint32_t offset, uint32_t count) {
+     assert(offset + count <= save_context.save_buffer.size());
++    if (offset > save_context.save_buffer.size() || count > save_context.save_buffer.size() - offset) {
++        bad_transfer("save transfer", offset, count);
++    }
+ 
+     {
+         std::lock_guard lock { save_context.save_buffer_mutex };
+@@ -188,6 +215,9 @@ void save_write(RDRAM_ARG PTR(void) rdram_address, uint32_t offset, uint32_t cou
+ 
+ void save_read(RDRAM_ARG PTR(void) rdram_address, uint32_t offset, uint32_t count) {
+     assert(offset + count <= save_context.save_buffer.size());
++    if (offset > save_context.save_buffer.size() || count > save_context.save_buffer.size() - offset) {
++        bad_transfer("save transfer", offset, count);
++    }
+ 
+     std::lock_guard lock { save_context.save_buffer_mutex };
+     for (gpr i = 0; i < count; i++) {
+@@ -289,12 +319,13 @@ void do_dma(RDRAM_ARG PTR(OSMesgQueue) mq, PTR(OSIoMesg) mb, gpr rdram_address,
+             // Like libultra's PI manager, the message is the OSIoMesg the request was made with
+             ultramodern::enqueue_external_message_src(mq, mb, false, ultramodern::EventMessageSource::Pi);
+         } else {
+-            fprintf(stderr, "[WARN] PI DMA read from unknown region, phys address 0x%08X\n", physical_addr);
++            // No completion would ever reach the requester, which would wait for it forever.
++            bad_transfer("PI DMA read", physical_addr, size);
+         }
+     } else {
+         if (physical_addr >= recomp::rom_base) {
+             // write cart rom
+-            throw std::runtime_error("ROM DMA write unimplemented");
++            bad_transfer("ROM write", physical_addr, size);
+         } else if (physical_addr >= recomp::sram_base) {
+             if (!recomp::sram_allowed()) {
+                 ultramodern::error_handling::message_box("Attempted to use SRAM saving with other save type");
+@@ -307,7 +338,7 @@ void do_dma(RDRAM_ARG PTR(OSMesgQueue) mq, PTR(OSIoMesg) mb, gpr rdram_address,
+             // Like libultra's PI manager, the message is the OSIoMesg the request was made with
+             ultramodern::enqueue_external_message_src(mq, mb, false, ultramodern::EventMessageSource::Pi);
+         } else {
+-            fprintf(stderr, "[WARN] PI DMA write to unknown region, phys address 0x%08X\n", physical_addr);
++            bad_transfer("PI DMA write", physical_addr, size);
+         }
+     }
+ }

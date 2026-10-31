@@ -37,6 +37,11 @@ std::atomic<bool> g_rendered_widescreen{false};
 std::atomic<bool> g_sharp{true};
 std::atomic<float> g_rendered_aspect{float(kPictureWidth) / kPictureHeight};
 std::mutex g_save_mutex;
+// keep_saved_picture: the widescreen and sharp settings save() writes in place of this run's.
+std::atomic<bool> g_keep_saved{false};
+bool g_saved_window_wide = false;
+bool g_saved_screen_wide = true;
+bool g_saved_sharp = true;
 
 // Next to the saves, under the working directory (see main.cpp).
 std::filesystem::path config_path() {
@@ -58,15 +63,19 @@ bool parse_mode(const std::string& text, Mode* mode) {
 // lines; a scale of 0 is the largest.
 void save() {
     std::lock_guard lock(g_save_mutex);
+    const bool keep = g_keep_saved.load();
+    const bool window_wide = keep ? g_saved_window_wide : g_window_wide.load();
+    const bool screen_wide = keep ? g_saved_screen_wide : g_screen_wide.load();
+    const bool sharp = keep ? g_saved_sharp : g_sharp.load();
     std::ofstream file(config_path());
     file << "mode=" << name(current()) << '\n'
          << "window_scale=" << g_window_scale.load() << '\n'
          << "screen_scale=" << g_screen_scale.load() << '\n'
          << "window_fill=" << (g_window_fill.load() ? 1 : 0) << '\n'
          << "screen_fill=" << (g_screen_fill.load() ? 1 : 0) << '\n'
-         << "window_widescreen=" << (g_window_wide.load() ? 1 : 0) << '\n'
-         << "screen_widescreen=" << (g_screen_wide.load() ? 1 : 0) << '\n'
-         << "sharp=" << (g_sharp.load() ? 1 : 0) << '\n';
+         << "window_widescreen=" << (window_wide ? 1 : 0) << '\n'
+         << "screen_widescreen=" << (screen_wide ? 1 : 0) << '\n'
+         << "sharp=" << (sharp ? 1 : 0) << '\n';
     if (!file) {
         std::fprintf(stderr, "[conker] could not write %s\n", config_path().string().c_str());
     }
@@ -233,6 +242,16 @@ void request_sharp(bool sharp) {
     save();
 }
 
+void keep_saved_picture() {
+    std::lock_guard lock(g_save_mutex);
+    if (g_keep_saved.exchange(true)) {
+        return;
+    }
+    g_saved_window_wide = g_window_wide.load();
+    g_saved_screen_wide = g_screen_wide.load();
+    g_saved_sharp = g_sharp.load();
+}
+
 void note_frame_copy() { g_frame_copies.fetch_add(1); }
 
 uint32_t frame_copy_count() { return g_frame_copies.load(); }
@@ -244,6 +263,17 @@ bool rendered_widescreen() { return g_rendered_widescreen.load(); }
 void set_rendered_aspect(float aspect) { g_rendered_aspect.store(aspect); }
 
 float rendered_aspect() { return g_rendered_aspect.load(); }
+
+namespace {
+std::atomic<float> g_logic_aspect{0.0f};  // 0: the rendered one
+}
+
+void set_logic_aspect(float aspect) { g_logic_aspect.store(aspect); }
+
+float logic_aspect() {
+    const float aspect = g_logic_aspect.load();
+    return aspect > 0.0f ? aspect : rendered_aspect();
+}
 
 bool take_request(Mode* mode) {
     if (!g_requested.exchange(false)) {

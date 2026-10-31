@@ -68,6 +68,7 @@
 #include "enhancements/status.hpp"
 #include "enhancements/switches.hpp"
 #include "platform/input.hpp"
+#include "runtime/frame_input.hpp"
 
 namespace {
 
@@ -169,14 +170,12 @@ bool launcher_scoped(uint8_t* rdram, uint32_t player) {
            MEM_BU(kPlayerScoped, kseg0(player)) == kScoped;
 }
 
-// The mouse's aim, controller 1's alone; false when it has none (not captured).
+// The mouse's aim, the pad's port's mouse; false when it has none (not captured).
 bool mouse_aim(int pad, float* x, float* y) {
-    *x = 0.0f;
-    *y = 0.0f;
-    return pad == 0 && conker::mouse_look::take_aim(x, y);
+    return conker::mouse_look::take_aim(pad, x, y);
 }
 
-// Aims with the right stick (and controller 1's mouse), up aiming up, and walks with the left
+// Aims with the right stick (and the port's mouse), up aiming up, and walks with the left
 // stick (or WASD) as the C buttons, on the pad at `at` in the frame. False, leaving the pad
 // alone, when its controller has neither (the keyboard alone, the mouse not captured).
 bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16_t& buttons) {
@@ -184,7 +183,7 @@ bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16
     float aim_y;
     float mouse_x;
     float mouse_y;
-    const bool stick = right_stick(&aim_x, &aim_y, pad);
+    const bool stick = conker::frame_input::right_stick(&aim_x, &aim_y, pad);
     if (!mouse_aim(pad, &mouse_x, &mouse_y) && !stick) {
         return false;
     }

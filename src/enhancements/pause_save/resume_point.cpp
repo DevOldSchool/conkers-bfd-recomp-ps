@@ -49,6 +49,7 @@
 #include "build_version.h"
 #include "json/json.hpp"
 #include "recomp.h"
+#include "runtime/net_play.hpp"
 #include "ultramodern/ultramodern.hpp"
 #include "enhancements/frame_rate/frame_rate.hpp"
 #include "enhancements/status.hpp"
@@ -424,7 +425,9 @@ std::atomic<bool> g_snapshots_enabled{[] {
     return value == nullptr || value[0] != '0';
 }()};  // the debug menu switches it
 
-bool snapshots_enabled() { return g_snapshots_enabled.load(std::memory_order_relaxed); }
+// Never in an online session: there the host's pad makes the saves, and each would leave a new file pair on
+// every guest that outlives the session.
+bool snapshots_enabled() { return g_snapshots_enabled.load(std::memory_order_relaxed) && !conker::net::active(); }
 
 std::filesystem::path points_path() {
     std::filesystem::path path = ultramodern::get_save_file_path();
@@ -2701,5 +2704,7 @@ nlohmann::json conker::status::save_snapshots() {
 }
 
 conker::switches::Switch conker::switches::save_snapshots() {
-    return {"SAVE SNAPSHOTS", conker::resume::snapshots_enabled, [](bool on) { conker::resume::g_snapshots_enabled.store(on); }};
+    // Local: on, every save writes a file (saves/.../snapshots); a host must not turn that on.
+    return {"SAVE SNAPSHOTS", conker::resume::snapshots_enabled, [](bool on) { conker::resume::g_snapshots_enabled.store(on); },
+            true};
 }

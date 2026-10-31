@@ -63,13 +63,19 @@ These environment variables are read by both builds:
   `mousex=<pixels>` and `mousey=<pixels>` move it that much every VI,
   `wheel=<steps>` turns the wheel once (+ away from you, zooming in), and
   `lmb` and `rmb` hold its buttons; the scripted mouse counts as captured
-  whenever the game is being played. Real controllers are ignored while it is set:
+  whenever the game is being played. `key=<name>` holds a key as the keyboard
+  would for controller 1 (SDL's key names: `key=Return`, `key=Escape`). Real controllers are ignored while it is set:
   SDL passes pad input to every process, so a pad in use in another window
   would otherwise steer the scripted run. A virtual pad can rumble, so it
   counts as a Rumble Pak, and it logs each rumble change. It logs each haptic
   effect too, or with `CONKER_HAPTICS_MOTORS=1` the motor strengths it plays
   as (`rumble low <x> high <y>`, `trigger rumble left <x> right <y>`), as on
-  a pad without Core Haptics.
+  a pad without Core Haptics. `CONKER_VIRTUAL_PAD_ID=<vendor>:<product>` (hex,
+  `054c:0ce6` for a DualSense) and `CONKER_VIRTUAL_PAD_NAME=<text>` make the
+  pads pose as another make with a name of their own, to check that the lobby
+  sends only the make and model (`tools/net-test/lrun.sh pn` with them in
+  HENV and GENV: each view lists the other machine's pad by model and its own
+  by name).
 * **Rumble.** The log shows the pak probe for each connected controller
   (`controller <n> rumble pak inserted` or `not inserted`) and every change of
   the motor the game asks for (`VI <n>: rumble on/off, port <n>`); a rumble is a run of on/off lines, since
@@ -126,6 +132,179 @@ These environment variables are read by both builds:
   delta (`D_800BE9A4`), Conker's position and the camera's eye. It works in
   either build and at either frame rate (`CONKER_60FPS`), for comparing the
   two over the same pad script.
+* `CONKER_FRAME_INPUT_LOG=<file>` writes the input record of every game frame,
+  the one place the game logic reads its input from
+  (src/runtime/frame_input.cpp, M0 of docs/online-multiplayer-plan.md): the
+  frame number, the VI, then per controller port `flags:buttons,stick x,stick
+  y,right x,right y` (flags 1 connected, 2 has a right stick, 4 Rumble Pak;
+  sticks as the game reads them, the right stick in steps of 1/127) and
+  each port's mouse as `m<captured>:dx,dy,zoom` (four of them; on one machine
+  only port 1's moves, online each machine's mouse plays its own port; logs
+  from before have port 1's alone, and replay as before). Its lines match
+  `CONKER_FRAME_LOG`'s one for one. Online every peer's log holds the same
+  records from frame 1, the host's merged ones.
+* `CONKER_NET_SIM=latency=<ms>,jitter=<ms>,loss=<%>,dup=<%>,reorder=<%>,outage=<from>-<to>`
+  simulates a bad link for one online peer (src/runtime/net_play.cpp): half
+  the round-trip latency on each of its sends and receives plus up to
+  `jitter`, then loss, duplicates and reordering (by 40 ms) on its sends,
+  and no traffic either way from `from` to `to` seconds after the session
+  starts. Every 900 frames each peer prints its fps, its waits and stalls of
+  50 ms or more and the round trip. `CONKER_NET_TEST_DESYNC=<frame>` changes
+  a byte of game memory then (the host drops that peer as out of sync);
+  `CONKER_NET_TEST_HANG=<frame>[:<seconds>]` stops a peer's game for a while
+  (30 s by default) with its network going on (it is dropped after 3 s of
+  holding the host up). The host logs every wait of 100 ms or more ("waited
+  N ms at frame F for player P", with how long that player had been quiet).
+  `CONKER_NET_TEST_FORGED_LEAVE=<frame>` on the host feeds itself a guest's
+  LEAVE with a wrong secret, with none and with the right one: only the last
+  may drop the guest (it prints PASS). `tools/net-test/rejoinrun.sh` takes
+  `FAULT=term` (the guest quits normally) and `FAULT=stop` (frozen for
+  `STOP_SECS`, then let go).
+  A dropped guest starts again by itself to rejoin, and the forced trouble
+  is cleared then unless `CONKER_NET_TEST_KEEP=1` (a second desync turns it
+  away for good); `CONKER_NET_NO_REJOIN=1` keeps it stopped instead.
+  `CONKER_NET_TEST_GUEST_PAUSE=1` on every peer lets a guest's Start pause a
+  match again, to test handing a dropped player's pause to player 1.
+  A rejoining guest starts from a snapshot of the host's game;
+  `CONKER_NET_NO_SNAPSHOT=1` on the guest (or the host) has it replay from
+  frame 1 instead. `CONKER_NET_TEST_SNAPSHOT_REFUSE=1` on the guest makes it
+  refuse the snapshot (it replays, saying why), and
+  `CONKER_NET_TEST_SNAPSHOT_SKEW=1` changes a byte after the snapshot is in
+  place (the host then has it start again and replay, without counting a
+  desync).
+  Out of sync, both machines write the hashes of the last 1024 frames they
+  played to
+  `conker-recomp-data/net/desync-<session>-p<port>-f<frame>-<host|guest>.txt`;
+  the folder keeps the 16 newest. The last 128 frames also carry one hash per
+  64 KiB block of game memory (`b <frame> ...` lines), so
+  `tools/net-test/compare_desync.py <host file> <guest file>` prints the first
+  frame that differs and which blocks differ, from the two players' files alone.
+  Next to each desync file is a `.ram` file (under 1 MB): that machine's hashed
+  game memory for its last 16 frames, the first whole and the others as zlib-packed
+  XOR against the frame before. `compare_desync.py --ram <host .ram> <guest .ram>`
+  prints the 32-bit words that differ in the first frame both kept that differs.
+  The folder keeps the 4 newest. `CONKER_NET_TEST_DESYNC=<frame>` changes the byte
+  at 0x80200000 (it was 0x80100000, inside the depth buffer, which is now cleared
+  every frame online).
+  A packaged app writes its log, stdout and stderr together, to
+  `last-run.log` in its data folder. A dropped guest starts itself again to rejoin
+  at most 4 times in a row (`CONKER_NET_REJOIN_COUNT` counts them).
+  The runs behind docs/online-multiplayer-plan.md's M3 table used these.
+  A guest's secret for a host (the 64 bits every session datagram carries, so
+  that a forged sender cannot pose as it) is kept in
+  `conker-recomp-data/net/secrets.txt`, one `address secret` line a host
+  (`address#token secret` for a lobby's session, so each session has its own),
+  so the same machine gets its own port back; a dropped guest starting itself
+  again passes it in `CONKER_NET_REJOIN_SECRET`. To join as another machine
+  from the same folder, delete that file.
+  `CONKER_NET_TEST_BUILD=<text>` makes a machine pose as another build, to see
+  the lobby and the handshake turn it away; `CONKER_NET_TEST_ROM=<hex>` poses
+  as another ROM (its hash) the same way. `CONKER_NET_TEST_DEAF=1` makes a
+  hosting lobby ignore its game port while the LAN list still finds it, as a
+  firewall dropping a joining game's replies looks, for JOIN's message then.
+* LAN only (src/runtime/net_codes.hpp `sender_allowed`): without
+  `--net-unsafe-internet`, every session, lobby and LAN-list socket drops a
+  datagram from outside the LAN before looking at it. A build configured with
+  `-DCONKER_NET_INTERNET_DEFAULT=ON` starts as if the switch were given (the log's
+  UNSAFE line says "this build's default"); `--net-lan-only` turns it off, and
+  the session a lobby starts is given `--net-unsafe-internet` or `--net-lan-only`
+  to keep the lobby's choice.
+  `CONKER_NET_TEST_INTERNET_PORT=<n>` makes a sender whose UDP source port is
+  n count as one on the internet, so a crafted packet from 127.0.0.1 can stand
+  in for a stranger without an address alias: a PROBE or HELLO from it gets no
+  answer at all. Port-mapping
+  tests (below) need `--net-unsafe-internet`, since nothing is mapped without it.
+* The online lobby (src/platform/lobby_ui.hpp, src/runtime/net_lobby.hpp):
+  `--net-lobby` opens its window at boot. `CONKER_LOBBY_SCRIPT=<file>` drives
+  it, a line each, `<ms> <action> [text]` from the window opening: `name`,
+  `host [port]`, `join <address or code>`, `joinlan [host name]` (the LAN
+  list's JOIN for that game, waiting until the list shows it), `ready`,
+  `start`, `kick <n>` (the host's REMOVE for its n-th guest), `leave`,
+  `close`, `open`, `setenv NAME=value` (for the session the lobby starts
+  again into, such as a test's `CONKER_VIRTUAL_PAD`) and `shot <file>`, which
+  writes what the window shows as text (players, LAN games, join codes, the
+  port's state, errors). Opening the host's port on the router
+  (src/runtime/net_portmap.hpp) is never wanted in a test:
+  `CONKER_NET_PORTMAP=0` turns it off, and `CONKER_NET_UPNP_URL=<root
+  description URL>` and `CONKER_NET_NATPMP_GATEWAY=<IPv4>` send it to a
+  stand-in instead (with either set, only those are tried).
+  `tools/fake_gateway.py` is that stand-in: UPnP IGD over HTTP and NAT-PMP on
+  127.0.0.1, printing every mapping added and removed, and able to refuse
+  (`--upnp fail|conflict`, `--natpmp fail`) or report a carrier-grade NAT
+  address (`--external 100.64.1.2`).
+* `CONKER_FRAME_INPUT_REPLAY=<file>` plays such a log back in place of the
+  pads, frame by frame; past its end nothing is pressed. A log starts with `#`
+  lines naming the build, the fixed step and every switch; the replay sets the
+  switches as recorded (printing each it changes) and warns about a different
+  build. Start the replay as
+  the recording was started (same save, same switches, the same
+  `CONKER_VIRTUAL_PAD` so the game finds the same controllers at boot) and
+  with `CONKER_FIXED_STEP=1` on both: a single-player recording of 5,960
+  frames replayed twice matched it in every `CONKER_FRAME_LOG` field. Without
+  the fixed step a few slow loading frames are enough to send the replay
+  elsewhere.
+* `CONKER_STATE_HASH_LOG=<file>` writes, once a game frame, the frame number and
+  a hash of each 16 KiB block of RDRAM up to 0x80400000 (256 a line);
+  `CONKER_STATE_HASH_EVERY=<n>` takes every nth frame only. The OS timer at
+  0x800BE6E0 and the game thread's message queue (D_800BEA10) are left out.
+  `tools/compare_state_hashes.py a.log b.log --ignore START-END` prints the
+  first frame two runs differ in and which blocks differ for how long; with
+  the fixed step, `--ignore 0x80000000-0x80082B20` (OS structures, thread
+  stacks, audio buffers) leaves nothing that differs between replays but
+  the odd frame of a framebuffer (0x803B7600 to 0x803F5000).
+  `CONKER_STATE_DUMP_FRAMES=<n>[,<n>...]` with `CONKER_STATE_DUMP_DIR=<dir>`
+  writes the whole 4 MiB at those frames (`frame<n>.bin`, words in host
+  order) to find the bytes, `CONKER_STATE_WATCH=<start>-<end>[,...]` with
+  `CONKER_STATE_WATCH_LOG=<file>` appends those ranges every frame (after a
+  32-bit frame number) for a block that differs only now and then, and
+  `CONKER_SNAPSHOT_SAVE=<frame>:<file>` writes a snapshot of the game at
+  the start of that frame (src/runtime/snapshot.hpp) and
+  `CONKER_SNAPSHOT_LOAD=<file>` puts one in place at frame 3, after which
+  the run goes on from the snapshot's frame: with the same replay on both,
+  the two runs' hashes after that frame should be equal.
+  `CONKER_SNAPSHOT_SELFTEST=<frame>` takes a snapshot at that frame and
+  loads copies of it with the runtime's queue and thread structures changed
+  as a hostile online host could change them; it prints a PASS line for
+  each one refused with the game's memory untouched (and for the unchanged
+  copy loaded). `CONKER_RUNTIME_SELFTEST=<frame>:queue` (or `:thread`)
+  sends a message to a scratch queue with out-of-range indices (or with a
+  copied thread record waiting on it): the runtime must stop the game with
+  an `[ultramodern]` message instead.
+  `CONKER_RUNTIME_SELFTEST=<frame>:guard_high` (or `:guard_low`) stores
+  through a pointer just past either end of the 4 GiB, which the guard pages
+  must stop; `:pi` and `:pi_size` make ROM reads outside the cartridge, and
+  `:ai` queues a 1 GiB audio buffer, and the runtime must stop the game.
+  `CONKER_RENDER_SELFTEST=<task>:<kind>` does the same for the renderer at
+  that graphics task: `ucode` (a task naming microcode that is not the
+  game's: the game stops), and `vertex`, `extended`, `dlstack` and
+  `loadtile` (a display list RT64 must refuse, printing a PASS line).
+  `CONKER_ALLOC_LOG=<file>` logs every heap allocation and free the game
+  makes with the frame and the recompiled functions that called it. The
+  hashes, dumps and watch are taken from one copy of RDRAM, so they agree
+  even where another thread is writing.
+  `CONKER_CALL_HASH_LOG=<file>` hashes the game thread's sequence of
+  recompiled function entries (a line each 4096 calls and at the end of each
+  frame), and `CONKER_CALL_HASH_REF=<log of another run>` compares as it
+  goes: at the first line that differs it writes the last 8192 function
+  names to `<file>.split`. A matching run with
+  `CONKER_CALL_DUMP=<frame>:<calls>` writes the same window to `<file>.dump`
+  to diff against, which names the function where the two runs took
+  different paths. The hashes are of the names' addresses, so they compare
+  only between runs of one build. docs/online-multiplayer-plan.md has what
+  these found.
+* `CONKER_FIXED_STEP=1` makes every frame step the game logic by the same
+  amount, 2 retraces (1 with `CONKER_60FPS=1`), instead of the retraces the
+  frame took, so what happens depends on the input and not on how fast the
+  frames are made. Loading frames, which the game counts as long ones, then
+  count as ordinary ones. The audio frames are then made by the game thread
+  at the start of each frame (every second one at 60 fps) instead of by the
+  audio thread on the real clock, so sounds end on the same frame in every
+  run (src/runtime/frame_audio.cpp). The game thread also waits for RT64 to
+  finish the graphics tasks it has sent at the start of each frame and when
+  it handles a task's "done" message, since the game reads the depth buffer
+  back from RDRAM, and Rare's paced EEPROM write takes one block every frame
+  (src/runtime/frame_input.cpp). It is for repeatable runs, replays and
+  online play.
 * `CONKER_SOUND_LOG=1` prints a line for each sound effect as it starts
   (`sndp_play_sound`): the VI, the sound, its volume and Conker's animation,
   and a line for each change of Conker's animation with his health, for

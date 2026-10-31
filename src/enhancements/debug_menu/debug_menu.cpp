@@ -41,6 +41,7 @@
 //     LOAD REPORT      a list of those; A checks one (it may come from anyone) and starts its save,
 //                      where and as it was made, on a copy (saves/debug/); R starts it at its
 //                      checkpoint instead, as the game itself would
+//     ONLINE           closes the menu and opens the online lobby's window (src/platform/lobby_ui.hpp)
 //
 // The first page also shows where Conker is and where the camera looks, and opening the menu prints
 // them (with the camera's position, look-at point and forward vector). Without Conker (the title)
@@ -71,7 +72,9 @@
 #include "json/json.hpp"
 #include "platform/gpu_faults.hpp"
 #include "platform/input.hpp"
+#include "platform/lobby_ui.hpp"
 #include "platform/render_debug.hpp"
+#include "runtime/net_play.hpp"
 #include "ultramodern/ultramodern.hpp"
 
 #ifdef _WIN32
@@ -135,7 +138,7 @@ constexpr int kSteps[] = {1, 10, 100, 1000};
 using Clock = std::chrono::steady_clock;
 
 enum class Page { Main, Enhancements, Teleport, Spots, Snapshots, Reports };
-enum MainRow { kWireframe, kShowFps, kShowPosition, kInspect, kEnhancements, kTeleport, kLoadSnapshot, kSaveReport, kLoadReport, kMainRows };
+enum MainRow { kWireframe, kShowFps, kShowPosition, kInspect, kEnhancements, kTeleport, kLoadSnapshot, kSaveReport, kLoadReport, kOnline, kMainRows };
 enum TeleportRow { kX, kY, kZ, kFacing, kCameraYaw, kStep, kGo, kResetToCurrent, kRemember, kSpotList, kTeleportRows };
 
 bool g_open_requested = false;
@@ -179,9 +182,10 @@ int g_step = 2;          // index in kSteps
 uint16_t g_previous_buttons = 0;
 
 bool debug_menu_enabled() {
+    // Off online: it pauses the game and writes its memory on one machine only.
     static const bool enabled = [] {
         const char* value = std::getenv("CONKER_DEBUG_MENU");
-        return value == nullptr || value[0] != '0';
+        return (value == nullptr || value[0] != '0') && !conker::net::active();
     }();
     return enabled;
 }
@@ -487,8 +491,8 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
                       {std::string("WIREFRAME  ") + on_off(g_wireframe), std::string("SHOW FPS  ") + on_off(g_show_fps),
                        std::string("SHOW POSITION  ") + on_off(g_show_position),
                        std::string("INSPECT  ") + on_off(conker::inspector::active()), "ENHANCEMENTS", "TELEPORT",
-                       "LOAD SNAPSHOT", "SAVE DEBUG REPORT", "LOAD REPORT"},
-                      g_row);
+                       "LOAD SNAPSHOT", "SAVE DEBUG REPORT", "LOAD REPORT", "ONLINE"},
+                      g_row, 0, kMainRows);
             break;
         case Page::Enhancements: {
             draw_title(rdram, ctx, "ENHANCEMENTS");
@@ -790,6 +794,14 @@ int32_t main_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_horiz
             }
             show_message(conker::resume::request_report(rdram, report_json(rdram)).empty() ? "SAVING, TRY AGAIN"
                                                                                              : "REPORT SAVED");
+            break;
+        case kOnline:
+            if (!(pressed & conker::input::kA)) {
+                return 0;
+            }
+            // The lobby's window over the game, which plays on underneath (src/platform/lobby_ui.hpp).
+            close_menu(rdram);
+            conker::lobby_ui::open();
             break;
     }
     return kSelectSound;

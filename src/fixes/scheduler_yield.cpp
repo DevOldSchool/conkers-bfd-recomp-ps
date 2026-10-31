@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "recomp.h"
+#include "runtime/snapshot.hpp"
 
 namespace {
 
@@ -14,6 +15,12 @@ constexpr uint32_t kState = 0x8003A582;         // D_8003A582: graphics state, 3
 constexpr uint8_t kYieldAsked = 3;
 
 bool g_held = false;  // scheduler thread only
+// Native state the game's memory depends on, carried by a snapshot (runtime/snapshot.hpp).
+const bool g_snapshot_fields = [] {
+    conker::snapshot::add_bools("scheduler_yield.held", &g_held, 1);
+    conker::snapshot::add_check([] { return g_held ? "the scheduler holds an audio timer" : nullptr; });
+    return true;
+}();
 
 }  // namespace
 

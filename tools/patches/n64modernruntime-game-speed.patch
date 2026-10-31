@@ -1,0 +1,114 @@
+diff --git a/ultramodern/include/ultramodern/ultramodern.hpp b/ultramodern/include/ultramodern/ultramodern.hpp
+--- a/ultramodern/include/ultramodern/ultramodern.hpp
++++ b/ultramodern/include/ultramodern/ultramodern.hpp
+@@ -104,6 +104,10 @@
+ void submit_rsp_task(RDRAM_ARG PTR(OSTask) task);
+ void send_si_message();
+ uint32_t get_speed_multiplier();
++// Runs the game's time (VIs, the CPU count, timers) this many times faster than real time, from now.
++void set_speed_multiplier(uint32_t multiplier);
++// The real time at which the game's time since start reaches game_time.
++std::chrono::high_resolution_clock::time_point game_time_to_real(std::chrono::high_resolution_clock::duration game_time);
+ 
+ // Time
+ std::chrono::high_resolution_clock::time_point get_start();
+diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
+--- a/ultramodern/src/events.cpp
++++ b/ultramodern/src/events.cpp
+@@ -195,7 +195,7 @@
+ 
+     while (!exited) {
+         // Determine the next VI time (more accurate than adding 16ms each VI interrupt)
+-        auto next = ultramodern::get_start() + (total_vis * 1000000us) / (60 * ultramodern::get_speed_multiplier());
++        auto next = ultramodern::game_time_to_real((total_vis * 1000000us) / 60);
+         //if (next > std::chrono::high_resolution_clock::now()) {
+         //    printf("Sleeping for %" PRIu64 " us to get from %" PRIu64 " us to %" PRIu64 " us \n",
+         //        (next - std::chrono::high_resolution_clock::now()) / 1us,
+@@ -212,7 +212,7 @@
+         ultramodern::sleep_until(next);
+         auto time_now = ultramodern::time_since_start();
+         // Calculate how many VIs have passed
+-        uint64_t new_total_vis = (time_now * (60 * ultramodern::get_speed_multiplier()) / 1000ms) + 1;
++        uint64_t new_total_vis = (time_now * 60 / 1000ms) + 1;
+         if (new_total_vis > total_vis + 1) {
+             //printf("Skipped % " PRId64 " frames in VI interupt thread!\n", new_total_vis - total_vis - 1);
+         }
+diff --git a/ultramodern/src/timer.cpp b/ultramodern/src/timer.cpp
+--- a/ultramodern/src/timer.cpp
++++ b/ultramodern/src/timer.cpp
+@@ -1,3 +1,5 @@
++#include <atomic>
++#include <mutex>
+ #include <thread>
+ #include <variant>
+ #include <set>
+@@ -15,11 +17,21 @@
+ static std::chrono::high_resolution_clock::time_point start_time = std::chrono::high_resolution_clock::now();
+ // Offset of the duration since program start used to calculate the value for osGetTime. 
+ static int64_t ostime_offset = 0;
+-// Game speed multiplier (1 means no speedup)
+-constexpr uint32_t speed_multiplier = 1;
++// Game speed multiplier (1 means no speedup). The game's time runs this many times faster than
++// real time since the last change (set_speed_multiplier), so a change never makes it jump.
++static std::atomic<uint32_t> speed_multiplier{1};
++static std::mutex speed_mutex;
++static std::chrono::high_resolution_clock::time_point speed_base_real = start_time;
++static std::chrono::high_resolution_clock::duration speed_base_game{0};
+ // N64 CPU counter ticks per millisecond
+-constexpr uint32_t counter_per_ms = 46'875 * speed_multiplier;
++constexpr uint32_t counter_per_ms = 46'875;
+ 
++// The game's time since the program started.
++static std::chrono::high_resolution_clock::duration game_since_start() {
++    std::lock_guard lock{speed_mutex};
++    return speed_base_game + (std::chrono::high_resolution_clock::now() - speed_base_real) * speed_multiplier.load();
++}
++
+ struct OSTimer {
+     PTR(OSTimer) unused1;
+     PTR(OSTimer) unused2;
+@@ -59,11 +71,11 @@
+ }
+ 
+ std::chrono::high_resolution_clock::time_point ticks_to_timepoint(uint64_t ticks) {
+-    return start_time + ticks_to_duration(ticks);
++    return ultramodern::game_time_to_real(ticks_to_duration(ticks));
+ }
+ 
+ uint64_t time_now() {
+-    return duration_to_ticks(std::chrono::high_resolution_clock::now() - start_time);
++    return duration_to_ticks(game_since_start());
+ }
+ 
+ void timer_thread(RDRAM_ARG1) {
+@@ -146,15 +158,28 @@
+ }
+ 
+ uint32_t ultramodern::get_speed_multiplier() {
+-    return speed_multiplier;
++    return speed_multiplier.load();
+ }
+ 
++void ultramodern::set_speed_multiplier(uint32_t multiplier) {
++    std::lock_guard lock{speed_mutex};
++    const auto now = std::chrono::high_resolution_clock::now();
++    speed_base_game += (now - speed_base_real) * speed_multiplier.load();
++    speed_base_real = now;
++    speed_multiplier.store(multiplier < 1 ? 1 : multiplier);
++}
++
++std::chrono::high_resolution_clock::time_point ultramodern::game_time_to_real(std::chrono::high_resolution_clock::duration game_time) {
++    std::lock_guard lock{speed_mutex};
++    return speed_base_real + (game_time - speed_base_game) / speed_multiplier.load();
++}
++
+ std::chrono::high_resolution_clock::time_point ultramodern::get_start() {
+     return start_time;
+ }
+ 
+ std::chrono::high_resolution_clock::duration ultramodern::time_since_start() {
+-    return std::chrono::high_resolution_clock::now() - start_time;
++    return game_since_start();
+ }
+ 
+ extern "C" u32 osGetCount() {

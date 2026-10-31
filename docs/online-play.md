@@ -1,0 +1,193 @@
+# Playing online
+
+Work in progress: online play is being built (docs/online-multiplayer-plan.md) and has only been
+tried between Macs on one home network so far.
+
+**Internet play is off for now: LAN only.** Until the online code's security is trusted, the game hosts and joins only
+on the local network: loopback, private addresses (`10.x`, `172.16.x` to `172.31.x`, `192.168.x`),
+link-local addresses and IPv6 unique-local (`fc00::/7`) and link-local ones. Every other sender's
+packets are dropped unanswered, JOIN refuses an address or code outside the LAN, nothing is opened on
+the router, and the lobby shows no Internet or IPv6 code. Overlay networks such as Tailscale use
+carrier-grade NAT addresses (`100.64.x` to `100.127.x`), which count as the internet here: playing
+over one needs the switch too.
+
+To play over the internet anyway, start the game on **every** machine with
+`--net-unsafe-internet`. There is no menu toggle. The lobby then says **"UNSAFE: internet play on"**
+and the log says so at startup. Play only with people you know: a stranger who reaches your port can
+still cause trouble that the reviews have not ruled out. The rest of this page describes internet
+play as it works with the switch on.
+
+**Test builds start with internet play on.** A build configured with
+`-DCONKER_NET_INTERNET_DEFAULT=ON` (off in the source; the packaged tester builds have it on for
+now) behaves as if `--net-unsafe-internet` were given: the router mapping (UPnP/NAT-PMP), the
+Internet join code and joins from outside the LAN all work. The lobby still shows the red UNSAFE
+line. `--net-lan-only` turns it off for that run. A session the lobby starts keeps the lobby's choice
+either way.
+
+Online, the camera does not pull in for scenery close in front of it as it does offline: the game
+read that from the graphics card's depth, which differs between machines and put them out of sync.
+
+MULTI can be played by up to four players on different machines. One player hosts and the others
+join. Every machine runs the whole game and only the controllers' input travels, so everyone needs:
+
+* the same build of the game (the lobby says when one differs);
+* their own copy of the same ROM, Conker's Bad Fur Day (US);
+* for now, the same system (macOS on Apple silicon with macOS on Apple silicon, say).
+
+The host's settings (widescreen, draw distance, full detail, consistent controls and the like) are
+used by everyone for the session, since they change how the game plays; the lobby shows them and
+which differ from yours. Your own settings are back when you play alone again. The session plays
+on a copy of the host's save, so nobody's own save changes.
+
+## The lobby
+
+Open the debug menu (Back on a pad, or the ` key, while the game is paused), choose **ONLINE**, or
+start the game with `--net-lobby`. The lobby's window sits over the game, which keeps running
+underneath. It works with the mouse and keyboard, or with controller 1: the d-pad or stick moves,
+A presses, B goes back.
+
+Type your name first: it is what the others see. If you leave it, you are "Player"; the game never
+takes a name from the computer.
+
+Each player's pad shows as its make and model only ("DualSense", "Xbox", "Switch Pro", "Controller",
+or "Keyboard"). Your own pad's full name shows on your screen alone: macOS names a Bluetooth pad
+after its owner, so the name never goes over the network. Logs and debug reports also give the model
+only.
+
+### Hosting
+
+Press **HOST A GAME**. The game listens on UDP port 37800 and, with `--net-unsafe-internet`, asks
+your router to open that port (UPnP or NAT-PMP). Without the switch it says "Nothing is opened on the
+router: internet play is off". With it, the window then says one of:
+
+* **"UDP port 37800 is open on the router"**: players on other networks can join with your
+  Internet join code.
+* **"Could not open UDP port 37800 on the router"**: players on your own network can still join;
+  for anyone else, see [When the port cannot be opened](#when-the-port-cannot-be-opened).
+* **"...outside address ... is a private one"** or **"...shares between customers (carrier-grade
+  NAT)"**: the router did open the port but sits behind another router or your provider's own NAT,
+  so the port opening does not reach the internet. See below.
+
+The window lists **join codes** to hand out (COPY puts one on the clipboard):
+
+* **Internet**: your router's outside address, once the port is open.
+* **IPv6**: this machine's own IPv6 address, if it has one. IPv6 needs no port forwarding, but many
+  routers' firewalls refuse incoming IPv6 traffic unless it is allowed.
+* **This network**: your address on the local network, for players at home (or on an overlay
+  network, below).
+
+A join code is only your address and port written short; it is not a secret, and whoever joins
+learns your address, as you learn theirs. When everyone is in and has pressed **READY**, press
+**START**: every machine starts the game again into the session (a few seconds), and you, as
+player 1, choose MULTI and the game as on a console. The others press Start on the join screen.
+
+Leaving the lobby or quitting the game closes the router's port again. A port left open by a
+crash closes itself within ten minutes (the game asks the router for a ten-minute lease and renews
+it while it runs; a router that only takes permanent mappings is not given one).
+
+Anyone with your address or code can join your lobby. **REMOVE** next to a player sends them out of
+the lobby, and their machine cannot join it again until you host anew. Only the players in the lobby
+when you press START can join the session it starts.
+
+### Joining
+
+Games on your network show up by themselves under **GAMES ON THIS NETWORK**: press **JOIN** next
+to one. Otherwise type the host's join code, or its address (`203.0.113.7`, `203.0.113.7:37800`,
+`[2001:db8::7]:37800`, or a host name), and press **JOIN**. In the host's lobby, press **READY**.
+
+A game shown as **PLAYING** has already started. Joining it starts your game straight into the
+match (from a copy of the host's game, so it takes a few seconds, not a replay of everything so
+far). A player who dropped out gets their port back and plays on at once, from the same machine
+(it remembers a secret for that host; another machine cannot take a dropped player's port for the
+first minute).
+
+The others never wait long for a player. Quitting tells the host, which goes on without you at
+once; a player whose game or connection stops is left behind after under a second. Everyone else
+sees "P2 LEFT" (or "P2 CATCHING UP") and plays on, the missing player's character standing still. If
+your connection only paused, your game notices, starts again by itself and catches up into your
+port within a few seconds. A new player takes a free port and comes in at the next join screen: a match under
+way cannot take on a new character, so until it ends you watch. When no port is free, a new player
+can take the port of one who has been gone for more than a minute.
+
+What JOIN can say:
+
+* **"a different version of the game"**: everyone needs the same build.
+* **"a different system"**: for now everyone needs the same OS and CPU.
+* **"a different ROM"**: everyone needs Conker's Bad Fur Day (US).
+* **"No answer from ..."**: the address or code is wrong, the host has not pressed HOST, or the
+  host's port is not open to you (see below). It comes after 4 seconds. A host still in a match
+  started without internet play on also stays silent to anyone outside its LAN: ask them to go back
+  to the lobby.
+* **"... is in a match that takes no one new"**: the host is still playing a match, which lets in
+  only the players of its own lobby (they come back by themselves). Ask the host to go back to the
+  lobby, or wait.
+* **"... is on this network (it is in GAMES ON THIS NETWORK) but did not answer the join"**: the address is
+  right, as the host's game answers the LAN list, but its game port's answer did not reach you.
+  Most often your own firewall is dropping it: see *Allow it through the firewall* below. Otherwise
+  the host's game may have been busy or stuck for a moment: try again, or press JOIN in the list.
+* **"the lobby is full"** or **"the session is full"**: four players is the most. "...'s place is
+  kept for them" means a dropped player's machine can still come back for it: try again in a minute.
+* **"the host removed this machine from the lobby"**: the host pressed REMOVE.
+* **"the code is not a host's address"**: the code or address is a broadcast, multicast or empty
+  one, which the game does not send to.
+* **"the code names this machine itself"**: a join code is for another machine. Type `127.0.0.1`
+  instead to join a game on this one.
+* **"internet play is off"**: the address or code is outside the LAN. Start the game with
+  `--net-unsafe-internet`, on every machine, to play over the internet.
+* **"the match is full, or takes only the players of its lobby"**: a match started from a lobby
+  takes only that lobby's players, plus dropped players coming back on their own machines.
+
+## When the port cannot be opened
+
+The host needs UDP port 37800 reachable from the other players' networks. Players on the same
+network as the host need nothing of this.
+
+1. **Forward the port by hand.** In your router's settings (usually a web page at its address,
+   such as `192.168.1.1` or `10.0.0.1`; look for *Port forwarding*, *Virtual server* or *NAT*),
+   forward **UDP** port **37800** to this machine's local address, the one the lobby shows next
+   to *This network*. Give this machine a fixed (reserved) local address in the router's DHCP
+   settings, or the forward will point elsewhere after a restart.
+2. **Allow it through the firewall.**
+   * macOS: the first time you host, macOS may ask whether to accept incoming connections; allow
+     it. If you said no, open System Settings, Network, Firewall, Options, and allow the game.
+     This is needed on the joining machines too when their firewall is on, and with *stealth mode*
+     it may not ask at all: add the game there by hand. A build you compiled yourself is not
+     signed, so macOS knows it by its file: after every rebuild remove the old entry and add the
+     game again. Packaged releases are signed and keep their entry.
+   * Linux: allow UDP 37800 (for example `sudo ufw allow 37800/udp`).
+   * Windows (when there is a Windows build): allow the game when Windows Defender Firewall asks.
+3. **Behind two routers** ("double NAT", the lobby says the router's outside address is private):
+   forward the port on both, or put the inner one in bridge mode.
+4. **Carrier-grade NAT** (the outside address starts with `100.64` to `100.127`, or your provider
+   says so): there is no IPv4 port to open. Use IPv6 if both sides have it, or an overlay network.
+
+### Overlay networks (no router settings at all)
+
+[Tailscale](https://tailscale.com) and [ZeroTier](https://www.zerotier.com) put the players' machines
+on one private network over the internet, with nothing to open on any router. Everyone joins the
+same overlay network, the host presses HOST, and the others join with the host's overlay address
+(Tailscale's start with `100.`), or the join code the lobby shows for it under *This network*. The
+LAN list does not reach across an overlay network: use the code or address. Overlay addresses are
+carrier-grade NAT ones, so this needs `--net-unsafe-internet` on every machine for now.
+
+## Command line
+
+The lobby starts the session with these options, which also work on their own:
+
+* `--net-host [port]` hosts on that UDP port (37800 by default); `--net-players <n>` waits for n
+  players in all (2 by default); `--net-map` also opens the port on the router.
+* `--net-join <address:port>` joins one (`--net-want-port <n>` asks for port n, 2 to 4).
+* `--net-token <hex>`: the session token the lobby's START hands out. A host started with one lets
+  in only guests that bring it; a host started without one (by hand) lets anyone with the same build
+  join.
+* `--net-delay <frames>` sets the input delay by hand. Given to a lobby, it is passed on to the
+  match the lobby starts. Without it, a lobby's match takes the delay from the pings the host heard
+  during the lobby: the slowest player's 90th-percentile ping, plus 45 ms for frame timing and
+  jitter, in 33 ms frames (a 150 ms ping gives 6 frames). A host started directly with `--net-host`
+  measures the round trip once, at the start. If "WAITING FOR P2" keeps showing, the delay is too
+  short for that player's link: a larger `--net-delay` trades a little input lag for no stops.
+* `--net-lobby` opens the lobby at boot instead.
+* `--net-unsafe-internet` allows play outside the LAN (see the top of this page). Without it,
+  everything above is LAN only. The lobby passes it on to the session it starts.
+
+docs/diagnostics.md lists the switches for testing.

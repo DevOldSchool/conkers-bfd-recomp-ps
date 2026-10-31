@@ -24,11 +24,14 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
+#include <vector>
 
 #include "recomp.h"
 #include "enhancements/display_options/widescreen_culling.hpp"
 #include "enhancements/switches.hpp"
 #include "platform/display_mode.hpp"
+#include "runtime/snapshot.hpp"
 
 namespace {
 
@@ -49,7 +52,7 @@ bool culling_enabled() { return g_culling.load(std::memory_order_relaxed); }
 // At 0x1501B264 in func_1501B22C, with the camera's horizontal field of view (degrees, from +0x74)
 // loaded in $f4 just before it is halved and turned into the left and right planes' angle.
 extern "C" void conker_widescreen_culling(uint8_t* /*rdram*/, recomp_context* ctx) {
-    const float widening = conker::display::rendered_aspect() / kPictureAspect;
+    const float widening = conker::display::logic_aspect() / kPictureAspect;
     if (widening <= 1.0f || !culling_enabled()) {
         return;
     }
@@ -63,7 +66,7 @@ extern "C" void conker_widescreen_culling(uint8_t* /*rdram*/, recomp_context* ct
 
 // At 0x1510B9A0 in func_1510B958, with the x scale in $f4 just before it is stored to D_800D35E0.
 extern "C" void conker_widescreen_culling_scale(uint8_t* /*rdram*/, recomp_context* ctx) {
-    const float widening = conker::display::rendered_aspect() / kPictureAspect;
+    const float widening = conker::display::logic_aspect() / kPictureAspect;
     if (widening <= 1.0f || !culling_enabled()) {
         return;
     }
@@ -79,7 +82,20 @@ extern "C" void conker_widescreen_culling_scale(uint8_t* /*rdram*/, recomp_conte
 // that would still not fit is left out, so a window of any shape cannot overflow them.
 namespace {
 constexpr int32_t kSkyVertices = 0x400;
+// The most a real sky buffer holds: culling forces exactly kSkyVertices, and the game's own values are
+// smaller (scene 6 measured ~300); this is generously above both. A snapshot's capacity past it is
+// refused, since it is the only bound conker_sky_tile_fits has against overrunning the buffer.
+constexpr int32_t kSkyMaxCapacity = 0x4000;
 int32_t g_sky_capacity = 0;  // vertices per buffer, 0 when this scene has no tiled sky
+// Native state the game's memory depends on, carried by a snapshot (runtime/snapshot.hpp). A hostile
+// host's snapshot is untrusted, so the value is range-checked on load before it is believed.
+const bool g_snapshot_fields = (conker::snapshot::add(
+    "widescreen_culling.sky_capacity", &g_sky_capacity, sizeof(g_sky_capacity),
+    [](const uint8_t* bytes) {
+        int32_t value = 0;
+        std::memcpy(&value, bytes, sizeof(value));
+        return value >= 0 && value <= kSkyMaxCapacity;  // else not loaded: the guest replays from frame 1
+    }), true);
 }  // namespace
 
 // At the start of func_15000AD0, which sets up a scene's sky.
@@ -111,7 +127,7 @@ extern "C" void conker_sky_tile_fits(uint8_t* rdram, recomp_context* ctx) {
 }
 
 float conker::display::culling_widening() {
-    const float widening = conker::display::rendered_aspect() / kPictureAspect;
+    const float widening = conker::display::logic_aspect() / kPictureAspect;
     return widening > 1.0f && culling_enabled() ? widening * kMargin : 1.0f;
 }
 

@@ -78,14 +78,16 @@ Engines* engines_ready(int port) {
         engines.left = make_engine(controller, GCHapticsLocalityLeftHandle);
         engines.right = make_engine(controller, GCHapticsLocalityRightHandle);
         if (engines.left != nil && engines.right != nil) {
-            std::printf("[conker] haptics: controller %d: Core Haptics engines started on %s's grips (player %ld; DualSense pads:",
-                        port + 1, controller.vendorName.UTF8String, static_cast<long>(controller.playerIndex) + 1);
+            // Players, not names: a pad's vendorName is its Bluetooth name, often its owner's, and logs
+            // go into bug reports.
+            std::printf("[conker] haptics: controller %d: Core Haptics engines started on player %ld's DualSense "
+                        "(DualSense pads as players:", port + 1, static_cast<long>(controller.playerIndex) + 1);
             for (GCController* pad in GCController.controllers) {
                 if ([pad.physicalInputProfile isKindOfClass:[GCDualSenseGamepad class]]) {
-                    std::printf(" %s as player %ld;", pad.vendorName.UTF8String, static_cast<long>(pad.playerIndex) + 1);
+                    std::printf(" %ld;", static_cast<long>(pad.playerIndex) + 1);
                 }
             }
-            std::printf(" controller %d is %s)\n", port + 1, conker::input::controller_name(port).c_str());
+            std::printf(")\n");
         } else {
             g_reported = true;
         }

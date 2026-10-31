@@ -1,0 +1,58 @@
+diff --git a/src/hle/rt64_rsp.cpp b/src/hle/rt64_rsp.cpp
+--- a/src/hle/rt64_rsp.cpp
++++ b/src/hle/rt64_rsp.cpp
+@@ -252,5 +272,8 @@ namespace RT64 {
+         // from the microcode itself if this is allowed or not due to how much more complex
+         // the implementation could get.
+-        assert(((address & 0x3) == 0) && "Unaligned addresses for insert matrix are not currently supported.");
++        if ((address & 0x3) != 0) {
++            // Unaligned: not supported, and the column after the last would be outside the matrix.
++            return;
++        }
+ 
+         // Copies a 32-bit value into the location occupied by the fixed point matrices.
+@@ -942,5 +984,8 @@ namespace RT64 {
+     
+     void RSP::setLight(uint8_t index, uint32_t address) {
+-        assert((index >= 0) && (index <= RSP_MAX_LIGHTS));
++        if (index > RSP_MAX_LIGHTS) {
++            return;
++        }
++
+         const uint32_t rdramAddress = fromSegmentedMasked(address);
+         const uint8_t *data = reinterpret_cast<const uint8_t *>(state->fromRDRAM(rdramAddress));
+@@ -950,5 +995,8 @@ namespace RT64 {
+ 
+     void RSP::setLightColor(uint8_t index, uint32_t value) {
+-        assert((index >= 0) && (index <= RSP_MAX_LIGHTS));
++        if (index > RSP_MAX_LIGHTS) {
++            return;
++        }
++
+         auto &rawLight = lights[index].raw;
+         rawLight.words[0] = value;
+@@ -958,10 +1006,13 @@ namespace RT64 {
+ 
+     void RSP::setLightCount(uint8_t count) {
+-        lightCount = count;
++        lightCount = std::min(int(count), RSP_MAX_LIGHTS);
+         lightsChanged = true;
+     }
+ 
+     void RSP::setClipRatioEdge(uint8_t index, int16_t value) {
+-        assert(index < clipRatios.size());
++        if (index >= clipRatios.size()) {
++            return;
++        }
++
+         clipRatios[index] = value;
+         viewportChanged = true;
+@@ -1434,5 +1493,7 @@ namespace RT64 {
+             mod[5 + idx] = (w1 & 0xFFFF) / 65536.0f;
+             mod[12 + idx] = mod[0 + idx] + mod[4 + idx];
+-            mod[13 + idx] = mod[1 + idx] + mod[5 + idx];
++            if (13 + idx < mod.size()) {
++                mod[13 + idx] = mod[1 + idx] + mod[5 + idx];
++            }
+         }
+         else if (pos == 0x20) {

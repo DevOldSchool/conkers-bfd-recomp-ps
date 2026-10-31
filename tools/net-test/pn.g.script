@@ -1,0 +1,4 @@
+# pn.g: see pn.h.script
+1500 name Guest
+9000 joinlan Host
+14000 shot @L.g.view

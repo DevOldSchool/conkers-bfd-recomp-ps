@@ -227,6 +227,8 @@ bool conker::frame_rate::thirty_hz_step(uint8_t* rdram) {
     return !enabled() || MEM_W(0, kseg0(kFrameTicks)) != 1 || MEM_BU(0, kseg0(kHalfSteps)) != 0;
 }
 
+bool conker::frame_rate::sixty_fps() { return enabled(); }
+
 nlohmann::json conker::status::frame_rate() {
     return enhancement("frame_rate", "60 fps (experimental)", enabled(), "CONKER_60FPS");
 }

@@ -37,7 +37,9 @@ void enter_data_folder() {
     }
     const std::string log = (folder / "conker-recomp-data" / "last-run.log").string();
     std::freopen(log.c_str(), "w", stdout);
-    std::freopen(log.c_str(), "a", stderr);
+    // stderr shares stdout's open file, and so its position: a second open of the file kept its own
+    // position, and stdout's lines wrote over stderr's (an OUT OF SYNC report was lost that way).
+    dup2(fileno(stdout), fileno(stderr));
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     std::setvbuf(stderr, nullptr, _IONBF, 0);
 }

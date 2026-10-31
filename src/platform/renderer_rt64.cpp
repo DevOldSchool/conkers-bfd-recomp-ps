@@ -40,6 +40,8 @@
 #include "platform/render_debug.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -52,15 +54,22 @@
 #include "enhancements/sharp_font/sharp_font.hpp"
 #include "enhancements/sharp_menus/sharp_menus.hpp"
 #include "fixes/frame_effects.hpp"
+#include "gbi/rt64_gbi.h"
 #include "hle/rt64_application.h"
+#include "hle/rt64_interpreter.h"
 #include "hle/rt64_state.h"
 #include "librecomp/game.hpp"
+#include "ultramodern/error_handling.hpp"
 #include "platform/font_rects.hpp"
 #include "platform/gpu_faults.hpp"
 #include "platform/input.hpp"
+#include "platform/lobby_ui.hpp"
 #include "platform/object_picker_rt64.hpp"
 #include "render/rt64_texture_cache.h"
 #include "rhi/rt64_render_hooks.h"
+#include "runtime/frame_input.hpp"
+#include "runtime/net_play.hpp"
+#include "runtime/snapshot.hpp"
 #include "platform/display_mode.hpp"
 #include "plume_render_interface.h"
 
@@ -82,6 +91,127 @@ uint32_t dpc_tmem_reg = 0;
 unsigned char dummy_rom_header[0x40];
 
 void dummy_check_interrupts() {}
+
+// CONKER_RENDER_SELFTEST=<task>:<kind>: at that graphics task, a display list or task of the kind a
+// hostile host's snapshot could leave in game memory is drawn, and RT64 must refuse it:
+//   ucode     the task names microcode that is not Conker's: the game stops (Q2)
+//   vertex    vertices, a full sync, then a modify and a triangle on the old slots: both dropped (Q1)
+//   extended  the extended GBI's RDRAM-extending and vertex-segment commands: ignored (Q5)
+//   dlstack   a list that calls itself: stopped at the depth limit, nothing left behind (Q6)
+//   loadtile  a texture load with its rows reversed: skipped at once (Q7)
+// The lists are written to RDRAM above the game's 4 MiB, which it does not use.
+struct RenderSelfTest {
+    uint64_t task = 0;
+    std::string kind;
+};
+
+const RenderSelfTest& render_self_test() {
+    static const RenderSelfTest test = [] {
+        RenderSelfTest t;
+        const char* spec = std::getenv("CONKER_RENDER_SELFTEST");
+        char* end = nullptr;
+        if (spec != nullptr) {
+            t.task = std::strtoull(spec, &end, 0);
+            if (*end == ':') {
+                t.kind = end + 1;
+            }
+        }
+        return t;
+    }();
+    return test;
+}
+
+constexpr uint32_t kTestList = 0x80600000;     // the lists
+constexpr uint32_t kTestData = 0x80610000;     // vertices and texels (zero)
+constexpr uint32_t kTestZeroes = 0x80620000;   // not any microcode RT64 knows
+
+struct TestList {
+    uint8_t* rdram;
+    uint32_t at = kTestList;
+    void command(uint32_t w0, uint32_t w1) {
+        std::memcpy(rdram + (at - 0x80000000u), &w0, 4);  // RDRAM holds host-order 32-bit words
+        std::memcpy(rdram + (at - 0x80000000u) + 4, &w1, 4);
+        at += 8;
+    }
+};
+
+void report_self_test(const char* kind, bool pass, const std::string& detail) {
+    std::printf("[conker] render self-test (%s): %s, %s\n", kind, pass ? "PASS" : "FAIL", detail.c_str());
+    std::fflush(stdout);
+}
+
+// Runs the self-test's list after the game's for the task (the RDP state is then the game's).
+void run_render_self_test(RT64::Application& app, const std::string& kind) {
+    uint8_t* rdram = app.core.RDRAM;
+    std::memset(rdram + (kTestData - 0x80000000u), 0, 0x10000);
+    TestList list{rdram};
+    RT64::State& state = *app.state;
+    RT64::RSP& rsp = *state.rsp;
+    if (kind == "vertex") {
+        for (int i = 0; i < 64; i++) {
+            list.command(0x01010020u, kTestData);  // G_VTX: 16 vertices into slots 0-15
+        }
+        list.command(0xE9000000u, 0);              // G_RDPFULLSYNC: the workload moves on
+        list.command(0x02100000u, 0xDEADBEEFu);    // G_MODIFYVTX: slot 0's colour
+        list.command(0x05000204u, 0);              // G_TRI1: slots 0, 1, 2
+        list.command(0xE9000000u, 0);
+        list.command(0xDF000000u, 0);              // G_ENDDL
+        const uint32_t dropped = rsp.droppedVertexCommands;
+        app.processDisplayLists(rdram, kTestList & 0x3FFFFFF, 0, true);
+        const uint32_t now = rsp.droppedVertexCommands - dropped;
+        report_self_test("vertex", now >= 2, std::to_string(now) + " commands on old vertex slots dropped");
+    }
+    if (kind == "extended") {
+        list.command(0xE0525464u, 0x10000064u);    // G_SPNOOP hook: enable the extended GBI as 0x64
+        list.command(0x6400002Cu, 1);              // G_EX_SETRDRAMEXTENDED_V1 on
+        list.command(0x64000031u, 1u | (15u << 1)); // G_EX_SETVERTEXSEGMENT_V1: element 15 on
+        list.command(0xFFFFFFF0u, 0);
+        list.command(0x01010020u, 0xC0000000u);    // G_VTX from an extended address (1 GiB in)
+        list.command(0xE0525464u, 0x20000000u);    // disable the extended GBI
+        list.command(0xE9000000u, 0);
+        list.command(0xDF000000u, 0);
+        app.processDisplayLists(rdram, kTestList & 0x3FFFFFF, 0, true);
+        bool segments = false;
+        for (bool on : rsp.extended.vertexSegmentEnabled) {
+            segments = segments || on;
+        }
+        report_self_test("extended", !state.extended.extendRDRAM && !segments,
+                         std::string("extended RDRAM ") + (state.extended.extendRDRAM ? "on" : "off") + ", vertex segments " +
+                             (segments ? "on" : "off"));
+    }
+    if (kind == "dlstack") {
+        list.command(0xDE000000u, kTestList & 0x3FFFFFF);  // G_DL (called): itself
+        list.command(0xDF000000u, 0);
+        app.processDisplayLists(rdram, kTestList & 0x3FFFFFF, 0, true);
+        const size_t depth = state.returnAddressStack.size();
+        report_self_test("dlstack", depth <= RT64::State::ReturnAddressStackLimit,
+                         std::to_string(depth) + " return addresses left after the list");
+    }
+    if (kind == "loadtile") {
+        list.command(0xFD100000u, kTestData);      // G_SETTIMG: RGBA16, 1 texel wide
+        list.command(0xF5100000u, 0x07000000u);    // G_SETTILE: load tile, line 0
+        list.command(0xF4000400u, 0x0703C000u);    // G_LOADTILE: rows 256 down to 0
+        list.command(0xE9000000u, 0);
+        list.command(0xDF000000u, 0);
+        const auto start = std::chrono::steady_clock::now();
+        app.processDisplayLists(rdram, kTestList & 0x3FFFFFF, 0, true);
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        report_self_test("loadtile", ms < 1000.0, "the list took " + std::to_string(static_cast<int>(ms)) + " ms");
+    }
+}
+
+// Graphics tasks run Conker's own microcode (F3DEX2CBFD) only. The task's microcode pointer is game
+// data, and RT64 picks its command handlers by the bytes there, so any other microcode, or none, comes
+// from memory this run cannot trust.
+void require_conker_microcode(RT64::Application& app, const OSTask* task) {
+    const RT64::GBI* gbi = app.interpreter->hleGBI;
+    if (gbi == nullptr || gbi->ucode != RT64::GBIUCode::F3DEX2CBFD) {
+        std::fprintf(stderr, "[conker] The graphics task names microcode at 0x%08X that is not the game's own: the game's "
+                             "memory is not one this run can trust. Stopping.\n",
+                     static_cast<uint32_t>(task->t.ucode));
+        ULTRAMODERN_QUICK_EXIT();
+    }
+}
 
 std::mutex g_texture_packs_mutex;
 std::vector<std::string> g_texture_packs;  // in use, for texture_packs()
@@ -270,6 +400,7 @@ public:
             return;
         }
         start_texture_dump(*app_);
+        conker::lobby_ui::attach(app_.get());
         install_object_picker();
         conker::frame_effects::use_gpu(true);
         {
@@ -299,6 +430,19 @@ public:
     }
 
     void send_dl(const OSTask* task) override {
+        // Online, nothing drawn is written back into game memory on any machine: each GPU draws a little
+        // differently, and the game reads depth back for the camera (func_1512B1B8), so the games parted
+        // at once between two Macs (rt64-online-writeback.patch). The frame buffers above stay written.
+        app_->state->protectedRDRAMEnd.store(conker::net::game_memory_end(), std::memory_order_relaxed);
+        if (const uint32_t skipped = app_->state->protectedWritesSkipped.load(std::memory_order_relaxed);
+            skipped != 0 && reported_skips_ == 0) {
+            reported_skips_ = skipped;
+            std::printf("[conker] net: the renderer keeps what it draws out of game memory (first at 0x%08X)\n",
+                        0x80000000u | app_->state->protectedLastSkipped.load(std::memory_order_relaxed));
+        }
+        if (conker::snapshot::take_framebuffer_discard()) {
+            app_->forgetFramebuffers();
+        }
         // Whether the game drew a frame copy for this task (see apply_display_scale).
         const uint32_t copies = conker::display::frame_copy_count();
         tasks_without_copy_ = copies != seen_copies_ ? 0 : tasks_without_copy_ + 1;
@@ -326,14 +470,33 @@ public:
             widen_font_rects(app_->core.RDRAM, task->t.data_ptr);
         }
         update_object_picker();
+        const RenderSelfTest& self_test = render_self_test();
+        const bool self_test_now = !self_test.kind.empty() && ++tasks_sent_ == self_test.task;
+        OSTask test_task;
+        if (self_test_now && self_test.kind == "ucode") {
+            test_task = *task;
+            test_task.t.ucode = static_cast<int32_t>(kTestZeroes);
+            std::memset(app_->core.RDRAM + (kTestZeroes - 0x80000000u), 0, 0x2000);
+            std::printf("[conker] render self-test (ucode): a task with unknown microcode; the game must stop now\n");
+            std::fflush(stdout);
+            task = &test_task;
+        }
         app_->state->rsp->reset();
         app_->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
+        require_conker_microcode(*app_, task);
         // The effects the game makes on the CPU over a frame at its swap are made by RT64 after the
         // frame's last draw (src/fixes/frame_effects.cpp).
         if (const uint32_t frame = conker::frame_effects::frame_effects(app_->core.RDRAM, task->t.data_ptr, &frame_effects_)) {
             request_frame_effects(frame);
         }
-        app_->processDisplayLists(app_->core.RDRAM, task->t.data_ptr & 0x3FFFFFF, 0, true);
+        // Online, the session's status in the corner, drawn after the game's frame from a list of its
+        // own (net_play.cpp), so the game's memory never holds it.
+        const uint32_t list = conker::net::overlay_display_list(app_->core.RDRAM, task->t.data_ptr & 0x3FFFFFF);
+        app_->processDisplayLists(app_->core.RDRAM, list, 0, true);
+        if (self_test_now && self_test.kind != "ucode") {
+            run_render_self_test(*app_, self_test.kind);
+        }
+        conker::frame_input::gfx_task_done();
     }
 
     void send_dummy_workload(uint32_t /*fb_address*/) override {}
@@ -361,6 +524,15 @@ public:
 
     void update_screen() override {
         apply_display_scale();
+        // Catching up to rejoin a session the game runs many frames a retrace: the display lists are
+        // still drawn (the game reads the depth back), but the picture is shown twice a second.
+        if (conker::net::catching_up()) {
+            const auto now = std::chrono::steady_clock::now();
+            if (now - last_catch_up_present_ < std::chrono::milliseconds(500)) {
+                return;
+            }
+            last_catch_up_present_ = now;
+        }
         // The game culls what lies outside its own 4:3 view; a widened picture needs it to cull to
         // the wider view (src/enhancements/display_options/widescreen_culling.cpp).
         conker::display::set_rendered_aspect(
@@ -510,12 +682,15 @@ private:
     mutable uint32_t reported_width_ = 0;
     mutable uint32_t reported_height_ = 0;
     int applied_scale_ = 0;
+    std::chrono::steady_clock::time_point last_catch_up_present_{};
     bool applied_native_ = false;
     bool applied_wide_ = false;
     static constexpr float kUndrawnColumns = 2.0f;
     bool holding_ = false;  // settings held while the pause menu draws its frame copy
     uint32_t seen_copies_ = 0;
+    uint64_t tasks_sent_ = 0;  // graphics tasks so far, for CONKER_RENDER_SELFTEST
     int tasks_without_copy_ = 1 << 20;  // graphics tasks since the last frame copy
+    uint32_t reported_skips_ = 0;  // write-backs kept out of game memory (online), once reported
     static constexpr int kHoldTasks = 4;
 };
 

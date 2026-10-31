@@ -1,5 +1,6 @@
 // No input device: the null renderer has no window to take keyboard focus.
 #include "platform/input.hpp"
+#include "platform/lobby_ui.hpp"
 
 namespace conker::input {
 
@@ -16,6 +17,7 @@ bool right_stick(float* x, float* y, int /*port*/) {
 }
 
 void set_mouse_play(bool /*playing*/) {}
+void set_blocked(bool /*blocked*/) {}
 bool mouse_captured() { return false; }
 void take_mouse(float* dx, float* dy, int* zoom) {
     *dx = 0.0f;
@@ -26,6 +28,8 @@ void take_mouse(float* dx, float* dy, int* zoom) {
 bool connected(int port) { return port == 0; }
 
 std::string controller_name(int /*port*/) { return ""; }
+
+std::string controller_model() { return ""; }
 
 PadKind controller_kind() { return PadKind::None; }
 
@@ -44,3 +48,10 @@ bool camera_swapped() { return true; }
 void set_camera_swapped(bool /*swapped*/) {}
 
 } // namespace conker::input
+
+// No lobby window without a renderer (src/platform/lobby_ui.hpp).
+namespace conker::lobby_ui {
+void open() {}
+void close() {}
+bool is_open() { return false; }
+}  // namespace conker::lobby_ui
