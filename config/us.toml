@@ -753,6 +753,19 @@ func = "sndp_post_event"
 before_vram = 0x10017714
 text = "{ void conker_my_view_post(uint8_t*, recomp_context*); conker_my_view_post(rdram, ctx); }"
 
+# Online "my view": where func_1501878C starts drawing the views, and its display list just ended
+# before it is sent, where the local player's view is drawn again whole into a copy of the game's
+# memory for the renderer (src/enhancements/my_view/my_view.cpp).
+[[patches.hook]]
+func = "func_1501878C"
+before_vram = 0x15018938
+text = "{ void conker_my_view_draw_start(uint8_t*, recomp_context*); conker_my_view_draw_start(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1501878C"
+before_vram = 0x15018CDC
+text = "{ void conker_my_view_draw_end(uint8_t*, recomp_context*); conker_my_view_draw_end(rdram, ctx); }"
+
 # Once a frame, just before func_1501878C checks D_800BEAC0 to run or skip the world frame: a
 # DualSense plays a thump when Conker's animation becomes his landing
 # (src/enhancements/haptics/haptics.cpp), and its triggers take the feel of what Conker is doing

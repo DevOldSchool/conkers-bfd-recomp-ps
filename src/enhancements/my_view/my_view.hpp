@@ -12,4 +12,8 @@ namespace conker::my_view {
 // is made: picks what the renderer presents and brings the playing sounds to the local listener.
 void frame(uint8_t* rdram, recomp_context* ctx);
 
+// While the local view is drawn again (into memory that is put back after): native hooks that
+// keep their own state across frames leave it alone.
+bool drawing_again();
+
 }  // namespace conker::my_view

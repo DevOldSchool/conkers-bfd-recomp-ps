@@ -1,0 +1,62 @@
+--- a/librecomp/src/pi.cpp
++++ b/librecomp/src/pi.cpp
+@@ -296,6 +296,10 @@
+     }
+ }
+ 
++// Set by the game while it must not yield to other threads: a ROM read's completion goes into its
++// queue at once, from the calling thread, instead of through the event thread.
++extern "C" bool recomp_dma_done_now = false;
++
+ void do_dma(RDRAM_ARG PTR(OSMesgQueue) mq, PTR(OSIoMesg) mb, gpr rdram_address, uint32_t physical_addr, uint32_t size, uint32_t direction) {
+     // TODO asynchronous transfer
+     // TODO implement unaligned DMA correctly
+@@ -306,7 +310,11 @@
+ 
+             // Send a message to the mq to indicate that the transfer completed
+             // Like libultra's PI manager, the message is the OSIoMesg the request was made with
+-            ultramodern::enqueue_external_message_src(mq, mb, false, ultramodern::EventMessageSource::Pi);
++            if (recomp_dma_done_now) {
++                osSendMesg(PASS_RDRAM mq, mb, OS_MESG_NOBLOCK);
++            } else {
++                ultramodern::enqueue_external_message_src(mq, mb, false, ultramodern::EventMessageSource::Pi);
++            }
+         } else if (physical_addr >= recomp::sram_base) {
+             if (!recomp::sram_allowed()) {
+                 ultramodern::error_handling::message_box("Attempted to use SRAM saving with other save type");
+--- a/ultramodern/src/mesgqueue.cpp
++++ b/ultramodern/src/mesgqueue.cpp
+@@ -38,6 +38,10 @@
+ 
+ bool do_send(RDRAM_ARG PTR(OSMesgQueue) mq_, OSMesg msg, bool jam, bool block);
+ 
++// Set by the game while its thread runs code whose memory it puts back after: messages from outside
++// (VI, SI, timers) are left waiting and no other thread is run, so nothing else writes memory meanwhile.
++extern "C" bool ultramodern_isolated = false;
++
+ void dequeue_external_messages(RDRAM_ARG1) {
+     QueuedMessage to_send;
+     std::vector<QueuedMessage> requeued_messages{};
+@@ -202,6 +206,10 @@
+         return 0;
+     }
+     
++    if (ultramodern_isolated) {
++        return do_send(PASS_RDRAM mq_, msg, jam, false) ? 0 : -1;
++    }
++
+     // Handle any messages that have been received from an external thread.
+     dequeue_external_messages(PASS_RDRAM1);
+ 
+@@ -240,6 +248,11 @@
+     OSMesgQueue *mq = TO_PTR(OSMesgQueue, mq_);
+     
+     assert(ultramodern::is_game_thread() && "RecvMesg not allowed outside of game threads.");
++
++    if (ultramodern_isolated) {
++        // A message must be there already: blocking would let other threads run.
++        return do_recv(PASS_RDRAM mq_, msg_, false) ? 0 : -1;
++    }
+     
+     // Handle any messages that have been received from an external thread.
+     dequeue_external_messages(PASS_RDRAM1);

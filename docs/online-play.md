@@ -39,14 +39,15 @@ used by everyone for the session, since they change how the game plays; the lobb
 which differ from yours. Your own settings are back when you play alone again. The session plays
 on a copy of the host's save, so nobody's own save changes.
 
-In a match each machine shows only its own player's view, scaled up to fill the window, in place of
-the split screen, and plays the sounds as that player hears them: sounds near the others are quiet
-or silent unless you are near them too, and the other players' own sounds (footsteps, shots,
-voices), which the split screen plays to everyone at full volume, come from where their characters
-are. The pause menu and the screens between matches show the whole picture as before. Two players'
-views are wide strips, so they show with bars above and below. This is your own choice, not the
-host's: `CONKER_MY_VIEW=0`, or MY VIEW on the debug menu's ENHANCEMENTS page, keeps the shared split
-screen and sounds.
+In a match each machine shows only its own player's view over the whole window, with that player's
+HUD, as a match against bots with one pad looks, and plays the sounds as that player hears them:
+sounds near the others are quiet or silent unless you are near them too, and the other players' own
+sounds (footsteps, shots, voices), which the split screen plays to everyone at full volume, come
+from where their characters are. The pause menu and the screens between matches show the split
+screen as before. This is your own choice, not the host's: `CONKER_MY_VIEW=0`, or MY VIEW on the
+debug menu's ENHANCEMENTS page, keeps the shared split screen and sounds. Each machine draws its
+player's view a second time each frame, after the split screen every machine draws, so it costs some
+speed.
 
 ## The lobby
 

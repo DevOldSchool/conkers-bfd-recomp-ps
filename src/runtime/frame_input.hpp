@@ -90,4 +90,9 @@ void apply_settings(const std::string& header, const char* source);
 // (src/runtime/frame_audio.cpp); hook_ctx is the frame hook's registers.
 void make_audio_frame(uint8_t* rdram, recomp_context* hook_ctx);
 
+// Under the fixed step, how many times the game thread has read osGetCount this frame (each read
+// is a step on); saved and put back by a pass that runs game code it must not count (my_view).
+uint32_t count_reads();
+void set_count_reads(uint32_t reads);
+
 }  // namespace conker::frame_input

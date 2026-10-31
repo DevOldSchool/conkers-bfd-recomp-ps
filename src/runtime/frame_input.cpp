@@ -333,6 +333,9 @@ namespace conker::frame_input {
 
 bool fixed_step() { return fixed_on(); }
 
+uint32_t count_reads() { return g_count_calls; }
+void set_count_reads(uint32_t reads) { g_count_calls = reads; }
+
 std::string settings_header() {
     std::string text = "# conker-replay 1 build=" + std::string(CONKER_BUILD_VERSION) +
                        " fixed_step=" + (fixed_on() ? "1" : "0") + "\n";

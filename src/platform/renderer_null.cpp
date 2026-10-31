@@ -314,6 +314,8 @@ void set_wireframe(bool /*on*/) {}
 
 void set_present_focus(float /*x*/, float /*y*/, float /*width*/, float /*height*/) {}
 
+void draw_next_frame_from(std::vector<uint8_t> /*image*/) {}
+
 std::vector<std::string> texture_packs() { return {}; }
 std::string gpu_name() { return ""; }
 std::string graphics_api() { return ""; }

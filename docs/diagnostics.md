@@ -145,8 +145,10 @@ These environment variables are read by both builds:
   records from frame 1, the host's merged ones.
 * `CONKER_MY_VIEW_PORT=<1-4>` tries the online "my view"
   (src/enhancements/my_view) outside a session, in a local split-screen
-  match, as that port's player: only its view is presented and the sounds
-  are worked out for its listener. `CONKER_MY_VIEW_LOG=1` prints the view
+  match, as that port's player: only its view is drawn, over the whole
+  window, and the sounds are worked out for its listener.
+  `CONKER_MY_VIEW_FULL=0` presents the local player's split-screen view cut
+  out and scaled up instead of drawing it again. `CONKER_MY_VIEW_LOG=1` prints the view
   presented and every sound started with the game's and the local volume and
   pan. `CONKER_MY_VIEW=0` switches it off, online too.
 * `CONKER_NET_SIM=latency=<ms>,jitter=<ms>,loss=<%>,dup=<%>,reorder=<%>,outage=<from>-<to>`
