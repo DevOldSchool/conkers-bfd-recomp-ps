@@ -34,9 +34,9 @@ void apply(GCDualSenseAdaptiveTrigger* trigger, const TriggerEffect& effect) API
 
 }  // namespace
 
-bool set_dualsense_triggers(const TriggerEffect& effect) {
+bool set_dualsense_triggers(int port, const TriggerEffect& effect) {
     if (@available(macOS 12.3, *)) {
-        if (GCController* controller = port1_dualsense()) {
+        if (GCController* controller = port_dualsense(port)) {
             GCDualSenseGamepad* pad = (GCDualSenseGamepad*)controller.physicalInputProfile;
             apply(pad.leftTrigger, effect);
             apply(pad.rightTrigger, effect);

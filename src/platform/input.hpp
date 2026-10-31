@@ -1,8 +1,8 @@
 // Player input for the four controller ports. The RT64 build reads SDL game controllers, one per
 // port in the order they connect, and the keyboard on controller 1 (src/platform/input_sdl.cpp,
 // pumped by the window's event loop); the null build has no input device
-// (src/platform/input_headless.cpp). Controller 1 alone has the shaped haptics, adaptive triggers,
-// button pictures and debug menu button below; controllers 2 to 4 play haptics on their motors.
+// (src/platform/input_headless.cpp). Every port's pad has its own rumble pak, haptics and adaptive
+// triggers below; controller 1 alone has the keyboard, mouse, button pictures and debug menu button.
 #pragma once
 
 #include <cstdint>
@@ -50,8 +50,9 @@ void take_mouse(float* dx, float* dy, int* zoom);
 // while a pad holds them. Safe to call from any thread.
 bool connected(int port);
 
-// Controller 1's name, or "" when none is connected (keyboard only). Safe to call from any thread.
-std::string controller_name();
+// A port's pad's name, or "" when none is connected (controller 1 on the keyboard only). Safe to
+// call from any thread.
+std::string controller_name(int port = 0);
 
 // The kind of pad controller 1 is, for its button pictures (src/enhancements/pad_icons): None for
 // the keyboard alone, Other for pads that are neither Xbox nor PlayStation ones. Safe to call from
@@ -68,12 +69,12 @@ bool take_debug_menu_press();
 bool has_rumble(int port = 0);
 void set_rumble(int port, bool on);
 
-// A haptic effect on controller 1, alongside the rumble pak's on and off: shaped on a DualSense on
+// A haptic effect on a port's pad, alongside the rumble pak's on and off: shaped on a DualSense on
 // macOS (Core Haptics), played on the rumble motors (and an Xbox pad's trigger motors) elsewhere.
 // intensity and sharpness are in [0, 1] (sharpness 0 is a soft thump, 1 a crisp tap); duration 0
-// is a single tap, longer a steady buzz. Grip::Trigger is the side of the trigger last pulled for Z (right until one is).
-// has_haptics says whether the open pad plays them; both are safe to call from any thread. Controllers 2
-// to 4 play them on their pad's rumble motors, so they have haptics when their pad can rumble.
+// is a single tap, longer a steady buzz. Grip::Trigger is the side of the trigger last pulled for Z
+// on that pad (right until one is). has_haptics says whether the port's pad plays them; both are
+// safe to call from any thread.
 struct Haptic {
     enum class Grip { Left, Right, Both, Trigger };
     float intensity = 1.0f;
@@ -84,15 +85,15 @@ struct Haptic {
 bool has_haptics(int port = 0);
 void play_haptic(const Haptic& haptic, int port = 0);
 
-// What controller 1's triggers (both are Z) do on a pad with adaptive triggers (a DualSense).
+// What a port's triggers (both are Z) do on a pad with adaptive triggers (a DualSense).
 // Positions along the pull and strengths are in [0, 1], from released to fully pressed:
 // - Off: the triggers are free.
 // - Feedback: zones[i] resists in each tenth of the pull.
 // - Weapon: free up to start, then a wall of strength up to end, where it gives way with a snap.
 // - Vibration: buzzes past start at amplitude and frequency (0 slowest, 1 fastest).
 // z_at is how far a trigger is pulled before it counts as Z on such a pad, so an effect can lead up
-// to it; other pads keep kTriggerZ. has_adaptive_triggers says whether the open pad has them; both
-// are safe to call from any thread.
+// to it; other pads keep kTriggerZ. has_adaptive_triggers says whether the port's pad has them;
+// both are safe to call from any thread.
 constexpr int kTriggerZones = 10;
 constexpr float kTriggerZ = 10000.0f / 32767.0f;  // about a third of the travel
 struct TriggerEffect {
@@ -107,8 +108,8 @@ struct TriggerEffect {
     float z_at = kTriggerZ;
     bool operator==(const TriggerEffect&) const = default;
 };
-bool has_adaptive_triggers();
-void set_trigger_effect(const TriggerEffect& effect);
+bool has_adaptive_triggers(int port = 0);
+void set_trigger_effect(const TriggerEffect& effect, int port = 0);
 
 // Whether C-left and C-right are swapped, on the right stick and on J/L, so that pushing left turns
 // the view left; part of consistent controls (src/enhancements/consistent_controls), which set it.

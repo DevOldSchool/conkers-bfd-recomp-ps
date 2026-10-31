@@ -323,6 +323,10 @@ the trigger that fired it. `CONKER_HAPTICS=0` turns it off, and
 `CONKER_HAPTICS_MOTORS=1` plays them on the motors on a DualSense on macOS
 too.
 
+In a multiplayer match every pad feels its own player: their landings,
+splats and shotgun blasts, and their own Rumble Pak. The slingshot's
+sounds are single player's.
+
 ## Peeing and the machine gun in the triggers
 
 A DualSense's triggers (both are Z) take the feel of the two things
@@ -344,6 +348,9 @@ thumps go through Core Haptics; any other pad that can rumble plays them
 on its motors, without the trigger resistance. `CONKER_ADAPTIVE_TRIGGERS=0`
 turns it all off, and ADAPTIVE TRIGGERS on the debug menu's ENHANCEMENTS
 page switches it.
+
+In a multiplayer match each player's pad has the triggers and thumps of
+that player's own mounted gun.
 
 ## Consistent controls
 

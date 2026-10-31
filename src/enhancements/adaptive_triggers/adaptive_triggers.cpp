@@ -12,8 +12,7 @@
 //
 // In a multiplayer match (D_800BE616 nonzero) every player's gun is followed, whoever they play:
 // player n is actor n (D_800CC2D0, 0x32C bytes each, as the match's own tallies walk them) and plays
-// on controller n + 1. Controller 1 gets the triggers too; controllers 2 to 4 feel the rounds on
-// their pad's motors.
+// on controller n + 1, whose triggers and grips are that player's own.
 //
 // Native helper called once a frame from the [[patches.hook]] in config/us.toml (func_1501878C);
 // src/platform/input.hpp sends the trigger effect and plays the thumps (Core Haptics on a DualSense
@@ -185,21 +184,19 @@ void gun_rumble(uint8_t* rdram, uint32_t player, int port) {
 
 // A multiplayer match: each player's gun on their own controller.
 void multiplayer_guns(uint8_t* rdram) {
-    TriggerEffect effect;  // off
     const bool running = MEM_BU(0, kseg0(kWorldPaused)) == 0;
     for (int i = 0; i < conker::input::kPorts; i++) {
+        TriggerEffect effect;  // off
         const uint32_t player = running ? player_block(rdram, kActors + i * kActorSize) : 0;
         const bool mounted = player != 0 && MEM_BU(kPlayerMounted, kseg0(player)) == kMountedGun;
         if (mounted && adaptive_triggers_enabled()) {
             gun_rumble(rdram, player, i);
-            if (i == 0) {
-                effect = kGunReady;
-            }
+            effect = kGunReady;
         } else {
             g_was_mounted[i] = false;
         }
+        conker::input::set_trigger_effect(effect, i);
     }
-    conker::input::set_trigger_effect(effect);
 }
 
 } // namespace
@@ -229,6 +226,10 @@ extern "C" void conker_adaptive_triggers(uint8_t* rdram, recomp_context* /*ctx*/
         }
     }
     conker::input::set_trigger_effect(effect);
+    for (int i = 1; i < conker::input::kPorts; i++) {
+        conker::input::set_trigger_effect(TriggerEffect{}, i);  // free, as a match may have left them
+        g_was_mounted[i] = false;
+    }
 }
 
 nlohmann::json conker::status::adaptive_triggers() {
