@@ -63,6 +63,7 @@ extern "C" void func_8000A750(uint8_t* rdram, recomp_context* ctx);
 extern "C" void sndp_post_event(uint8_t* rdram, recomp_context* ctx);
 // The frame's drawing, as func_1501878C calls it (see draw_local_view).
 extern "C" void func_1501A8C0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void func_1501B22C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_1501B640(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_15172D80(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_15019464(uint8_t* rdram, recomp_context* ctx);
@@ -657,6 +658,10 @@ constexpr uint32_t kHiddenDepth = 0x80640000;
 gpr g_list_pointer = 0;     // where func_1501878C keeps the display list pointer ($s1)
 uint32_t g_list_start = 0;  // where the views' commands start in the list
 std::vector<uint8_t> g_before_views;  // game memory where func_1501878C starts drawing the views
+std::vector<uint32_t> g_timer_texts;  // HUD text entries queued this frame at the split screen's timer spot
+// func_151DDC20 queues the match timer at (0x87, 0x64), between the split views, or at (0x87, 0xC6)
+// with one view.
+constexpr int16_t kTimerX = 0x87, kSplitTimerY = 0x64, kOneViewTimerY = 0xC6;
 uint32_t g_count_reads_before = 0;    // and the frame's osGetCount reads then
 
 // Calls one of the frame's drawing functions; returns $v0.
@@ -703,6 +708,7 @@ void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
     MEM_W(0, kseg0(kLastView)) = 0;
     MEM_BU(0, kseg0(kViewOrder)) = static_cast<uint8_t>(local);
     call(rdram, ctx, func_1501A8C0, view, 0, 0x3FF, 0);  // the local view's record over the whole screen
+    call(rdram, ctx, func_1501B22C, view);  // its view planes, from its new field of view (props at the sides)
     const uint32_t views = static_cast<uint32_t>(MEM_W(0, kseg0(kViews)));
     // The other views' records become the local one's: the HUD sizes every player's text from view
     // 0's and places it by the view it was queued for. The views before the local one are moved off
@@ -720,6 +726,11 @@ void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
         write_float(rdram, record + kViewHeight, read_float(rdram, own + kViewHeight));
     }
     set_list_pointer(rdram, g_list_start);
+    for (const uint32_t entry : g_timer_texts) {
+        if (MEM_H(0x8, kseg0(entry)) == kTimerX && MEM_H(0xA, kseg0(entry)) == kSplitTimerY) {
+            MEM_H(0xA, kseg0(entry)) = kOneViewTimerY;
+        }
+    }
 
     // The views before the local one are set up and drawn as the game draws them, in the game's order:
     // the game builds some of a frame's geometry once, as the first view that needs it draws, and
@@ -826,6 +837,7 @@ void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
 }  // namespace
 
 void conker::my_view::frame(uint8_t* rdram, recomp_context* ctx) {
+    g_timer_texts.clear();
     g_marked.set = g_start.set = g_play.set = false;
     g_view = local_view(rdram);
     present(rdram, g_view);
@@ -1037,7 +1049,9 @@ extern "C" void conker_my_view_draw_start(uint8_t* rdram, recomp_context* ctx) {
     g_list_pointer = ctx->r17;
     g_list_start = list_pointer(rdram);
     g_before_views.clear();
-    if (g_full && g_view >= 0 && MEM_BU(0, kseg0(kScreenHandler)) == 0) {
+    // Paused, the game draws no views, only the copy of the last frame it made (the local view, drawn
+    // whole) and the menu over the whole screen: that frame is shown as the game draws it.
+    if (g_full && g_view >= 0 && MEM_BU(0, kseg0(kScreenHandler)) == 0 && MEM_BU(0, kseg0(kPaused)) == 0) {
         g_before_views.assign(rdram, rdram + kGameMemory);
         g_count_reads_before = conker::frame_input::count_reads();
     }
@@ -1087,6 +1101,17 @@ extern "C" void conker_my_view_draw_end(uint8_t* rdram, recomp_context* ctx) {
 }
 
 bool conker::my_view::drawing_again() { return g_drawing; }
+
+// func_15042ECC at 0x150431D8, a text line's entry ($v0) with its position just stored.
+extern "C" void conker_my_view_text_queued(uint8_t* rdram, recomp_context* ctx) {
+    if (g_view < 0 || g_drawing || g_timer_texts.size() >= 8) {
+        return;
+    }
+    const uint32_t entry = static_cast<uint32_t>(ctx->r2);
+    if (in_rdram(entry) && MEM_H(0x8, kseg0(entry)) == kTimerX && MEM_H(0xA, kseg0(entry)) == kSplitTimerY) {
+        g_timer_texts.push_back(entry);
+    }
+}
 
 
 nlohmann::json conker::status::my_view() {

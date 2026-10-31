@@ -766,6 +766,14 @@ func = "func_1501878C"
 before_vram = 0x15018CDC
 text = "{ void conker_my_view_draw_end(uint8_t*, recomp_context*); conker_my_view_draw_end(rdram, ctx); }"
 
+# Online "my view": a HUD text being queued ($v0 its entry, its position just stored at +0x8), so the
+# local player's view drawn again can move the match timer from between the split views to where a
+# one-view match has it (src/enhancements/my_view/my_view.cpp).
+[[patches.hook]]
+func = "func_15042ECC"
+before_vram = 0x150431D8
+text = "{ void conker_my_view_text_queued(uint8_t*, recomp_context*); conker_my_view_text_queued(rdram, ctx); }"
+
 # Once a frame, just before func_1501878C checks D_800BEAC0 to run or skip the world frame: a
 # DualSense plays a thump when Conker's animation becomes his landing
 # (src/enhancements/haptics/haptics.cpp), and its triggers take the feel of what Conker is doing
