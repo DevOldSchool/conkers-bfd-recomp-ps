@@ -487,6 +487,11 @@ private:
         // black edges). Widened, nothing draws there either, so they are left out of the picture
         // (tools/patches/rt64-edge-rects.patch) instead of showing as thin bars of black or stale pixels.
         app_->enhancementConfig.presentation.expandCropSides = kUndrawnColumns;
+        // The picture covers the whole 292x216 frame buffer, but the VI shows only its rows 1 to 214. In a
+        // split-screen match nothing redraws rows 0 and 215, so they kept whatever was last drawn there, such as
+        // the rocket launcher's scope, as a band at the bottom. They show black instead
+        // (tools/patches/rt64-hidden-rows.patch).
+        app_->enhancementConfig.presentation.hideEdgeRows = 1;
         app_->updateUserConfig(true);  // see get_resolution_scale
         app_->updateEnhancementConfig();
         conker::gpu_faults::note("display applied: scale " + std::to_string(scale) + (wide ? ", widescreen" : ", 4:3") +
