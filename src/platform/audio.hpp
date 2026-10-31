@@ -17,4 +17,11 @@ void queue_samples(int16_t* samples, size_t sample_count);
 size_t get_frames_remaining();
 void set_frequency(uint32_t freq);
 
+// The volume the game is played at, in tenths of full volume (0 is silent), set from the
+// OPTIONS page (src/enhancements/display_options/display_options.cpp) and kept in
+// conker-recomp-data/audio.cfg.
+constexpr int kMaxVolume = 10;
+int volume();
+void set_volume(int volume);
+
 } // namespace conker::audio

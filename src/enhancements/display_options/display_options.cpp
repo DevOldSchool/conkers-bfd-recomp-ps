@@ -1,8 +1,8 @@
-// Display rows on the title menu's OPTIONS page, between the sound row and CHEATS: whether the
-// sharper text and menus are drawn (SHARP TEXT or ORIGINAL TEXT), the display mode (WINDOWED,
-// BORDERLESS, FULL SCREEN), the picture's shape (4:3 or WIDESCREEN), the resolution the picture is
-// drawn at in that mode, and whether it is scaled to fill the window or screen or drawn at its own
-// size.
+// A VOLUME row under the sound row on the title menu's OPTIONS page, and display rows between
+// it and CHEATS: whether the sharper text and menus are drawn (SHARP TEXT or ORIGINAL
+// TEXT), the display mode (WINDOWED, BORDERLESS, FULL SCREEN), the picture's shape (4:3 or
+// WIDESCREEN), the resolution the picture is drawn at in that mode, and whether it is scaled to
+// fill the window or screen or drawn at its own size.
 // Native helpers called from the [[patches.hook]] snippets in config/us.toml (func_151DF1BC,
 // func_151E3344); CONKER_DISPLAY_OPTIONS=0 leaves the page as it was.
 //
@@ -14,12 +14,18 @@
 // option the index of each value's string in the language text table (D_800E0BD8). Values wrap
 // around at either end.
 //
-// Each row borrows a multiplayer option with text values for the length of the call: its value,
-// limits and label are swapped for the row's, and its strings for the row's words. Everything is
-// put back when the call returns, so the multiplayer settings and the options saved to EEPROM
-// never see the display settings, which are kept in conker-recomp-data/display.cfg instead
-// (src/platform/display_mode.cpp).
+// Each row borrows an option with text values that the page does not show, for the length of the
+// call: its value, limits and label are swapped for the row's, and its strings for the row's
+// words. Everything is put back when the call returns, so the multiplayer settings and the
+// options saved to EEPROM never see these settings, which are kept in
+// conker-recomp-data/display.cfg and audio.cfg instead (src/platform/display_mode.cpp,
+// src/platform/audio.cpp).
 //
+// * The volume row borrows option 0 (three values) as a carousel: the volume is in the middle,
+//   and a step left or right turns it down or up by 10%, stopping at OFF and 100%. Every text
+//   option after the sound row's (9) is taken by a display row, so the engine puts this row
+//   first; it is drawn under the sound row, and moving up or down follows the rows down the page. The volume scales the host's audio output only
+//   (src/platform/audio.cpp), so it is the same in every game mode, multiplayer included.
 // * The sharp row borrows option 10 (five values) as a carousel like the resolution row: the
 //   setting is in the middle and the other one on either side, so a step either way switches it.
 //   SHARP TEXT loads the built-in sharper font and menus (src/platform/renderer_rt64.cpp),
@@ -50,6 +56,7 @@
 #include <vector>
 
 #include "recomp.h"
+#include "platform/audio.hpp"
 #include "platform/display_mode.hpp"
 #include "enhancements/status.hpp"
 
@@ -69,7 +76,8 @@ constexpr uint32_t kSelected = 0x8008FE34;       // D_8008FE34: the selected opt
 constexpr int8_t kNoLabel = -1;
 constexpr int kStickSpread = 18;                 // extra room on each side of the rows, in pixels
 constexpr int kEngineRowSpacing = 0x22;          // func_151E3344's row pitch on this page
-constexpr int kFirstRowY = 0x46;                 // and its first row's y
+constexpr int kPageTop = 0x3B;                   // the top row's y: 0x46 in the engine, moved up for the volume row
+constexpr int kRowYSlot = 0x138;                 // func_151E3344's stack: the row's y (low half)
 constexpr uint32_t kStickFrom = 0x8008FDE4;      // D_8008FDE4: the row the joysticks move from
 constexpr uint32_t kStickProgress = 0x8008FDE8;  // D_8008FDE8: how far they have moved (float)
 constexpr int kStickToSlot = 0x108;              // func_151E3344's stack: the row they move to
@@ -85,6 +93,9 @@ struct Borrowed {
     int value_count;
     int8_t record[1 + kMaxValues];  // as the game has it; checked before borrowing
     uint32_t strings;               // where the row's words go
+    // The string indices the row's values use instead of the record's own, when another row
+    // repoints one of those (option 0's BORDERLESS is also option 12's); none if empty.
+    int8_t indices[kMaxValues];
 
     // Saved during the call.
     int8_t saved_value, saved_minimum, saved_maximum;
@@ -97,37 +108,93 @@ Borrowed g_scale_row{16, 42, 5, {-6, 35, 36, 37, 38, 39}, kStringArea + 3 * kStr
 Borrowed g_fill_row{19, 52, 2, {-62, 43, 44}, kStringArea + 8 * kStringStride};
 Borrowed g_shape_row{15, 39, 2, {31, 32, 33}, kStringArea + 10 * kStringStride};
 Borrowed g_sharp_row{10, 23, 5, {21, 22, 25, 23, 24, 26}, kStringArea + 12 * kStringStride};
+// Option 0 shares string 4 with option 12; string 2 is both options' label, unused while borrowed.
+Borrowed g_volume_row{0, 0, 3, {2, 3, 4, 5}, kStringArea + 17 * kStringStride, {3, 2, 5}};
 constexpr int8_t kCarouselMiddle = 2;
+constexpr int8_t kVolumeMiddle = 1;
 
 bool g_active = false;
-int g_row_y[kMaxRows];  // each shown row's y, in the order shown
+int g_row_option[kMaxRows];   // each shown row's option, in the engine's (option) order
 int g_row_count = 0;
+int g_drawn_option[kMaxRows];  // the shown options in the order they are drawn down the page
+int g_option_y[kMaxRows];      // where each shown option's row is drawn
+int g_selected_before = 0;     // the selected option when the call began
 
 // The gap below a row, by the option it shows.
 int gap_after(int option) {
     switch (option) {
-        case 9: return 22;    // the sound icon, then the display rows
+        case 9: return 20;    // the sound icon, then the volume
+        case 0:               // the volume, then the display rows
         case 10:
         case 12:
         case 15:
-        case 16: return 16;   // between the display rows
+        case 16: return 15;   // between the display rows
         case 19: return 28;   // the display rows, then CHEATS
         default: return kEngineRowSpacing;
     }
 }
 
+// The engine places the rows in option order, which puts the volume row (option 0) first; it is
+// drawn under the sound row instead, and the rest keep their order.
 void lay_out(uint32_t mask) {
     g_row_count = 0;
-    int y = kFirstRowY;
     for (int option = 0; option < kMaxRows; option++) {
         if (mask & (1u << option)) {
-            g_row_y[g_row_count++] = y;
-            y += gap_after(option);
+            g_row_option[g_row_count++] = option;
+        }
+    }
+    const int volume = g_volume_row.option;
+    const bool has_volume = (mask & (1u << volume)) != 0;
+    int drawn = 0;
+    int y = kPageTop;
+    auto place = [&](int option) {
+        g_drawn_option[drawn++] = option;
+        g_option_y[option] = y;
+        y += gap_after(option);
+    };
+    for (int row = 0; row < g_row_count; row++) {
+        const int option = g_row_option[row];
+        if (option == volume) {
+            continue;
+        }
+        place(option);
+        if (option == 9 && has_volume) {
+            place(volume);
         }
     }
 }
 
-int row_y(int row) { return g_row_y[row < 0 ? 0 : row >= g_row_count ? g_row_count - 1 : row]; }
+int row_y(int row) {
+    return g_option_y[g_row_option[row < 0 ? 0 : row >= g_row_count ? g_row_count - 1 : row]];
+}
+
+int row_of(const int* options, int option) {
+    for (int row = 0; row < g_row_count; row++) {
+        if (options[row] == option) {
+            return row;
+        }
+    }
+    return -1;
+}
+
+// The engine moves the selection a row up or down in its own order; move it the same way down
+// the page instead.
+int follow_page_order(int before, int after) {
+    const int from = row_of(g_row_option, before);
+    const int to = row_of(g_row_option, after);
+    const int drawn = row_of(g_drawn_option, before);
+    if (before == after || from < 0 || to < 0 || drawn < 0) {
+        return after;
+    }
+    const int count = g_row_count;
+    if (to == (from + 1) % count) {
+        return g_drawn_option[(drawn + 1) % count];
+    }
+    if (to == (from + count - 1) % count) {
+        return g_drawn_option[(drawn + count - 1) % count];
+    }
+    return after;
+}
 int8_t g_shown_mode = 0;
 int8_t g_shown_shape = 0;
 int8_t g_shown_fill = 0;
@@ -143,6 +210,10 @@ bool display_options_enabled() {
 }
 
 uint32_t record_address(const Borrowed& row) { return kRecords + row.record_offset; }
+
+int string_index(const Borrowed& row, int value) {
+    return row.indices[0] != 0 ? row.indices[value] : row.record[1 + value];
+}
 
 uint32_t string_slot(uint8_t* rdram, int index) {
     return static_cast<uint32_t>(MEM_W(0, kseg0(kTextTable))) + static_cast<uint32_t>(index) * 4;
@@ -179,8 +250,9 @@ void borrow(uint8_t* rdram, Borrowed& row, int8_t value, const std::vector<std::
     MEM_B(row.option, kseg0(kMaximums)) = static_cast<int8_t>(row.value_count - 1);
     MEM_B(0, kseg0(record_address(row))) = kNoLabel;
     for (int i = 0; i < row.value_count; i++) {
-        // The record's own string indices are repointed, so the record keeps its length.
-        const int index = row.record[1 + i];
+        // The string indices are repointed, so the record keeps its length.
+        const int index = string_index(row, i);
+        MEM_B(1 + i, kseg0(record_address(row))) = static_cast<int8_t>(index);
         const uint32_t slot = string_slot(rdram, index);
         row.saved_pointers[i] = MEM_W(0, kseg0(slot));
         const uint32_t text = row.strings + static_cast<uint32_t>(i) * kStringStride;
@@ -199,9 +271,19 @@ int8_t give_back(uint8_t* rdram, Borrowed& row) {
         MEM_B(i, kseg0(record_address(row))) = row.saved_record[i];
     }
     for (int i = 0; i < row.value_count; i++) {
-        MEM_W(0, kseg0(string_slot(rdram, row.record[1 + i]))) = row.saved_pointers[i];
+        MEM_W(0, kseg0(string_slot(rdram, string_index(row, i)))) = row.saved_pointers[i];
     }
     return value;
+}
+
+std::string volume_words(int volume) {
+    volume = volume < 0 ? 0 : volume > conker::audio::kMaxVolume ? conker::audio::kMaxVolume : volume;
+    if (volume == 0) {
+        return "VOLUME OFF";
+    }
+    char text[32];
+    std::snprintf(text, sizeof(text), "VOLUME %d%%", volume * 10);
+    return text;
 }
 
 std::string scale_words(Mode mode, int scale) {
@@ -247,9 +329,13 @@ extern "C" void conker_display_options_begin(uint8_t* rdram, recomp_context* ctx
     if (!display_options_enabled() || static_cast<uint32_t>(ctx->r4) != kOptionsPageMask ||
         !record_matches(rdram, g_mode_row) || !record_matches(rdram, g_scale_row) ||
         !record_matches(rdram, g_fill_row) || !record_matches(rdram, g_shape_row) ||
-        !record_matches(rdram, g_sharp_row)) {
+        !record_matches(rdram, g_sharp_row) || !record_matches(rdram, g_volume_row)) {
         return;
     }
+    const int volume = conker::audio::volume();
+    borrow(rdram, g_volume_row, kVolumeMiddle, {volume_words(volume - 1), volume_words(volume), volume_words(volume + 1)});
+    ctx->r4 |= 1u << g_volume_row.option;
+
     const bool sharp = conker::display::sharp();
     const char* const same = sharp ? "SHARP TEXT" : "ORIGINAL TEXT";
     const char* const other = sharp ? "ORIGINAL TEXT" : "SHARP TEXT";
@@ -276,6 +362,7 @@ extern "C" void conker_display_options_begin(uint8_t* rdram, recomp_context* ctx
     borrow(rdram, g_fill_row, g_shown_fill, {"FILL SCREEN", "CENTERED"});
     ctx->r4 |= 1u << g_fill_row.option;
     lay_out(static_cast<uint32_t>(ctx->r4));
+    g_selected_before = MEM_BU(0, kseg0(kSelected));
     g_active = true;
 }
 
@@ -285,12 +372,17 @@ extern "C" void conker_display_options_end(uint8_t* rdram, recomp_context* /*ctx
         return;
     }
     g_active = false;
+    MEM_B(0, kseg0(kSelected)) =
+        static_cast<int8_t>(follow_page_order(g_selected_before, MEM_BU(0, kseg0(kSelected))));
+    const int8_t volume_step = static_cast<int8_t>(give_back(rdram, g_volume_row) - kVolumeMiddle);
     const int8_t mode = give_back(rdram, g_mode_row);
     const int8_t shape = give_back(rdram, g_shape_row);
     const int8_t step = static_cast<int8_t>(give_back(rdram, g_scale_row) - kCarouselMiddle);
     const int8_t fill = give_back(rdram, g_fill_row);
     const int8_t sharp_step = static_cast<int8_t>(give_back(rdram, g_sharp_row) - kCarouselMiddle);
-    if (sharp_step != 0) {
+    if (volume_step != 0) {
+        conker::audio::set_volume(conker::audio::volume() + (volume_step > 0 ? 1 : -1));
+    } else if (sharp_step != 0) {
         conker::display::request_sharp(!conker::display::sharp());
     } else if (mode != g_shown_mode && mode >= 0 && mode < conker::display::kModeCount) {
         conker::display::request(static_cast<Mode>(mode));
@@ -313,16 +405,18 @@ extern "C" void conker_display_options_sticks(uint8_t* rdram, recomp_context* ct
     const int selected = MEM_BU(0, kseg0(kSelected));
     if (g_active && (selected == g_mode_row.option || selected == g_shape_row.option ||
                      selected == g_scale_row.option || selected == g_fill_row.option ||
-                     selected == g_sharp_row.option)) {
+                     selected == g_sharp_row.option || selected == g_volume_row.option)) {
         ctx->r16 += kStickSpread;
     }
 }
 
 // In func_151E3344 before `addiu $s2, $s2, 0x22`, which moves $s2 to the next row's y ($s0 = the
-// option just placed).
-extern "C" void conker_display_options_row_y(uint8_t* /*rdram*/, recomp_context* ctx) {
-    if (g_active) {
-        ctx->r18 -= kEngineRowSpacing - gap_after(static_cast<int>(ctx->r16));
+// option just placed). The row is drawn at the y just stored from $s2, which is replaced by the
+// row's place on this page.
+extern "C" void conker_display_options_row_y(uint8_t* rdram, recomp_context* ctx) {
+    const int option = static_cast<int>(ctx->r16);
+    if (g_active && option >= 0 && option < kMaxRows) {
+        MEM_W(kRowYSlot, ctx->r29) = g_option_y[option];
     }
 }
 

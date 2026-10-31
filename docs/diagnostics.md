@@ -99,9 +99,9 @@ These environment variables are read by both builds:
   are in pixels, with a 56-pixel title bar on top of a window's picture.
 * **Reaching OPTIONS by script.** With `CONKER_SKIP_INTRO=1`, the pad lines
   `400 8 leftx=1`, `640 8 leftx=1` and `900 8 a` go from GAME 1 past MULTI to
-  OPTIONS and open it; `1300 8 lefty=1` then selects the display mode row
-  (each further `lefty=1` 4:3/WIDESCREEN, the resolution row, then FILL
-  SCREEN/CENTERED), and
+  OPTIONS and open it on the VOLUME row (under the sound row); `1300 8 lefty=1`
+  then selects SHARP TEXT (each further `lefty=1` the display mode row,
+  4:3/WIDESCREEN, the resolution row, then FILL SCREEN/CENTERED), and
   `leftx=1` or `leftx=-1` steps its value. `CONKER_ORIGINAL_SIZE=1` keeps the window at 960x720, so test
   window sizes without it. `rightx` is the right stick
   (the C buttons), not the left stick pushed right. When several copies of
