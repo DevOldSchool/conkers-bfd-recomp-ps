@@ -75,10 +75,8 @@ settings, saves and `last-run.log`, in
 window it opens with closes. A run from a folder that already has a
 `conker-recomp-data` folder keeps using that one.
 
-The game is not signed, so Windows SmartScreen stops it the first time: **More
-info**, then **Run anyway**. Unblocking the downloaded zip (Properties,
-**Unblock**) before extracting it avoids that. Smart App Control (Windows 11)
-blocks unsigned programs outright.
+The game is not signed, so Windows blocks a downloaded copy: before extracting
+the zip, right-click it, choose **Properties** and tick **Unblock**.
 
 A crash prints the faulting N64 address and a backtrace to the console (or the
 log), named from `ConkersBadFurDayRecompiled.pdb` when it is next to the game.
