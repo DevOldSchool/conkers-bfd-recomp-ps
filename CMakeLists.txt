@@ -76,6 +76,7 @@ endif()
 # src/runtime: boot, memory layout, overlays and the libultra pieces the recompiled code needs.
 # src/platform: host backends (audio, input, window, renderer); the renderer-specific ones are
 # added below. src/fixes: hooks that make the recompiled game behave as it does on hardware.
+# src/credits: the port's own name in the ending credits.
 # src/enhancements: one folder per feature the console does not have, each with its own switch.
 add_executable(ConkersBadFurDayRecompiled
     src/main.cpp
@@ -101,6 +102,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/platform/display_mode.cpp
     src/platform/gpu_faults.cpp
     src/platform/process.cpp
+    src/credits/credits.cpp
     src/fixes/geometry_escape.cpp
     src/fixes/frame_effects.cpp
     src/fixes/level_seams.cpp
