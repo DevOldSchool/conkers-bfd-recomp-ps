@@ -1,0 +1,102 @@
+--- a/src/common/rt64_enhancement_configuration.cpp
++++ b/src/common/rt64_enhancement_configuration.cpp
+@@ -13,6 +13,7 @@
+         presentation.removeBlackBorders = true;
+         presentation.nativeSize = false;
+         presentation.expandCropSides = 0.0f;
++        presentation.hideEdgeRows = 0;
+         rect.fixRectLR = true;
+         rect.extendEdgeRects = false;
+         f3dex.forceBranch = false;
+--- a/src/common/rt64_enhancement_configuration.h
++++ b/src/common/rt64_enhancement_configuration.h
+@@ -29,6 +29,10 @@
+             // Columns of the frame buffer left out at each side when it is presented with a wider aspect ratio (Expand or
+             // Manual), for games that never draw the columns at the edges; Expand widens the aspect ratio to make up for them.
+             float expandCropSides;
++
++            // Rows of the frame buffer shown black at its top and bottom, for games that leave its first and last rows
++            // undrawn because the VI never shows them, while the presented picture covers the whole frame buffer.
++            uint32_t hideEdgeRows;
+         };
+         
+         struct Rect {
+--- a/src/hle/rt64_present_queue.cpp
++++ b/src/hle/rt64_present_queue.cpp
+@@ -105,6 +105,7 @@
+         bool removeBlackBorders;
+         bool nativeSize;
+         float cropSides;
++        uint32_t hideRows;
+         UserConfiguration::RefreshRate refreshRate;
+         UserConfiguration::Filtering filtering;
+         uint32_t viOriginalRate;
+@@ -115,6 +116,7 @@
+             presentationMode = ext.sharedResources->enhancementConfig.presentation.mode;
+             removeBlackBorders = ext.sharedResources->enhancementConfig.presentation.removeBlackBorders;
+             nativeSize = ext.sharedResources->enhancementConfig.presentation.nativeSize;
++            hideRows = ext.sharedResources->enhancementConfig.presentation.hideEdgeRows;
+             cropSides = (ext.sharedResources->userConfig.aspectRatio != UserConfiguration::AspectRatio::Original) ? ext.sharedResources->enhancementConfig.presentation.expandCropSides : 0.0f;
+             refreshRate = ext.sharedResources->userConfig.refreshRate;
+             filtering = ext.sharedResources->userConfig.filtering;
+@@ -334,6 +336,7 @@
+                     renderParams.removeBlackBorders = removeBlackBorders;
+                     renderParams.nativeSize = nativeSize;
+                     renderParams.cropSides = cropSides;
++                    renderParams.hideRows = hideRows;
+ 
+                     const bool useDownsampling = (colorTarget->downsampleMultiplier > 1);
+                     if (useDownsampling) {
+--- a/src/render/rt64_vi_renderer.cpp
++++ b/src/render/rt64_vi_renderer.cpp
+@@ -76,7 +76,7 @@
+ 
+         RenderViewport viewport;
+         RenderRect scissor;
+-        getViewportAndScissor(p.swapChain, *p.vi, p.resolutionScale, p.downsamplingScale, p.removeBlackBorders, p.nativeSize, viewport, scissor, p.cropSides);
++        getViewportAndScissor(p.swapChain, *p.vi, p.resolutionScale, p.downsamplingScale, p.removeBlackBorders, p.nativeSize, viewport, scissor, p.cropSides, p.hideRows);
+ 
+         PresentedPicture picture;
+         picture.x = viewport.x;
+@@ -106,7 +106,7 @@
+         p.commandList->drawInstanced(3, 1, 0, 0);
+     }
+ 
+-    void VIRenderer::getViewportAndScissor(const RenderSwapChain *swapChain, const VI &vi, hlslpp::float2 resolutionScale, uint32_t downsamplingScale, bool removeBlackBorders, bool nativeSize, RenderViewport &viewport, RenderRect &scissor, float cropSides) {
++    void VIRenderer::getViewportAndScissor(const RenderSwapChain *swapChain, const VI &vi, hlslpp::float2 resolutionScale, uint32_t downsamplingScale, bool removeBlackBorders, bool nativeSize, RenderViewport &viewport, RenderRect &scissor, float cropSides, uint32_t hideRows) {
+         // We define three different coordinate spaces to work with to translate the VI parameters into the Window.
+         //
+         // VideoSD: This corresponds to the SD TV Scanline space, which is what the VI natively works on.
+@@ -139,6 +139,15 @@
+             viCropRect.z = std::max(cropRight - cropLeft, 0.0f);
+         }
+ 
++        // Leave rows out at the top and bottom: the picture keeps its place and size, and they show black.
++        const float rows = removeBlackBorders ? std::min(float(hideRows), float(fullSdSize.y) / 4.0f) : 0.0f;
++        if (rows > 0.0f) {
++            const float cropTop = std::max(float(viCropRect.y), rows);
++            const float cropBottom = std::min(float(viCropRect.y + viCropRect.w), float(fullSdSize.y) - rows);
++            viCropRect.y = cropTop;
++            viCropRect.w = std::max(cropBottom - cropTop, 0.0f);
++        }
++
+         // Scale all the rectangles to the space of the Window.
+         hlslpp::float2 topLeftViewport = fromSDtoHD({ float(viViewRect.x), float(viViewRect.y) }, sdSize, hdSize);
+         hlslpp::float2 bottomRightViewport = fromSDtoHD({ float(viViewRect.x + viViewRect.z), float(viViewRect.y + viViewRect.w) }, sdSize, hdSize);
+--- a/src/render/rt64_vi_renderer.h
++++ b/src/render/rt64_vi_renderer.h
+@@ -31,11 +31,12 @@
+             bool removeBlackBorders = false;
+             bool nativeSize = false;
+             float cropSides = 0.0f;
++            uint32_t hideRows = 0;
+         };
+ 
+         VIRenderer();
+         ~VIRenderer();
+         void render(const RenderParams &p);
+-        static void getViewportAndScissor(const RenderSwapChain *swapChain, const VI &vi, hlslpp::float2 resolutionScale, uint32_t downsamplingScale, bool removeBlackBorders, bool nativeSize, RenderViewport &viewport, RenderRect &scissor, float cropSides = 0.0f);
++        static void getViewportAndScissor(const RenderSwapChain *swapChain, const VI &vi, hlslpp::float2 resolutionScale, uint32_t downsamplingScale, bool removeBlackBorders, bool nativeSize, RenderViewport &viewport, RenderRect &scissor, float cropSides = 0.0f, uint32_t hideRows = 0);
+     };
+ };
+\ No newline at end of file

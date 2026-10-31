@@ -28,7 +28,7 @@ patches_for() {
                 rt64-memory-packs.patch rt64-wireframe.patch rt64-wide-draw-rect.patch \
                 rt64-queue-names.patch rt64-metal-float-to-int.patch rt64-object-picking.patch \
                 rt64-near-draw-rect.patch rt64-split-screen-wide.patch rt64-grey-from-green.patch \
-                rt64-frame-effects.patch rt64-dl-command-limit.patch rt64-thread-exit.patch ;;
+                rt64-frame-effects.patch rt64-dl-command-limit.patch rt64-thread-exit.patch rt64-hidden-rows.patch ;;
         lib/rt64/src/contrib/plume) echo plume-wireframe.patch plume-gpu-errors.patch ;;
     esac
 }
