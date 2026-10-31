@@ -40,6 +40,17 @@
 // The matches' guns (picked up; TEMPLE's shotgun is item 0x37) handle as the story's shotgun
 // does, so they get its controls too; every player in a match gets all of the above on their own
 // pad, controller 1 alone the mouse.
+// On foot in a match the camera is locked behind the player: its controls block's +0x84 has bit 21,
+// so func_1512D390 does not swing it with C-left and C-right, which step the player sideways
+// instead, and the camera eases back behind the facing (logged: turned with the mouse past the
+// lock, it swung back within about 1.5 s). The left stick runs where the camera looks, so pushed
+// sideways the player turns towards it and the camera follows, round in a circle. So there the
+// right stick's X and the mouse turn the player (facing +0x40, +0x76, +0x7A of the actor) and the
+// camera together (mouse_look::turn_camera), the view staying where they aim, and the left stick's
+// X steps as C-left and C-right do (C-left to the left), its Y running forwards and back. The right
+// stick's C buttons are taken off: C-up steps forwards with a gun. R's look without a gun gets
+// the gun's aim there, the right stick looking (up looks up) and the left stick the C buttons, so
+// the camera never moves with the left stick (looking, the game does not walk with them).
 // The pads as the game reads them are rewritten in func_1501BBB8 (sp+0x38, four OSContPads, after
 // osContGetReadData; the [[patches.hook]] in config/us.toml), so the game sees nothing else.
 // CONKER_CONSISTENT_CONTROLS=0 leaves the game's controls.
@@ -62,6 +73,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 
 #include "recomp.h"
 #include "enhancements/consistent_controls/mouse_look.hpp"
@@ -98,6 +110,11 @@ constexpr uint32_t kActorRider = 0x13C;  // u8: the actor riding it, as kRiderBi
 constexpr int kRiderBias = 100;
 constexpr uint32_t kMultiplayer = 0x800BE616;  // D_800BE616: nonzero during a multiplayer match
 constexpr uint32_t kPlayerPads = 0x80084060;   // D_80084060: u8 per player, the pad it reads
+constexpr uint32_t kFrameDelta = 0x800BE9A4;   // D_800BE9A4: this frame's logic step, 1.0 = 1/30 s
+constexpr uint32_t kActorFacing = 0x40;        // f32: degrees from +Z towards +X
+constexpr uint32_t kActorFacingAngle = 0x76;   // s16: the facing it is made from, and the one it
+constexpr uint32_t kActorFacingTarget = 0x7A;  // turns towards (0x10000 a turn, 90 degrees behind)
+constexpr float kMatchTurn = 6.0f;             // degrees a 1/30 s step, the right stick pushed fully
 
 constexpr int kPad = 0x38;  // func_1501BBB8's frame: controller 1's OSContPad
 constexpr int kPadSize = 6;  // OSContPad, four of them
@@ -168,6 +185,19 @@ bool holding_gun(uint8_t* rdram, uint32_t player) {
 bool launcher_scoped(uint8_t* rdram, uint32_t player) {
     return (holding(rdram, player, kRocketLauncher) || holding(rdram, player, kScopedGun)) &&
            MEM_BU(kPlayerScoped, kseg0(player)) == kScoped;
+}
+
+float read_float(uint8_t* rdram, uint32_t address) {
+    const uint32_t word = static_cast<uint32_t>(MEM_W(0, kseg0(address)));
+    float value;
+    std::memcpy(&value, &word, sizeof(value));
+    return value;
+}
+
+void write_float(uint8_t* rdram, uint32_t address, float value) {
+    uint32_t word;
+    std::memcpy(&word, &value, sizeof(word));
+    MEM_W(0, kseg0(address)) = static_cast<int32_t>(word);
 }
 
 // The mouse's aim, the pad's port's mouse; false when it has none (not captured).
@@ -246,10 +276,43 @@ void aim_upright(uint8_t* rdram, recomp_context* ctx, int pad, int at) {
     MEM_B(at + 3, ctx->r29) = stick_axis(y);
 }
 
+// A match on foot: the right stick's X (and the port's mouse) turns the player and the camera
+// together, and the left stick runs forwards and back, sideways stepping as C-left and C-right do.
+// The right stick's C buttons are taken off the pad. False, leaving the pad alone, when the
+// controller has neither a right stick nor a captured mouse (the keyboard alone).
+bool match_look(uint8_t* rdram, recomp_context* ctx, uint32_t actor, int pad, int at, uint16_t& buttons) {
+    float right_x;
+    float right_y;
+    const bool stick = conker::frame_input::right_stick(&right_x, &right_y, pad);
+    // Paused (or in a menu) the pad is left alone: the pause menu is steered with the stick.
+    if ((!stick && !conker::frame_input::mouse_captured(pad)) || !conker::mouse_look::playing()) {
+        return false;
+    }
+    const int walk_x = MEM_B(at + 2, ctx->r29);
+    buttons &= static_cast<uint16_t>(~(kCUp | kCDown | kCLeft | kCRight));
+    if (walk_x < -kStepAt) buttons |= kCLeft;
+    if (walk_x > kStepAt) buttons |= kCRight;
+    MEM_B(at + 2, ctx->r29) = 0;
+    // Squared, for small turns near the middle.
+    const float turn = right_x * std::fabs(right_x) * kMatchTurn * read_float(rdram, kFrameDelta) +
+                       conker::mouse_look::take_turn(pad);
+    if (turn == 0.0f) {
+        return true;
+    }
+    // Turned right, the facing goes down.
+    write_float(rdram, actor + kActorFacing, read_float(rdram, actor + kActorFacing) - turn);
+    const auto angle = static_cast<int16_t>(std::lround(-turn * (65536.0f / 360.0f)));
+    MEM_H(kActorFacingAngle, kseg0(actor)) = static_cast<int16_t>(MEM_H(kActorFacingAngle, kseg0(actor)) + angle);
+    MEM_H(kActorFacingTarget, kseg0(actor)) = static_cast<int16_t>(MEM_H(kActorFacingTarget, kseg0(actor)) + angle);
+    conker::mouse_look::turn_camera(pad, turn);
+    return true;
+}
+
 // Rewrites the pad of the player whose block this is, read from controller `pad`.
-void remap(uint8_t* rdram, recomp_context* ctx, uint32_t player, int pad) {
+void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player, int pad) {
     const int at = kPad + pad * kPadSize;
     uint16_t buttons = MEM_HU(at, ctx->r29);
+    const bool match = MEM_BU(0, kseg0(kMultiplayer)) != 0;
     if (launcher_scoped(rdram, player)) {
         if (twin_stick_aim(rdram, ctx, pad, at, buttons)) {
             MEM_H(at, ctx->r29) = static_cast<int16_t>(buttons);
@@ -263,11 +326,22 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t player, int pad) {
     if (!holding_gun(rdram, player)) {
         const bool aiming = (buttons & kR) != 0 || holding(rdram, player, kSlingshot);
         if (aiming && looking(rdram, player)) {
-            aim_upright(rdram, ctx, pad, at);
+            // In a match the right stick aims and the left stick walks, as with a gun.
+            if (match && twin_stick_aim(rdram, ctx, pad, at, buttons)) {
+                MEM_H(at, ctx->r29) = static_cast<int16_t>(buttons);
+            } else {
+                aim_upright(rdram, ctx, pad, at);
+            }
+        } else if (match && (buttons & kR) == 0 && match_look(rdram, ctx, actor, pad, at, buttons)) {
+            MEM_H(at, ctx->r29) = static_cast<int16_t>(buttons);
         }
         return;
     }
     const bool aimed = (buttons & kR) != 0 && twin_stick_aim(rdram, ctx, pad, at, buttons);
+    if (!aimed && match && (buttons & kR) == 0 && match_look(rdram, ctx, actor, pad, at, buttons)) {
+        MEM_H(at, ctx->r29) = static_cast<int16_t>(buttons);
+        return;
+    }
     if (!aimed && camera_swapped()) {
         buttons = swap_c_left_right(buttons);
     }
@@ -305,7 +379,7 @@ extern "C" void conker_consistent_controls(uint8_t* rdram, recomp_context* ctx) 
         }
         const uint32_t block = pad >= 0 ? player_block(rdram, player) : 0;
         if (block != 0) {
-            remap(rdram, ctx, block, pad);
+            remap(rdram, ctx, player_actor(rdram, player), block, pad);
         }
     }
 }
