@@ -29,7 +29,7 @@ microcode through RSPRecomp) and EEPROM saves all work that far.
 Platforms:
 
 * macOS (the only one tested so far)
-* Windows
+* Windows (cross-compiled and run under Wine; not tested on Windows itself)
 * Linux
 
 ## Building

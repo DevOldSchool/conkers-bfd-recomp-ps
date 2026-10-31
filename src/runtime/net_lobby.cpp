@@ -14,17 +14,12 @@
 #include <random>
 #include <thread>
 
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <poll.h>
-#include <unistd.h>
-
 #include "platform/input.hpp"
 #include "runtime/frame_input.hpp"
 #include "runtime/game.hpp"
 #include "runtime/net_codes.hpp"
 #include "runtime/net_play.hpp"
+#include "runtime/net_socket.hpp"
 
 namespace conker::net::lobby {
 
@@ -131,10 +126,10 @@ void send_to(int socket, const sockaddr_storage& addr, socklen_t len, const Writ
 #if defined(__APPLE__)
         mapped.sin6_len = sizeof(mapped);
 #endif
-        sendto(socket, w.data, w.size, 0, reinterpret_cast<const sockaddr*>(&mapped), sizeof(mapped));
+        socket_send_to(socket, w.data, w.size, reinterpret_cast<const sockaddr*>(&mapped), sizeof(mapped));
         return;
     }
-    sendto(socket, w.data, w.size, 0, reinterpret_cast<const sockaddr*>(&addr), len);
+    socket_send_to(socket, w.data, w.size, reinterpret_cast<const sockaddr*>(&addr), len);
 }
 
 bool same_address(const sockaddr_storage& a, socklen_t, const sockaddr_storage& b, socklen_t) {
@@ -144,33 +139,31 @@ bool same_address(const sockaddr_storage& a, socklen_t, const sockaddr_storage& 
 
 // A dual-stack UDP socket on `port` (0: any); -1 if it cannot be had.
 int open_socket(uint16_t port) {
-    int s = socket(AF_INET6, SOCK_DGRAM, 0);
+    int s = static_cast<int>(socket(AF_INET6, SOCK_DGRAM, 0));
     if (s >= 0) {
-        int off = 0;
-        setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off));
+        socket_set_option(s, IPPROTO_IPV6, IPV6_V6ONLY, 0);
         sockaddr_in6 addr{};
         addr.sin6_family = AF_INET6;
         addr.sin6_addr = in6addr_any;
         addr.sin6_port = htons(port);
         if (bind(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
-            ::close(s);
+            socket_close(s);
             s = -1;
         }
     }
     if (s < 0) {
-        s = socket(AF_INET, SOCK_DGRAM, 0);
+        s = static_cast<int>(socket(AF_INET, SOCK_DGRAM, 0));
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = htonl(INADDR_ANY);
         addr.sin_port = htons(port);
         if (s >= 0 && bind(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
-            ::close(s);
+            socket_close(s);
             s = -1;
         }
     }
     if (s >= 0) {
-        fcntl(s, F_SETFL, fcntl(s, F_GETFL, 0) | O_NONBLOCK);
-        fcntl(s, F_SETFD, FD_CLOEXEC);  // not handed on when the game starts again into the session
+        socket_prepare(s);  // not handed on when the game starts again into the session
     }
     return s;
 }
@@ -178,26 +171,27 @@ int open_socket(uint16_t port) {
 // The IPv4 socket broadcast PROBEs go out on, and the discovery port's (shared by every game on
 // this machine that hosts: each gets a copy of a broadcast).
 int open_ipv4_socket(uint16_t port, bool shared) {
-    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    int s = static_cast<int>(socket(AF_INET, SOCK_DGRAM, 0));
     if (s < 0) {
         return -1;
     }
-    int on = 1;
-    setsockopt(s, SOL_SOCKET, SO_BROADCAST, &on, sizeof(on));
+    socket_set_option(s, SOL_SOCKET, SO_BROADCAST, 1);
     if (shared) {
-        setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
-        setsockopt(s, SOL_SOCKET, SO_REUSEPORT, &on, sizeof(on));
+        // Windows has no SO_REUSEPORT: there SO_REUSEADDR alone shares the port.
+        socket_set_option(s, SOL_SOCKET, SO_REUSEADDR, 1);
+#if defined(SO_REUSEPORT)
+        socket_set_option(s, SOL_SOCKET, SO_REUSEPORT, 1);
+#endif
     }
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons(port);
     if (bind(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
-        ::close(s);
+        socket_close(s);
         return -1;
     }
-    fcntl(s, F_SETFL, fcntl(s, F_GETFL, 0) | O_NONBLOCK);
-    fcntl(s, F_SETFD, FD_CLOEXEC);
+    socket_prepare(s);
     return s;
 }
 
@@ -391,7 +385,7 @@ void write_setting(const std::string& key, const std::string& value) {
 void close_sockets() {
     for (int* s : {&g_socket, &g_probe_socket, &g_discovery_socket}) {
         if (*s >= 0) {
-            ::close(*s);
+            socket_close(*s);
             *s = -1;
         }
     }
@@ -1011,12 +1005,12 @@ void thread_main() {
             std::lock_guard lock(g_mutex);
             for (int s : {g_socket, g_probe_socket, g_discovery_socket}) {
                 if (s >= 0) {
-                    fds[count++] = {s, POLLIN, 0};
+                    fds[count++] = socket_poll_in(s);
                 }
             }
         }
         if (count > 0) {
-            poll(fds, static_cast<nfds_t>(count), 20);
+            socket_poll(fds, static_cast<size_t>(count), 20);
         } else {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
@@ -1025,7 +1019,7 @@ void thread_main() {
             for (int n = 0; s >= 0 && n < 64; n++) {
                 sockaddr_storage from{};
                 socklen_t from_len = sizeof(from);
-                const ssize_t got = recvfrom(s, buffer, sizeof(buffer), 0, reinterpret_cast<sockaddr*>(&from), &from_len);
+                const ssize_t got = socket_receive_from(s, buffer, sizeof(buffer), reinterpret_cast<sockaddr*>(&from), &from_len);
                 if (got <= 0) {
                     break;
                 }
@@ -1285,11 +1279,11 @@ void serve_discovery(Offer (*offer)()) {
     std::thread([s, offer] {
         uint8_t buffer[1500];
         for (;;) {
-            pollfd fd{s, POLLIN, 0};
-            poll(&fd, 1, 1000);
+            pollfd fd = socket_poll_in(s);
+            socket_poll(&fd, 1, 1000);
             sockaddr_storage from{};
             socklen_t from_len = sizeof(from);
-            const ssize_t got = recvfrom(s, buffer, sizeof(buffer), 0, reinterpret_cast<sockaddr*>(&from), &from_len);
+            const ssize_t got = socket_receive_from(s, buffer, sizeof(buffer), reinterpret_cast<sockaddr*>(&from), &from_len);
             if (got > 0 && local_network_address(from) && sender_allowed(from)) {  // this network only
                 answer_probe(s, buffer, static_cast<size_t>(got), from, from_len, offer());
             }

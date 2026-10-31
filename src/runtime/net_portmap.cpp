@@ -10,9 +10,9 @@
 #include <string>
 #include <thread>
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
+#if !defined(_WIN32)
 #include <sys/select.h>
+#endif
 
 #include "runtime/net_codes.hpp"
 
@@ -193,10 +193,10 @@ int natpmp_answer(natpmp_t* n, natpmpresp_t* response, int ms) {
         getnatpmprequesttimeout(n, &timeout);
         const auto left = std::chrono::duration_cast<std::chrono::microseconds>(until - std::chrono::steady_clock::now());
         if (timeout.tv_sec * 1000000LL + timeout.tv_usec > left.count()) {
-            timeout.tv_sec = static_cast<time_t>(left.count() / 1000000);
-            timeout.tv_usec = static_cast<suseconds_t>(left.count() % 1000000);
+            timeout.tv_sec = static_cast<decltype(timeout.tv_sec)>(left.count() / 1000000);
+            timeout.tv_usec = static_cast<decltype(timeout.tv_usec)>(left.count() % 1000000);
         }
-        select(n->s + 1, &fds, nullptr, nullptr, &timeout);
+        select(static_cast<int>(n->s) + 1, &fds, nullptr, nullptr, &timeout);
         result = readnatpmpresponseorretry(n, response);
     }
     return result;

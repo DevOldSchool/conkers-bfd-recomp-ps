@@ -414,9 +414,9 @@ std::unique_ptr<Signs> build() {
             }
             const Image large = on_frame(*frames[variant], levels[variant], levels[kLit],
                                          variant == kUnlit ? offset : std::pair<int, int>{0, 0}, word(letters));
-            const Image small = game_size(*frames[variant], large);
+            const Image small_sign = game_size(*frames[variant], large);
             signs->large[sign][variant] = large;
-            signs->tiles[sign][variant] = {menu_art::encode_tile(small, 0), menu_art::encode_tile(small, 32)};
+            signs->tiles[sign][variant] = {menu_art::encode_tile(small_sign, 0), menu_art::encode_tile(small_sign, 32)};
         }
     }
     return signs;

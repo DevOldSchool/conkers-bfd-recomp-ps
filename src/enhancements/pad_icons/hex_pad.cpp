@@ -167,9 +167,9 @@ std::vector<Texture> hex_pad(Mark::Shape shape) {
             face[i] = green[i] > 0 && L[i] > 100 && box[i];
         }
     face = large_parts(face, 30);  // the letter, not greenish specks in the wood
-    const Grid near = dilate(face, 4);
+    const Grid nearby = dilate(face, 4);
     Grid letter{};
-    for (int i = 0; i < N * N; i++) letter[i] = face[i] || (near[i] && box[i] && (L[i] < 70 || green[i] > -2));
+    for (int i = 0; i < N * N; i++) letter[i] = face[i] || (nearby[i] && box[i] && (L[i] < 70 || green[i] > -2));
     const Grid closed = erode(dilate(letter));
     for (int i = 0; i < N * N; i++) letter[i] = letter[i] || closed[i];
     Grid hole = dilate(letter);
