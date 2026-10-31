@@ -6,8 +6,8 @@ off for a run. The summary is in the [README](../README.md#enhancements).
 
 ## Display options
 
-The OPTIONS page of the title menu has a volume row under the sound setting,
-then five display rows.
+The OPTIONS page of the title menu has volume and mouse aim rows under the
+sound setting, then five display rows.
 
 * VOLUME, from OFF to 100% in steps of 10%, stopping at either end. It turns
   down what the game plays (the sound effects, music and speech together),
@@ -16,6 +16,13 @@ then five display rows.
   about 6 dB down). It is kept in `conker-recomp-data/audio.cfg`; full
   volume is the default. `CONKER_DUMP_AUDIO` still records the game's own
   output at full volume.
+
+* MOUSE AIM, from 25% to 400% (25, 50, 75, 100, 125, 150, 175, 200, 250,
+  300, 400), stopping at either end: how fast the captured mouse aims (R,
+  the slingshot, a scope or a mounted gun). Turning the camera stays at 0.15
+  degrees a pixel. 200% is the default. It is kept in
+  `conker-recomp-data/input.cfg`; `CONKER_MOUSE_SENSITIVITY` (a scale, 2 for
+  200%) sets it for one run.
 
 * SHARP TEXT or ORIGINAL TEXT: the [sharper text](#sharper-text) and
   [menus](#sharper-menus), or the game's own. It switches at once and is on
@@ -368,10 +375,16 @@ place to the next, and aims like a plane, pushing up to look down.
   others that aim with R) handle as the shotgun does, and get the same.
 * With the rocket launcher or the scoped gun in a multiplayer match, while
   its scope is up (R), the right stick aims and the left stick walks.
+* On foot in a multiplayer match, where the N64 locks the camera behind the
+  player and the right stick only steps sideways, the right stick (or the
+  mouse) turns the player and the camera with them, so the view is where
+  they aim. The left stick runs forwards and back and steps sideways (as
+  C-left and C-right did), still facing the same way. Holding R, scoped or
+  in a tank keeps the controls above.
 
 With the keyboard and mouse the mouse is that right stick: it turns the
-camera itself (0.15 degrees a pixel, times `CONKER_MOUSE_SENSITIVITY`), and
-while aiming it aims (see the controls in the README). The keyboard alone,
+camera itself (0.15 degrees a pixel), and
+while aiming it aims, at the OPTIONS page's MOUSE AIM speed (see the controls in the README). The keyboard alone,
 with the mouse not captured, keeps the game's aiming. In a multiplayer match every player's pad gets
 these controls with their own right stick; only controller 1 has the mouse. `CONKER_CONSISTENT_CONTROLS=0`
 leaves the game's controls, and CONSISTENT CONTROLS on the debug menu's

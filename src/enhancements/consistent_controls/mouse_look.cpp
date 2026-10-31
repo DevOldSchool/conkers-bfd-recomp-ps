@@ -5,16 +5,18 @@
 // first-person look; consistent_controls.cpp) it is a stick deflection for this frame instead, as
 // the game aims at the speed the stick asks. The wheel, or R and T, step the camera in and out
 // through the game's three distances, both ways, where C-up only steps in.
-// CONKER_MOUSE_SENSITIVITY scales both (1 by default), applied as the motion goes into the frame's
-// input record (src/runtime/frame_input.cpp).
+// The OPTIONS page's MOUSE AIM speed scales the aiming (200% by default), not the camera, applied as
+// the motion goes into the frame's input record (src/runtime/frame_input.cpp) when the mouse aimed
+// the frame before.
 //
 // The camera: the controls block (*(player + 0x318)) turns with C-left and C-right in
 // func_1512D390, which builds a swing speed (+0x6C4, up to 10) and turns the eye (+0x2F8) about
 // the pivot (+0x2A4) by speed * tick / 2.5 degrees through func_1508EF80, C-right one way and
-// C-left the other; it does nothing while +0x84 has bit 21 or +0x698 is set. The mouse turns the
-// eye the same way at that function's start ([[patches.hook]] in config/us.toml): func_1508EF80
+// C-left the other; it does nothing while +0x84 has bit 21 (a match's camera, locked behind the
+// player) or +0x698 is set. The mouse turns the eye the same way at that function's start ([[patches.hook]] in config/us.toml): func_1508EF80
 // takes the angle in degrees (times D_8009DC80, to radians), and turns the offset from the pivot
-// x' = c*x + s*z, z' = c*z - s*x.
+// x' = c*x + s*z, z' = c*z - s*x. In a match consistent_controls.cpp turns the player with the mouse
+// and the right stick, and the camera with them through turn_camera, past bit 21.
 //
 // The zoom: func_15123568 steps the index +0x1B4 (3 far, 2, 1 near; only those with their bit in
 // +0x1E0) towards 1 on C-up when +0x84 has bit 2, +0xDC is not 4, no camera zone holds it (+0x6C8 0
@@ -73,6 +75,9 @@ constexpr float kStickPerPixel = 0.05f;    // aiming: 20 pixels in a frame is th
 bool g_captured[kPorts] = {};
 float g_dx[kPorts] = {};  // this frame's motion not yet used, pixels
 float g_dy[kPorts] = {};
+float g_turn[kPorts] = {};  // degrees right the camera turns this frame, lock or not (turn_camera)
+bool g_playing = false;
+bool g_aiming[kPorts] = {};  // take_aim was asked this pad hook (this machine's own, see aiming())
 int g_zoom[kPorts] = {};  // steps waiting, + in
 // Native state the game's memory depends on, carried by a snapshot (runtime/snapshot.hpp).
 const bool g_snapshot_fields = [] {
@@ -88,6 +93,7 @@ const bool g_snapshot_fields = [] {
     conker::snapshot::add_bools("mouse_look.captured", g_captured, kPorts);
     conker::snapshot::add("mouse_look.dx", g_dx, sizeof(g_dx), finite);
     conker::snapshot::add("mouse_look.dy", g_dy, sizeof(g_dy), finite);
+    conker::snapshot::add("mouse_look.turn", g_turn, sizeof(g_turn), finite);
     conker::snapshot::add("mouse_look.zoom", g_zoom, sizeof(g_zoom), [](const uint8_t* bytes) {
         for (int i = 0; i < kPorts; i++) {
             int v;
@@ -148,7 +154,10 @@ void frame(uint8_t* rdram) {
     const bool playing = MEM_BU(0, kseg0(kMenuHandler)) == 0 && MEM_BU(0, kseg0(kPauseOpen)) == 0 &&
                          MEM_BU(0, kseg0(kPauseRunning)) == 0 && !conker::inspector::active();
     conker::input::set_mouse_play(playing);
+    g_playing = playing;
     for (int port = 0; port < kPorts; port++) {
+        g_turn[port] = 0.0f;  // a turn the camera did not take last frame is dropped
+        g_aiming[port] = false;
         int zoom;
         conker::frame_input::take_mouse(port, &g_dx[port], &g_dy[port], &zoom);
         g_captured[port] = conker::frame_input::mouse_captured(port);
@@ -168,6 +177,7 @@ bool take_aim(int port, float* x, float* y) {
     if (port < 0 || port >= kPorts || !g_captured[port]) {
         return false;
     }
+    g_aiming[port] = true;
     *x = g_dx[port] * kStickPerPixel;
     *y = -g_dy[port] * kStickPerPixel;
     g_dx[port] = 0.0f;
@@ -175,22 +185,46 @@ bool take_aim(int port, float* x, float* y) {
     return true;
 }
 
+bool aiming(int port) { return port >= 0 && port < kPorts && g_aiming[port]; }
+
+bool playing() { return g_playing; }
+
+float take_turn(int port) {
+    if (port < 0 || port >= kPorts || !g_captured[port]) {
+        return 0.0f;
+    }
+    const float degrees = g_dx[port] * kDegreesPerPixel;
+    g_dx[port] = 0.0f;
+    return degrees;
+}
+
+void turn_camera(int port, float degrees) {
+    if (port >= 0 && port < kPorts) {
+        g_turn[port] += degrees;
+    }
+}
+
 }  // namespace conker::mouse_look
 
-// At func_1512D390's start, $a0 the camera controls block: the mouse turns the eye about the pivot.
+// At func_1512D390's start, $a0 the camera controls block: the mouse turns the eye about the pivot,
+// and so does a turn asked for with turn_camera, which a match's lock (bit 21) does not stop.
 extern "C" void conker_mouse_camera(uint8_t* rdram, recomp_context* ctx) {
     const uint32_t camera = static_cast<uint32_t>(ctx->r4);
     const int port = camera_port(rdram, camera);
-    if (port < 0 || g_dx[port] == 0.0f) {
+    if (port < 0 || (g_dx[port] == 0.0f && g_turn[port] == 0.0f)) {
         return;
     }
-    const float dx = g_dx[port];
+    float degrees = g_turn[port];
+    g_turn[port] = 0.0f;
+    if ((MEM_W(kCameraFlags, kseg0(camera)) & 0x200000) == 0) {
+        degrees += g_dx[port] * kDegreesPerPixel;
+    }
     g_dx[port] = 0.0f;
-    if ((MEM_W(kCameraFlags, kseg0(camera)) & 0x200000) != 0 || MEM_W(kCameraFixed, kseg0(camera)) != 0) {
+    if (degrees == 0.0f || MEM_W(kCameraFixed, kseg0(camera)) != 0) {
         return;
     }
-    // Moved right, the view turns right: C-left's way, a negative angle.
-    const float angle = -dx * kDegreesPerPixel * read_float(rdram, kDegreesToRadians);
+    // Turned right, the view turns right: C-left's way, a negative angle.
+    const float angle = -degrees * read_float(rdram, kDegreesToRadians);
     const float c = std::cos(angle);
     const float s = std::sin(angle);
     const float x = read_float(rdram, camera + kCameraEye) - read_float(rdram, camera + kCameraPivot);

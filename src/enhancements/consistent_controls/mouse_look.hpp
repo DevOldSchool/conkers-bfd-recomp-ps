@@ -14,4 +14,20 @@ void frame(uint8_t* rdram);
 // from the camera. False when the mouse is not captured.
 bool take_aim(int port, float* x, float* y);
 
+// Whether the port's mouse aimed (take_aim) in the last pad hook: the OPTIONS page's MOUSE AIM speed
+// then scales its motion as it goes into the next frame's record (src/runtime/frame_input.cpp).
+bool aiming(int port);
+
+// Whether the game is being played this frame (no menu, pause or inspector), as frame() saw it.
+bool playing();
+
+// This frame's sideways motion as degrees to turn right, which the camera then does not take.
+// 0 when the mouse is not captured.
+float take_turn(int port);
+
+// Turns the camera of the player on this port this many degrees to the right this frame, even
+// where the game locks its swing (a multiplayer match; consistent_controls.cpp turns the player
+// with it).
+void turn_camera(int port, float degrees);
+
 }  // namespace conker::mouse_look
