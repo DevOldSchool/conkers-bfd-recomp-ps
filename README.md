@@ -28,15 +28,15 @@ microcode through RSPRecomp) and EEPROM saves all work that far.
 
 Platforms:
 
-* macOS (the only one tested so far)
-* Windows (cross-compiled and run under Wine; not tested on Windows itself)
+* macOS
+* Windows (tested once, with a build cross-compiled on a Mac)
 * Linux
 
 ## Building
 
 Step-by-step guides, one-time setup included:
 
-* [macOS](docs/building-macos.md) (the only platform tested so far)
+* [macOS](docs/building-macos.md) (the platform tested most)
 * [Windows](docs/building-windows.md)
 * [Linux](docs/building-linux.md)
 

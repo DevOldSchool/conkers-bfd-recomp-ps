@@ -1,8 +1,8 @@
 # Building on Windows
 
-Not tested on Windows itself yet: the Windows build is cross-compiled and run
-under Wine on a Mac (see [Cross-compiling](#cross-compiling-from-macos-or-linux)),
-where it boots to the title screen. RT64 renders through Direct3D 12 (or Vulkan)
+Tested once on Windows, with a build cross-compiled on a Mac (see
+[Cross-compiling](#cross-compiling-from-macos-or-linux)); building on Windows
+itself, as below, is not tested yet. RT64 renders through Direct3D 12 (or Vulkan)
 on Windows 10 version 1803 or later, or Windows 11. The build scripts are Bash,
 so the steps run in Git Bash. See the [README](../README.md#building) for what
 every build needs and the build options.
@@ -74,6 +74,11 @@ settings, saves and `last-run.log`, in
 `%LOCALAPPDATA%\ConkersBadFurDayRecompiled\conker-recomp-data`; the console
 window it opens with closes. A run from a folder that already has a
 `conker-recomp-data` folder keeps using that one.
+
+The game is not signed, so Windows SmartScreen stops it the first time: **More
+info**, then **Run anyway**. Unblocking the downloaded zip (Properties,
+**Unblock**) before extracting it avoids that. Smart App Control (Windows 11)
+blocks unsigned programs outright.
 
 A crash prints the faulting N64 address and a backtrace to the console (or the
 log), named from `ConkersBadFurDayRecompiled.pdb` when it is next to the game.
