@@ -140,8 +140,8 @@ uint64_t hash(const menu_art::StoredTile& tile) {
 
 // The small badges' tile, four times larger.
 std::optional<menu_art::Image> small_badges() {
-    const std::optional<menu_art::Image> small = menu_art::load_row(kSmallBadges, 1);
-    if (!small) return std::nullopt;
+    const std::optional<menu_art::Image> small_art = menu_art::load_row(kSmallBadges, 1);
+    if (!small_art) return std::nullopt;
     menu_art::Image out(kTile * kScale, kTile * kScale);
     constexpr int kCorner = kTile / 2;
     for (int i = 0; i < 4; i++) {
@@ -149,7 +149,7 @@ std::optional<menu_art::Image> small_badges() {
         const std::optional<menu_art::Image> large = menu_art::load_row(kLargeBadges + i, 1);
         if (!large) return std::nullopt;
         menu_art::Image corner(kCorner, kCorner);
-        for (int y = 0; y < kCorner; y++) std::copy_n(small->at(cx, y + cy), kCorner * 4, corner.at(0, y));
+        for (int y = 0; y < kCorner; y++) std::copy_n(small_art->at(cx, y + cy), kCorner * 4, corner.at(0, y));
         const menu_art::Box to = menu_art::opaque_box(corner, 100);
         const menu_art::Box from = menu_art::opaque_box(*large, 100);
         if (to.x1 == 0 || from.x1 == 0) return std::nullopt;
@@ -233,11 +233,11 @@ std::optional<menu_art::Image> large_skull(std::vector<uint64_t>& hashes) {
 // The death skull, four times larger: the large skull enlarged and fitted over the small one's
 // outline, as the small badges are, since at 32 pixels it has too little detail to enlarge well.
 std::optional<menu_art::Image> death_skull() {
-    const std::optional<menu_art::Image> small = menu_art::load_row(kDeathSkull, 1);
+    const std::optional<menu_art::Image> small_art = menu_art::load_row(kDeathSkull, 1);
     std::vector<uint64_t> hashes;
     const std::optional<menu_art::Image> large = large_skull(hashes);
-    if (!small || !large) return std::nullopt;
-    const menu_art::Box to = menu_art::opaque_box(*small, 100);
+    if (!small_art || !large) return std::nullopt;
+    const menu_art::Box to = menu_art::opaque_box(*small_art, 100);
     const menu_art::Box from = menu_art::opaque_box(*large, 100);
     if (to.x1 == 0 || from.x1 == 0) return std::nullopt;
     const menu_art::Image fitted = menu_art::resize(

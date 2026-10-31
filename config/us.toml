@@ -41,6 +41,16 @@ ignored = [
     "func_800057E0",
     "func_80005570",
     "func_800056A0",
+    # libc routines in main, named with N64Recomp's _recomp suffix. Native in
+    # src/runtime/ultra_extras.cpp, and registered at their addresses in src/runtime/overlays.cpp.
+    # A recompiled copy that the native one overrides as a weak symbol would not link on Windows.
+    "memcpy_recomp",
+    "strlen_recomp",
+    "strchr_recomp",
+    "lldiv_recomp",
+    "ldiv_recomp",
+    "bcopy_recomp",
+    "sqrtf_recomp",
 ]
 
 # Functions compiled to empty bodies (a `return` with no effect on state).

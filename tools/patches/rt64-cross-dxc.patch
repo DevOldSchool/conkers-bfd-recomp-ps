@@ -1,0 +1,30 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -34,9 +34,25 @@
+             DEPENDS ${INFILE})
+     endif()
+ endfunction()
++
++if (WIN32 AND NOT CMAKE_HOST_WIN32)
++    # Cross-compiling for Windows: the shaders are compiled by the host's DXC.
++    if (CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
++        set (DXC_HOST_ARCH "arm64")
++    else()
++        set (DXC_HOST_ARCH "x64")
++    endif()
++    if (CMAKE_HOST_APPLE)
++        set (DXC "DYLD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/src/contrib/dxc/lib/${DXC_HOST_ARCH}" "${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/${DXC_HOST_ARCH}/dxc-macos")
++    else()
++        set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/src/contrib/dxc/lib/${DXC_HOST_ARCH}" "${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/${DXC_HOST_ARCH}/dxc-linux")
++    endif()
++endif()
+ 
+ if (WIN32)
+-    set (DXC "${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/x64/dxc.exe")
++    if (NOT DXC)
++        set (DXC "${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/x64/dxc.exe")
++    endif()
+     add_compile_definitions(
+         NOMINMAX
+         __PRFCHWINTRIN_H

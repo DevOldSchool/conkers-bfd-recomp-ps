@@ -30,7 +30,36 @@ void register_overlays() {
     recomp::overlays::register_overlays(sections, overlays);
 }
 
+// Main's libc routines that config/us.toml leaves out of the recompiled code, so they are not in the
+// section table: src/runtime/ultra_extras.cpp has them natively. Main's addresses (as 0x1000xxxx).
+extern "C" {
+void memcpy_recomp(uint8_t* rdram, recomp_context* ctx);
+void strlen_recomp(uint8_t* rdram, recomp_context* ctx);
+void strchr_recomp(uint8_t* rdram, recomp_context* ctx);
+void lldiv_recomp(uint8_t* rdram, recomp_context* ctx);
+void ldiv_recomp(uint8_t* rdram, recomp_context* ctx);
+void bcopy_recomp(uint8_t* rdram, recomp_context* ctx);
+void sqrtf_recomp(uint8_t* rdram, recomp_context* ctx);
+}
+
+namespace {
+
+constexpr struct {
+    uint32_t address;
+    recomp_func_t* func;
+} kNativeLibc[] = {
+    {0x10022EC0, memcpy_recomp}, {0x10022EEC, strlen_recomp}, {0x10022F14, strchr_recomp}, {0x10022F60, lldiv_recomp},
+    {0x10023060, ldiv_recomp},   {0x10023A10, bcopy_recomp},  {0x10026530, sqrtf_recomp},
+};
+
+} // namespace
+
 void register_runtime_addresses() {
+    for (const auto& native : kNativeLibc) {
+        // Reachable at 0x8000xxxx too, as the rest of main is through librecomp's own init.
+        recomp::overlays::add_loaded_function(static_cast<int32_t>(native.address), native.func);
+        recomp::overlays::add_loaded_function(static_cast<int32_t>(native.address - memory::kMainAliasBase + 0x80000000u), native.func);
+    }
     for (size_t section_index = 0; section_index < ARRLEN(section_table); section_index++) {
         const SectionTableEntry& section = section_table[section_index];
         // Every section is described at its runtime address in the symbol file, so registering at

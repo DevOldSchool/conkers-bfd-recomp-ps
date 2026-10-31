@@ -31,9 +31,9 @@
 #include <string>
 #include <vector>
 
-#include <sys/socket.h>
 
 #include "runtime/net_portmap.hpp"
+#include "runtime/net_socket.hpp"
 
 namespace conker::net::lobby {
 

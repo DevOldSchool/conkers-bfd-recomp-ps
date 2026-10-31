@@ -1,5 +1,5 @@
-// The Linux build started from the desktop: data folder, log and ROM dialog (see launch.hpp). The
-// dialog is nativefiledialog-extended's GTK one, which RT64 already builds.
+// The Linux build started from the desktop: data folder and log (see launch.hpp). The ROM dialog is
+// in launch_nfd.cpp.
 #include "platform/launch.hpp"
 
 #include <cstdio>
@@ -7,8 +7,6 @@
 #include <system_error>
 
 #include <unistd.h>
-
-#include "nfd.h"
 
 namespace conker::launch {
 
@@ -42,22 +40,6 @@ void enter_data_folder() {
     dup2(fileno(stdout), fileno(stderr));
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     std::setvbuf(stderr, nullptr, _IONBF, 0);
-}
-
-std::filesystem::path choose_rom() {
-    if (NFD_Init() != NFD_OKAY) {
-        std::fprintf(stderr, "[conker] no file dialog: %s\n", NFD_GetError());
-        return {};
-    }
-    const nfdu8filteritem_t filter{"Nintendo 64 ROM", "z64,n64,v64"};
-    nfdu8char_t* path = nullptr;
-    std::filesystem::path rom;
-    if (NFD_OpenDialogU8(&path, &filter, 1, nullptr) == NFD_OKAY) {
-        rom = path;
-        NFD_FreePathU8(path);
-    }
-    NFD_Quit();
-    return rom;
 }
 
 }  // namespace conker::launch

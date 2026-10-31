@@ -21,6 +21,11 @@ if(NOT CONKER_RENDERER MATCHES "^(null|rt64)$")
     message(FATAL_ERROR "CONKER_RENDERER must be null or rt64, not '${CONKER_RENDERER}'")
 endif()
 
+# The RSP vector unit code (librecomp's rsp_vu_impl.hpp) uses SSE4.1 on x86-64. Every 64-bit x86 CPU
+# that can run the game has it.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|x86_64)$")
+    add_compile_options(-msse4.1)
+endif()
 # N64ModernRuntime brings ultramodern (libultra reimplementation), librecomp (glue for N64Recomp
 # output, ROM/PI, saves), the N64Recomp library used for live recompilation, and miniz.
 add_subdirectory(lib/N64ModernRuntime)
@@ -84,6 +89,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/runtime/net_codes.cpp
     src/runtime/net_lobby.cpp
     src/runtime/net_portmap.cpp
+    src/runtime/net_socket.cpp
     src/runtime/snapshot.cpp
     src/runtime/overlays.cpp
     src/runtime/rsp.cpp
@@ -95,6 +101,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/platform/audio.cpp
     src/platform/display_mode.cpp
     src/platform/gpu_faults.cpp
+    src/platform/process.cpp
     src/credits/credits.cpp
     src/fixes/geometry_escape.cpp
     src/fixes/frame_effects.cpp
@@ -183,6 +190,19 @@ if(CONKER_RENDERER STREQUAL "rt64")
         src/platform/renderer_rt64.cpp src/platform/object_picker_rt64.cpp src/platform/lobby_ui_rt64.cpp src/platform/lobby_style_rt64.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/enhancements/sharp_menus/sharp_menus.cpp src/platform/window_sdl.cpp src/platform/hang_watch.cpp src/platform/input_sdl.cpp
         src/enhancements/pad_icons/pad_icons.cpp src/enhancements/pad_icons/b_pad.cpp src/enhancements/pad_icons/stone_pad.cpp src/enhancements/pad_icons/hex_pad.cpp src/enhancements/pad_icons/square_pad.cpp src/enhancements/pad_icons/oval_pad.cpp src/enhancements/pad_icons/rock_pad.cpp src/enhancements/pad_icons/rug_pad.cpp src/enhancements/pad_icons/plate_pad.cpp src/enhancements/pad_icons/crate_pad.cpp src/enhancements/pad_icons/block_pad.cpp src/enhancements/pad_icons/disc_pad.cpp src/enhancements/pad_icons/rust_pad.cpp src/enhancements/pad_icons/riveted_pad.cpp src/enhancements/pad_icons/panel_pad.cpp
         src/enhancements/pad_icons/button_art.cpp)
+    if(WIN32)
+        # RT64 brings SDL2 for Windows, and sets these for its own folder only.
+        set(CONKER_SDL2_DIR "${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3")
+        set(SDL2_INCLUDE_DIRS "${CONKER_SDL2_DIR}/include")
+        target_link_directories(ConkersBadFurDayRecompiled PRIVATE "${CONKER_SDL2_DIR}/lib/x64")
+        # The DLLs the game needs to start, next to it: SDL2, and DXC for RT64's D3D12 shaders.
+        add_custom_command(TARGET ConkersBadFurDayRecompiled POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CONKER_SDL2_DIR}/lib/x64/SDL2.dll"
+                "${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxcompiler.dll"
+                "${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxil.dll"
+                "$<TARGET_FILE_DIR:ConkersBadFurDayRecompiled>")
+    endif()
     target_include_directories(ConkersBadFurDayRecompiled PRIVATE
         ${SDL2_INCLUDE_DIRS}
         "${CMAKE_SOURCE_DIR}/lib/rt64/src"
@@ -209,9 +229,14 @@ if(CONKER_RENDERER STREQUAL "rt64")
         set_source_files_properties(src/platform/launch_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
         target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_LAUNCH_UI=1)
         target_link_libraries(ConkersBadFurDayRecompiled PRIVATE "-framework AppKit")
-    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        # Started from the desktop: data folder, log and the GTK ROM dialog RT64 builds (nfd).
-        target_sources(ConkersBadFurDayRecompiled PRIVATE src/platform/launch_linux.cpp)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR WIN32)
+        # Started from the desktop: data folder, log and the ROM dialog RT64 builds (nfd: GTK on
+        # Linux, the common item dialog on Windows).
+        if(WIN32)
+            target_sources(ConkersBadFurDayRecompiled PRIVATE src/platform/launch_windows.cpp src/platform/launch_nfd.cpp)
+        else()
+            target_sources(ConkersBadFurDayRecompiled PRIVATE src/platform/launch_linux.cpp src/platform/launch_nfd.cpp)
+        endif()
         target_include_directories(ConkersBadFurDayRecompiled PRIVATE
             "${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/nativefiledialog-extended/src/include")
         target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_LAUNCH_UI=1)
@@ -253,7 +278,10 @@ if(CONKER_PORT_MAPPING)
         EXCLUDE_FROM_ALL)
     FetchContent_MakeAvailable(miniupnpc libnatpmp)
     add_library(conker_natpmp STATIC "${libnatpmp_SOURCE_DIR}/natpmp.c" "${libnatpmp_SOURCE_DIR}/getgateway.c")
-    target_compile_definitions(conker_natpmp PUBLIC ENABLE_STRNATPMPERR)
+    if(WIN32)
+        target_sources(conker_natpmp PRIVATE "${libnatpmp_SOURCE_DIR}/wingettimeofday.c")
+    endif()
+    target_compile_definitions(conker_natpmp PUBLIC ENABLE_STRNATPMPERR NATPMP_STATICLIB)
     target_compile_options(conker_natpmp PRIVATE -w)
     file(COPY "${libnatpmp_SOURCE_DIR}/natpmp.h" "${libnatpmp_SOURCE_DIR}/natpmp_declspec.h"
          DESTINATION "${CMAKE_BINARY_DIR}/natpmp-include")
@@ -262,7 +290,23 @@ if(CONKER_PORT_MAPPING)
     target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_PORT_MAPPING=1)
 endif()
 
-if(APPLE)
+if(WIN32)
+    # windows.h (included by librecomp's headers too) would otherwise define min and max macros, which
+    # break std::min and std::max.
+    target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE NOMINMAX)
+    # And would include winsock.h, which clashes with the winsock2.h online play uses (empty, as
+    # winsock2.h defines it).
+    target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE _WINSOCKAPI_=)
+    target_compile_definitions(ConkerRecompiled PRIVATE NOMINMAX)
+    # The portable C library calls (getenv, fopen, sscanf, inet_ntoa) without the Microsoft-only
+    # replacements the C runtime suggests.
+    target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE _CRT_SECURE_NO_WARNINGS _WINSOCK_DEPRECATED_NO_WARNINGS)
+    # M_PI and friends from <cmath>; and, as RT64 does for itself, SDL's prefetch intrinsic left to
+    # SDL, which clang-cl's own header would define a second time.
+    target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE _USE_MATH_DEFINES __PRFCHWINTRIN_H)
+    # Sockets and the network adapter list (src/runtime/net_*.cpp), crash backtraces (src/main.cpp).
+    target_link_libraries(ConkersBadFurDayRecompiled PRIVATE ws2_32 iphlpapi dbghelp)
+elseif(APPLE)
     target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_PLATFORM_POSIX=1)
 elseif(UNIX)
     target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_PLATFORM_POSIX=1)
