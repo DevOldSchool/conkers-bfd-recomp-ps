@@ -17,7 +17,7 @@
 // Square, drawn as Square), START to Menu or Options, Z to either trigger (drawn as the right one),
 // L and R to the shoulder buttons and the C buttons to the right stick. The stick is swapped left to right (C-left is pushing it
 // right), so the C-left picture shows the stick pushed right, and C-right pushed left. The keys:
-// A Space, B E, START Esc, Z C (crouch; Left Ctrl and the left mouse button too), L Q, R F, and
+// A Space, B E, START Enter, Z C (crouch; Left Ctrl and the left mouse button too), L Q, R F, and
 // the C buttons I, K and J and L, swapped as the stick is.
 #include "enhancements/pad_icons/pad_icons.hpp"
 

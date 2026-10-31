@@ -26,6 +26,8 @@
 #include "platform/display_mode.hpp"
 #include "platform/hang_watch.hpp"
 #include "platform/input_sdl.hpp"
+#include "platform/lobby_ui.hpp"
+#include "runtime/net_play.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -389,6 +391,7 @@ ultramodern::renderer::WindowHandle create_window(void* /*gfx_data*/) {
     }
     set_frame(frame);
     SDL_ShowWindow(g_window);
+    conker::lobby_ui::set_window(g_window);
     conker::display::started(mode);
     std::printf("[conker] display mode: %s\n", conker::display::name(mode));
     if (mode != Mode::Windowed) {
@@ -437,7 +440,7 @@ void follow_mouse(const SDL_Event& event) {
 
 void show_cursor_for_inspector() {
     static bool shown = false;
-    const bool wanted = conker::inspector::active();
+    const bool wanted = conker::inspector::active() || conker::lobby_ui::is_open();
     if (wanted != shown) {
         shown = wanted;
         SDL_ShowCursor(wanted || conker::display::current() == Mode::Windowed ? SDL_ENABLE : SDL_DISABLE);
@@ -448,6 +451,16 @@ void show_cursor_for_inspector() {
 
 void update_gfx(void* /*gfx_data*/) {
     conker::hang_watch::beat();
+    // Online, the session's status in the title too: it changes while the game waits for a player,
+    // when the picture holds.
+    if (conker::net::active() && g_window != nullptr) {
+        static std::string shown;
+        const std::string status = conker::net::title_status();
+        if (status != shown) {
+            shown = status;
+            SDL_SetWindowTitle(g_window, ("Conker's Bad Fur Day: Recompiled - " + status).c_str());
+        }
+    }
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         follow_mouse(event);
@@ -460,8 +473,10 @@ void update_gfx(void* /*gfx_data*/) {
         if (event.type == SDL_KEYDOWN && is_fullscreen_toggle(event.key)) {
             conker::display::request(conker::display::current() == Mode::Windowed ? g_screen_mode : Mode::Windowed);
         }
+        conker::lobby_ui::handle_event(event);
         conker::input::handle_event(event);
     }
+    conker::lobby_ui::update();
     run_scheduled_switches();
     if (Mode mode; conker::display::take_request(&mode)) {
         g_changing_requests = conker::display::mode_requests();

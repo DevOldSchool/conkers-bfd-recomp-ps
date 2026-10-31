@@ -412,7 +412,7 @@ are.
 
 With no pad connected (the keyboard and mouse alone) the pictures are the
 keys that press each button, dark keycaps with white letters: Space for A, E
-for B, Esc for START, C for Z (crouch), Q for L, F for R, and I, K, J and L
+for B, Enter for START, C for Z (crouch), Q for L, F for R, and I, K, J and L
 for the C buttons (J and L swapped with the camera, as the stick is), and
 the B pads on the ground have an E where their B was, drawn as the
 PlayStation Square is. With another pad (an N64 pad, a Switch Pro) the

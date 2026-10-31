@@ -70,11 +70,12 @@ stubs = [
 # The audio frame builder (func_800095A0, src/done/main/init_8F90.c) reads AI_LEN directly
 # (`lui $t6, 0xA450; lw $v1, 4($t6)`) to choose this frame's sample count. The RCP registers are
 # plain memory in the recomp, so replace the loaded value with the runtime's osAiGetLength (the
-# bytes still queued for playback), as libultra's osAiGetLength would return on hardware.
+# bytes still queued for playback), as libultra's osAiGetLength would return on hardware. With
+# CONKER_FIXED_STEP=1 a model of the queue replaces it (src/runtime/frame_audio.cpp).
 [[patches.hook]]
 func = "func_800095A0"
 before_vram = 0x100095D4
-text = "{ void osAiGetLength_recomp(uint8_t*, recomp_context*); uint64_t saved_v0 = ctx->r2; osAiGetLength_recomp(rdram, ctx); ctx->r3 = ctx->r2; ctx->r2 = saved_v0; }"
+text = "{ void osAiGetLength_recomp(uint8_t*, recomp_context*); void conker_audio_queued(uint8_t*, recomp_context*); uint64_t saved_v0 = ctx->r2; osAiGetLength_recomp(rdram, ctx); ctx->r3 = ctx->r2; ctx->r2 = saved_v0; conker_audio_queued(rdram, ctx); }"
 
 # func_80004250 walks the heap once a frame; check the list first and report damage (a write past
 # the end of a block) before the walk follows it. See src/runtime/heap_check.cpp.
@@ -191,6 +192,69 @@ text = "{ int conker_debug_menu_holding_game(void); if (conker_debug_menu_holdin
 func = "func_151E84B0"
 before_vram = 0x151E84FC
 text = "{ int conker_debug_menu_holding_game(void); if (conker_debug_menu_holding_game()) { ctx->r3 = 0x151DE6CC; } }"
+
+# Once a game frame, before func_1501BBB8 reads the pads: the frame's input record, which the PIF
+# shim, osContGetReadData, consistent controls and mouse look then read (src/runtime/frame_input.cpp).
+# At the start of func_15019F20, the frame's time step: CONKER_FIXED_STEP=1 makes every frame step
+# the logic by the same retraces.
+[[patches.hook]]
+func = "func_1501905C"
+before_vram = 0x1501905C
+text = "{ void conker_frame_input_begin(uint8_t*, recomp_context*); conker_frame_input_begin(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_15019F20"
+before_vram = 0x15019F20
+text = "{ void conker_fixed_step(uint8_t*, recomp_context*); conker_fixed_step(rdram, ctx); }"
+
+# Counts the graphics tasks the game sends its scheduler: with CONKER_FIXED_STEP=1 each frame starts
+# once RT64 has finished them, so the depth buffer the game reads is the frame before's in every run
+# (src/runtime/frame_input.cpp).
+[[patches.hook]]
+func = "func_1501C880"
+before_vram = 0x1501C880
+text = "{ void conker_gfx_task_sent(uint8_t*, recomp_context*); conker_gfx_task_sent(rdram, ctx); }"
+
+# With CONKER_FIXED_STEP=1 the depth buffer the game reads on a graphics task's "done" message
+# (func_1517E1AC, func_151412BC) is the newest frame's in every run (src/runtime/frame_input.cpp).
+[[patches.hook]]
+func = "func_1501878C"
+before_vram = 0x15018808
+text = "{ void conker_gfx_done_message(uint8_t*, recomp_context*); conker_gfx_done_message(rdram, ctx); }"
+
+# With CONKER_FIXED_STEP=1 Rare's paced EEPROM write waits for its 12 ms timer instead of asking
+# whether it has gone off, so a save writes one block every frame (src/runtime/frame_input.cpp).
+[[patches.hook]]
+func = "__conker_eeprom_wait"
+before_vram = 0x151DD004
+text = "{ void conker_eeprom_timer_wait(uint8_t*, recomp_context*); conker_eeprom_timer_wait(rdram, ctx); }"
+
+# With CONKER_FIXED_STEP=1 the game thread makes the audio frames at the start of each game frame,
+# and the audio thread (func_80009400) ignores the scheduler's retrace messages, $v0 being the
+# type it received (src/runtime/frame_audio.cpp).
+[[patches.hook]]
+func = "func_80009400"
+before_vram = 0x100094A0
+text = "{ void conker_audio_thread_message(uint8_t*, recomp_context*); conker_audio_thread_message(rdram, ctx); }"
+
+# CONKER_ALLOC_LOG=<file> logs the game's heap allocations and frees (src/runtime/state_hash.cpp).
+[[patches.hook]]
+func = "func_80003C6C"
+before_vram = 0x10003C6C
+text = "{ void conker_alloc_log(uint8_t*, recomp_context*, int); conker_alloc_log(rdram, ctx, 0); }"
+
+[[patches.hook]]
+func = "__conker_mp3_free"
+before_vram = 0x10004074
+text = "{ void conker_alloc_log(uint8_t*, recomp_context*, int); conker_alloc_log(rdram, ctx, 1); }"
+
+# Rare's scheduler thread also writes D_800BE9E4 (func_80004F00, $v0 just before the store) when it
+# starts a frame's graphics task, which can land while the game thread is still in the frame: with
+# CONKER_FIXED_STEP=1 it stores the fixed step too.
+[[patches.hook]]
+func = "func_80004F00"
+before_vram = 0x10004FB0
+text = "{ void conker_fixed_step_scheduler(uint8_t*, recomp_context*); conker_fixed_step_scheduler(rdram, ctx); }"
 
 # The same place first rewrites controller 1's pad for consistent controls: looking and aiming up
 # with up, and twin-stick aiming with the shotgun and the rocket launcher

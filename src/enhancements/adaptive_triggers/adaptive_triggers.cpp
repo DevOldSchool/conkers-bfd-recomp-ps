@@ -51,6 +51,7 @@
 
 #include "platform/input.hpp"
 #include "runtime/game.hpp"
+#include "runtime/net_play.hpp"
 #include "enhancements/status.hpp"
 #include "enhancements/switches.hpp"
 
@@ -173,9 +174,10 @@ bool g_was_mounted[conker::input::kPorts] = {};
 // A thump in both grips of controller `port` for each round fired since the last frame.
 void gun_rumble(uint8_t* rdram, uint32_t player, int port) {
     const int16_t rounds = static_cast<int16_t>(MEM_HU(kPlayerGunRounds, kseg0(player)));
-    if (g_was_mounted[port] && rounds != g_last_rounds[port] && conker::input::has_haptics(port)) {
+    const int controller = conker::net::local_controller(port);  // online, this machine's port only
+    if (g_was_mounted[port] && rounds != g_last_rounds[port] && controller >= 0 && conker::input::has_haptics(controller)) {
         for (const Haptic& haptic : kGunRound) {
-            conker::input::play_haptic(haptic, port);
+            conker::input::play_haptic(haptic, controller);
         }
     }
     g_last_rounds[port] = rounds;

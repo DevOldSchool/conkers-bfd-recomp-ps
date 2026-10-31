@@ -1,0 +1,116 @@
+diff --git a/src/hle/rt64_rsp.cpp b/src/hle/rt64_rsp.cpp
+--- a/src/hle/rt64_rsp.cpp
++++ b/src/hle/rt64_rsp.cpp
+@@ -7,4 +7,5 @@
+ #include <algorithm>
+ #include <cassert>
++#include <cstdio>
+ #include <cmath>
+ 
+@@ -54,5 +55,5 @@ namespace RT64 {
+         invViewProjMatrixStack[0] = hlslpp::float4x4(0.0f);
+         vertices.fill({});
+-        indices.fill(0);
++        indices.fill(InvalidVertexIndex);
+         used.reset();
+         lights.fill({});
+@@ -101,4 +102,23 @@ namespace RT64 {
+     }
+ 
++    void RSP::invalidateVertices() {
++        indices.fill(InvalidVertexIndex);
++        used.reset();
++    }
++
++    // Whether a slot's index names a vertex of the workload being written. A display list in game
++    // memory can draw or modify a slot it never loaded, or one loaded before a full sync.
++    bool RSP::vertexIndexValid(uint32_t globalIndex) {
++        const int workloadCursor = state->ext.workloadQueue->writeCursor;
++        const Workload &workload = state->ext.workloadQueue->workloads[workloadCursor];
++        return globalIndex < workload.drawData.vertexCount();
++    }
++
++    void RSP::dropVertexCommand(const char *command) {
++        if (droppedVertexCommands++ == 0) {
++            fprintf(stderr, "RT64: dropped %s naming a vertex slot with no vertex loaded since the last full sync\n", command);
++        }
++    }
++
+     constexpr uint32_t ExtendedMask = 0x80000000U;
+ 
+@@ -766,4 +793,9 @@ namespace RT64 {
+         auto &posScreen = workload.drawData.posScreen;
+         uint32_t globalIndex = indices[dstIndex];
++        if (!vertexIndexValid(globalIndex)) {
++            dropVertexCommand("a vertex modify");
++            return;
++        }
++
+         if (used[dstIndex]) {
+             auto &posFloats = workload.drawData.posFloats;
+@@ -851,4 +883,9 @@ namespace RT64 {
+         const int workloadCursor = state->ext.workloadQueue->writeCursor;
+         const Workload &workload = state->ext.workloadQueue->workloads[workloadCursor];
++        if ((vtxIndex >= RSP_MAX_VERTICES) || !vertexIndexValid(indices[vtxIndex])) {
++            dropVertexCommand("a branch on a vertex");
++            return;
++        }
++
+         const uint32_t globalIndex = indices[vtxIndex];
+         const float screenZ = workload.drawData.posScreen[globalIndex][2] * DepthRange;
+@@ -864,4 +901,9 @@ namespace RT64 {
+         const int workloadCursor = state->ext.workloadQueue->writeCursor;
+         const Workload &workload = state->ext.workloadQueue->workloads[workloadCursor];
++        if ((vtxIndex >= RSP_MAX_VERTICES) || !vertexIndexValid(indices[vtxIndex])) {
++            dropVertexCommand("a branch on a vertex");
++            return;
++        }
++
+         const uint32_t globalIndex = indices[vtxIndex];
+         const float posW = workload.drawData.posTransformed[globalIndex][3];
+@@ -1127,4 +1178,12 @@ namespace RT64 {
+             globalIndices[1] = indices[b];
+             globalIndices[2] = indices[c];
++        }
++
++        if (!vertexIndexValid(globalIndices[0]) || !vertexIndexValid(globalIndices[1]) || !vertexIndexValid(globalIndices[2])) {
++            dropVertexCommand("a triangle");
++            return;
++        }
++
++        if (!rawGlobalIndices) {
+             used[a] = used[b] = used[c] = true;
+         }
+diff --git a/src/hle/rt64_rsp.h b/src/hle/rt64_rsp.h
+--- a/src/hle/rt64_rsp.h
++++ b/src/hle/rt64_rsp.h
+@@ -161,4 +161,9 @@ namespace RT64 {
+         std::array<Vertex, RSP_MAX_VERTICES> vertices;
+         std::array<uint32_t, RSP_MAX_VERTICES> indices;
++        // A slot's index is into the workload it was loaded in. A full sync moves on to a new
++        // workload, so the slots are marked with this until loaded again.
++        static constexpr uint32_t InvalidVertexIndex = UINT32_MAX;
++        // Commands dropped because they named a vertex slot with no vertex in this workload.
++        uint32_t droppedVertexCommands = 0;
+         std::bitset<RSP_MAX_VERTICES> used;
+         std::array<Light, RSP_MAX_LIGHTS + 1> lights;
+@@ -251,4 +256,7 @@ namespace RT64 {
+         RSP(State *state);
+         void reset();
++        void invalidateVertices();
++        bool vertexIndexValid(uint32_t globalIndex);
++        void dropVertexCommand(const char *command);
+         Projection::Type getCurrentProjectionType() const;
+         void addCurrentProjection(Projection::Type type);
+diff --git a/src/hle/rt64_state.cpp b/src/hle/rt64_state.cpp
+--- a/src/hle/rt64_state.cpp
++++ b/src/hle/rt64_state.cpp
+@@ -1821,4 +1821,8 @@ namespace RT64 {
+         ext.workloadQueue->advanceToNextWorkload();
+ 
++        // The vertex slots still hold indices into the workload just submitted; a list can go on past
++        // a full sync and draw or modify them, so they are invalid until loaded again.
++        rsp->invalidateVertices();
++
+         // Make sure the profiler starts after the workload is advanced to ignore any waiting time.
+         dlCpuProfiler.reset();

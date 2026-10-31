@@ -6,12 +6,17 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
+#include <type_traits>
 #include <cstdlib>
 
 #include "recomp.h"
 #include "enhancements/pause_save/resume_point.hpp"
 #include "enhancements/status.hpp"
 #include "enhancements/switches.hpp"
+#include "runtime/frame_input.hpp"
+#include "runtime/net_play.hpp"
+#include "runtime/snapshot.hpp"
 
 namespace {
 
@@ -39,11 +44,14 @@ IntroSkip variable_mode() {
 // The debug menu switches it between Never and the variable's mode (OnPress if that is Never).
 std::atomic<IntroSkip> g_mode{variable_mode()};
 
-IntroSkip intro_skip_mode() { return g_mode.load(std::memory_order_relaxed); }
+// Online every peer boots the same way: straight to the title menu.
+IntroSkip intro_skip_mode() {
+    return conker::net::active() ? IntroSkip::Always : g_mode.load(std::memory_order_relaxed);
+}
 
 // One skip per boot. An L press during the logos or the intro fades the screen to black, the
 // skips then run behind it, and it fades back in on the title menu. Only the game thread touches
-// this.
+// this. The fades are timed by conker::frame_input::clock_now, game frames with the fixed step.
 enum class Skip {
     Idle,       // no press yet
     FadingOut,  // L pressed, the screen is fading to black
@@ -69,9 +77,9 @@ bool skip_to_title_menu(uint8_t* rdram, bool read_press) {
     if (skip == Skip::Idle && read_press &&
         (intro_skip_mode() == IntroSkip::Always || (MEM_HU(0, kseg0(kButtons)) & kLButton) != 0)) {
         skip = Skip::FadingOut;
-        fade_start = std::chrono::steady_clock::now();
+        fade_start = conker::frame_input::clock_now();
     }
-    if (skip == Skip::FadingOut && std::chrono::steady_clock::now() - fade_start >= kFade) {
+    if (skip == Skip::FadingOut && conker::frame_input::clock_now() - fade_start >= kFade) {
         skip = Skip::Skipping;
     }
     return skip == Skip::Skipping;
@@ -79,7 +87,7 @@ bool skip_to_title_menu(uint8_t* rdram, bool read_press) {
 
 // How black the skip wants the screen, 0 (clear) to 0xFF.
 int32_t skip_fade(uint8_t* rdram) {
-    const auto elapsed = std::chrono::steady_clock::now() - fade_start;
+    const auto elapsed = conker::frame_input::clock_now() - fade_start;
     const int32_t faded = static_cast<int32_t>(std::min<int64_t>(0xFF, 0xFF * elapsed / kFade));
     switch (skip) {
         case Skip::FadingOut:
@@ -91,7 +99,7 @@ int32_t skip_fade(uint8_t* rdram) {
             if (MEM_W(0, kseg0(kScene)) == kTitleScene && MEM_BU(0, kseg0(kScriptState)) == 0 &&
                 MEM_BU(0, kseg0(kScriptSkip)) == 0) {
                 skip = Skip::FadingIn;
-                fade_start = std::chrono::steady_clock::now();
+                fade_start = conker::frame_input::clock_now();
             }
             return 0xFF;
         case Skip::FadingIn:
@@ -105,6 +113,18 @@ int32_t skip_fade(uint8_t* rdram) {
 }
 
 bool fade_forced = false;  // set by conker_skip_fade_alpha for conker_skip_fade_colour
+// Native state the game's memory depends on, carried by a snapshot (runtime/snapshot.hpp).
+const bool g_snapshot_fields = [] {
+    conker::snapshot::add("intro_skip.skip", &skip, sizeof(skip), [](const uint8_t* bytes) {
+        std::underlying_type_t<Skip> v;
+        std::memcpy(&v, bytes, sizeof(v));
+        return v >= static_cast<std::underlying_type_t<Skip>>(Skip::Idle) &&
+               v <= static_cast<std::underlying_type_t<Skip>>(Skip::Done);  // one of its values
+    });
+    conker::snapshot::add("intro_skip.fade_start", &fade_start, sizeof(fade_start));
+    conker::snapshot::add_bools("intro_skip.fade_forced", &fade_forced, 1);
+    return true;
+}();
 
 }  // namespace
 

@@ -10,9 +10,12 @@
 // The level's vertices are loaded into the heap, at an address that depends on what was loaded
 // before, so each fix finds its vertex by the positions of its neighbours (vertices are 16 bytes:
 // s16 x, y, z, flag, s16 s, t, colour).
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 #include "recomp.h"
+#include "runtime/snapshot.hpp"
 
 namespace {
 
@@ -51,6 +54,25 @@ struct Found {
 
 Found g_found[kSeamCount];
 int32_t g_scene = -1;
+// Native state the game's memory depends on, carried by a snapshot (runtime/snapshot.hpp).
+const bool g_snapshot_fields = [] {
+    // A vertex address is read (and written) through: one inside RDRAM where find_seam can find one, or
+    // 0.
+    conker::snapshot::add("level_seams.found", g_found, sizeof(g_found), [](const uint8_t* bytes) {
+        for (int i = 0; i < kSeamCount; i++) {
+            uint32_t address;
+            std::memcpy(&address, bytes + i * sizeof(Found) + offsetof(Found, address), sizeof(address));
+            const uint8_t searched = bytes[i * sizeof(Found) + offsetof(Found, searched)];
+            if (searched > 1 || (address != 0 && (address % 4 != 0 || address < kRdramStart + kVertexSize ||
+                                                  address + 2 * kVertexSize > kRdramEnd))) {
+                return false;
+            }
+        }
+        return true;
+    });
+    conker::snapshot::add("level_seams.scene", &g_scene, sizeof(g_scene));
+    return true;
+}();
 
 bool vertex_at(uint8_t* rdram, uint32_t address, const Position& p) {
     return MEM_H(0, kseg0(address)) == p.x && MEM_H(2, kseg0(address)) == p.y && MEM_H(4, kseg0(address)) == p.z;

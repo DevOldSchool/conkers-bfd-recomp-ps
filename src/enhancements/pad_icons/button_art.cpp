@@ -188,6 +188,11 @@ const Glyph* glyph(char c) {
         line(s, o, k, h, {0.27f, -0.5f}, {-0.26f, 0.1f});
         line(s, o, k, h, {-0.06f, -0.12f}, {0.3f, 0.5f});
     }};
+    static const Glyph n{0.66f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.26f, 0.5f}, {-0.26f, -0.5f});
+        line(s, o, k, h, {-0.26f, -0.5f}, {0.26f, 0.5f});
+        line(s, o, k, h, {0.26f, 0.5f}, {0.26f, -0.5f});
+    }};
     static const Glyph p_{0.62f, [](Symbol& s, Vec o, float k, float h) {
         line(s, o, k, h, {-0.27f, -0.5f}, {-0.27f, 0.5f});
         line(s, o, k, h, {-0.27f, -0.5f}, {0.02f, -0.5f});
@@ -219,6 +224,7 @@ const Glyph* glyph(char c) {
         case 'I': return &i;
         case 'J': return &j;
         case 'K': return &k_;
+        case 'N': return &n;
         case 'P': return &p_;
         case 'Q': return &q;
         case 'L': return &l;
@@ -522,6 +528,17 @@ Button with(Button b, Rgb base, Rgb ink, Symbol symbol, bool engrave = false) {
     return b;
 }
 
+// The keyboard set's keycap: dark, with a white legend; wide for Space and Enter.
+Button keycap(bool wide) {
+    Button key;
+    key.squareness = 5, key.rx = key.ry = 0.7f, key.wall = 0.24f, key.dome = 0, key.concave = 0.05f;
+    key.shine = 50, key.spec = 0.6f;
+    if (wide) {
+        key.rx = 0.94f, key.ry = 0.46f;
+    }
+    return key;
+}
+
 std::vector<Entry> entries(Style style, bool swapped) {
     Button face;  // A and B: a little smaller than Rare's, to clear the text beside them
     face.rx = face.ry = 0.66f;
@@ -601,18 +618,15 @@ std::vector<Entry> entries(Style style, bool swapped) {
         }
         case Style::Keyboard: {  // dark keycaps with white legends, the keys that press each button
             const Rgb cap = colour(0x26282d), white = colour(0xeceef2);
-            Button key;
-            key.squareness = 5, key.rx = key.ry = 0.7f, key.wall = 0.24f, key.dome = 0, key.concave = 0.05f;
-            key.shine = 50, key.spec = 0.6f;
-            Button space = key;
-            space.rx = 0.94f, space.ry = 0.46f;
-            // Z is C (crouch), Left Ctrl and the left mouse button too; L is Q and Tab, R F and the
-            // right mouse button. C-left is L with the camera swap, as on the stick, else J.
+            const Button key = keycap(false);
+            const Button space = keycap(true);
+            // START is Enter (Esc only lets the mouse go). Z is C (crouch), Left Ctrl and the left
+            // mouse button too; L is Q and Tab, R F and the right mouse button. C-left is L with the camera swap, as on the stick, else J.
             const char* to_left = swapped ? "L" : "J";
             const char* to_right = swapped ? "J" : "L";
             add("a", 32, 32, true, with(space, cap, white, label("SPACE", 0.4f)));
             add("b", 32, 32, true, with(key, cap, white, label("E", 0.62f)));
-            add("start", 32, 32, true, with(key, cap, white, label("ESC", 0.44f)));
+            add("start", 32, 32, true, with(space, cap, white, label("ENTER", 0.4f)));
             add("z", 16, 32, false, with(key, cap, white, label("C", 0.62f)));
             add("l", 32, 16, false, with(key, cap, white, label("Q", 0.62f)));
             add("r", 32, 16, false, with(key, cap, white, label("F", 0.62f)));
@@ -655,6 +669,17 @@ std::vector<Picture> draw(const Entry& e) {
 }
 
 } // namespace
+
+std::vector<Picture> draw_keys(const std::vector<std::string>& labels) {
+    const Rgb cap = colour(0x26282d), white = colour(0xeceef2);
+    std::vector<Picture> out;
+    for (const std::string& text : labels) {
+        const bool wide = text.size() > 3;
+        std::vector<Picture> made = draw({text, 32, 32, false, with(keycap(wide), cap, white, letters(text, (wide ? 0.4f : 0.44f) * 0.8f))});
+        out.push_back(std::move(made.front()));
+    }
+    return out;
+}
 
 std::vector<Picture> draw_set(Style style, bool camera_swapped) {
     const std::vector<Entry> list = entries(style, camera_swapped);

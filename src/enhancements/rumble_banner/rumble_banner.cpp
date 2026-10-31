@@ -13,6 +13,7 @@
 #include "platform/input.hpp"
 #include "enhancements/status.hpp"
 #include "enhancements/switches.hpp"
+#include "runtime/net_play.hpp"
 
 namespace {
 
@@ -30,7 +31,8 @@ bool always_show_banner() { return g_show.load(std::memory_order_relaxed); }
 } // namespace
 
 extern "C" void conker_rumble_banner(uint8_t* rdram, recomp_context* /*ctx*/) {
-    if (!always_show_banner() && conker::input::has_rumble()) {
+    // Online every player's port has a rumble pak (net_play.cpp), whatever this machine's pad.
+    if (!always_show_banner() && (conker::net::active() || conker::input::has_rumble())) {
         MEM_H(0, kseg0(kBannerCountdown)) = 0;
     }
 }

@@ -119,10 +119,21 @@ bool rendered_widescreen();
 bool sharp();
 void request_sharp(bool sharp);
 
+// From now on, this run's widescreen and sharp settings are not saved: display.cfg keeps the
+// player's own as they are now. Online, a guest plays with the host's (net_play.hpp), for that
+// session only.
+void keep_saved_picture();
+
 // The shape (width / height) of the picture RT64 is rendering, set by the renderer every screen
 // refresh: the picture's own 292:216 in 4:3, the window's or screen's shape widened.
 void set_rendered_aspect(float aspect);
 float rendered_aspect();
+
+// The shape the game's own code works to (widescreen culling, the widened frame copies): the
+// rendered one, or online one fixed for the session (set_logic_aspect), since the window's shape
+// differs between machines and changes at a moment that is not a game frame.
+void set_logic_aspect(float aspect);
+float logic_aspect();
 
 // For the window: whether the mode, the window's multiple or the picture's shape changed since the
 // last call, and the mode to be in.

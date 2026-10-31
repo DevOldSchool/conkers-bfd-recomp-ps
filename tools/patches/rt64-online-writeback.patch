@@ -1,0 +1,53 @@
+diff --git a/src/hle/rt64_state.h b/src/hle/rt64_state.h
+--- a/src/hle/rt64_state.h
++++ b/src/hle/rt64_state.h
+@@ -4,6 +4,8 @@
+ 
+ #pragma once
+ 
++#include <atomic>
++
+ #include "xxHash/xxh3.h"
+ 
+ #include "common/rt64_emulator_configuration.h"
+@@ -115,6 +117,12 @@ namespace RT64 {
+         uint32_t displayListAddress;
+         uint64_t displayListCounter;
+         bool rdramCheckPending;
++        // Images drawn to RAM that start below this RDRAM address are not written back. What the GPU draws
++        // differs between machines, and a game that reads it back (Conker's camera reads depth) then
++        // plays differently on each: online play in lockstep keeps game memory free of it. 0: no limit.
++        std::atomic<uint32_t> protectedRDRAMEnd{ 0 };
++        std::atomic<uint32_t> protectedWritesSkipped{ 0 };
++        std::atomic<uint32_t> protectedLastSkipped{ 0 };
+         uint32_t lastWorkloadIndex;
+         VI lastScreenVI;
+         uint64_t lastScreenHash;
+diff --git a/src/hle/rt64_state.cpp b/src/hle/rt64_state.cpp
+--- a/src/hle/rt64_state.cpp
++++ b/src/hle/rt64_state.cpp
+@@ -1514,9 +1514,22 @@ namespace RT64 {
+                 pairCursor = framebufferPairCursor;
+                 while (pairCursor < maxFramebufferPair) {
+                     if (getFramebufferPairs(pairCursor)) {
+-                        colorFb->copyNativeToRAM(&RDRAM[colorFb->addressStart], colorWriteWidth, colorRowStart, std::min(colorRowEnd, colorFb->height));
++                        const uint32_t protectedEnd = protectedRDRAMEnd.load();
++                        auto mayWrite = [&](const Framebuffer *fb) {
++                            if (fb->addressStart >= protectedEnd) {
++                                return true;
++                            }
+ 
+-                        if (depthWriteWidth > 0) {
++                            protectedWritesSkipped++;
++                            protectedLastSkipped = fb->addressStart;
++                            return false;
++                        };
++
++                        if (mayWrite(colorFb)) {
++                            colorFb->copyNativeToRAM(&RDRAM[colorFb->addressStart], colorWriteWidth, colorRowStart, std::min(colorRowEnd, colorFb->height));
++                        }
++
++                        if ((depthWriteWidth > 0) && mayWrite(depthFb)) {
+                             depthFb->copyNativeToRAM(&RDRAM[depthFb->addressStart], depthWriteWidth, depthRowStart, std::min(depthRowEnd, depthFb->height));
+                         }
+                     }

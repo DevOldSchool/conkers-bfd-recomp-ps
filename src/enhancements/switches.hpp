@@ -12,6 +12,9 @@ struct Switch {
     const char* label;  // as the page shows it
     bool (*on)();
     void (*set)(bool on);
+    // This machine's own: it writes files, so another machine's settings (an online host's) do not set
+    // it. A replay's header, a file of this machine's, still does.
+    bool local = false;
 };
 
 // Every switch, in the README's order: the display options' SHARP TEXT and WIDESCREEN (the OPTIONS

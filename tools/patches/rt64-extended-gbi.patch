@@ -1,0 +1,35 @@
+diff --git a/src/gbi/rt64_gbi_extended.cpp b/src/gbi/rt64_gbi_extended.cpp
+--- a/src/gbi/rt64_gbi_extended.cpp
++++ b/src/gbi/rt64_gbi_extended.cpp
+@@ -292,6 +292,6 @@ namespace RT64 {
+ 
+         void setRDRAMExtendedV1(State *state, DisplayList **dl) {
+-            const uint8_t extended = (*dl)->p1(0, 1);
+-            state->setExtendedRDRAM(extended);
++            // Ignored: this port's game memory is 8 MiB, and an extended address would let a display
++            // list from game memory reach 2 GiB into the host's address space.
+         }
+ 
+@@ -316,8 +316,7 @@ namespace RT64 {
+ 
+         void setVertexSegmentV1(State *state, DisplayList **dl) {
+-            uint8_t isEnabled = (*dl)->p1(0, 1);
+-            uint8_t vertexElement = (*dl)->p1(1, 4);
++            // Ignored, but still two words long: its index into the segment's floats is not bounded,
++            // and nothing in this port uses it.
+             *dl = *dl + 1;
+-            state->rsp->setVertexSegmentV1(isEnabled, vertexElement, (*dl)->w0, (*dl)->w1);
+         }
+ 
+diff --git a/src/hle/rt64_rsp.cpp b/src/hle/rt64_rsp.cpp
+--- a/src/hle/rt64_rsp.cpp
++++ b/src/hle/rt64_rsp.cpp
+@@ -439,4 +462,8 @@ namespace RT64 {
+ 
+     void RSP::setVertexSegmentV1(bool isEnabled, uint32_t vertexElement, uint32_t vertexAddress, uint32_t baseSegmentAddress) {
++        if (vertexElement >= G_EX_VERTEX_MAX) {
++            return;
++        }
++
+         extended.vertexAddresses[vertexElement] = vertexAddress;
+         extended.baseSegmentAddresses[vertexElement] = baseSegmentAddress;

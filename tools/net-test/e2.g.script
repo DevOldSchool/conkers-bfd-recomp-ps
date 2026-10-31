@@ -1,0 +1,11 @@
+1500 name Guest
+3000 host 37810
+4000 shot @L.g.view1
+4500 leave
+5000 join [::1]:37810
+8000 ready
+9500 shot @L.g.view2
+10000 leave
+12000 join 127.0.0.1:37810
+14000 shot @L.g.view3
+19000 shot @L.g.view4

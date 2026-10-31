@@ -106,7 +106,6 @@ constexpr Key kKeys[] = {
     {SDL_SCANCODE_C, kZ},
     {SDL_SCANCODE_RETURN, kStart},
     {SDL_SCANCODE_KP_ENTER, kStart},
-    {SDL_SCANCODE_ESCAPE, kStart},
     {SDL_SCANCODE_Q, kL},
     {SDL_SCANCODE_TAB, kL},
     {SDL_SCANCODE_F, kR},  // the right mouse button is R too (aim)
@@ -124,11 +123,13 @@ constexpr float kWalkTilt = 0.5f;  // the stick with Shift held
 // The mouse, for controller 1. Clicking in the window during play captures it (relative mode, no
 // cursor; that click is not passed on); the game thread says whether it is playing
 // (set_mouse_play). Capture lets go while the game is paused or in a menu, and comes back by itself
-// when play carries on; losing the window's focus lets go until the next click. While captured the
-// left button is Z (fire), the right R (aim), its motion goes to take_mouse for the camera and
-// aiming, and the wheel zooms.
+// when play carries on; losing the window's focus, or Esc, lets go until the next click. Esc is
+// never Start (Enter is, as the keyboard's button pictures show). While captured the left button
+// is Z (fire), the right R (aim), its motion goes to take_mouse for the camera and aiming, and the
+// wheel zooms.
 bool g_scripted = false;  // CONKER_VIRTUAL_PAD: only the virtual pads count
 std::atomic<bool> g_mouse_play{false};     // set by the game thread
+std::atomic<bool> g_blocked{false};        // a window over the game (the ONLINE lobby) takes the input
 bool g_mouse_captured = false;             // main thread only
 bool g_mouse_recapture = false;            // main thread only: captured before the game left play
 bool g_mouse_swallow = false;              // main thread only: the capturing click is still held
@@ -141,6 +142,7 @@ bool g_zoom_out_held = false;
 std::atomic<bool> g_mouse_buttons_captured{false};  // g_mouse_captured, for other threads
 bool g_script_mouse_left = false;          // main thread only: a virtual pad script's mouse buttons
 bool g_script_mouse_right = false;
+std::vector<SDL_Scancode> g_script_keys;   // main thread only: keys a virtual pad script holds
 
 bool window_focused() {
     SDL_Window* window = SDL_GetKeyboardFocus();
@@ -169,7 +171,8 @@ void add_zoom(int steps) {
 void mouse_event(const SDL_Event& event) {
     switch (event.type) {
         case SDL_MOUSEBUTTONDOWN:
-            if (!g_mouse_captured && g_mouse_play.load(std::memory_order_relaxed) && window_focused()) {
+            if (!g_mouse_captured && g_mouse_play.load(std::memory_order_relaxed) &&
+                !g_blocked.load(std::memory_order_relaxed) && window_focused()) {
                 capture_mouse(true);
                 g_mouse_swallow = g_mouse_captured;
             }
@@ -187,6 +190,14 @@ void mouse_event(const SDL_Event& event) {
                 add_zoom(y > 0 ? 1 : -1);  // away from you zooms in
             }
             break;
+        case SDL_KEYDOWN:
+            if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE && !event.key.repeat) {
+                if (g_mouse_captured) {
+                    capture_mouse(false);
+                    g_mouse_recapture = false;
+                }
+            }
+            break;
         case SDL_WINDOWEVENT:
             if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
                 capture_mouse(false);
@@ -200,7 +211,7 @@ void mouse_event(const SDL_Event& event) {
 
 // Once an update: capture follows play, and the mouse's buttons and R/T join controller 1's.
 void update_mouse(uint16_t& buttons, const Uint8* keys, int key_count) {
-    const bool play = g_mouse_play.load(std::memory_order_relaxed);
+    const bool play = g_mouse_play.load(std::memory_order_relaxed) && !g_blocked.load(std::memory_order_relaxed);
     if (g_scripted) {
         g_mouse_captured = play;  // no real capture, which needs the window's focus
         g_mouse_buttons_captured.store(play, std::memory_order_relaxed);
@@ -279,6 +290,7 @@ struct Port {
     std::atomic<bool> has_rumble{false};  // the pad can rumble
     std::atomic<bool> rumble_on{false};   // the game's motor state, applied by update()
     std::string name;                     // under g_pad_name_mutex: the pad's, for controller_name()
+    std::string model;                    // under g_pad_name_mutex: its make and model, for controller_model()
     int virtual_number = 0;               // main thread only: its CONKER_VIRTUAL_PAD number, or 0
 
     // Haptic effects (the rest main thread only).
@@ -321,6 +333,40 @@ PadKind pad_kind(SDL_GameController* pad) {
     }
 }
 
+// A pad's make and model in general terms, for other players and for logs and reports: never its name,
+// which macOS takes from the pad's Bluetooth name, and that is often its owner's ("<Name>'s DualSense").
+// From SDL's type, or for a pad SDL does not know (a virtual one too), from its USB vendor and product.
+std::string pad_model(SDL_GameController* pad) {
+    switch (SDL_GameControllerGetType(pad)) {
+        case SDL_CONTROLLER_TYPE_PS5:
+            return "DualSense";
+        case SDL_CONTROLLER_TYPE_PS4:
+            return "DualShock 4";
+        case SDL_CONTROLLER_TYPE_PS3:
+            return "DualShock 3";
+        case SDL_CONTROLLER_TYPE_XBOX360:
+        case SDL_CONTROLLER_TYPE_XBOXONE:
+            return "Xbox";
+        case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_PRO:
+            return "Switch Pro";
+        default:
+            break;
+    }
+    const uint16_t product = SDL_GameControllerGetProduct(pad);
+    switch (SDL_GameControllerGetVendor(pad)) {
+        case 0x054C:
+            return product == 0x0CE6 || product == 0x0DF2 ? "DualSense"
+                   : product == 0x05C4 || product == 0x09CC ? "DualShock 4"
+                                                            : "PlayStation";
+        case 0x045E:
+            return "Xbox";
+        case 0x057E:
+            return product == 0x2009 ? "Switch Pro" : "Nintendo";
+        default:
+            return "Controller";
+    }
+}
+
 // CONKER_RUMBLE_TEST=1: one second of rumble on connecting, to check the pad without the game.
 void rumble_test(const Port& port) {
     const char* test = std::getenv("CONKER_RUMBLE_TEST");
@@ -337,6 +383,7 @@ void open_pad_extras(Port& port, int device_index) {
     {
         std::lock_guard lock(g_pad_name_mutex);
         port.name = SDL_GameControllerName(port.pad) ? SDL_GameControllerName(port.pad) : "controller";
+        port.model = pad_model(port.pad);
     }
     if (&port == &g_port1) {
         g_pad_kind.store(pad_kind(port.pad));
@@ -368,7 +415,7 @@ void open_pad_extras(Port& port, int device_index) {
     port.adaptive_triggers.store(SDL_GameControllerGetType(port.pad) == SDL_CONTROLLER_TYPE_PS5 || port.pad_virtual);
     port.trigger_stale = true;
     const std::string which = port.virtual_number != 0 ? " (virtual pad " + std::to_string(port.virtual_number) + ")" : "";
-    std::printf("[conker] controller %d: %s%s (%s%s%s%s%s)\n", port.number(), SDL_GameControllerName(port.pad),
+    std::printf("[conker] controller %d: %s%s (%s%s%s%s%s)\n", port.number(), pad_model(port.pad).c_str(),
                 which.c_str(), port.has_rumble.load() ? "rumble pak" : "no rumble",
                 port.has_haptics.load() ? ", haptics on " : "",
                 port.has_haptics.load() ? kVia[static_cast<int>(port.haptics_via)] : "",
@@ -385,6 +432,7 @@ void close_pad_extras(Port& port) {
     {
         std::lock_guard lock(g_pad_name_mutex);
         port.name.clear();
+        port.model.clear();
     }
     {
         std::lock_guard lock(g_haptics_mutex);
@@ -473,6 +521,7 @@ struct ScriptStep {
     int wheel;
     bool mouse_left;
     bool mouse_right;
+    std::vector<SDL_Scancode> keys;
     bool reported;
 };
 
@@ -538,6 +587,13 @@ bool load_script(const std::string& path, VirtualPad& pad) {
             const std::string name = control.substr(0, eq);
             if (control == "lmb" || control == "rmb") {
                 (control == "lmb" ? step.mouse_left : step.mouse_right) = true;
+            } else if (name == "key" && eq != std::string::npos) {
+                const SDL_Scancode key = SDL_GetScancodeFromName(control.c_str() + eq + 1);
+                if (key == SDL_SCANCODE_UNKNOWN) {
+                    std::fprintf(stderr, "[conker] CONKER_VIRTUAL_PAD line %d: unknown key '%s'\n", number, control.c_str());
+                    return false;
+                }
+                step.keys.push_back(key);
             } else if (name == "mousex" || name == "mousey" || name == "wheel") {
                 const float value = std::strtof(control.c_str() + eq + 1, nullptr);
                 if (name == "wheel") step.wheel = static_cast<int>(value);
@@ -723,6 +779,19 @@ bool plug_virtual_pad(VirtualPad& pad) {
     desc.button_mask = (1u << SDL_CONTROLLER_BUTTON_MAX) - 1;
     desc.axis_mask = (1u << SDL_CONTROLLER_AXIS_MAX) - 1;
     desc.name = "Conker virtual pad";
+    // CONKER_VIRTUAL_PAD_ID=<vendor>:<product> (hex) and CONKER_VIRTUAL_PAD_NAME=<text>: the pad poses as
+    // another make with a name of its own, to check that only its make and model leave this machine.
+    const char* pose_id = std::getenv("CONKER_VIRTUAL_PAD_ID");
+    const char* pose_name = std::getenv("CONKER_VIRTUAL_PAD_NAME");
+    unsigned vendor = 0;
+    unsigned product = 0;
+    if (pose_id != nullptr && std::sscanf(pose_id, "%x:%x", &vendor, &product) == 2) {
+        desc.vendor_id = static_cast<uint16_t>(vendor);
+        desc.product_id = static_cast<uint16_t>(product);
+    }
+    if (pose_name != nullptr && pose_name[0] != '\0') {
+        desc.name = pose_name;
+    }
     desc.userdata = reinterpret_cast<void*>(static_cast<uintptr_t>(pad.number - 1));
     desc.Rumble = virtual_pad_rumble;
     desc.RumbleTriggers = virtual_pad_rumble_triggers;
@@ -802,6 +871,7 @@ void drive_virtual_pad() {
             mouse_vi = std::max(mouse_vi, now);
             g_script_mouse_left = false;
             g_script_mouse_right = false;
+            g_script_keys.clear();
         }
         for (ScriptStep& step : pad.script) {
             if (now < step.vi || now >= step.vi + step.length) {
@@ -818,6 +888,7 @@ void drive_virtual_pad() {
             if (first) {
                 g_script_mouse_left = g_script_mouse_left || step.mouse_left;
                 g_script_mouse_right = g_script_mouse_right || step.mouse_right;
+                g_script_keys.insert(g_script_keys.end(), step.keys.begin(), step.keys.end());
                 if (g_mouse_captured && (step.mouse_x != 0.0f || step.mouse_y != 0.0f)) {
                     std::lock_guard lock(g_mouse_mutex);
                     g_mouse_dx += step.mouse_x * mouse_vis;
@@ -1135,7 +1206,8 @@ void update() {
         const Uint8* keys = SDL_GetKeyboardState(&key_count);
         game_keys = keys;
         for (const Key& k : kKeys) {
-            if (k.key < key_count && keys[k.key]) {
+            if ((k.key < key_count && keys[k.key]) ||
+                std::find(g_script_keys.begin(), g_script_keys.end(), k.key) != g_script_keys.end()) {
                 buttons |= k.n64;
             }
         }
@@ -1186,7 +1258,7 @@ void update() {
 }
 
 void read(uint16_t* buttons, float* x, float* y, int port) {
-    if (port < 0 || port >= kPorts) {
+    if (port < 0 || port >= kPorts || g_blocked.load(std::memory_order_relaxed)) {
         *buttons = 0;
         *x = 0.0f;
         *y = 0.0f;
@@ -1199,13 +1271,16 @@ void read(uint16_t* buttons, float* x, float* y, int port) {
 
 void set_mouse_play(bool playing) { g_mouse_play.store(playing, std::memory_order_relaxed); }
 
+void set_blocked(bool blocked) { g_blocked.store(blocked, std::memory_order_relaxed); }
+
 bool mouse_captured() { return g_mouse_buttons_captured.load(std::memory_order_relaxed); }
 
 void take_mouse(float* dx, float* dy, int* zoom) {
     std::lock_guard lock(g_mouse_mutex);
-    *dx = g_mouse_dx;
-    *dy = g_mouse_dy;
-    *zoom = g_mouse_zoom;
+    const bool blocked = g_blocked.load(std::memory_order_relaxed);
+    *dx = blocked ? 0.0f : g_mouse_dx;
+    *dy = blocked ? 0.0f : g_mouse_dy;
+    *zoom = blocked ? 0 : g_mouse_zoom;
     g_mouse_dx = 0.0f;
     g_mouse_dy = 0.0f;
     g_mouse_zoom = 0;
@@ -1216,6 +1291,9 @@ bool right_stick(float* x, float* y, int port) {
     *y = 0.0f;
     if (port < 0 || port >= kPorts || !g_ports[port].has_pad.load(std::memory_order_relaxed)) {
         return false;
+    }
+    if (g_blocked.load(std::memory_order_relaxed)) {
+        return true;  // centred
     }
     *x = g_ports[port].right_x.load(std::memory_order_relaxed);
     *y = g_ports[port].right_y.load(std::memory_order_relaxed);
@@ -1232,9 +1310,16 @@ std::string controller_name(int port) {
     return g_ports[port].name;
 }
 
+std::string controller_model() {
+    std::lock_guard lock(g_pad_name_mutex);
+    return g_port1.model;
+}
+
 PadKind controller_kind() { return g_pad_kind.load(std::memory_order_relaxed); }
 
-bool take_debug_menu_press() { return g_debug_menu_presses.exchange(0, std::memory_order_relaxed) > 0; }
+bool take_debug_menu_press() {
+    return g_debug_menu_presses.exchange(0, std::memory_order_relaxed) > 0 && !g_blocked.load(std::memory_order_relaxed);
+}
 
 bool has_rumble(int port) { return port >= 0 && port < kPorts && g_ports[port].has_rumble.load(std::memory_order_relaxed); }
 

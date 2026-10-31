@@ -1,0 +1,14 @@
+diff --git a/librecomp/src/overlays.cpp b/librecomp/src/overlays.cpp
+--- a/librecomp/src/overlays.cpp
++++ b/librecomp/src/overlays.cpp
+@@ -366,7 +366,9 @@ extern "C" recomp_func_t * get_function(int32_t addr) {
+     if (func_find == func_map.end()) {
+         fprintf(stderr, "Failed to find function at 0x%08X\n", addr);
+         assert(false);
+-        std::exit(EXIT_FAILURE);
++        // Not std::exit: that runs static destructors while the game's other threads and the
++        // renderer are still running.
++        ULTRAMODERN_QUICK_EXIT();
+     }
+     return func_find->second;
+ }

@@ -1,0 +1,27 @@
+diff --git a/src/hle/rt64_present_queue.cpp b/src/hle/rt64_present_queue.cpp
+--- a/src/hle/rt64_present_queue.cpp
++++ b/src/hle/rt64_present_queue.cpp
+@@ -223,4 +223,9 @@ namespace RT64 {
+                 }
+             }
++            else if ((present.screenVI.fbSiz() < G_IM_SIZ_16b) || (present.storage.size() < ((uint64_t(fbSize.x) * fbSize.y) << (present.screenVI.fbSiz() - 1)))) {
++                // The VI's picture was not copied (State::updateScreen skips one that does not fit in
++                // game memory): there is nothing to upload.
++                colorTarget = nullptr;
++            }
+             else {
+                 uint32_t fbAddress = present.screenVI.fbAddress();
+diff --git a/src/hle/rt64_state.cpp b/src/hle/rt64_state.cpp
+--- a/src/hle/rt64_state.cpp
++++ b/src/hle/rt64_state.cpp
+@@ -1980,6 +1984,8 @@ namespace RT64 {
+ 
+             // Store the RAM required by the VI so the render thread can display it if necessary.
+-            if (screenFbSiz >= G_IM_SIZ_16b) {
+-                uint32_t screenFbBytes = uint32_t(screenFbSize.x * screenFbSize.y) << (screenFbSiz - 1);
++            // The size comes from the VI mode in game memory: only copy what lies inside it.
++            const uint64_t screenFbBytesWide = (screenFbSiz >= G_IM_SIZ_16b) ? (uint64_t(screenFbSize.x) * screenFbSize.y) << (screenFbSiz - 1) : 0;
++            if ((screenFbSiz >= G_IM_SIZ_16b) && (screenFbAddress + screenFbBytesWide <= uint64_t(RDRAMSize) + 1)) {
++                uint32_t screenFbBytes = uint32_t(screenFbBytesWide);
+                 present.storage.resize(screenFbBytes);
+                 memcpy(present.storage.data(), &RDRAM[screenFbAddress], screenFbBytes);

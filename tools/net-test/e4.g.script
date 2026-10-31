@@ -1,0 +1,5 @@
+# ROM mismatch (run with GENV=CONKER_NET_TEST_ROM=<hex>): from the LAN list and by address
+1500 name Guest
+4000 shot @L.g.view1
+4500 join 127.0.0.1:37810
+8000 shot @L.g.view2

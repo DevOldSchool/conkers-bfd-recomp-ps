@@ -1,0 +1,103 @@
+diff --git a/ultramodern/include/ultramodern/ultramodern.hpp b/ultramodern/include/ultramodern/ultramodern.hpp
+--- a/ultramodern/include/ultramodern/ultramodern.hpp
++++ b/ultramodern/include/ultramodern/ultramodern.hpp
+@@ -1,6 +1,8 @@
+ #ifndef __ultramodern_HPP__
+ #define __ultramodern_HPP__
+ 
++#include <utility>
++#include <vector>
+ #include <thread>
+ #include <cassert>
+ #include <stdexcept>
+@@ -106,6 +108,11 @@
+ uint32_t get_speed_multiplier();
+ // Runs the game's time (VIs, the CPU count, timers) this many times faster than real time, from now.
+ void set_speed_multiplier(uint32_t multiplier);
++// The timers the game has set (osSetTimer) and that have not run out or been stopped, each with the
++// counts left until it runs out; and putting a set of them in place of those (for a game snapshot,
++// whose memory already holds each timer's interval, queue and message).
++std::vector<std::pair<uint32_t, int64_t>> armed_timers_remaining(RDRAM_ARG1);
++void replace_timers(RDRAM_ARG const std::vector<std::pair<uint32_t, int64_t>>& timers);
+ // The real time at which the game's time since start reaches game_time.
+ std::chrono::high_resolution_clock::time_point game_time_to_real(std::chrono::high_resolution_clock::duration game_time);
+ 
+diff --git a/ultramodern/src/timer.cpp b/ultramodern/src/timer.cpp
+--- a/ultramodern/src/timer.cpp
++++ b/ultramodern/src/timer.cpp
+@@ -56,6 +56,11 @@
+     moodycamel::BlockingConcurrentQueue<Action> action_queue{};
+ } timer_context;
+ 
++// The timers set and not yet run out or stopped, as the game asked for them (the timer thread's own
++// set catches up through its action queue), for a snapshot of the game.
++static std::mutex armed_mutex;
++static std::set<PTR(OSTimer)> armed_timers;
++
+ uint64_t duration_to_ticks(std::chrono::high_resolution_clock::duration duration) {
+     uint64_t delta_micros = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+     // More accurate than using a floating point timer, will only overflow after running for 12.47 years
+@@ -147,6 +152,9 @@
+             if (cur_timer->interval != 0) {
+                 cur_timer->timestamp = cur_timer->interval + time_now();
+                 active_timers.insert(cur_timer_);
++            } else {
++                std::lock_guard lock{armed_mutex};
++                armed_timers.erase(cur_timer_);
+             }
+         }
+     }
+@@ -157,6 +165,32 @@
+     timer_context.thread.detach();
+ }
+ 
++std::vector<std::pair<uint32_t, int64_t>> ultramodern::armed_timers_remaining(RDRAM_ARG1) {
++    std::vector<std::pair<uint32_t, int64_t>> result;
++    std::lock_guard lock{armed_mutex};
++    const uint64_t now = time_now();
++    for (PTR(OSTimer) t_ : armed_timers) {
++        const OSTimer* t = TO_PTR(OSTimer, t_);
++        result.emplace_back(static_cast<uint32_t>(t_), static_cast<int64_t>(t->timestamp) - static_cast<int64_t>(now));
++    }
++    return result;
++}
++
++void ultramodern::replace_timers(RDRAM_ARG const std::vector<std::pair<uint32_t, int64_t>>& timers) {
++    std::lock_guard lock{armed_mutex};
++    for (PTR(OSTimer) t_ : armed_timers) {
++        timer_context.action_queue.enqueue(RemoveTimerAction{ t_ });
++    }
++    armed_timers.clear();
++    const uint64_t now = time_now();
++    for (const auto& [t_, remaining] : timers) {
++        OSTimer* t = TO_PTR(OSTimer, static_cast<PTR(OSTimer)>(t_));
++        t->timestamp = static_cast<OSTime>(static_cast<int64_t>(now) + remaining);
++        armed_timers.insert(static_cast<PTR(OSTimer)>(t_));
++        timer_context.action_queue.enqueue(AddTimerAction{ static_cast<PTR(OSTimer)>(t_) });
++    }
++}
++
+ uint32_t ultramodern::get_speed_multiplier() {
+     return speed_multiplier.load();
+ }
+@@ -217,12 +251,20 @@
+     t->mq = mq;
+     t->msg = msg;
+ 
++    {
++        std::lock_guard lock{armed_mutex};
++        armed_timers.insert(t_);
++    }
+     timer_context.action_queue.enqueue(AddTimerAction{ t_ });
+ 
+     return 0;
+ }
+ 
+ extern "C" int osStopTimer(RDRAM_ARG PTR(OSTimer) t_) {
++    {
++        std::lock_guard lock{armed_mutex};
++        armed_timers.erase(t_);
++    }
+     timer_context.action_queue.enqueue(RemoveTimerAction{ t_ });
+ 
+     // TODO don't blindly return 0 here; requires some response from the timer thread to know what the returned value was

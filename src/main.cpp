@@ -30,13 +30,16 @@ static long _dyld_get_image_vmaddr_slide(int) { return 0; }
 
 #include "runtime/memory.hpp"
 
+#include "librecomp/addresses.hpp"
 #include "librecomp/game.hpp"
 #include "ultramodern/ultramodern.hpp"
 
 #include "platform/audio.hpp"
 #include "platform/input.hpp"
 #include "platform/window.hpp"
+#include "runtime/frame_input.hpp"
 #include "runtime/game.hpp"
+#include "runtime/net_play.hpp"
 #include "runtime/rsp.hpp"
 #if CONKER_LAUNCH_UI
 #include "platform/launch.hpp"
@@ -87,22 +90,25 @@ bool get_input(int controller_num, uint16_t* buttons, float* x, float* y) {
         std::printf("[conker] controllers read through osContGetReadData (VI %llu)\n",
                     static_cast<unsigned long long>(vi_count.load()));
     }
-    conker::input::read(buttons, x, y, controller_num);
-    if (controller_num == 0) {
-        *buttons |= conker::scripted_buttons();
-    }
-    return conker::input::connected(controller_num);
+    conker::frame_input::read(buttons, x, y, controller_num);
+    return conker::frame_input::connected(controller_num);
 }
 
-void set_rumble(int controller_num, bool rumble) { conker::input::set_rumble(controller_num, rumble); }
+void set_rumble(int controller_num, bool rumble) {
+    // Online, only the port this machine's controller holds rumbles here.
+    const int controller = conker::net::local_controller(controller_num);
+    if (controller >= 0) {
+        conker::input::set_rumble(controller, rumble);
+    }
+}
 
 ultramodern::input::connected_device_info_t get_connected_device_info(int controller_num) {
-    if (!conker::input::connected(controller_num)) {
+    if (!conker::frame_input::connected(controller_num)) {
         return {ultramodern::input::Device::None, ultramodern::input::Pak::None};
     }
     return {
         ultramodern::input::Device::Controller,
-        conker::input::has_rumble(controller_num) ? ultramodern::input::Pak::RumblePak : ultramodern::input::Pak::None,
+        conker::frame_input::has_rumble(controller_num) ? ultramodern::input::Pak::RumblePak : ultramodern::input::Pak::None,
     };
 }
 
@@ -133,6 +139,12 @@ void crash_handler(int sig, siginfo_t* info, void* /*uctx*/) {
         const uint32_t n64_addr = static_cast<uint32_t>(offset + 0xFFFFFFFF80000000ull);
         len = std::snprintf(buf, sizeof(buf), " = N64 address 0x%08X (rdram + 0x%llX)", n64_addr, static_cast<unsigned long long>(offset));
         write(2, buf, len);
+    } else if (rdram != nullptr && (fault - (reinterpret_cast<uintptr_t>(rdram) - recomp::rdram_guard_size) < recomp::rdram_guard_size ||
+                                    fault - (reinterpret_cast<uintptr_t>(rdram) + recomp::allocation_size) < recomp::rdram_guard_size)) {
+        // A pointer from game memory plus an instruction's offset ran past either end of the 4 GiB: the
+        // guard around it stopped the access.
+        const char msg[] = " = just outside game memory (the guard around RDRAM); stopping";
+        write(2, msg, sizeof(msg) - 1);
     }
     write(2, "\n", 1);
     if (recomp_context* ctx = conker::current_context()) {
@@ -219,6 +231,9 @@ int main(int argc, char** argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);  // keep log order intact if the game thread crashes
     install_crash_handler();
     parse_scripted_input();
+    if (!conker::net::parse_args(&argc, argv)) {
+        return 2;
+    }
 #if CONKER_LAUNCH_UI
     conker::launch::enter_data_folder();
 #endif
@@ -262,6 +277,11 @@ int main(int argc, char** argv) {
             message_box(error.c_str());
             return 1;
         }
+    }
+
+    // Online: every player is here and agreed before the game starts.
+    if (!conker::net::connect()) {
+        return 1;
     }
 
     recomp::Configuration cfg{};

@@ -1,10 +1,12 @@
-// The mouse in the game, for controller 1 (src/platform/input_sdl.cpp captures it and gathers its
-// motion). Moved left and right, it turns the third-person camera itself, not through the C
+// The mouse in the game, a mouse a port: on one machine controller 1's (src/platform/input_sdl.cpp
+// captures it and gathers its motion), online each machine's for the port it holds. Each player's
+// camera follows the mouse of the port that player reads. Moved left and right, it turns the third-person camera itself, not through the C
 // buttons, so the view follows the mouse; while aiming (the shotgun, the rocket launcher's scope, R's
 // first-person look; consistent_controls.cpp) it is a stick deflection for this frame instead, as
 // the game aims at the speed the stick asks. The wheel, or R and T, step the camera in and out
 // through the game's three distances, both ways, where C-up only steps in.
-// CONKER_MOUSE_SENSITIVITY scales both (1 by default).
+// CONKER_MOUSE_SENSITIVITY scales both (1 by default), applied as the motion goes into the frame's
+// input record (src/runtime/frame_input.cpp).
 //
 // The camera: the controls block (*(player + 0x318)) turns with C-left and C-right in
 // func_1512D390, which builds a swing speed (+0x6C4, up to 10) and turns the eye (+0x2F8) about
@@ -18,6 +20,9 @@
 // +0x1E0) towards 1 on C-up when +0x84 has bit 2, +0xDC is not 4, no camera zone holds it (+0x6C8 0
 // or +0x6FC 4) and its cooldown +0x7B8 has run out, then calls func_15124B18 and func_15125608 and
 // sets the cooldown to 20 ticks. The wheel does the same at that function's start, either way.
+//
+// A camera's controls block is *(actor + 0x318) of its player's actor (Conker's, D_80088720, for the
+// first; in a match player n is the actor at 0x800CC2D0 + n * 0x32C and reads pad D_80084060[n]).
 #include "enhancements/consistent_controls/mouse_look.hpp"
 
 #include <algorithm>
@@ -29,6 +34,8 @@
 #include "recomp.h"
 #include "enhancements/object_inspector/object_inspector.hpp"
 #include "platform/input.hpp"
+#include "runtime/frame_input.hpp"
+#include "runtime/snapshot.hpp"
 
 extern "C" void func_15124B18(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_15125608(uint8_t* rdram, recomp_context* ctx);
@@ -51,19 +58,46 @@ constexpr uint32_t kZoomMask = 0x1E0;     // s16
 constexpr uint32_t kZoomCooldown = 0x7B8;  // s32
 constexpr uint32_t kZoomFrozen = 0x3D4;   // a pointer; its u8 +0x120 at 4 holds the zoom near
 
+constexpr uint32_t kConker = 0x80088720;       // D_80088720: Conker's actor
+constexpr uint32_t kActors = 0x800CC2D0;       // D_800CC2D0: player n's actor in a match
+constexpr uint32_t kActorSize = 0x32C;
+constexpr uint32_t kActorCamera = 0x318;       // the actor's camera controls block
+constexpr uint32_t kMultiplayer = 0x800BE616;  // D_800BE616: nonzero during a match
+constexpr uint32_t kPlayerPads = 0x80084060;   // D_80084060: u8 per player, the pad it reads
+constexpr int kPorts = conker::input::kPorts;
+
 constexpr float kDegreesPerPixel = 0.15f;  // the camera
 constexpr float kStickPerPixel = 0.05f;    // aiming: 20 pixels in a frame is the stick pushed fully
 
-const float g_sensitivity = [] {
-    const char* value = std::getenv("CONKER_MOUSE_SENSITIVITY");
-    const float scale = value != nullptr ? std::strtof(value, nullptr) : 1.0f;
-    return scale > 0.0f ? scale : 1.0f;
+// By port.
+bool g_captured[kPorts] = {};
+float g_dx[kPorts] = {};  // this frame's motion not yet used, pixels
+float g_dy[kPorts] = {};
+int g_zoom[kPorts] = {};  // steps waiting, + in
+// Native state the game's memory depends on, carried by a snapshot (runtime/snapshot.hpp).
+const bool g_snapshot_fields = [] {
+    // Checked on load, as another machine's word.
+    const auto finite = [](const uint8_t* bytes) {
+        for (int i = 0; i < kPorts; i++) {
+            float v;
+            std::memcpy(&v, bytes + i * sizeof(float), sizeof(v));
+            if (!std::isfinite(v)) return false;
+        }
+        return true;
+    };
+    conker::snapshot::add_bools("mouse_look.captured", g_captured, kPorts);
+    conker::snapshot::add("mouse_look.dx", g_dx, sizeof(g_dx), finite);
+    conker::snapshot::add("mouse_look.dy", g_dy, sizeof(g_dy), finite);
+    conker::snapshot::add("mouse_look.zoom", g_zoom, sizeof(g_zoom), [](const uint8_t* bytes) {
+        for (int i = 0; i < kPorts; i++) {
+            int v;
+            std::memcpy(&v, bytes + i * sizeof(int), sizeof(v));
+            if (v < -2 || v > 2) return false;
+        }
+        return true;
+    });
+    return true;
 }();
-
-bool g_captured = false;
-float g_dx = 0.0f;  // this frame's motion not yet used, pixels
-float g_dy = 0.0f;
-int g_zoom = 0;     // steps waiting, + in
 
 float read_float(uint8_t* rdram, uint32_t address) {
     const uint32_t word = static_cast<uint32_t>(MEM_W(0, kseg0(address)));
@@ -87,6 +121,25 @@ void call_game(uint8_t* rdram, recomp_context* ctx, void (*function)(uint8_t*, r
     *ctx = saved;
 }
 
+// The port whose mouse turns this camera controls block: its player's pad; controller 1 outside a
+// match, or when the block is no player's.
+int camera_port(uint8_t* rdram, uint32_t camera) {
+    if (MEM_BU(0, kseg0(kMultiplayer)) == 0) {
+        return 0;
+    }
+    for (int player = 0; player < kPorts; player++) {
+        const uint32_t actor = player == 0 ? static_cast<uint32_t>(MEM_W(0, kseg0(kConker))) : kActors + player * kActorSize;
+        if (actor < 0x80000000u || actor >= 0x80800000u) {
+            continue;
+        }
+        if (static_cast<uint32_t>(MEM_W(kActorCamera, kseg0(actor))) == camera) {
+            const uint8_t pad = MEM_BU(player, kseg0(kPlayerPads));
+            return pad < kPorts ? pad : -1;
+        }
+    }
+    return 0;
+}
+
 }  // namespace
 
 namespace conker::mouse_look {
@@ -95,28 +148,30 @@ void frame(uint8_t* rdram) {
     const bool playing = MEM_BU(0, kseg0(kMenuHandler)) == 0 && MEM_BU(0, kseg0(kPauseOpen)) == 0 &&
                          MEM_BU(0, kseg0(kPauseRunning)) == 0 && !conker::inspector::active();
     conker::input::set_mouse_play(playing);
-    int zoom;
-    conker::input::take_mouse(&g_dx, &g_dy, &zoom);
-    g_captured = conker::input::mouse_captured();
-    if (!g_captured || !playing) {
-        g_dx = 0.0f;
-        g_dy = 0.0f;
-        g_zoom = 0;
-        return;
+    for (int port = 0; port < kPorts; port++) {
+        int zoom;
+        conker::frame_input::take_mouse(port, &g_dx[port], &g_dy[port], &zoom);
+        g_captured[port] = conker::frame_input::mouse_captured(port);
+        if (!g_captured[port] || !playing) {
+            g_dx[port] = 0.0f;
+            g_dy[port] = 0.0f;
+            g_zoom[port] = 0;
+            continue;
+        }
+        g_zoom[port] = std::clamp(g_zoom[port] + zoom, -2, 2);
     }
-    g_zoom = std::clamp(g_zoom + zoom, -2, 2);
 }
 
-bool take_aim(float* x, float* y) {
+bool take_aim(int port, float* x, float* y) {
     *x = 0.0f;
     *y = 0.0f;
-    if (!g_captured) {
+    if (port < 0 || port >= kPorts || !g_captured[port]) {
         return false;
     }
-    *x = g_dx * kStickPerPixel * g_sensitivity;
-    *y = -g_dy * kStickPerPixel * g_sensitivity;
-    g_dx = 0.0f;
-    g_dy = 0.0f;
+    *x = g_dx[port] * kStickPerPixel;
+    *y = -g_dy[port] * kStickPerPixel;
+    g_dx[port] = 0.0f;
+    g_dy[port] = 0.0f;
     return true;
 }
 
@@ -124,17 +179,18 @@ bool take_aim(float* x, float* y) {
 
 // At func_1512D390's start, $a0 the camera controls block: the mouse turns the eye about the pivot.
 extern "C" void conker_mouse_camera(uint8_t* rdram, recomp_context* ctx) {
-    if (g_dx == 0.0f) {
+    const uint32_t camera = static_cast<uint32_t>(ctx->r4);
+    const int port = camera_port(rdram, camera);
+    if (port < 0 || g_dx[port] == 0.0f) {
         return;
     }
-    const uint32_t camera = static_cast<uint32_t>(ctx->r4);
-    const float dx = g_dx;
-    g_dx = 0.0f;
+    const float dx = g_dx[port];
+    g_dx[port] = 0.0f;
     if ((MEM_W(kCameraFlags, kseg0(camera)) & 0x200000) != 0 || MEM_W(kCameraFixed, kseg0(camera)) != 0) {
         return;
     }
     // Moved right, the view turns right: C-left's way, a negative angle.
-    const float angle = -dx * kDegreesPerPixel * g_sensitivity * read_float(rdram, kDegreesToRadians);
+    const float angle = -dx * kDegreesPerPixel * read_float(rdram, kDegreesToRadians);
     const float c = std::cos(angle);
     const float s = std::sin(angle);
     const float x = read_float(rdram, camera + kCameraEye) - read_float(rdram, camera + kCameraPivot);
@@ -145,13 +201,15 @@ extern "C" void conker_mouse_camera(uint8_t* rdram, recomp_context* ctx) {
 
 // At func_15123568's start, $a0 the camera controls block: one zoom step for the wheel (or R/T).
 extern "C" void conker_mouse_zoom(uint8_t* rdram, recomp_context* ctx) {
-    if (g_zoom == 0) {
+    const uint32_t camera = static_cast<uint32_t>(ctx->r4);
+    const int port = camera_port(rdram, camera);
+    if (port < 0 || g_zoom[port] == 0) {
         return;
     }
-    const uint32_t camera = static_cast<uint32_t>(ctx->r4);
+    int& zoom = g_zoom[port];
     const uint32_t frozen = static_cast<uint32_t>(MEM_W(kZoomFrozen, kseg0(camera)));
     if (frozen != 0 && MEM_BU(0x120, kseg0(frozen)) == 4) {
-        g_zoom = 0;
+        zoom = 0;
         return;
     }
     if (MEM_W(kZoomCooldown, kseg0(camera)) > 0) {
@@ -159,11 +217,11 @@ extern "C" void conker_mouse_zoom(uint8_t* rdram, recomp_context* ctx) {
     }
     const bool zone = MEM_W(0x6C8, kseg0(camera)) != 0 && MEM_W(0x6FC, kseg0(camera)) != 4;
     if ((MEM_W(kCameraFlags, kseg0(camera)) & 4) == 0 || MEM_W(0xDC, kseg0(camera)) == 4 || zone) {
-        g_zoom = 0;
+        zoom = 0;
         return;
     }
-    const int step = g_zoom > 0 ? -1 : 1;  // in is towards index 1
-    g_zoom += g_zoom > 0 ? -1 : 1;
+    const int step = zoom > 0 ? -1 : 1;  // in is towards index 1
+    zoom += zoom > 0 ? -1 : 1;
     const int from = MEM_H(kZoomIndex, kseg0(camera));
     const int mask = MEM_H(kZoomMask, kseg0(camera));
     int index = from + step;

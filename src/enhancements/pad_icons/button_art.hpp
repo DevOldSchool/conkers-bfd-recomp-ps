@@ -18,4 +18,8 @@ struct Picture {
 // `camera_swapped`, C-left is the right stick pushed right (input::camera_swapped), else left.
 std::vector<Picture> draw_set(Style style, bool camera_swapped);
 
+// Keycaps as the keyboard set draws them, one a label ("ESC", "ENTER"; longer than three letters
+// makes a wide key), each named by its label.
+std::vector<Picture> draw_keys(const std::vector<std::string>& labels);
+
 } // namespace conker::pad_icons

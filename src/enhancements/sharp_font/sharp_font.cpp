@@ -44,6 +44,8 @@ struct Glyph {
     int width = 0;   // source width + 1: the columns the game advances over
     int stride = 0;  // row length in the glyph's buffer
     int rows = 0;    // rows sampled: the zero row above and the glyph's own
+    int extra = 0;   // record byte 2: added to the advance
+    int top = 0;     // record byte 3: below the line's top
     std::vector<uint8_t> image;  // stride x rows intensities, without the TMEM word swap
 };
 
@@ -62,6 +64,8 @@ std::vector<Glyph> decode(std::span<const uint8_t> rom) {
         const int height = record[1] + 1;
         glyph.stride = (glyph.width + 7) & ~7;
         glyph.rows = height + 1;
+        glyph.extra = record[2];
+        glyph.top = record[3];
         glyph.image.assign(size_t(glyph.stride) * glyph.rows, 0);
         uint32_t offset = 8;
         for (int y = 1; y <= height; y++) {
@@ -254,6 +258,30 @@ std::shared_ptr<RT64::FileSystem> make_pack(std::span<const uint8_t> rom) {
     }
     pack->finish();
     return pack;
+}
+
+std::vector<LargeGlyph> large_glyphs(std::span<const uint8_t> rom) {
+    const std::vector<Glyph> glyphs = decode(rom);
+    std::vector<LargeGlyph> out;
+    if (glyphs.size() != 95) {
+        return out;
+    }
+    for (const Glyph& glyph : glyphs) {
+        int width = 0, height = 0;
+        const std::vector<uint8_t> rgba = enlarge(glyph, width, height);
+        LargeGlyph large;
+        large.width = glyph.width;
+        large.height = glyph.rows - 1;
+        large.top = glyph.top;
+        large.advance = glyph.width + glyph.extra - 1;  // as func_150428D4 lays text out
+        large.scale = kScale;
+        const int w = large.width * kScale, h = large.height * kScale;
+        large.alpha.resize(size_t(w) * h);
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) large.alpha[size_t(y) * w + x] = rgba[(size_t(y + kScale) * width + x) * 4 + 3];
+        out.push_back(std::move(large));
+    }
+    return out;
 }
 
 } // namespace conker::sharp_font

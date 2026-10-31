@@ -94,7 +94,7 @@ apps until it reconnects.
 | Z | LT or RT | L2 or R2 | Left click (fire), Left Ctrl or C (crouch) |
 | L | LB | L1 | Q or Tab |
 | R | RB | R1 | Right click (aim), F |
-| Start | Start | Options | Esc or Enter |
+| Start | Start | Options | Enter |
 | C buttons | Right stick | Right stick | Mouse (the camera), I J K L |
 | Camera zoom (C-up) | Right stick up | Right stick up | Mouse wheel, or R (in) and T (out) |
 | D-pad | D-pad | D-pad | Arrow keys |
@@ -105,8 +105,8 @@ shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
 
 The mouse is captured when you click in the window while playing (that click
 is not passed on): the cursor hides, moving the mouse turns the camera, and
-while aiming (R, or the slingshot) it aims, as the right stick does. Pausing
-(Esc), a menu or another window lets it go; it is captured again when play
+while aiming (R, or the slingshot) it aims, as the right stick does. Esc, pausing
+(Enter), a menu or another window lets it go; it is captured again when play
 carries on after a pause, or with a click. The wheel, or R and T, move the camera through its
 three distances, in and out (on a pad, C-up only steps in).
 `CONKER_MOUSE_SENSITIVITY` scales the mouse (1 by default, 2 twice as fast).
@@ -149,6 +149,10 @@ says how to turn it off. The details, and every setting, are in
 * [docs/rsp-microcode.md](docs/rsp-microcode.md): graphics and audio microcode
 * [docs/investigations.md](docs/investigations.md): open problems and what
   has been ruled out
+* [docs/online-play.md](docs/online-play.md): playing MULTI online: hosting,
+  joining, join codes, port forwarding and firewalls (work in progress)
+* [docs/online-multiplayer-plan.md](docs/online-multiplayer-plan.md): how
+  online play works and what is left
 
 ## AI disclosure
 
@@ -171,6 +175,10 @@ license:
 * [RT64](https://github.com/rt64/rt64): MIT, with the libraries it bundles
   under their own licenses (`lib/rt64/src/contrib`).
 * [SDL2](https://www.libsdl.org/): zlib.
+* [miniupnpc](https://github.com/miniupnp/miniupnp) and
+  [libnatpmp](https://github.com/miniupnp/libnatpmp), which open an online
+  host's port on the router: BSD-3-Clause. The build fetches them at pinned
+  versions.
 * The patches in `tools/patches` change those projects, and each is under
   the license of the project it patches.
 * The sharper text and menus use Hyllian's Super-xBR (MIT).

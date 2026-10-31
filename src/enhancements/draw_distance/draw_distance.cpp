@@ -22,6 +22,7 @@
 #include "enhancements/display_options/widescreen_culling.hpp"
 #include "enhancements/status.hpp"
 #include "enhancements/switches.hpp"
+#include "runtime/snapshot.hpp"
 
 namespace {
 
@@ -59,6 +60,8 @@ bool draw_distance_enabled() { return g_enabled.load(std::memory_order_relaxed);
 // The scenery sprites' limit this frame as the game (and the widened view) would have it, while
 // the drawing reaches farther; 0 when it does not.
 int32_t g_sprite_game_limit = 0;
+// Native state the game's memory depends on, carried by a snapshot (runtime/snapshot.hpp).
+const bool g_snapshot_fields = (conker::snapshot::add("draw_distance.sprite_game_limit", &g_sprite_game_limit, sizeof(g_sprite_game_limit)), true);
 
 }  // namespace
 

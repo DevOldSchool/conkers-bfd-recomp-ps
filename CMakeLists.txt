@@ -74,12 +74,20 @@ endif()
 # src/enhancements: one folder per feature the console does not have, each with its own switch.
 add_executable(ConkersBadFurDayRecompiled
     src/main.cpp
+    src/runtime/frame_audio.cpp
+    src/runtime/frame_input.cpp
     src/runtime/game.cpp
     src/runtime/heap_check.cpp
     src/runtime/memory.cpp
+    src/runtime/net_play.cpp
+    src/runtime/net_codes.cpp
+    src/runtime/net_lobby.cpp
+    src/runtime/net_portmap.cpp
+    src/runtime/snapshot.cpp
     src/runtime/overlays.cpp
     src/runtime/rsp.cpp
     src/runtime/rzip.cpp
+    src/runtime/state_hash.cpp
     src/runtime/trace.cpp
     src/runtime/ultra_extras.cpp
     "${CONKER_RSP_DIR}/aspMain.cpp"
@@ -170,7 +178,7 @@ if(CONKER_RENDERER STREQUAL "rt64")
         target_compile_definitions(plume PRIVATE PLUME_APPLE_RETINA_ENABLED)
     endif()
     target_sources(ConkersBadFurDayRecompiled PRIVATE
-        src/platform/renderer_rt64.cpp src/platform/object_picker_rt64.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/enhancements/sharp_menus/sharp_menus.cpp src/platform/window_sdl.cpp src/platform/hang_watch.cpp src/platform/input_sdl.cpp
+        src/platform/renderer_rt64.cpp src/platform/object_picker_rt64.cpp src/platform/lobby_ui_rt64.cpp src/platform/lobby_style_rt64.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/enhancements/sharp_menus/sharp_menus.cpp src/platform/window_sdl.cpp src/platform/hang_watch.cpp src/platform/input_sdl.cpp
         src/enhancements/pad_icons/pad_icons.cpp src/enhancements/pad_icons/b_pad.cpp src/enhancements/pad_icons/stone_pad.cpp src/enhancements/pad_icons/hex_pad.cpp src/enhancements/pad_icons/square_pad.cpp src/enhancements/pad_icons/oval_pad.cpp src/enhancements/pad_icons/rock_pad.cpp src/enhancements/pad_icons/rug_pad.cpp src/enhancements/pad_icons/plate_pad.cpp src/enhancements/pad_icons/crate_pad.cpp src/enhancements/pad_icons/block_pad.cpp src/enhancements/pad_icons/disc_pad.cpp src/enhancements/pad_icons/rust_pad.cpp src/enhancements/pad_icons/riveted_pad.cpp src/enhancements/pad_icons/panel_pad.cpp
         src/enhancements/pad_icons/button_art.cpp)
     target_include_directories(ConkersBadFurDayRecompiled PRIVATE
@@ -210,6 +218,46 @@ if(CONKER_RENDERER STREQUAL "rt64")
 else()
     target_sources(ConkersBadFurDayRecompiled PRIVATE
         src/platform/renderer_null.cpp src/platform/window_headless.cpp src/platform/input_headless.cpp)
+endif()
+
+# ---------------------------------------------------------------------------------------------
+# Opening an online host's port on the router (src/runtime/net_portmap.cpp): miniupnpc for UPnP IGD
+# and libnatpmp for NAT-PMP, both BSD-3-Clause, fetched at configure time at pinned versions.
+# ---------------------------------------------------------------------------------------------
+option(CONKER_PORT_MAPPING "Open an online host's port on the router with UPnP and NAT-PMP" ON)
+# Internet play is off unless the game starts with --net-unsafe-internet. Test builds may start with it
+# on instead (--net-lan-only turns it off); the lobby still says UNSAFE either way.
+option(CONKER_NET_INTERNET_DEFAULT "Start with internet play on, as with --net-unsafe-internet (test builds)" OFF)
+target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_NET_INTERNET_DEFAULT=$<BOOL:${CONKER_NET_INTERNET_DEFAULT}>)
+if(CONKER_PORT_MAPPING)
+    include(FetchContent)
+    set(UPNPC_BUILD_STATIC ON CACHE BOOL "" FORCE)
+    set(UPNPC_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+    set(UPNPC_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(UPNPC_BUILD_SAMPLE OFF CACHE BOOL "" FORCE)
+    set(UPNPC_NO_INSTALL ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(miniupnpc
+        URL https://github.com/miniupnp/miniupnp/archive/refs/tags/miniupnpc_2_3_3.tar.gz
+        URL_HASH SHA256=8cf2c833b3e76fc4893ff29c2a376e3394962449e5970e373c0a91421724d222
+        SOURCE_SUBDIR miniupnpc
+        EXCLUDE_FROM_ALL)
+    # libnatpmp is built here rather than by its own CMakeLists: its folder holds a file named VERSION,
+    # which a case-insensitive disk finds for C++'s <version> once that folder is on the include path.
+    # Only its headers are copied out to be included.
+    FetchContent_Declare(libnatpmp
+        URL https://github.com/miniupnp/libnatpmp/archive/134fc89e2781e154e40042641f4d8bcbe42579f1.tar.gz
+        URL_HASH SHA256=be1864ed4e54a122590fd2de3824b085386b6e4aa9a91738c277c280ab8bf188
+        SOURCE_SUBDIR no-cmake-build
+        EXCLUDE_FROM_ALL)
+    FetchContent_MakeAvailable(miniupnpc libnatpmp)
+    add_library(conker_natpmp STATIC "${libnatpmp_SOURCE_DIR}/natpmp.c" "${libnatpmp_SOURCE_DIR}/getgateway.c")
+    target_compile_definitions(conker_natpmp PUBLIC ENABLE_STRNATPMPERR)
+    target_compile_options(conker_natpmp PRIVATE -w)
+    file(COPY "${libnatpmp_SOURCE_DIR}/natpmp.h" "${libnatpmp_SOURCE_DIR}/natpmp_declspec.h"
+         DESTINATION "${CMAKE_BINARY_DIR}/natpmp-include")
+    target_include_directories(conker_natpmp PUBLIC "${CMAKE_BINARY_DIR}/natpmp-include")
+    target_link_libraries(ConkersBadFurDayRecompiled PRIVATE libminiupnpc-static conker_natpmp)
+    target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_PORT_MAPPING=1)
 endif()
 
 if(APPLE)

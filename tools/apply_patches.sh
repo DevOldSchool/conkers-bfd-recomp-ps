@@ -22,13 +22,19 @@ patches_for() {
         lib/N64Recomp) echo n64recomp.patch ;;
         lib/N64ModernRuntime)
             echo n64modernruntime-running-thread.patch n64modernruntime-pi-dma-message.patch \
-                n64modernruntime-keep-rdram.patch ;;
+                n64modernruntime-keep-rdram.patch n64modernruntime-count-override.patch \
+                n64modernruntime-game-speed.patch n64modernruntime-timer-snapshot.patch \
+                n64modernruntime-untrusted-rdram.patch n64modernruntime-rdram-guard.patch \
+                n64modernruntime-pi-bounds.patch n64modernruntime-audio-buffer.patch \
+                n64modernruntime-function-exit.patch ;;
         lib/rt64)
             echo rt64-f3dex2cbfd.patch rt64-native-size.patch rt64-edge-rects.patch \
                 rt64-memory-packs.patch rt64-wireframe.patch rt64-wide-draw-rect.patch \
                 rt64-queue-names.patch rt64-metal-float-to-int.patch rt64-object-picking.patch \
                 rt64-near-draw-rect.patch rt64-split-screen-wide.patch rt64-grey-from-green.patch \
-                rt64-frame-effects.patch rt64-dl-command-limit.patch rt64-thread-exit.patch rt64-hidden-rows.patch ;;
+                rt64-frame-effects.patch rt64-dl-command-limit.patch rt64-thread-exit.patch rt64-hidden-rows.patch rt64-forget-framebuffers.patch \
+                rt64-vertex-slots.patch rt64-extended-gbi.patch rt64-dl-stack.patch rt64-texture-loads.patch \
+                rt64-vi-copy.patch rt64-rsp-indices.patch rt64-online-writeback.patch rt64-metal-version.patch ;;
         lib/rt64/src/contrib/plume) echo plume-wireframe.patch plume-gpu-errors.patch ;;
     esac
 }

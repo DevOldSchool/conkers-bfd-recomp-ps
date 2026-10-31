@@ -47,9 +47,36 @@ if [ -z "$sdl2_ref" ]; then
     echo "$binary does not link libSDL2-2.0.0.dylib" >&2
     exit 1
 fi
-sdl2="$(realpath "$sdl2_ref")"
-# sdl2-compat loads SDL3 at run time, first from @loader_path/libSDL3.dylib.
-sdl3="$(realpath "$(brew --prefix sdl3)/lib/libSDL3.0.dylib")"
+if [[ "$sdl2_ref" == @rpath/* ]]; then
+    # An SDL from a CMake package (an SDL built for an older macOS): the first rpath that has it.
+    for rpath in $(otool -l "$binary" | awk '$1 == "cmd" {cmd = $2} cmd == "LC_RPATH" && $1 == "path" {print $2}'); do
+        if [ -f "$rpath/${sdl2_ref#@rpath/}" ]; then
+            sdl2="$(realpath "$rpath/${sdl2_ref#@rpath/}")"
+            break
+        fi
+    done
+    if [ -z "${sdl2:-}" ]; then
+        echo "$binary links $sdl2_ref, found in none of its rpaths" >&2
+        exit 1
+    fi
+else
+    sdl2="$(realpath "$sdl2_ref")"
+fi
+# sdl2-compat loads SDL3 at run time, first from @loader_path/libSDL3.dylib: the one next to that SDL2
+# (an SDL built for an older macOS, see docs/building-macos.md), else Homebrew's.
+if [ -f "$(dirname "$sdl2")/libSDL3.0.dylib" ]; then
+    sdl3="$(realpath "$(dirname "$sdl2")/libSDL3.0.dylib")"
+else
+    sdl3="$(realpath "$(brew --prefix sdl3)/lib/libSDL3.0.dylib")"
+fi
+# Each library must run wherever the game does: Homebrew's are built for the macOS they were built on.
+minos_of() { otool -l "$1" | awk '/LC_BUILD_VERSION/ {found = 1} found && $1 == "minos" {print $2; exit}'; }
+for lib in "$sdl2" "$sdl3"; do
+    if [ "$(printf '%s\n%s\n' "$minos" "$(minos_of "$lib")" | sort -V | tail -1)" != "$minos" ]; then
+        echo "$lib needs macOS $(minos_of "$lib"), the game $minos: build SDL for $minos (docs/building-macos.md)" >&2
+        exit 1
+    fi
+done
 
 echo "==> $app ($version, $arch, macOS $minos or later)"
 rm -rf "$app" "$dist/ConkersBadFurDayRecompiled.dSYM" "$dist/Conker's Bad Fur Day.app" "$dist/ConkersBadFurDay.dSYM"
