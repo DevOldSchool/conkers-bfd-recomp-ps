@@ -7,6 +7,7 @@
 # config/us.syms.toml is committed and kept as it is: symbols generated from another decomp
 # revision can name functions differently and break hooks. CONKER_UPDATE_SYMS=1 rewrites it
 # from the decomp checkout; otherwise the generated copy goes to build/us/us.syms.generated.toml.
+# config/us.data.syms.toml, the data names mods link against, is kept and rewritten the same way.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -34,6 +35,19 @@ python3 "$here/tools/gen_syms.py" --decomp "$decomp" --rom "$rom" \
 if [ "$syms" != "$here/config/us.syms.toml" ] && ! cmp -s "$syms" "$here/config/us.syms.toml"; then
     echo "note: the decomp checkout gives different symbols than config/us.syms.toml, which is used;" \
         "CONKER_UPDATE_SYMS=1 takes the decomp's (see build/us/us.syms.generated.toml)"
+fi
+
+# The data symbols mods link against (mods/, docs/modding.md), kept the same way as us.syms.toml.
+if [ "${CONKER_UPDATE_SYMS:-0}" = 1 ]; then
+    data_syms="$here/config/us.data.syms.toml"
+else
+    data_syms="$here/build/us/us.data.syms.generated.toml"
+fi
+echo "==> generating the data symbols for mods (${data_syms#$here/})"
+python3 "$here/tools/gen_data_syms.py" --decomp "$decomp" --out "$data_syms"
+if [ "$data_syms" != "$here/config/us.data.syms.toml" ] && ! cmp -s "$data_syms" "$here/config/us.data.syms.toml"; then
+    echo "note: the decomp checkout gives different data symbols than config/us.data.syms.toml, which mods use;" \
+        "CONKER_UPDATE_SYMS=1 takes the decomp's"
 fi
 
 if [ ! -x "$here/build/N64Recomp/N64Recomp" ] || [ ! -x "$here/build/N64Recomp/RSPRecomp" ]; then

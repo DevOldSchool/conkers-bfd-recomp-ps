@@ -1,0 +1,285 @@
+diff --git a/librecomp/include/librecomp/game.hpp b/librecomp/include/librecomp/game.hpp
+--- a/librecomp/include/librecomp/game.hpp
++++ b/librecomp/include/librecomp/game.hpp
+@@ -24,6 +24,8 @@ namespace recomp {
+         std::string display_name;
+         std::u8string game_id;
+         std::string mod_game_id;
++        // Opens the mods (so the mods config keeps them) but loads none when the game starts.
++        bool skip_mod_loading = false;
+         SaveType save_type = SaveType::None;
+         std::span<const char> thumbnail_bytes;
+         bool is_enabled;
+diff --git a/librecomp/include/librecomp/mods.hpp b/librecomp/include/librecomp/mods.hpp
+--- a/librecomp/include/librecomp/mods.hpp
++++ b/librecomp/include/librecomp/mods.hpp
+@@ -129,6 +129,8 @@ namespace recomp {
+             OfflineModHooked,
+             NoSpecifiedApiVersion,
+             UnsupportedApiVersion,
++            NativeCodeRefused,
++            Has64BitInstructions,
+         };
+ 
+         std::string error_to_string(CodeModLoadError);
+@@ -621,6 +623,16 @@ namespace recomp {
+         CodeModLoadError validate_api_version(uint32_t api_version, std::string& error_param);
+ 
+         void initialize_mods();
++        // Data in the (decompressed) ROM outside the code sections: where the jump tables of a function
++        // recompiled again for a hook are looked for when they are not in its own section.
++        struct JumpTableData {
++            uint32_t ram_addr;
++            uint32_t size;
++            uint32_t rom_addr;
++        };
++        void set_jump_table_data(std::vector<JumpTableData> data);
++        // Whether a mod found for the first time starts on (true unless the game says otherwise).
++        void set_enable_new_mods(bool enable);
+         void register_embedded_mod(const std::string& mod_id, std::span<const uint8_t> mod_bytes);
+         void register_deprecated_mod(const std::string& mod_id, DeprecationStatus deprecation_status, const Version &maximum_version);
+         void scan_mods();
+diff --git a/librecomp/src/mod_manifest.cpp b/librecomp/src/mod_manifest.cpp
+--- a/librecomp/src/mod_manifest.cpp
++++ b/librecomp/src/mod_manifest.cpp
+@@ -1129,5 +1129,9 @@ std::string recomp::mods::error_to_string(CodeModLoadError error) {
+             return "Mod DLL does not specify an API version";
+         case CodeModLoadError::UnsupportedApiVersion:
+             return "Mod DLL has an unsupported API version";
++        case CodeModLoadError::NativeCodeRefused:
++            return "Mod contains native code, which this game does not load";
++        case CodeModLoadError::Has64BitInstructions:
++            return "Mod contains 64-bit instructions, which this game does not load";
+     }
+ }
+diff --git a/librecomp/src/mods.cpp b/librecomp/src/mods.cpp
+--- a/librecomp/src/mods.cpp
++++ b/librecomp/src/mods.cpp
+@@ -1,3 +1,4 @@
++#include <mutex>
+ #include <span>
+ #include <fstream>
+ #include <sstream>
+@@ -555,48 +556,43 @@ recomp::mods::GenericFunction recomp::mods::LiveRecompilerCodeHandle::get_functi
+     return GenericFunction{ recompiler_output->functions[func_index] };
+ }
+ 
+-void patch_func(recomp_func_t* target_func, recomp::mods::GenericFunction replacement_func) {
+-    uint8_t* target_func_u8 = reinterpret_cast<uint8_t*>(target_func);
+-    size_t offset = 0;
++static bool enable_new_mods = true;
+ 
+-    auto write_bytes = [&](const void* bytes, size_t count) {
+-        memcpy(target_func_u8 + offset, bytes, count);
+-        offset += count;
+-    };
++void recomp::mods::set_enable_new_mods(bool enable) {
++    enable_new_mods = enable;
++}
+ 
+-    uint64_t old_flags;
+-    unprotect(target_func_u8, &old_flags);
++// Replacements are recorded here instead of written over the start of the target as a jump:
++// macOS on Apple silicon does not let a process write to its own signed code. The project's
++// recompiled functions look themselves up on entry (see recomp_get_function_redirect), so the
++// lookup only runs again when the generation changes.
++static std::mutex function_redirects_mutex;
++static std::unordered_map<recomp_func_t*, recomp_func_t*> function_redirects;
++extern "C" volatile uint32_t recomp_function_redirect_generation = 0;
+ 
+-#if defined(IS_X86_64)
+-    static const uint8_t movabs_rax[] = {0x48, 0xB8};
+-    static const uint8_t jmp_rax[] = {0xFF, 0xE0};
+-    std::visit(overloaded {
+-        [&write_bytes](recomp_func_t* native_func) {
+-           write_bytes(movabs_rax, sizeof(movabs_rax));
+-           write_bytes(&native_func, sizeof(&native_func));
+-           write_bytes(jmp_rax, sizeof(jmp_rax));
+-        }
+-    }, replacement_func);
+-#elif defined(IS_ARM64)
+-    static const uint8_t ldr_x2_8__br_x2[] = {0x42, 0x00, 0x00, 0x58, 0x40, 0x00, 0x1F, 0xD6};
++extern "C" recomp_func_t* recomp_get_function_redirect(recomp_func_t* func) {
++    std::lock_guard lock{ function_redirects_mutex };
++    auto find_it = function_redirects.find(func);
++    return find_it == function_redirects.end() ? nullptr : find_it->second;
++}
++
++void patch_func(recomp_func_t* target_func, recomp::mods::GenericFunction replacement_func) {
+     std::visit(overloaded {
+-        [&write_bytes](recomp_func_t* native_func) {
+-           write_bytes(ldr_x2_8__br_x2, sizeof(ldr_x2_8__br_x2));
+-           write_bytes(&native_func, sizeof(&native_func));
++        [target_func](recomp_func_t* native_func) {
++            std::lock_guard lock{ function_redirects_mutex };
++            function_redirects[target_func] = native_func;
+         }
+     }, replacement_func);
+-#else
+-#   error "Unsupported architecture"
+-#endif
+-
+-    protect(target_func_u8, old_flags);
++    recomp_function_redirect_generation = recomp_function_redirect_generation + 1;
+ }
+ 
+ void unpatch_func(void* target_func, const recomp::mods::PatchData& data) {
+-    uint64_t old_flags;
+-    unprotect(target_func, &old_flags);
+-    memcpy(target_func, data.replaced_bytes.data(), data.replaced_bytes.size());
+-    protect(target_func, old_flags);
++    (void)data;
++    {
++        std::lock_guard lock{ function_redirects_mutex };
++        function_redirects.erase(reinterpret_cast<recomp_func_t*>(target_func));
++    }
++    recomp_function_redirect_generation = recomp_function_redirect_generation + 1;
+ }
+ 
+ void recomp::mods::ModContext::add_opened_mod(ModManifest&& manifest, config::Config&& config, std::vector<size_t>&& game_indices, std::vector<ModContentTypeId>&& detected_content_types, std::vector<char>&& thumbnail) {
+@@ -875,7 +871,7 @@ void recomp::mods::ModContext::load_mods_config() {
+     for (size_t i = 0; i < opened_mods.size(); i++) {
+         const ModHandle& mod = opened_mods[i];
+         const std::string &mod_id = mod.manifest.mod_id;
+-        bool is_default_enabled = !opened_mod_is_known[i] && mod.manifest.enabled_by_default;
++        bool is_default_enabled = enable_new_mods && !opened_mod_is_known[i] && mod.manifest.enabled_by_default;
+         bool is_manually_enabled = config_enabled_mods.contains(mod_id);
+         if (is_default_enabled || is_manually_enabled) {
+             enable_mod(mod_id, true, false);
+@@ -1032,8 +1028,19 @@ void recomp::mods::ModContext::enable_mod(const std::string& mod_id, bool enable
+ 
+     bool mods_loaded = active_game != (size_t)-1;
+ 
+-    // Do nothing if mods have already been loaded and this mod isn't runtime toggleable.
++    // If mods have already been loaded and this mod isn't runtime toggleable, only record the choice
++    // for the next start (the game's own menu turns mods on and off while it runs). The mods it
++    // depends on are worked out again when the config is loaded then.
+     if (!mod.is_runtime_toggleable() && mods_loaded) {
++        if (enabled) {
++            enabled_mods.emplace(mod_id);
++        }
++        else {
++            enabled_mods.erase(mod_id);
++        }
++        if (trigger_save) {
++            mod_configuration_thread_queue.enqueue(ModConfigQueueSave());
++        }
+         return;
+     }
+ 
+@@ -1332,8 +1339,17 @@ struct RegeneratedList {
+     std::vector<std::pair<recomp::overlays::BasePatchedFunction, std::pair<recomp::mods::HookDefinition, size_t>>> patched_hooks;
+ };
+ 
++static std::vector<recomp::mods::JumpTableData> jump_table_data;
++
++void recomp::mods::set_jump_table_data(std::vector<JumpTableData> data) {
++    jump_table_data = std::move(data);
++}
++
+ N64Recomp::Context context_from_regenerated_list(const RegeneratedList& regenlist, std::span<const uint8_t> rom) {
+     N64Recomp::Context ret{};
++    for (const recomp::mods::JumpTableData& data : jump_table_data) {
++        ret.jump_table_data.push_back({ data.ram_addr, data.size, data.rom_addr });
++    }
+ 
+     // TODO avoid copying the whole ROM into the context somehow.
+     ret.rom.assign(rom.begin(), rom.end());
+@@ -2177,6 +2193,36 @@ void recomp::mods::ModContext::check_dependencies(recomp::mods::ModHandle& mod,
+     }
+ }
+ 
++// MIPS III's 64-bit integer instructions: doubleword loads, stores, arithmetic, shifts and moves.
++static bool is_64bit_instruction(uint32_t word) {
++    uint32_t opcode = word >> 26;
++    switch (opcode) {
++        case 0x18: case 0x19: // daddi, daddiu
++        case 0x1A: case 0x1B: // ldl, ldr
++        case 0x27:            // lwu
++        case 0x2C: case 0x2D: // sdl, sdr
++        case 0x34: case 0x37: // lld, ld
++        case 0x3C: case 0x3F: // scd, sd
++            return true;
++        case 0x00: { // SPECIAL
++            switch (word & 0x3F) {
++                case 0x14: case 0x16: case 0x17: // dsllv, dsrlv, dsrav
++                case 0x1C: case 0x1D: case 0x1E: case 0x1F: // dmult, dmultu, ddiv, ddivu
++                case 0x2C: case 0x2D: case 0x2E: case 0x2F: // dadd, daddu, dsub, dsubu
++                case 0x38: case 0x3A: case 0x3B: // dsll, dsrl, dsra
++                case 0x3C: case 0x3E: case 0x3F: // dsll32, dsrl32, dsra32
++                    return true;
++            }
++            return false;
++        }
++        case 0x10: case 0x11: { // COP0, COP1
++            uint32_t rs = (word >> 21) & 0x1F;
++            return rs == 0x01 || rs == 0x05; // dmfc, dmtc
++        }
++    }
++    return false;
++}
++
+ recomp::mods::CodeModLoadError recomp::mods::ModContext::init_mod_code(uint8_t* rdram, const std::unordered_map<uint32_t, uint16_t>& section_vrom_map, ModHandle& mod, int32_t load_address, bool hooks_available, uint32_t& ram_used, std::string& error_param) {
+     // Load the mod symbol data from the file provided in the manifest.
+     bool binary_syms_exists = false;
+@@ -2202,6 +2248,26 @@ recomp::mods::CodeModLoadError recomp::mods::ModContext::init_mod_code(uint8_t*
+         return CodeModLoadError::FailedToParseSyms;
+     }
+ 
++    // Native code runs with everything the player can do, so this game does not load it: no native
++    // libraries, and no ".offline.nrm" mods (a native build of the mod, for debugging it).
++    if (!mod.manifest.native_libraries.empty() || mod.manifest.mod_root_path.filename().string().ends_with(".offline.nrm")) {
++        error_param = mod.manifest.mod_root_path.filename().string();
++        return CodeModLoadError::NativeCodeRefused;
++    }
++
++    // Refuse MIPS III's 64-bit integer instructions. Without them every value the mod's code can
++    // make is a sign-extended 32-bit one, so the addresses it reads and writes, and the pointers it
++    // passes to the game and the exports, stay inside the game's memory (and its guard pages). Mods
++    // built for MIPS II, as the mod template is, never contain them.
++    for (const N64Recomp::Function& func : mod.recompiler_context->functions) {
++        for (uint32_t raw_word : func.words) {
++            if (is_64bit_instruction(__builtin_bswap32(raw_word))) {
++                error_param = func.name;
++                return CodeModLoadError::Has64BitInstructions;
++            }
++        }
++    }
++
+     // Prevent loading the mod if hooks aren't available and it has any hooks.
+     if (!hooks_available && !mod.recompiler_context->hooks.empty()) {
+         return CodeModLoadError::HooksUnavailable;
+@@ -2610,8 +2676,20 @@ recomp::mods::CodeModLoadError recomp::mods::ModContext::resolve_code_dependenci
+ 
+         // Check if this function has already been patched by the base recomp, but allow it if this is a force patch.
+         if ((replacement.flags & N64Recomp::ReplacementFlags::Force) == N64Recomp::ReplacementFlags(0)) {
++            // A function the base recomp changed in its recompiled code (hooks, stubs) has its ROM
++            // size set to 0 in the section table, as one it reimplemented natively has: count both
++            // as patched by the base recomp.
++            bool base_changed = false;
++            const auto& sections_by_rom = recomp::overlays::get_vrom_to_section_map();
++            auto find_section_it = sections_by_rom.find(replacement.original_section_vrom);
++            FuncEntry func_entry{};
++            if (find_section_it != sections_by_rom.end() &&
++                recomp::overlays::get_func_entry_by_section_index_function_offset(find_section_it->second,
++                    replacement.original_vram - recomp::overlays::get_section_ram_addr(find_section_it->second), func_entry)) {
++                base_changed = func_entry.rom_size == 0;
++            }
+             auto find_it = base_patched_funcs.find(to_replace);
+-            if (find_it != base_patched_funcs.end()) {
++            if (base_changed || find_it != base_patched_funcs.end()) {
+                 std::stringstream error_param_stream{};
+                 error_param_stream << std::hex <<
+                     "section: 0x" << replacement.original_section_vrom <<
+diff --git a/librecomp/src/recomp.cpp b/librecomp/src/recomp.cpp
+--- a/librecomp/src/recomp.cpp
++++ b/librecomp/src/recomp.cpp
+@@ -718,7 +718,7 @@ bool wait_for_game_started(uint8_t* rdram, recomp_context* context) {
+                 }
+ 
+                 uint32_t mod_ram_used = 0;
+-                if (!game_entry.mod_game_id.empty()) {
++                if (!game_entry.mod_game_id.empty() && !game_entry.skip_mod_loading) {
+                     std::vector<recomp::mods::ModLoadErrorDetails> mod_load_errors;
+                     {
+                         std::lock_guard lock { mod_context_mutex };
