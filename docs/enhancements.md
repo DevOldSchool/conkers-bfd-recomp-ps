@@ -6,8 +6,8 @@ off for a run. The summary is in the [README](../README.md#enhancements).
 
 ## Display options
 
-The OPTIONS page of the title menu has a volume row above the sound setting
-and five display rows under it.
+The OPTIONS page of the title menu has a volume row under the sound setting,
+then five display rows.
 
 * VOLUME, from OFF to 100% in steps of 10%, stopping at either end. It turns
   down what the game plays (the sound effects, music and speech together),
