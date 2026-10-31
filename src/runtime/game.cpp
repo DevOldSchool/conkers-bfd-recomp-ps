@@ -1,6 +1,7 @@
 #include "runtime/game.hpp"
 
 #include <cstdio>
+#include <algorithm>
 #include <cstring>
 #include <stdexcept>
 
@@ -13,6 +14,26 @@
 
 namespace conker {
 
+namespace {
+
+// The inflated game overlay, kept from on_init for the mod loader's virtual ROM.
+rzip::GameArchive g_game_archive;
+
+// librecomp hooks a function by recompiling its MIPS again, read from the ROM N64Recomp was given:
+// the virtual ROM tools/gen_syms.py builds, which is the real ROM with the inflated game code
+// appended at 64 MiB and the game data after it (16-byte aligned).
+std::vector<uint8_t> build_virtual_rom(std::span<const uint8_t> rom) {
+    constexpr size_t kGameCodeVrom = 0x4000000;
+    const size_t data_vrom = (kGameCodeVrom + g_game_archive.code.size() + 15) & ~size_t{15};
+    std::vector<uint8_t> vrom(data_vrom + g_game_archive.data.size(), 0);
+    std::memcpy(vrom.data(), rom.data(), std::min(rom.size(), kGameCodeVrom));
+    std::memcpy(vrom.data() + kGameCodeVrom, g_game_archive.code.data(), g_game_archive.code.size());
+    std::memcpy(vrom.data() + data_vrom, g_game_archive.data.data(), g_game_archive.data.size());
+    return vrom;
+}
+
+} // namespace
+
 recomp::GameEntry make_game_entry() {
     recomp::GameEntry entry{};
     entry.rom_hash = kUsRomHash;
@@ -20,9 +41,14 @@ recomp::GameEntry make_game_entry() {
     entry.display_name = "Conker's Bad Fur Day (US)";
     entry.game_id = kGameId;
     entry.mod_game_id = "conker";
+    // Online, every machine runs the same frames from the same inputs, so a mod on one machine and not
+    // the others would split the game apart: a session loads no mods. They are still opened, or
+    // librecomp would save mods.json without them and the player's choice would be lost.
+    entry.skip_mod_loading = net::active();
     entry.save_type = recomp::SaveType::Eep16k;  // NFUE uses a 16 kbit EEPROM
     entry.is_enabled = true;
     entry.has_compressed_code = true;  // the game overlay is RZIP-compressed in ROM
+    entry.decompression_routine = build_virtual_rom;
     entry.entrypoint_address = static_cast<gpr>(static_cast<int32_t>(0x80001000));
     entry.entrypoint = entrypoint;
     entry.on_init_callback = on_init;
@@ -89,6 +115,7 @@ void on_init(uint8_t* rdram, recomp_context* /*ctx*/) {
         throw std::runtime_error("failed to map the game code window");
     }
     memory::write_image(rdram, memory::kGameCodeVram, archive.code);
+    g_game_archive = std::move(archive);
 
     // Main's startup inflates the game data itself (through recompiled code), so it is not
     // written here; doing so would be harmless but would hide a failure in that path.

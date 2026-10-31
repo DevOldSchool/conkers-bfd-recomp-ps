@@ -1,0 +1,47 @@
+diff --git a/include/recompiler/context.h b/include/recompiler/context.h
+--- a/include/recompiler/context.h
++++ b/include/recompiler/context.h
+@@ -235,6 +235,14 @@ namespace N64Recomp {
+         bool skip_validating_reference_symbols = true;
+         // Whether all function calls (excluding reference symbols) should go through lookup.
+         bool use_lookup_for_all_function_calls = false;
++        // Data the ROM holds outside the context's sections, where a function's jump tables may be (IDO
++        // puts them in rodata, which a game can load apart from its code): ram address, size, ROM offset.
++        struct DataRange {
++            uint32_t ram_addr;
++            uint32_t size;
++            uint32_t rom_addr;
++        };
++        std::vector<DataRange> jump_table_data;
+ 
+         //// Only used by the CLI, TODO move this to a struct in the internal headers.
+         // A mapping of function name to index in the functions vector
+diff --git a/src/analysis.cpp b/src/analysis.cpp
+--- a/src/analysis.cpp
++++ b/src/analysis.cpp
+@@ -314,14 +314,21 @@ bool N64Recomp::analyze_function(const N64Recomp::Context& context, const N64Rec
+             end_address = stats.jump_tables[i + 1].vram;
+         }
+ 
+-        // TODO this assumes that the jump table is in the same section as the function itself
+-        cur_jtbl.rom = cur_jtbl.vram + func.rom - func.vram;
++        // The jump table is in the same section as the function itself, unless it is in one of the
++        // context's data ranges.
++        uint32_t jtbl_rom_offset = func.rom - func.vram;
++        for (const Context::DataRange& data : context.jump_table_data) {
++            if (cur_jtbl.vram >= data.ram_addr && cur_jtbl.vram < data.ram_addr + data.size) {
++                jtbl_rom_offset = data.rom_addr - data.ram_addr;
++                break;
++            }
++        }
++        cur_jtbl.rom = cur_jtbl.vram + jtbl_rom_offset;
+         cur_jtbl.section_index = func.section_index;
+ 
+         while (vram < end_address) {
+             // Retrieve the current entry of the jump table
+-            // TODO same as above
+-            uint32_t rom_addr = vram + func.rom - func.vram;
++            uint32_t rom_addr = vram + jtbl_rom_offset;
+             uint32_t jtbl_word = byteswap(*reinterpret_cast<const uint32_t*>(&context.rom[rom_addr]));
+ 
+             if (cur_jtbl.got_offset.has_value() && got_ram_addr.has_value()) {

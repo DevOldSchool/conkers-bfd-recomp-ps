@@ -44,9 +44,11 @@ if [ ! -x "$HOST_TOOLS_DIR/file_to_c" ]; then
     c++ -std=c++17 -O2 -o "$HOST_TOOLS_DIR/file_to_c" "$here/lib/rt64/src/tools/file_to_c/file_to_c.cpp"
 fi
 
+# The compiler checks build in Release: xwin brings no debug CRT (msvcrtd.lib) for CMake's default Debug.
 cmake -S "$here" -B "$build" -G Ninja -Wno-dev \
     -DCMAKE_TOOLCHAIN_FILE="$here/tools/windows/clang-cl-xwin.cmake" \
     -DCMAKE_CROSSCOMPILING_EMULATOR="$here/tools/windows/host_tool.sh" \
-    -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER="$renderer"
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER="$renderer" \
+    -DCMAKE_TRY_COMPILE_CONFIGURATION=Release
 cmake --build "$build"
 echo "built $build/ConkersBadFurDayRecompiled.exe"

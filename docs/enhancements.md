@@ -220,6 +220,10 @@ button. Up and down choose a row, A or left and right change it:
   scene may leave out sky tiles at the sides until the next one. The OPTIONS
   page's own rows (`CONKER_DISPLAY_OPTIONS`) and the debug menu are not
   switched here.
+* MODS: the mods in `conker-recomp-data/mods`, on and off. A new mod starts
+  off, and the page says to turn on only mods from people you trust. Mods
+  load when the game starts, so after a change RESTART TO APPLY starts it
+  again. See [modding.md](modding.md).
 * TELEPORT: X, Y, Z, FACING and CAMERA YAW, set to where Conker is and
   changed with left and right by STEP (1, 10, 100 or 1000; held, they keep
   changing). GO puts him there facing that way, and the camera where it
@@ -245,7 +249,8 @@ button. Up and down choose a row, A or left and right change it:
   facing, the camera (position, look-at point, forward vector, yaw, pitch),
   every enhancement (`id`, `name`, `on`, its `CONKER_*` `variable` and its
   `options` as values), the settings that go with them (display, texture
-  packs, controller, frame rate, `display.cfg`), the computer (operating
+  packs, controller, frame rate, `display.cfg`), every installed mod (`id`,
+  `version` and whether it was `on` as the game started), the computer (operating
   system, CPU, memory, GPU and graphics API, display size; nothing that
   names the computer or its user), the `CONKER_*` variables set (a path
   keeps only its file name), and what save is in the folder. The save is

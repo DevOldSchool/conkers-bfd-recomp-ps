@@ -154,6 +154,7 @@ gets something wrong, it is fixed without a setting. One fix can be turned off:
   audio dumps, scripted input, skipping the opening with a save
 * [docs/recompilation.md](docs/recompilation.md): how the recompilation is set
   up and what the submodule patches change
+* [docs/modding.md](docs/modding.md): installing (only from people you trust) and making code mods
 * [docs/memory-layout.md](docs/memory-layout.md): the TLB layout
 * [docs/rsp-microcode.md](docs/rsp-microcode.md): graphics and audio microcode
 * [docs/investigations.md](docs/investigations.md): open problems and what
