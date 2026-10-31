@@ -3,12 +3,16 @@
 #include "runtime/memory.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <mutex>
+#include <string>
 #include <vector>
 
 #if CONKER_AUDIO_SDL
@@ -31,6 +35,47 @@ uint32_t frequency = 48000;
 // cushion extra buffered. CONKER_AUDIO_LATENCY_MS overrides it.
 double latency_cushion_ms = 60.0;
 std::vector<int16_t> frames;  // interleaved L, R scratch buffer
+
+// --- volume: the OPTIONS page's VOLUME row, kept in conker-recomp-data/audio.cfg --------------
+// Tenths of full volume. Only what is played is scaled; the statistics and CONKER_DUMP_AUDIO see
+// the game's own output.
+std::atomic<int> g_volume{kMaxVolume};
+std::mutex g_save_mutex;
+
+std::filesystem::path config_path() {
+    return std::filesystem::current_path() / "conker-recomp-data" / "audio.cfg";
+}
+
+// audio.cfg holds a "volume=<0-10>" line.
+void load_volume() {
+    std::ifstream file(config_path());
+    for (std::string line; std::getline(file, line);) {
+        const size_t equals = line.find('=');
+        if (equals != std::string::npos && line.substr(0, equals) == "volume") {
+            g_volume.store(std::clamp(std::atoi(line.c_str() + equals + 1), 0, kMaxVolume));
+        }
+    }
+}
+
+void save_volume() {
+    std::lock_guard lock(g_save_mutex);
+    std::ofstream file(config_path());
+    file << "volume=" << g_volume.load() << '\n';
+    if (!file) {
+        std::fprintf(stderr, "[conker] could not write %s\n", config_path().string().c_str());
+    }
+}
+
+// Loudness is heard roughly logarithmically, so a linear gain would leave the top steps sounding
+// alike: the gain is the square of the setting, about 6 dB quieter at 50% and 20 dB at 10%.
+void apply_volume(int16_t* data, size_t sample_count) {
+    const int volume = g_volume.load();
+    if (volume >= kMaxVolume) return;
+    const int gain = volume * volume;  // out of kMaxVolume * kMaxVolume
+    for (size_t i = 0; i < sample_count; i++) {
+        data[i] = static_cast<int16_t>(data[i] * gain / (kMaxVolume * kMaxVolume));
+    }
+}
 
 // --- statistics: a line every few seconds of audio so a headless log shows what was rendered --
 uint64_t total_frames = 0;
@@ -228,6 +273,7 @@ bool use_clock_sink() {
 } // namespace
 
 void init() {
+    load_volume();
     if (const char* value = std::getenv("CONKER_AUDIO_LATENCY_MS"); value != nullptr && value[0] != '\0') {
         latency_cushion_ms = std::max(0.0, std::atof(value));
     }
@@ -286,6 +332,7 @@ void queue_samples(int16_t* samples, size_t sample_count) {
     if (sdl_enabled) {
         if (sdl_device == 0 || sdl_frequency != frequency) sdl_open();
         if (sdl_device != 0) {
+            apply_volume(frames.data(), frame_count * 2);
             SDL_QueueAudio(sdl_device, frames.data(), static_cast<Uint32>(frame_count * 4));
             return;
         }
@@ -293,6 +340,15 @@ void queue_samples(int16_t* samples, size_t sample_count) {
 #endif
     clock_advance();
     clock_queued_frames += static_cast<double>(frame_count);
+}
+
+int volume() { return g_volume.load(); }
+
+void set_volume(int volume) {
+    volume = std::clamp(volume, 0, kMaxVolume);
+    if (g_volume.exchange(volume) == volume) return;
+    std::printf("[conker] volume %d%%\n", volume * 10);
+    save_volume();
 }
 
 size_t get_frames_remaining() {

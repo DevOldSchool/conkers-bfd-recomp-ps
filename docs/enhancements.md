@@ -6,7 +6,16 @@ off for a run. The summary is in the [README](../README.md#enhancements).
 
 ## Display options
 
-The OPTIONS page of the title menu has five rows under the sound setting.
+The OPTIONS page of the title menu has a volume row above the sound setting
+and five display rows under it.
+
+* VOLUME, from OFF to 100% in steps of 10%, stopping at either end. It turns
+  down what the game plays (the sound effects, music and speech together),
+  so it holds in every mode, multiplayer included. Each step is about the
+  same change in loudness (the gain is the square of the setting, so 50% is
+  about 6 dB down). It is kept in `conker-recomp-data/audio.cfg`; full
+  volume is the default. `CONKER_DUMP_AUDIO` still records the game's own
+  output at full volume.
 
 * SHARP TEXT or ORIGINAL TEXT: the [sharper text](#sharper-text) and
   [menus](#sharper-menus), or the game's own. It switches at once and is on
@@ -66,7 +75,7 @@ window and the last screen-covering mode. The choices are kept in
 `conker-recomp-data/display.cfg`, not in the game's save, so the OPTIONS
 saved to EEPROM are unchanged. `CONKER_DISPLAY=windowed`, `borderless` or
 `fullscreen` overrides the mode for one run, `CONKER_DISPLAY_OPTIONS=0`
-hides the rows, and `CONKER_ORIGINAL_SIZE=1` opens the original 960x720
+hides the rows (the volume row too, leaving the volume as it was set), and `CONKER_ORIGINAL_SIZE=1` opens the original 960x720
 window (in points) instead.
 
 ## Skip to the title menu

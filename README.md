@@ -118,7 +118,7 @@ says how to turn it off. The details, and every setting, are in
 
 | Enhancement | What it does | Off |
 | --- | --- | --- |
-| [Display options](docs/enhancements.md#display-options) | Window, borderless or full screen, widescreen, resolution, fill or centered, and sharp or original text, in the OPTIONS menu | `CONKER_DISPLAY_OPTIONS=0` hides the rows |
+| [Display options](docs/enhancements.md#display-options) | Volume, window, borderless or full screen, widescreen, resolution, fill or centered, and sharp or original text, in the OPTIONS menu | `CONKER_DISPLAY_OPTIONS=0` hides the rows |
 | [Skip to the title menu](docs/enhancements.md#skip-to-the-title-menu) | L skips the boot logos, the intro and the title scene's opening | `CONKER_SKIP_INTRO=0` |
 | [Skip any cutscene](docs/enhancements.md#skip-any-cutscene) | L skips every cutscene, the first time too | `CONKER_SKIP_CUTSCENES=0` |
 | [SAVE and LOAD in the pause menu](docs/enhancements.md#save-and-load-in-the-pause-menu) | Save where Conker stands and load back to that spot, with a snapshot of every save | `CONKER_PAUSE_SAVE=0` |
