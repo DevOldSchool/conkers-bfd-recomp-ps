@@ -200,15 +200,15 @@ button. Up and down choose a row, A or left and right change it:
   runs, each ON or OFF, starting as its `CONKER_*` variable set it: SHARP
   TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
   WIDESCREEN CULLING, SKIP INTRO, SKIP CUTSCENES, PAUSE SAVE AND LOAD, SAVE
-  SNAPSHOTS, SURROUND DEFAULT, FULL DETAIL, DRAW DISTANCE, NO RUMBLE
-  PAK BANNER, CONSISTENT CONTROLS, PAD BUTTONS and 60 FPS. A or left and right switch the
+  SNAPSHOTS, SURROUND DEFAULT, FULL DETAIL, DRAW DISTANCE,
+  CONSISTENT CONTROLS, PAD BUTTONS and 60 FPS. A or left and right switch the
   chosen one. SHARP TEXT and WIDESCREEN are the OPTIONS rows' settings and
   are kept in `display.cfg` as those rows keep them (a new shape applies once
   the game carries on); the rest last until the game is closed, and a debug
   report records them as they are. Each acts the next time the game comes to
   it: SKIP INTRO only during the boot logos and the intro, PAUSE SAVE AND
   LOAD at the next pause, SURROUND DEFAULT only when the game finds no saved
-  options, the banner when the title menu next comes up. The tiled sky's
+  options. The tiled sky's
   room is set when a scene starts, so WIDESCREEN CULLING switched on in a
   scene may leave out sky tiles at the sides until the next one. The OPTIONS
   page's own rows (`CONKER_DISPLAY_OPTIONS`) and the debug menu are not
@@ -295,12 +295,6 @@ as before. A scene with more grass and flowers than the game builds in a
 frame (110) would keep their limit, so that farther ones never take the
 place of nearer ones; none has been seen. `CONKER_DRAW_DISTANCE=0`
 keeps the game's distances.
-
-## No Rumble Pak banner with a rumbling pad
-
-The title menu's "INSERT RUMBLE PAK" banner shows on an N64 even with the
-pak inserted. It is left out when controller 1's pad can rumble;
-`CONKER_RUMBLE_BANNER=1` shows it.
 
 ## Pad haptics
 

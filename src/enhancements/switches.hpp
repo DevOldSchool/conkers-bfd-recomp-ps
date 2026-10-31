@@ -31,7 +31,6 @@ Switch save_snapshots();
 Switch surround_default();
 Switch max_detail();
 Switch draw_distance();
-Switch rumble_banner();
 Switch haptics();
 Switch adaptive_triggers();
 Switch consistent_controls();
