@@ -19,6 +19,7 @@
 #include "librecomp/game.hpp"
 #include "build_version.h"
 #include "enhancements/frame_rate/frame_rate.hpp"
+#include "enhancements/my_view/my_view.hpp"
 #include "enhancements/switches.hpp"
 #include "platform/display_mode.hpp"
 #include "runtime/game.hpp"
@@ -605,6 +606,7 @@ extern "C" void conker_frame_input_begin(uint8_t* rdram, recomp_context* ctx) {
     if (fixed_on()) {
         wait_for_gfx(rdram);
     }
+    conker::my_view::frame(rdram, ctx);  // before the audio frame, which plays what it posts
     conker::frame_input::make_audio_frame(rdram, ctx);
     test_snapshot(rdram, ctx);
     {

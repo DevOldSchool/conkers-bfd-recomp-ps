@@ -143,6 +143,12 @@ These environment variables are read by both builds:
   from before have port 1's alone, and replay as before). Its lines match
   `CONKER_FRAME_LOG`'s one for one. Online every peer's log holds the same
   records from frame 1, the host's merged ones.
+* `CONKER_MY_VIEW_PORT=<1-4>` tries the online "my view"
+  (src/enhancements/my_view) outside a session, in a local split-screen
+  match, as that port's player: only its view is presented and the sounds
+  are worked out for its listener. `CONKER_MY_VIEW_LOG=1` prints the view
+  presented and every sound started with the game's and the local volume and
+  pan. `CONKER_MY_VIEW=0` switches it off, online too.
 * `CONKER_NET_SIM=latency=<ms>,jitter=<ms>,loss=<%>,dup=<%>,reorder=<%>,outage=<from>-<to>`
   simulates a bad link for one online peer (src/runtime/net_play.cpp): half
   the round-trip latency on each of its sends and receives plus up to

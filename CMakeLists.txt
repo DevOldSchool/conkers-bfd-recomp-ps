@@ -116,6 +116,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/enhancements/frame_rate/frame_rate.cpp
     src/enhancements/intro_skip/intro_skip.cpp
     src/enhancements/max_detail/max_detail.cpp
+    src/enhancements/my_view/my_view.cpp
     src/enhancements/pause_save/pause_save.cpp
     src/enhancements/pause_save/resume_point.cpp
     src/enhancements/pause_save/save_check.cpp

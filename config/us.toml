@@ -644,7 +644,96 @@ text = "{ void conker_rumble_banner(uint8_t*, recomp_context*); conker_rumble_ba
 [[patches.hook]]
 func = "sndp_play_sound"
 before_vram = 0x10017438
-text = "{ void conker_sound_started(uint8_t*, recomp_context*); conker_sound_started(rdram, ctx); }"
+text = "{ void conker_sound_started(uint8_t*, recomp_context*); void conker_my_view_play(uint8_t*, recomp_context*); conker_sound_started(rdram, ctx); conker_my_view_play(rdram, ctx); }"
+
+# Online "my view": the sounds as the local player hears them. The positional sound functions'
+# arguments are kept at their entries, each call to func_80010BE8 says which of them starts a sound,
+# and sndp_play_sound (above) and sndp_post_event get the local listener's volume and pan in place of
+# the game's. See src/enhancements/my_view/my_view.cpp; CONKER_MY_VIEW=0 leaves the sounds shared.
+[[patches.hook]]
+func = "func_800114D0"
+before_vram = 0x100114D0
+text = "{ void conker_my_view_kept_query(uint8_t*, recomp_context*); conker_my_view_kept_query(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_8000A750"
+before_vram = 0x1000A750
+text = "{ void conker_my_view_path_query(uint8_t*, recomp_context*); conker_my_view_path_query(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_80010E78"
+before_vram = 0x10010E78
+text = "{ void conker_my_view_spot(uint8_t*, recomp_context*); conker_my_view_spot(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_8000F91C"
+before_vram = 0x1000F91C
+text = "{ void conker_my_view_spot_moved(uint8_t*, recomp_context*); conker_my_view_spot_moved(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_80010154"
+before_vram = 0x10010154
+text = "{ void conker_my_view_owner(uint8_t*, recomp_context*); conker_my_view_owner(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_80010344"
+before_vram = 0x10010344
+text = "{ void conker_my_view_owner(uint8_t*, recomp_context*); conker_my_view_owner(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_80010630"
+before_vram = 0x10010630
+text = "{ void conker_my_view_owner_centred(uint8_t*, recomp_context*); conker_my_view_owner_centred(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_80010FFC"
+before_vram = 0x10010FFC
+text = "{ void conker_my_view_owner_handle(uint8_t*, recomp_context*); conker_my_view_owner_handle(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_80010BE8"
+before_vram = 0x10010BE8
+text = "{ void conker_my_view_start(uint8_t*, recomp_context*); conker_my_view_start(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_80010BE8"
+before_vram = 0x10010E54
+text = "{ void conker_my_view_starting(uint8_t*, recomp_context*); conker_my_view_starting(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_80011624"
+before_vram = 0x10011968
+text = "{ void conker_my_view_mark(uint8_t*, recomp_context*, int); conker_my_view_mark(rdram, ctx, 0); }"
+
+[[patches.hook]]
+func = "func_80010E78"
+before_vram = 0x10010F10
+text = "{ void conker_my_view_mark(uint8_t*, recomp_context*, int); conker_my_view_mark(rdram, ctx, 1); }"
+
+[[patches.hook]]
+func = "func_80010154"
+before_vram = 0x100101D8
+text = "{ void conker_my_view_mark(uint8_t*, recomp_context*, int); conker_my_view_mark(rdram, ctx, 2); }"
+
+[[patches.hook]]
+func = "func_80010344"
+before_vram = 0x10010404
+text = "{ void conker_my_view_mark(uint8_t*, recomp_context*, int); conker_my_view_mark(rdram, ctx, 2); }"
+
+[[patches.hook]]
+func = "func_80010FFC"
+before_vram = 0x10011070
+text = "{ void conker_my_view_mark(uint8_t*, recomp_context*, int); conker_my_view_mark(rdram, ctx, 2); }"
+
+[[patches.hook]]
+func = "func_80010F30"
+before_vram = 0x10010F70
+text = "{ void conker_my_view_mark(uint8_t*, recomp_context*, int); conker_my_view_mark(rdram, ctx, 3); }"
+
+[[patches.hook]]
+func = "sndp_post_event"
+before_vram = 0x10017714
+text = "{ void conker_my_view_post(uint8_t*, recomp_context*); conker_my_view_post(rdram, ctx); }"
 
 # Once a frame, just before func_1501878C checks D_800BEAC0 to run or skip the world frame: a
 # DualSense plays a thump when Conker's animation becomes his landing

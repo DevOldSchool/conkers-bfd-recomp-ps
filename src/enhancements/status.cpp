@@ -79,6 +79,7 @@ nlohmann::json enhancements(uint8_t* rdram) {
         adaptive_triggers(),
         consistent_controls(),
         frame_rate(),
+        my_view(),
         enhancement("sharp_font", "Sharper text", sharp_font, "CONKER_SHARP_FONT", sharp_options),
         enhancement("sharp_menus", "Sharper menus", sharp_menus, "CONKER_SHARP_MENUS", sharp_options),
         enhancement("pad_buttons", "Your pad's buttons", pad_buttons != "original", "CONKER_PAD_ICONS",

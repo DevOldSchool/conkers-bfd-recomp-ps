@@ -201,7 +201,8 @@ button. Up and down choose a row, A or left and right change it:
   TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
   WIDESCREEN CULLING, SKIP INTRO, SKIP CUTSCENES, PAUSE SAVE AND LOAD, SAVE
   SNAPSHOTS, SURROUND DEFAULT, FULL DETAIL, DRAW DISTANCE, NO RUMBLE
-  PAK BANNER, CONSISTENT CONTROLS, PAD BUTTONS and 60 FPS. A or left and right switch the
+  PAK BANNER, CONSISTENT CONTROLS, PAD BUTTONS, 60 FPS and MY VIEW (online:
+  only your own view and sounds, see docs/online-play.md). A or left and right switch the
   chosen one. SHARP TEXT and WIDESCREEN are the OPTIONS rows' settings and
   are kept in `display.cfg` as those rows keep them (a new shape applies once
   the game carries on); the rest last until the game is closed, and a debug

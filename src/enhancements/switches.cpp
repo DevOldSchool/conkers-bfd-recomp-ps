@@ -38,6 +38,7 @@ std::vector<Switch> all() {
         consistent_controls(),
         pad_buttons(),
         frame_rate(),
+        my_view(),
     };
 }
 

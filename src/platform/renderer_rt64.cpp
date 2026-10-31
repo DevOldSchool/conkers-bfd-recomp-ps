@@ -37,6 +37,7 @@
 // Command buffers the GPU fails are logged with the RT64 worker that sent them and the renderer's
 // recent resource changes, noted here (src/platform/gpu_faults.cpp).
 #include "platform/renderer_rt64.hpp"
+#include "platform/present_focus.hpp"
 #include "platform/render_debug.hpp"
 
 #include <algorithm>
@@ -697,6 +698,8 @@ private:
 } // namespace
 
 void set_wireframe(bool on) { RT64::SetRenderWireframe(on); }
+
+void set_present_focus(float x, float y, float width, float height) { RT64::SetPresentFocus({x, y, width, height}); }
 
 std::vector<std::string> texture_packs() {
     std::lock_guard lock(g_texture_packs_mutex);
