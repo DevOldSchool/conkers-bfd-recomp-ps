@@ -859,10 +859,12 @@ func = "func_151D6778"
 before_vram = 0x151D6778
 text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x151D6778)) { func_151D6778(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
 
+# Conker's projected shadow is cast from overhead in the Heist intro's cutscenes, so it lies under his feet
+# instead of beside him. See src/fixes/projected_shadow.cpp. It also starts with the object inspector's draw tags.
 [[patches.hook]]
 func = "func_15186794"
 before_vram = 0x15186794
-text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x15186794)) { func_15186794(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+text = "{ void conker_projected_shadow_light(uint8_t*); conker_projected_shadow_light(rdram); int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x15186794)) { func_15186794(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
 
 [[patches.hook]]
 func = "func_15035FE8"
