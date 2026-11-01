@@ -107,6 +107,27 @@ live recompiler find a jump table in a data section the game names, as
 `n64recomp.patch` does for the static recompiler, so a mod can hook a
 function with a `switch`.
 
+`tools/patches/n64modernruntime-n64recomp-address-window.patch` (apply in
+`lib/N64ModernRuntime/N64Recomp`) and `n64modernruntime-mod-sandbox.patch`
+(apply in `lib/N64ModernRuntime`) keep every memory access inside the game's
+4 GiB: the `MEM_*` macros, the live recompiler's loads and stores and
+ultramodern's `TO_PTR` use only an address's low 32 bits. Without that, game
+code such as `func_150B1DB0` (which loads 64-bit words into registers) let a
+mod reach any address in the process. For the sign-extended addresses the game
+itself makes nothing changes. The second patch also limits the save file name
+a mod may pick with `recomp_change_save_file`, which was joined to the saves
+folder as given (`../` or an absolute path wrote a file anywhere).
+`tests/mod_sandbox` checks both without a ROM, and CI runs it: each kind of
+load and store, through the macros, live-recompiled code and `TO_PTR`, with
+sign-extended, zero-extended and junk-high-word addresses, and a list of save
+names to allow and refuse. It fails if a submodule update leaves a patch
+applying but no longer doing its job:
+
+```sh
+cmake -S tests/mod_sandbox -B build/mod_sandbox -G Ninja
+cmake --build build/mod_sandbox && build/mod_sandbox/mod_sandbox_test
+```
+
 `tools/patches/rt64-f3dex2cbfd.patch` (apply in `lib/rt64`) adds Rare's
 F3DEX2CBFD microcode: GBI database entries for the eight variants, a
 `GBI_F3DEX2CBFD` command table on top of F3DEX2 and the RSP state for its

@@ -102,8 +102,9 @@ The markers are in `mods/include/modding.h`:
 * librecomp's own functions are imported from `"*"`: `recomp_alloc` and
   `recomp_free` (memory outside the game's), the mod config calls
   (`recomp_get_config_u32` and the rest, for options declared in the
-  manifest's `config_options`), `recomp_get_save_file_path` and
-  `recomp_get_mod_folder_path`.
+  manifest's `config_options`), `recomp_get_save_file_path`,
+  `recomp_get_mod_folder_path`, `recomp_get_mod_file_path` and
+  `recomp_change_save_file` (a save file of the mod's own).
 
 ### What a mod cannot do
 
@@ -136,15 +137,20 @@ and so your saves. Beyond that the game limits it:
   manifest's `native_libraries`, or a native build beside an `.offline.nrm`),
   which would run with everything your account can do. This game refuses such
   mods before opening anything ("Mod contains native code").
-* **No 64-bit instructions.** A mod's MIPS code is recompiled for your
-  computer. Every address it uses is meant to be a game address, but with
-  MIPS III's 64-bit instructions it could build one that points outside the
-  game's memory. Mods that contain them are refused ("Mod contains 64-bit
-  instructions"). Without them every value a mod makes is a 32-bit game
-  address, so what it reads and writes, and what it hands to the game and to
-  librecomp, stays in the game's memory; going past its end faults in the
-  guard pages around it. The mod template builds MIPS II code, which never
-  has them.
+* **Addresses stay in the game's memory.** A mod's MIPS code is recompiled
+  for your computer, and every address it uses is meant to be a game
+  address. Only an address's low 32 bits count, as on the N64, in the mod's
+  code, in the game's and in librecomp's: whatever a register holds, a read or
+  write lands in the game's 4 GiB of address space, and going past its end
+  faults in the guard pages around it. Mods with MIPS III's 64-bit
+  instructions are still refused ("Mod contains 64-bit instructions"); the
+  mod template builds MIPS II code, which never has them.
+* **Save files stay in the saves folder.** `recomp_change_save_file` only
+  takes a name of letters, digits, `_` and `-` (at most 64); any other name
+  leaves the save file as it is.
+
+  Both are checked by `tests/mod_sandbox` on every pull request (see
+  [recompilation.md](recompilation.md)).
 * **New mods start off.** Dropping a file in `mods` is not enough: it has to
   be turned on on the MODS page, which says to trust where it came from.
 * **Not online.** Sessions load no mods.

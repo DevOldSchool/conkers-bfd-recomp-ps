@@ -1,0 +1,90 @@
+diff --git a/LiveRecomp/live_generator.cpp b/LiveRecomp/live_generator.cpp
+index 61e1ff5..585652a 100644
+--- a/LiveRecomp/live_generator.cpp
++++ b/LiveRecomp/live_generator.cpp
+@@ -527,6 +527,10 @@ void N64Recomp::LiveGenerator::process_binary_op(const BinaryOp& op, const Instr
+         // Add the base and immediate into the arithemtic temp.
+         sljit_emit_op2(compiler, SLJIT_ADD, Registers::arithmetic_temp1, 0, src1, src1w, src2, src2w);
+ 
++        // Keep only the address's low 32 bits (sign-extended, as rdram's base expects), so a register
++        // holding a 64-bit value still lands inside the 4 GiB reservation.
++        sljit_emit_op1(compiler, SLJIT_MOV_S32, Registers::arithmetic_temp1, 0, Registers::arithmetic_temp1, 0);
++
+         if (address_xor != 0) {
+             // xor the address with the specified amount
+             sljit_emit_op2(compiler, SLJIT_XOR, Registers::arithmetic_temp1, 0, Registers::arithmetic_temp1, 0, SLJIT_IMM, address_xor);
+@@ -583,6 +587,10 @@ void N64Recomp::LiveGenerator::process_binary_op(const BinaryOp& op, const Instr
+         // addr = base + offset
+         sljit_emit_op2(compiler, SLJIT_ADD, Registers::arithmetic_temp1, 0, src1, src1w, src2, src2w);
+ 
++        // Keep only the address's low 32 bits (sign-extended, as rdram's base expects), so a register
++        // holding a 64-bit value still lands inside the 4 GiB reservation.
++        sljit_emit_op1(compiler, SLJIT_MOV_S32, Registers::arithmetic_temp1, 0, Registers::arithmetic_temp1, 0);
++
+         // Mask the address with the alignment mask to get the misalignment and put it in temp2.
+         // misalignment = addr & (word_size - 1);
+         sljit_emit_op2(compiler, SLJIT_AND, Registers::arithmetic_temp2, 0, Registers::arithmetic_temp1, 0, SLJIT_IMM, word_size - 1);
+@@ -783,6 +791,10 @@ void N64Recomp::LiveGenerator::process_binary_op(const BinaryOp& op, const Instr
+         case BinaryOpType::LD:
+             // Add the base and immediate into the arithemtic temp.
+             sljit_emit_op2(compiler, SLJIT_ADD, Registers::arithmetic_temp1, 0, src1, src1w, src2, src2w);
++
++            // Keep only the address's low 32 bits (sign-extended, as rdram's base expects), so a register
++            // holding a 64-bit value still lands inside the 4 GiB reservation.
++            sljit_emit_op1(compiler, SLJIT_MOV_S32, Registers::arithmetic_temp1, 0, Registers::arithmetic_temp1, 0);
+         
+             // Load the value at rdram + address into the arithemtic temp and rotate it by 32 bits to swap the two words into the right order.
+             sljit_emit_op2(compiler, SLJIT_ROTL, Registers::arithmetic_temp1, 0, SLJIT_MEM2(Registers::rdram, Registers::arithmetic_temp1), 0, SLJIT_IMM, 32);
+@@ -1195,6 +1207,10 @@ void N64Recomp::LiveGenerator::process_store_op(const StoreOp& op, const Instruc
+         sljit_emit_op2(compiler, SLJIT_ADD, Registers::arithmetic_temp1, 0, SLJIT_MEM1(Registers::ctx), get_gpr_context_offset(ctx.rs), SLJIT_IMM, imm);
+     }
+ 
++    // Keep only the address's low 32 bits (sign-extended, as rdram's base expects), so a register
++    // holding a 64-bit value still lands inside the 4 GiB reservation.
++    sljit_emit_op1(compiler, SLJIT_MOV_S32, Registers::arithmetic_temp1, 0, Registers::arithmetic_temp1, 0);
++
+     auto do_unaligned_store_op = [src, srcw, this](bool left, bool doubleword) {
+         // Determine the shift direction to use for calculating the mask and shifting the loaded value.
+         sljit_sw shift_op = left ? SLJIT_LSHR : SLJIT_SHL;
+diff --git a/include/recomp.h b/include/recomp.h
+index 73f3e73..c719dd2 100644
+--- a/include/recomp.h
++++ b/include/recomp.h
+@@ -92,24 +92,30 @@ typedef uint64_t gpr;
+ #define SUB32(a, b) \
+     ((gpr)(int32_t)((a) - (b)))
+ 
++// Where a game address is in rdram. Only its low 32 bits count, as on the N64, so a register
++// holding a 64-bit value (from code a mod can steer) still lands inside the 4 GiB reservation.
++// For the sign-extended addresses the game makes this is the same as subtracting the base.
++#define RDRAM_OFFSET(addr) \
++    ((uint64_t)(uint32_t)((gpr)(addr) - 0xFFFFFFFF80000000ULL))
++
+ #define MEM_W(offset, reg) \
+-    (*(int32_t*)(rdram + ((((reg) + (offset))) - 0xFFFFFFFF80000000)))
++    (*(int32_t*)(rdram + RDRAM_OFFSET((reg) + (offset))))
+ 
+ #define MEM_H(offset, reg) \
+-    (*(int16_t*)(rdram + ((((reg) + (offset)) ^ 2) - 0xFFFFFFFF80000000)))
++    (*(int16_t*)(rdram + RDRAM_OFFSET(((reg) + (offset)) ^ 2)))
+ 
+ #define MEM_B(offset, reg) \
+-    (*(int8_t*)(rdram + ((((reg) + (offset)) ^ 3) - 0xFFFFFFFF80000000)))
++    (*(int8_t*)(rdram + RDRAM_OFFSET(((reg) + (offset)) ^ 3)))
+ 
+ #define MEM_HU(offset, reg) \
+-    (*(uint16_t*)(rdram + ((((reg) + (offset)) ^ 2) - 0xFFFFFFFF80000000)))
++    (*(uint16_t*)(rdram + RDRAM_OFFSET(((reg) + (offset)) ^ 2)))
+ 
+ #define MEM_BU(offset, reg) \
+-    (*(uint8_t*)(rdram + ((((reg) + (offset)) ^ 3) - 0xFFFFFFFF80000000)))
++    (*(uint8_t*)(rdram + RDRAM_OFFSET(((reg) + (offset)) ^ 3)))
+ 
+ #define SD(val, offset, reg) { \
+-    *(uint32_t*)(rdram + ((((reg) + (offset) + 4)) - 0xFFFFFFFF80000000)) = (uint32_t)((gpr)(val) >> 0); \
+-    *(uint32_t*)(rdram + ((((reg) + (offset) + 0)) - 0xFFFFFFFF80000000)) = (uint32_t)((gpr)(val) >> 32); \
++    *(uint32_t*)(rdram + RDRAM_OFFSET((reg) + (offset) + 4)) = (uint32_t)((gpr)(val) >> 0); \
++    *(uint32_t*)(rdram + RDRAM_OFFSET((reg) + (offset) + 0)) = (uint32_t)((gpr)(val) >> 32); \
+ }
+ 
+ static inline uint64_t load_doubleword(uint8_t* rdram, gpr reg, gpr offset) {

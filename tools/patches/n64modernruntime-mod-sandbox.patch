@@ -1,0 +1,68 @@
+diff --git a/librecomp/include/librecomp/save_file_name.hpp b/librecomp/include/librecomp/save_file_name.hpp
+new file mode 100644
+index 0000000..78be30a
+--- /dev/null
++++ b/librecomp/include/librecomp/save_file_name.hpp
+@@ -0,0 +1,24 @@
++#ifndef __RECOMP_SAVE_FILE_NAME_HPP__
++#define __RECOMP_SAVE_FILE_NAME_HPP__
++
++#include <string>
++
++namespace recomp::mods {
++    // A mod's save file name becomes a file name in the mod's save folder, so it may only be letters,
++    // digits, '_' and '-': no separators, no "..", nothing absolute, which would let a mod write a
++    // file anywhere.
++    inline bool save_file_name_ok(const std::string& name) {
++        if (name.empty() || name.size() > 64) {
++            return false;
++        }
++        for (char c : name) {
++            bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
++            if (!ok) {
++                return false;
++            }
++        }
++        return true;
++    }
++}
++
++#endif
+diff --git a/librecomp/src/mod_config_api.cpp b/librecomp/src/mod_config_api.cpp
+index 79995cb..493fe90 100644
+--- a/librecomp/src/mod_config_api.cpp
++++ b/librecomp/src/mod_config_api.cpp
+@@ -1,6 +1,7 @@
+ #include "librecomp/mods.hpp"
+ #include "librecomp/helpers.hpp"
+ #include "librecomp/addresses.hpp"
++#include "librecomp/save_file_name.hpp"
+ 
+ void recomp_get_config_u32(uint8_t* rdram, recomp_context* ctx, size_t mod_index) {
+     recomp::config::ConfigValueVariant val = recomp::mods::get_mod_config_value(mod_index, _arg_string<0>(rdram, ctx));
+@@ -82,6 +83,11 @@ void recomp_get_mod_version(uint8_t* rdram, recomp_context* ctx, size_t mod_inde
+ 
+ void recomp_change_save_file(uint8_t* rdram, recomp_context* ctx, size_t mod_index) {
+     std::string name = _arg_string<0>(rdram, ctx);
++    if (!recomp::mods::save_file_name_ok(name)) {
++        printf("Mod %s asked for a save file with a name that is not allowed; the save file is unchanged.\n",
++            recomp::mods::get_mod_id(mod_index).c_str());
++        return;
++    }
+     std::u8string name_u8 = std::u8string{reinterpret_cast<const char8_t*>(name.data()), name.size()};
+ 
+     std::string mod_id = recomp::mods::get_mod_id(mod_index);
+diff --git a/ultramodern/include/ultramodern/ultra64.h b/ultramodern/include/ultramodern/ultra64.h
+index 31eb106..6877650 100644
+--- a/ultramodern/include/ultramodern/ultra64.h
++++ b/ultramodern/include/ultramodern/ultra64.h
+@@ -39,7 +39,8 @@ typedef uint8_t u8;
+ #  define RDRAM_ARG1 uint8_t *rdram
+ #  define PASS_RDRAM rdram, 
+ #  define PASS_RDRAM1 rdram
+-#  define TO_PTR(type, var) ((type*)(&rdram[(uint64_t)var - 0xFFFFFFFF80000000]))
++// Only the address's low 32 bits count, so a 64-bit value still lands inside the 4 GiB reservation.
++#  define TO_PTR(type, var) ((type*)(&rdram[(uint64_t)(uint32_t)((uint64_t)(var) - 0xFFFFFFFF80000000ULL)]))
+ #  define GET_MEMBER(type, addr, member) (addr + (intptr_t)&(((type*)nullptr)->member))
+ #  ifdef __cplusplus
+ #    define NULLPTR (PTR(void))0
