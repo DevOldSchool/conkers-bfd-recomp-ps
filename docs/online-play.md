@@ -49,9 +49,12 @@ debug menu's ENHANCEMENTS page, keeps the shared split screen and sounds. Each m
 player's view a second time each frame, after the split screen every machine draws, so it costs some
 speed.
 
+A session loads no [mods](modding.md), on any machine: a mod on one machine and not the others
+would put them out of sync. They are still installed and on when you play alone again.
+
 ## The lobby
 
-Open the debug menu (Back on a pad, or the ` key, while the game is paused), choose **ONLINE**, or
+Open the debug menu (Back on a pad, or the `` ` `` key, while the game is paused), choose **ONLINE**, or
 start the game with `--net-lobby`. The lobby's window sits over the game, which keeps running
 underneath. It works with the mouse and keyboard, or with controller 1: the d-pad or stick moves,
 A presses, B goes back.

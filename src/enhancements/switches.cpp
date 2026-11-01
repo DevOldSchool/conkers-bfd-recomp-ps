@@ -32,7 +32,6 @@ std::vector<Switch> all() {
         surround_default(),
         max_detail(),
         draw_distance(),
-        rumble_banner(),
         haptics(),
         adaptive_triggers(),
         consistent_controls(),

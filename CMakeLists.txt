@@ -107,6 +107,8 @@ add_executable(ConkersBadFurDayRecompiled
     src/fixes/frame_effects.cpp
     src/fixes/level_seams.cpp
     src/fixes/music_start.cpp
+    src/fixes/projected_shadow.cpp
+    src/fixes/rumble_banner.cpp
     src/fixes/scheduler_yield.cpp
     src/enhancements/cutscene_skip/cutscene_skip.cpp
     src/enhancements/draw_distance/draw_distance.cpp
@@ -129,7 +131,6 @@ add_executable(ConkersBadFurDayRecompiled
     src/enhancements/pause_save/pause_save.cpp
     src/enhancements/pause_save/resume_point.cpp
     src/enhancements/pause_save/save_check.cpp
-    src/enhancements/rumble_banner/rumble_banner.cpp
     src/enhancements/haptics/haptics.cpp
     src/enhancements/adaptive_triggers/adaptive_triggers.cpp
     src/enhancements/consistent_controls/consistent_controls.cpp
@@ -152,6 +153,23 @@ add_custom_target(build_version
             -P ${CMAKE_SOURCE_DIR}/tools/build_version.cmake
     BYPRODUCTS ${CONKER_GENERATED_DIR}/build_version.h)
 add_dependencies(ConkersBadFurDayRecompiled build_version)
+# The functions mods may not hook or replace, because config/us.toml changes them: mod_locks.h,
+# read by src/runtime/overlays.cpp (tools/gen_mod_locks.py; tomllib needs Python 3.11).
+find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
+add_custom_command(
+    OUTPUT ${CONKER_GENERATED_DIR}/mod_locks.h
+    COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/tools/gen_mod_locks.py
+            --config ${CMAKE_SOURCE_DIR}/config/us.toml --syms ${CMAKE_SOURCE_DIR}/config/us.syms.toml
+            --out ${CONKER_GENERATED_DIR}/mod_locks.h
+    DEPENDS ${CMAKE_SOURCE_DIR}/tools/gen_mod_locks.py ${CMAKE_SOURCE_DIR}/config/us.toml ${CMAKE_SOURCE_DIR}/config/us.syms.toml)
+# And every recompiled function by name, for the replacement lookup on function entry
+# (src/runtime/trace.h).
+add_custom_command(
+    OUTPUT ${CONKER_GENERATED_DIR}/func_names.inl
+    COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/tools/gen_func_names.py ${CONKER_RECOMPILED_DIR}
+            --out ${CONKER_GENERATED_DIR}/func_names.inl
+    DEPENDS ${CMAKE_SOURCE_DIR}/tools/gen_func_names.py ${CONKER_RECOMPILED_SOURCES})
+target_sources(ConkersBadFurDayRecompiled PRIVATE ${CONKER_GENERATED_DIR}/mod_locks.h ${CONKER_GENERATED_DIR}/func_names.inl)
 # The JSON library the runtime ships (nlohmann/json), for debug reports.
 target_include_directories(ConkersBadFurDayRecompiled PRIVATE "${CONKER_GENERATED_DIR}"
     "${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/thirdparty")

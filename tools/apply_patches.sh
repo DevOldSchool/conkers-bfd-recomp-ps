@@ -14,6 +14,7 @@ patches="$here/tools/patches"
 submodules=(
     "lib/N64Recomp"
     "lib/N64ModernRuntime"
+    "lib/N64ModernRuntime/N64Recomp"
     "lib/rt64"
     "lib/rt64/src/contrib/plume"
 )
@@ -26,7 +27,8 @@ patches_for() {
                 n64modernruntime-game-speed.patch n64modernruntime-timer-snapshot.patch \
                 n64modernruntime-untrusted-rdram.patch n64modernruntime-rdram-guard.patch \
                 n64modernruntime-pi-bounds.patch n64modernruntime-audio-buffer.patch \
-                n64modernruntime-function-exit.patch n64modernruntime-isolated-pass.patch ;;
+                n64modernruntime-function-exit.patch n64modernruntime-mods.patch \
+                n64modernruntime-mod-sandbox.patch n64modernruntime-isolated-pass.patch ;;
         lib/rt64)
             echo rt64-f3dex2cbfd.patch rt64-native-size.patch rt64-edge-rects.patch \
                 rt64-memory-packs.patch rt64-wireframe.patch rt64-wide-draw-rect.patch \
@@ -36,6 +38,8 @@ patches_for() {
                 rt64-vertex-slots.patch rt64-extended-gbi.patch rt64-dl-stack.patch rt64-texture-loads.patch \
                 rt64-vi-copy.patch rt64-rsp-indices.patch rt64-online-writeback.patch rt64-metal-version.patch \
                 rt64-cross-dxc.patch rt64-present-focus.patch ;;
+        lib/N64ModernRuntime/N64Recomp) echo n64modernruntime-n64recomp-jump-tables.patch \
+            n64modernruntime-n64recomp-address-window.patch ;;
         lib/rt64/src/contrib/plume) echo plume-wireframe.patch plume-gpu-errors.patch ;;
     esac
 }
@@ -56,6 +60,13 @@ trap 'rm -rf "$scratch"' EXIT
 for sub in "${submodules[@]}"; do
     dir="$here/$sub"
     read -r -a names <<< "$(patches_for "$sub")"
+
+    # A submodule that is not checked out is an empty folder, and git there would use the enclosing
+    # repository and report it as already patched.
+    if ! [[ "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" -ef "$dir" ]]; then
+        echo "error: $sub is not checked out (git submodule update --init --recursive)" >&2
+        exit 1
+    fi
 
     # The tree the patches make from the pinned commit, built in a scratch index.
     index="$scratch/index"

@@ -1,4 +1,4 @@
-// A VOLUME row under the sound row on the title menu's OPTIONS page, and display rows between
+// A VOLUME row and a MOUSE AIM row under the sound row on the title menu's OPTIONS page, and display rows between
 // it and CHEATS: whether the sharper text and menus are drawn (SHARP TEXT or ORIGINAL
 // TEXT), the display mode (WINDOWED, BORDERLESS, FULL SCREEN), the picture's shape (4:3 or
 // WIDESCREEN), the resolution the picture is drawn at in that mode, and whether it is scaled to
@@ -26,6 +26,11 @@
 //   option after the sound row's (9) is taken by a display row, so the engine puts this row
 //   first; it is drawn under the sound row, and moving up or down follows the rows down the page. The volume scales the host's audio output only
 //   (src/platform/audio.cpp), so it is the same in every game mode, multiplayer included.
+// * The mouse aim row borrows option 8 (PICTURE 4:3/16:9, two values, hidden on the US page and
+//   read by nothing else; see the shape row), drawn under the volume row. With two values a step
+//   either way wraps to the other, so which way it went is read from controller 1 (left on the
+//   stick or D-pad is slower); the speed the mouse aims at goes through kMouseSpeeds, stopping at either end, and
+//   is kept in conker-recomp-data/input.cfg (src/runtime/frame_input.cpp).
 // * The sharp row borrows option 10 (five values) as a carousel like the resolution row: the
 //   setting is in the middle and the other one on either side, so a step either way switches it.
 //   SHARP TEXT loads the built-in sharper font and menus (src/platform/renderer_rt64.cpp),
@@ -49,6 +54,7 @@
 // these rows the page would reach the bottom of the picture, so the display rows are grouped
 // closer together, with more room before CHEATS, and the joysticks follow the same rows.
 #include <cstdint>
+#include <iterator>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -58,7 +64,9 @@
 #include "recomp.h"
 #include "platform/audio.hpp"
 #include "platform/display_mode.hpp"
+#include "platform/input.hpp"
 #include "enhancements/status.hpp"
+#include "runtime/frame_input.hpp"
 
 namespace {
 
@@ -76,7 +84,7 @@ constexpr uint32_t kSelected = 0x8008FE34;       // D_8008FE34: the selected opt
 constexpr int8_t kNoLabel = -1;
 constexpr int kStickSpread = 18;                 // extra room on each side of the rows, in pixels
 constexpr int kEngineRowSpacing = 0x22;          // func_151E3344's row pitch on this page
-constexpr int kPageTop = 0x3B;                   // the top row's y: 0x46 in the engine, moved up for the volume row
+constexpr int kPageTop = 0x36;                   // the top row's y: 0x46 in the engine, moved up for the volume and mouse rows
 constexpr int kRowYSlot = 0x138;                 // func_151E3344's stack: the row's y (low half)
 constexpr uint32_t kStickFrom = 0x8008FDE4;      // D_8008FDE4: the row the joysticks move from
 constexpr uint32_t kStickProgress = 0x8008FDE8;  // D_8008FDE8: how far they have moved (float)
@@ -110,6 +118,9 @@ Borrowed g_shape_row{15, 39, 2, {31, 32, 33}, kStringArea + 10 * kStringStride};
 Borrowed g_sharp_row{10, 23, 5, {21, 22, 25, 23, 24, 26}, kStringArea + 12 * kStringStride};
 // Option 0 shares string 4 with option 12; string 2 is both options' label, unused while borrowed.
 Borrowed g_volume_row{0, 0, 3, {2, 3, 4, 5}, kStringArea + 17 * kStringStride, {3, 2, 5}};
+Borrowed g_mouse_row{8, 18, 2, {13, 14, 15}, kStringArea + 20 * kStringStride};
+// The mouse speeds the row steps through, percent.
+constexpr int kMouseSpeeds[] = {25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 400};
 constexpr int8_t kCarouselMiddle = 2;
 constexpr int8_t kVolumeMiddle = 1;
 
@@ -124,18 +135,19 @@ int g_selected_before = 0;     // the selected option when the call began
 int gap_after(int option) {
     switch (option) {
         case 9: return 20;    // the sound icon, then the volume
-        case 0:               // the volume, then the display rows
+        case 0:               // the volume, the mouse speed, then the display rows
+        case 8:
         case 10:
         case 12:
         case 15:
         case 16: return 15;   // between the display rows
-        case 19: return 28;   // the display rows, then CHEATS
+        case 19: return 24;   // the display rows, then CHEATS
         default: return kEngineRowSpacing;
     }
 }
 
-// The engine places the rows in option order, which puts the volume row (option 0) first; it is
-// drawn under the sound row instead, and the rest keep their order.
+// The engine places the rows in option order, which puts the volume row (option 0) and the mouse
+// speed row (8) first; they are drawn under the sound row instead, and the rest keep their order.
 void lay_out(uint32_t mask) {
     g_row_count = 0;
     for (int option = 0; option < kMaxRows; option++) {
@@ -145,6 +157,8 @@ void lay_out(uint32_t mask) {
     }
     const int volume = g_volume_row.option;
     const bool has_volume = (mask & (1u << volume)) != 0;
+    const int mouse = g_mouse_row.option;
+    const bool has_mouse = (mask & (1u << mouse)) != 0;
     int drawn = 0;
     int y = kPageTop;
     auto place = [&](int option) {
@@ -154,12 +168,15 @@ void lay_out(uint32_t mask) {
     };
     for (int row = 0; row < g_row_count; row++) {
         const int option = g_row_option[row];
-        if (option == volume) {
+        if (option == volume || option == mouse) {
             continue;
         }
         place(option);
         if (option == 9 && has_volume) {
             place(volume);
+        }
+        if (option == 9 && has_mouse) {
+            place(mouse);
         }
     }
 }
@@ -286,6 +303,26 @@ std::string volume_words(int volume) {
     return text;
 }
 
+std::string mouse_words(int percent) {
+    char text[32];
+    std::snprintf(text, sizeof(text), "MOUSE AIM %d%%", percent);
+    return text;
+}
+
+// The next mouse speed in kMouseSpeeds from this one, either way, or the same at either end.
+int next_mouse_speed(int percent, int direction) {
+    if (direction > 0) {
+        for (int speed : kMouseSpeeds) {
+            if (speed > percent) return speed;
+        }
+    } else {
+        for (auto it = std::rbegin(kMouseSpeeds); it != std::rend(kMouseSpeeds); ++it) {
+            if (*it < percent) return *it;
+        }
+    }
+    return percent;
+}
+
 std::string scale_words(Mode mode, int scale) {
     const int width = mode == Mode::Windowed ? conker::display::window_picture_width(scale)
                                              : conker::display::screen_picture_width(scale);
@@ -329,12 +366,17 @@ extern "C" void conker_display_options_begin(uint8_t* rdram, recomp_context* ctx
     if (!display_options_enabled() || static_cast<uint32_t>(ctx->r4) != kOptionsPageMask ||
         !record_matches(rdram, g_mode_row) || !record_matches(rdram, g_scale_row) ||
         !record_matches(rdram, g_fill_row) || !record_matches(rdram, g_shape_row) ||
-        !record_matches(rdram, g_sharp_row) || !record_matches(rdram, g_volume_row)) {
+        !record_matches(rdram, g_sharp_row) || !record_matches(rdram, g_volume_row) ||
+        !record_matches(rdram, g_mouse_row)) {
         return;
     }
     const int volume = conker::audio::volume();
     borrow(rdram, g_volume_row, kVolumeMiddle, {volume_words(volume - 1), volume_words(volume), volume_words(volume + 1)});
     ctx->r4 |= 1u << g_volume_row.option;
+
+    const std::string speed = mouse_words(conker::frame_input::mouse_speed());
+    borrow(rdram, g_mouse_row, 0, {speed, speed});
+    ctx->r4 |= 1u << g_mouse_row.option;
 
     const bool sharp = conker::display::sharp();
     const char* const same = sharp ? "SHARP TEXT" : "ORIGINAL TEXT";
@@ -375,6 +417,7 @@ extern "C" void conker_display_options_end(uint8_t* rdram, recomp_context* /*ctx
     MEM_B(0, kseg0(kSelected)) =
         static_cast<int8_t>(follow_page_order(g_selected_before, MEM_BU(0, kseg0(kSelected))));
     const int8_t volume_step = static_cast<int8_t>(give_back(rdram, g_volume_row) - kVolumeMiddle);
+    const bool mouse_stepped = give_back(rdram, g_mouse_row) != 0;
     const int8_t mode = give_back(rdram, g_mode_row);
     const int8_t shape = give_back(rdram, g_shape_row);
     const int8_t step = static_cast<int8_t>(give_back(rdram, g_scale_row) - kCarouselMiddle);
@@ -382,6 +425,13 @@ extern "C" void conker_display_options_end(uint8_t* rdram, recomp_context* /*ctx
     const int8_t sharp_step = static_cast<int8_t>(give_back(rdram, g_sharp_row) - kCarouselMiddle);
     if (volume_step != 0) {
         conker::audio::set_volume(conker::audio::volume() + (volume_step > 0 ? 1 : -1));
+    } else if (mouse_stepped) {
+        uint16_t buttons;
+        float x;
+        float y;
+        conker::frame_input::read(&buttons, &x, &y, 0);
+        const int direction = (buttons & conker::input::kDLeft) != 0 || x < 0.0f ? -1 : 1;
+        conker::frame_input::set_mouse_speed(next_mouse_speed(conker::frame_input::mouse_speed(), direction));
     } else if (sharp_step != 0) {
         conker::display::request_sharp(!conker::display::sharp());
     } else if (mode != g_shown_mode && mode >= 0 && mode < conker::display::kModeCount) {
@@ -405,7 +455,8 @@ extern "C" void conker_display_options_sticks(uint8_t* rdram, recomp_context* ct
     const int selected = MEM_BU(0, kseg0(kSelected));
     if (g_active && (selected == g_mode_row.option || selected == g_shape_row.option ||
                      selected == g_scale_row.option || selected == g_fill_row.option ||
-                     selected == g_sharp_row.option || selected == g_volume_row.option)) {
+                     selected == g_sharp_row.option || selected == g_volume_row.option ||
+                     selected == g_mouse_row.option)) {
         ctx->r16 += kStickSpread;
     }
 }

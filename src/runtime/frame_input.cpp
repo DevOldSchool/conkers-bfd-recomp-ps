@@ -4,6 +4,7 @@
 
 #include <fstream>
 #include <algorithm>
+#include <filesystem>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -18,6 +19,7 @@
 #include "recomp.h"
 #include "librecomp/game.hpp"
 #include "build_version.h"
+#include "enhancements/consistent_controls/mouse_look.hpp"
 #include "enhancements/frame_rate/frame_rate.hpp"
 #include "enhancements/my_view/my_view.hpp"
 #include "enhancements/switches.hpp"
@@ -50,20 +52,49 @@ const bool g_fixed_step_variable = [] {
 // A net session is known once main has read the command line, before the game starts.
 bool fixed_on() { return g_fixed_step_variable || conker::net::active(); }
 
-// CONKER_MOUSE_SENSITIVITY (1 by default) scales the mouse's motion as it goes into the record, so
-// a replay, or another machine running the same records, turns as this machine's player did
-// whatever its own setting.
-const float g_mouse_sensitivity = [] {
-    const char* value = std::getenv("CONKER_MOUSE_SENSITIVITY");
-    const float scale = value != nullptr ? std::strtof(value, nullptr) : 1.0f;
-    return scale > 0.0f ? scale : 1.0f;
-}();
+// The mouse aim speed (the OPTIONS page's MOUSE AIM row, a percentage) scales the mouse's motion
+// while it aims (it aimed the frame before, mouse_look::aiming), not while it turns the camera. It
+// is applied as the motion goes into the record, so a replay, or another machine running the same
+// records, aims as this machine's player did whatever its own setting. It is kept in
+// conker-recomp-data/input.cfg ("mouse_aim=<percent>"); CONKER_MOUSE_SENSITIVITY (a scale, 1 =
+// 100%) sets it for one run.
+std::filesystem::path input_config_path() {
+    return std::filesystem::current_path() / "conker-recomp-data" / "input.cfg";
+}
 
-// The live mouse's motion since it was last taken, scaled by the sensitivity.
-void take_live_mouse(float* dx, float* dy, int* zoom) {
+int clamp_mouse_speed(int percent) {
+    return std::clamp(percent, conker::frame_input::kMinMouseSpeed, conker::frame_input::kMaxMouseSpeed);
+}
+
+constexpr int kDefaultMouseAim = 200;  // percent, when input.cfg has none
+
+std::atomic<int> g_mouse_speed{[] {
+    if (const char* value = std::getenv("CONKER_MOUSE_SENSITIVITY"); value != nullptr && value[0] != '\0') {
+        const float scale = std::strtof(value, nullptr);
+        if (scale > 0.0f) {
+            return clamp_mouse_speed(static_cast<int>(std::lround(scale * 100.0f)));
+        }
+    }
+    std::ifstream file(input_config_path());
+    for (std::string line; std::getline(file, line);) {
+        const size_t equals = line.find('=');
+        if (equals != std::string::npos && line.substr(0, equals) == "mouse_aim") {
+            return clamp_mouse_speed(std::atoi(line.c_str() + equals + 1));
+        }
+    }
+    return kDefaultMouseAim;
+}()};
+
+// The live mouse's motion since it was last taken, scaled by the aim speed while the port's mouse
+// aims.
+void take_live_mouse(int port, float* dx, float* dy, int* zoom) {
     conker::input::take_mouse(dx, dy, zoom);
-    *dx *= g_mouse_sensitivity;
-    *dy *= g_mouse_sensitivity;
+    if (!conker::mouse_look::aiming(port)) {
+        return;
+    }
+    const float scale = static_cast<float>(g_mouse_speed.load(std::memory_order_relaxed)) / 100.0f;
+    *dx *= scale;
+    *dy *= scale;
 }
 
 std::mutex g_mutex;
@@ -404,6 +435,21 @@ Port port(int index) {
     return net::active() ? net::boot_record().ports[index] : sample_port(index);
 }
 
+int mouse_speed() { return g_mouse_speed.load(); }
+
+void set_mouse_speed(int percent) {
+    percent = clamp_mouse_speed(percent);
+    if (g_mouse_speed.exchange(percent) == percent) {
+        return;
+    }
+    std::printf("[conker] mouse aim %d%%\n", percent);
+    std::ofstream file(input_config_path());
+    file << "mouse_aim=" << percent << '\n';
+    if (!file) {
+        std::fprintf(stderr, "[conker] could not write %s\n", input_config_path().string().c_str());
+    }
+}
+
 void read(uint16_t* buttons, float* x, float* y, int index) {
     const Port p = port(index);
     *buttons = p.buttons;
@@ -456,7 +502,7 @@ void take_mouse(int port, float* dx, float* dy, int* zoom) {
         }
     }
     if (port == 0 && !net::active()) {
-        take_live_mouse(dx, dy, zoom);
+        take_live_mouse(0, dx, dy, zoom);
     }
 }
 
@@ -622,7 +668,7 @@ extern "C" void conker_frame_input_begin(uint8_t* rdram, recomp_context* ctx) {
     }
     Record record = sample_live();
     int zoom = 0;
-    take_live_mouse(&record.mice[0].dx, &record.mice[0].dy, &zoom);
+    take_live_mouse(conker::net::active() ? conker::net::local_port() : 0, &record.mice[0].dx, &record.mice[0].dy, &zoom);
     record.mice[0].zoom = static_cast<int8_t>(zoom < -127 ? -127 : zoom > 127 ? 127 : zoom);
     uint32_t frame;
     {
