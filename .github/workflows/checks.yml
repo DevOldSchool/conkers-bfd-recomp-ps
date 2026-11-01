@@ -64,7 +64,7 @@ jobs:
         run: shellcheck --severity=warning tools/*.sh
 
   patches:
-    name: Patches apply, N64Recomp builds
+    name: Patches apply, N64Recomp builds, mod sandbox tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,6 +74,7 @@ jobs:
         run: |
           git submodule update --init --depth 1 lib/N64ModernRuntime lib/rt64
           git submodule update --init --recursive lib/N64Recomp
+          git -C lib/N64ModernRuntime submodule update --init --recursive --depth 1 N64Recomp
           git -C lib/rt64 submodule update --init --depth 1 src/contrib/plume
 
       - name: Apply patches
@@ -86,3 +87,11 @@ jobs:
         run: |
           cmake -S lib/N64Recomp -B build/N64Recomp -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build/N64Recomp --target N64Recomp RSPRecomp
+
+      # Mod sandbox: addresses stay in the game's memory (static code, LiveRecomp, TO_PTR) and mod
+      # save file names stay in the saves folder. Fails if a patch still applies but stops working.
+      - name: Mod sandbox tests
+        run: |
+          cmake -S tests/mod_sandbox -B build/mod_sandbox -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/mod_sandbox
+          build/mod_sandbox/mod_sandbox_test
