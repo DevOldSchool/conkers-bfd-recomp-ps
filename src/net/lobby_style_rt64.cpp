@@ -12,7 +12,7 @@
 // rows stored with their 4-byte groups swapped as LoadBlock leaves them in TMEM. Found by dumping the
 // textures at the MULTI menu (CONKER_DUMP_TEXTURES) and matching the dump's bytes against the flat
 // resources; decoded here, it equals RT64's dump of it (texture hash 2ef66c27bf9ba282) pixel for pixel.
-#include "platform/lobby_style.hpp"
+#include "net/lobby_style.hpp"
 
 #include <algorithm>
 #include <array>

@@ -44,7 +44,7 @@ bool right_stick(float* x, float* y, int port = 0);
 // and clears them. Safe to call from any thread.
 void set_mouse_play(bool playing);
 
-// While a window over the game takes the input (the ONLINE lobby, src/platform/lobby_ui_rt64.cpp):
+// While a window over the game takes the input (the ONLINE lobby, src/net/lobby_ui_rt64.cpp):
 // the game reads every port as nothing pressed, no mouse motion and no debug menu press, and the
 // mouse is not captured. Safe to call from any thread.
 void set_blocked(bool blocked);

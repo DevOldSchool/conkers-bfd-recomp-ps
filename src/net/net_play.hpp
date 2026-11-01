@@ -12,9 +12,9 @@
 //     --net-token <hex>         the lobby's session token: a host with one lets in only guests with it,
 //                               before the start and after (a dropped player's own machine comes back
 //                               by its secret)
-//     --net-map                 host: open the port on the router (runtime/net_portmap.hpp)
+//     --net-map                 host: open the port on the router (net/net_portmap.hpp)
 //     --net-name <name>         host: the name the lobby's LAN list shows
-//     --net-lobby               not a session: open the ONLINE lobby at boot (runtime/net_lobby.hpp)
+//     --net-lobby               not a session: open the ONLINE lobby at boot (net/net_lobby.hpp)
 //
 // The host waits for every guest before the game starts, and sends each its port, the input delay,
 // the host's settings (the replay header's "# switch" lines, applied as a replay applies them) and

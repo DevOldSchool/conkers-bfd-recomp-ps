@@ -1,5 +1,5 @@
 // The ONLINE lobby window; see lobby_ui.hpp.
-#include "platform/lobby_ui.hpp"
+#include "net/lobby_ui.hpp"
 
 #include <SDL.h>
 
@@ -20,12 +20,12 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_sdl2_custom.h"
 #include "platform/input.hpp"
-#include "platform/lobby_style.hpp"
+#include "net/lobby_style.hpp"
 #include "platform/process.hpp"
 #include "rhi/rt64_render_hooks.h"
-#include "runtime/net_codes.hpp"
-#include "runtime/net_lobby.hpp"
-#include "runtime/net_play.hpp"
+#include "net/net_codes.hpp"
+#include "net/net_lobby.hpp"
+#include "net/net_play.hpp"
 
 namespace conker::lobby_ui {
 

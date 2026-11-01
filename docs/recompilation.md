@@ -33,6 +33,9 @@
   internals above.
 * `src/platform/`: host backends for audio, input, the window and the
   renderer, with a null/headless and an SDL/RT64 version of each.
+* `src/net/`: online play (see [online-play.md](online-play.md)): the
+  input-lockstep session, the ONLINE lobby and its window, join codes and
+  opening the host's port on the router.
 * `src/fixes/`: hooks that make the recompiled game behave as it does on
   hardware, or mend Rare's own slips (`level_seams.cpp`: cracks in the level
   geometry). These have no switch.

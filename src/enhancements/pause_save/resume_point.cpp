@@ -49,7 +49,7 @@
 #include "build_version.h"
 #include "json/json.hpp"
 #include "recomp.h"
-#include "runtime/net_play.hpp"
+#include "net/net_play.hpp"
 #include "ultramodern/ultramodern.hpp"
 #include "enhancements/frame_rate/frame_rate.hpp"
 #include "enhancements/status.hpp"
