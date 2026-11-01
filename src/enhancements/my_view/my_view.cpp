@@ -43,6 +43,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <unordered_map>
@@ -64,6 +65,7 @@ extern "C" void sndp_post_event(uint8_t* rdram, recomp_context* ctx);
 // The frame's drawing, as func_1501878C calls it (see draw_local_view).
 extern "C" void func_1501A8C0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_1501B22C(uint8_t* rdram, recomp_context* ctx);
+extern "C" void func_1510B128(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_1501B640(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_15172D80(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_15019464(uint8_t* rdram, recomp_context* ctx);
@@ -765,6 +767,52 @@ void place_queued_texts(uint8_t* rdram, const std::vector<Rect>& split, int loca
     }
 }
 
+// A view's field of view as its camera set it this frame with func_1510B128(view, x, y, scale, fov):
+// the angles +0x74 and +0x78 are the view's own (+0x6C, +0x70) and the camera's change (a gun's
+// scope zooms with it) and D_800C3648; +0x1C is +0x7C * +0x14 * cot(+0x74) * +0x0C * scale.
+// func_1501A8C0 lays the view out again with no change, so a zoom is put back after it.
+constexpr uint32_t kViewAngleOffset = 0x800C3648;  // D_800C3648 (f32)
+constexpr uint32_t kAngleToRadians = 0x800A2C24;   // D_800A2C24 (f32): +0x74 to the angle func_1510B128 takes
+struct Zoom {
+    bool zoomed = false;
+    float x = 0.0f, y = 0.0f, scale = 1.0f;
+};
+
+Zoom zoom_of(uint8_t* rdram, int view) {
+    const uint32_t record = static_cast<uint32_t>(MEM_W(0, kseg0(kViews))) + static_cast<uint32_t>(view) * kViewSize;
+    const float offset = read_float(rdram, kViewAngleOffset);
+    Zoom zoom;
+    zoom.x = read_float(rdram, record + 0x74) - read_float(rdram, record + 0x6C) - offset;
+    zoom.y = read_float(rdram, record + 0x78) - read_float(rdram, record + 0x70) - offset;
+    const float angle = read_float(rdram, record + 0x74) * read_float(rdram, kAngleToRadians);
+    const float unscaled = read_float(rdram, record + 0x7C) * read_float(rdram, record + 0x14) *
+                           (std::cos(angle) * read_float(rdram, record + 0xC) / std::sin(angle));
+    if (std::isfinite(unscaled) && std::fabs(unscaled) > 1e-6f) {
+        const float scale = read_float(rdram, record + 0x1C) / unscaled;
+        zoom.scale = std::isfinite(scale) && scale > 0.0f ? scale : 1.0f;
+    }
+    zoom.zoomed = std::fabs(zoom.x) > 1e-3f || std::fabs(zoom.y) > 1e-3f || std::fabs(zoom.scale - 1.0f) > 1e-3f;
+    return zoom;
+}
+
+gpr float_word(float value) {
+    uint32_t bits;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return word(static_cast<int32_t>(bits));
+}
+
+void apply_zoom(uint8_t* rdram, const recomp_context* ctx, int view, const Zoom& zoom) {
+    gpr sp;
+    recomp_context c = call_context(ctx, &sp);
+    own_float_registers(c);
+    c.r4 = word(static_cast<int16_t>(view));
+    c.r5 = float_word(zoom.x);
+    c.r6 = float_word(zoom.y);
+    c.r7 = float_word(zoom.scale);
+    MEM_W(0x10, sp) = 0;  // fov: the view's own
+    func_1510B128(rdram, &c);
+}
+
 // The views' part of the frame, as func_1501878C draws it from 0x15018938 to 0x15018CDC, again, with
 // the game set up as for one player (as with one pad against bots): one view, the local player's,
 // over the whole screen. The other views' records are moved off the screen, as the HUD draws each
@@ -775,7 +823,11 @@ void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
     const std::vector<Rect> split = split_views(rdram);
     MEM_W(0, kseg0(kLastView)) = 0;
     MEM_BU(0, kseg0(kViewOrder)) = static_cast<uint8_t>(local);
+    const Zoom zoom = zoom_of(rdram, local);
     call(rdram, ctx, func_1501A8C0, view, 0, 0x3FF, 0);  // the local view's record over the whole screen
+    if (zoom.zoomed) {
+        apply_zoom(rdram, ctx, local, zoom);
+    }
     call(rdram, ctx, func_1501B22C, view);  // its view planes, from its new field of view (props at the sides)
     const uint32_t views = static_cast<uint32_t>(MEM_W(0, kseg0(kViews)));
     // The other views' records become the local one's: the HUD sizes every player's text from view

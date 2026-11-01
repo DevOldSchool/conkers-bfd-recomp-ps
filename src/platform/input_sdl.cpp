@@ -90,6 +90,7 @@ constexpr PadButton kPadButtons[] = {
     {SDL_CONTROLLER_BUTTON_DPAD_DOWN, kDDown},
     {SDL_CONTROLLER_BUTTON_DPAD_LEFT, kDLeft},
     {SDL_CONTROLLER_BUTTON_DPAD_RIGHT, kDRight},
+    {SDL_CONTROLLER_BUTTON_Y, kExtra},  // Triangle: C-down in a match (consistent_controls)
 };
 
 struct Key {

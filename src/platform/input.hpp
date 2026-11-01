@@ -25,6 +25,9 @@ constexpr uint16_t kCUp = 0x0008;
 constexpr uint16_t kCDown = 0x0004;
 constexpr uint16_t kCLeft = 0x0002;
 constexpr uint16_t kCRight = 0x0001;
+// Not an N64 button (the pad's bit 0x0040 is unused): Triangle/Y, which the game ignores; in a
+// match consistent_controls makes it C-down, the grenade, the right stick being taken there.
+constexpr uint16_t kExtra = 0x0040;
 
 constexpr int kPorts = 4;
 

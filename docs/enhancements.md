@@ -384,9 +384,11 @@ place to the next, and aims like a plane, pushing up to look down.
 * On foot in a multiplayer match, where the N64 locks the camera behind the
   player and the right stick only steps sideways, the right stick (or the
   mouse) turns the player and the camera with them, so the view is where
-  they aim. The left stick runs forwards and back and steps sideways (as
-  C-left and C-right did), still facing the same way. Holding R, scoped or
-  in a tank keeps the controls above.
+  they aim. The left stick moves the player as on an N64; with the mouse,
+  A and D step sideways (as C-left and C-right did), still facing the same
+  way. C-down (a grenade, the right stick pushed down on an N64 pad's C
+  buttons) is D-pad down or Triangle (Y), or K on the keyboard. Holding R,
+  scoped or in a tank keeps the controls above.
 
 With the keyboard and mouse the mouse is that right stick: it turns the
 camera itself (0.15 degrees a pixel), and
