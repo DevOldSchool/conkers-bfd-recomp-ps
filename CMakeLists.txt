@@ -103,6 +103,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/platform/gpu_faults.cpp
     src/platform/process.cpp
     src/credits/credits.cpp
+    src/fixes/alien_shadow.cpp
     src/fixes/geometry_escape.cpp
     src/fixes/frame_effects.cpp
     src/fixes/level_seams.cpp

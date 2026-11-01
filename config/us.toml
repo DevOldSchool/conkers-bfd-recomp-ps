@@ -860,11 +860,54 @@ before_vram = 0x151D6778
 text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x151D6778)) { func_151D6778(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
 
 # Conker's projected shadow is cast from overhead in the Heist intro's cutscenes, so it lies under his feet
-# instead of beside him. See src/fixes/projected_shadow.cpp. It also starts with the object inspector's draw tags.
+# instead of beside him. See src/fixes/projected_shadow.cpp. The Heist alien casts one too, from here to
+# 0x15187278 (src/fixes/alien_shadow.cpp). It also starts with the object inspector's draw tags.
 [[patches.hook]]
 func = "func_15186794"
 before_vram = 0x15186794
-text = "{ void conker_projected_shadow_light(uint8_t*); conker_projected_shadow_light(rdram); int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x15186794)) { func_15186794(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+text = "{ void conker_projected_shadow_light(uint8_t*); conker_projected_shadow_light(rdram); void conker_alien_shadow_begin(uint8_t*); conker_alien_shadow_begin(rdram); int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (conker_inspect_enter(rdram, ctx, 0x15186794)) { func_15186794(rdram, ctx); conker_inspect_leave(rdram, ctx); return; } }"
+
+# The Heist alien's shadow (src/fixes/alien_shadow.cpp): its light from overhead, before and after
+# func_15184368 picks one.
+[[patches.hook]]
+func = "func_15186794"
+before_vram = 0x15186B8C
+text = "{ void conker_alien_shadow_light(uint8_t*, recomp_context*); conker_alien_shadow_light(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_15186794"
+before_vram = 0x15186B94
+text = "{ void conker_alien_shadow_light_done(uint8_t*); conker_alien_shadow_light_done(rdram); }"
+
+# The Heist alien's shadow: the floor it falls on, once func_151873E4 has added the props to the receivers.
+[[patches.hook]]
+func = "func_15186794"
+before_vram = 0x15186C50
+text = "{ void conker_alien_shadow_floor(uint8_t*, recomp_context*); conker_alien_shadow_floor(rdram, ctx); }"
+
+# The Heist alien's shadow: put back what conker_alien_shadow_begin changed, on every way out of func_15186794.
+[[patches.hook]]
+func = "func_15186794"
+before_vram = 0x15187278
+text = "{ void conker_alien_shadow_end(uint8_t*); conker_alien_shadow_end(rdram); }"
+
+# The Heist alien's shadow past the game's 2000-unit camera cutoff: the cutscenes film it zoomed in from further.
+[[patches.hook]]
+func = "func_15184DF0"
+before_vram = 0x15184EAC
+text = "{ void conker_alien_shadow_distance(uint8_t*, recomp_context*); conker_alien_shadow_distance(rdram, ctx); }"
+
+# The Heist alien's body and feet, from its own draw: its bone matrices at the entry, and segment 1 (its
+# vertices) as func_1502CCFC sets it up.
+[[patches.hook]]
+func = "func_1502CCFC"
+before_vram = 0x1502CCFC
+text = "{ void conker_alien_shadow_bones(uint8_t*, recomp_context*); conker_alien_shadow_bones(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1502CCFC"
+before_vram = 0x1502CEA8
+text = "{ void conker_alien_shadow_mesh(uint8_t*, recomp_context*); conker_alien_shadow_mesh(rdram, ctx); }"
 
 [[patches.hook]]
 func = "func_15035FE8"
