@@ -607,11 +607,13 @@ text = "{ int conker_inspect_enter(uint8_t*, recomp_context*, uint32_t); if (con
 
 # Cracks in Rare's level geometry that show the sky through a wall (the Colours map's booth
 # doorway) are closed by moving one vertex, once a frame before the level is drawn, at the start of
-# func_1510B958. See src/fixes/level_seams.cpp.
+# func_1510B958. See src/fixes/level_seams.cpp. The same frame step moves the Heist white room weapon
+# rack's rails off the plane its posts' flat sides share, so they don't z-fight under RT64's float
+# depth; see src/fixes/weapon_rack.cpp.
 [[patches.hook]]
 func = "func_1510B958"
 before_vram = 0x1510B958
-text = "{ void conker_level_seams(uint8_t*, recomp_context*); conker_level_seams(rdram, ctx); }"
+text = "{ void conker_level_seams(uint8_t*, recomp_context*); conker_level_seams(rdram, ctx); void conker_weapon_rack(uint8_t*, recomp_context*); conker_weapon_rack(rdram, ctx); }"
 
 # In widescreen the game culls to the widened view rather than its 4:3 view: func_1501B22C, which
 # builds a camera's view planes, gets a horizontal field of view opened to the rendered picture's

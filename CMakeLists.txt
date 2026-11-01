@@ -112,6 +112,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/fixes/projected_shadow.cpp
     src/fixes/rumble_banner.cpp
     src/fixes/scheduler_yield.cpp
+    src/fixes/weapon_rack.cpp
     src/enhancements/cutscene_skip/cutscene_skip.cpp
     src/enhancements/draw_distance/draw_distance.cpp
     src/enhancements/debug_menu/debug_menu.cpp
