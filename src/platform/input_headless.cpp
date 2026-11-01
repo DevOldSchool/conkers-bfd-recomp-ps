@@ -1,6 +1,6 @@
 // No input device: the null renderer has no window to take keyboard focus.
 #include "platform/input.hpp"
-#include "platform/lobby_ui.hpp"
+#include "net/lobby_ui.hpp"
 
 namespace conker::input {
 
@@ -49,7 +49,7 @@ void set_camera_swapped(bool /*swapped*/) {}
 
 } // namespace conker::input
 
-// No lobby window without a renderer (src/platform/lobby_ui.hpp).
+// No lobby window without a renderer (src/net/lobby_ui.hpp).
 namespace conker::lobby_ui {
 void open() {}
 void close() {}

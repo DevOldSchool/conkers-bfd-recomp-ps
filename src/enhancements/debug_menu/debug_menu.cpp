@@ -44,7 +44,7 @@
 //     LOAD REPORT      a list of those; A checks one (it may come from anyone) and starts its save,
 //                      where and as it was made, on a copy (saves/debug/); R starts it at its
 //                      checkpoint instead, as the game itself would
-//     ONLINE           closes the menu and opens the online lobby's window (src/platform/lobby_ui.hpp)
+//     ONLINE           closes the menu and opens the online lobby's window (src/net/lobby_ui.hpp)
 //
 // The first page also shows where Conker is and where the camera looks, and opening the menu prints
 // them (with the camera's position, look-at point and forward vector). Without Conker (the title)
@@ -77,9 +77,9 @@
 #include "json/json.hpp"
 #include "platform/gpu_faults.hpp"
 #include "platform/input.hpp"
-#include "platform/lobby_ui.hpp"
+#include "net/lobby_ui.hpp"
 #include "platform/render_debug.hpp"
-#include "runtime/net_play.hpp"
+#include "net/net_play.hpp"
 #include "ultramodern/ultramodern.hpp"
 
 #ifdef _WIN32
@@ -900,7 +900,7 @@ int32_t main_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_horiz
             if (!(pressed & conker::input::kA)) {
                 return 0;
             }
-            // The lobby's window over the game, which plays on underneath (src/platform/lobby_ui.hpp).
+            // The lobby's window over the game, which plays on underneath (src/net/lobby_ui.hpp).
             close_menu(rdram);
             conker::lobby_ui::open();
             break;

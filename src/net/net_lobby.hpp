@@ -1,10 +1,10 @@
 // The online lobby's network side (docs/online-multiplayer-plan.md, M5): hosting and joining a lobby,
 // finding games on the local network, and starting the session. The window that shows it is
-// src/platform/lobby_ui_rt64.cpp; the session itself is runtime/net_play.
+// src/net/lobby_ui_rt64.cpp; the session itself is net/net_play.
 //
 // The lobby runs while the game plays normally underneath. HOST listens on the game's UDP port
-// (37800 by default), asks the router to open it (runtime/net_portmap) and shows join codes
-// (runtime/net_codes). JOIN takes an address or a code, or a game from the LAN list. Every machine
+// (37800 by default), asks the router to open it (net/net_portmap) and shows join codes
+// (net/net_codes). JOIN takes an address or a code, or a game from the LAN list. Every machine
 // in the lobby shows the players with their pads, ping and whether their build and ROM match, and
 // the host's settings. When every guest is READY the host can START: each machine then starts
 // itself again into the session with the same options the command line takes (--net-host,
@@ -32,8 +32,8 @@
 #include <vector>
 
 
-#include "runtime/net_portmap.hpp"
-#include "runtime/net_socket.hpp"
+#include "net/net_portmap.hpp"
+#include "net/net_socket.hpp"
 
 namespace conker::net::lobby {
 
@@ -97,7 +97,7 @@ void leave();
 
 View view();
 
-// For the session (runtime/net_play.cpp), whose game socket also gets PROBEs: whether a datagram
+// For the session (net/net_play.cpp), whose game socket also gets PROBEs: whether a datagram
 // is one, answered on `socket`. And the discovery port's answers for a running session.
 struct Offer {
     std::string name;

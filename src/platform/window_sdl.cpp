@@ -26,8 +26,8 @@
 #include "platform/display_mode.hpp"
 #include "platform/hang_watch.hpp"
 #include "platform/input_sdl.hpp"
-#include "platform/lobby_ui.hpp"
-#include "runtime/net_play.hpp"
+#include "net/lobby_ui.hpp"
+#include "net/net_play.hpp"
 
 #include <algorithm>
 #include <cmath>

@@ -10,7 +10,7 @@ import struct
 import sys
 import zlib
 
-# Words the hash leaves out (src/runtime/net_play.cpp kHashSkips): clock readings and a queue count.
+# Words the hash leaves out (src/net/net_play.cpp kHashSkips): clock readings and a queue count.
 SKIPS = [(0x000BE6E8, 0x000BE6F8), (0x000BEA18, 0x000BEA1C), (0x000BEA28, 0x000BEA68)]
 
 

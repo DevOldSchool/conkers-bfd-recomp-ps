@@ -152,7 +152,7 @@ These environment variables are read by both builds:
   presented and every sound started with the game's and the local volume and
   pan. `CONKER_MY_VIEW=0` switches it off, online too.
 * `CONKER_NET_SIM=latency=<ms>,jitter=<ms>,loss=<%>,dup=<%>,reorder=<%>,outage=<from>-<to>`
-  simulates a bad link for one online peer (src/runtime/net_play.cpp): half
+  simulates a bad link for one online peer (src/net/net_play.cpp): half
   the round-trip latency on each of its sends and receives plus up to
   `jitter`, then loss, duplicates and reordering (by 40 ms) on its sends,
   and no traffic either way from `from` to `to` seconds after the session
@@ -210,7 +210,7 @@ These environment variables are read by both builds:
   as another ROM (its hash) the same way. `CONKER_NET_TEST_DEAF=1` makes a
   hosting lobby ignore its game port while the LAN list still finds it, as a
   firewall dropping a joining game's replies looks, for JOIN's message then.
-* LAN only (src/runtime/net_codes.hpp `sender_allowed`): without
+* LAN only (src/net/net_codes.hpp `sender_allowed`): without
   `--net-unsafe-internet`, every session, lobby and LAN-list socket drops a
   datagram from outside the LAN before looking at it. A build configured with
   `-DCONKER_NET_INTERNET_DEFAULT=ON` starts as if the switch were given (the log's
@@ -222,7 +222,7 @@ These environment variables are read by both builds:
   in for a stranger without an address alias: a PROBE or HELLO from it gets no
   answer at all. Port-mapping
   tests (below) need `--net-unsafe-internet`, since nothing is mapped without it.
-* The online lobby (src/platform/lobby_ui.hpp, src/runtime/net_lobby.hpp):
+* The online lobby (src/net/lobby_ui.hpp, src/net/net_lobby.hpp):
   `--net-lobby` opens its window at boot. `CONKER_LOBBY_SCRIPT=<file>` drives
   it, a line each, `<ms> <action> [text]` from the window opening: `name`,
   `host [port]`, `join <address or code>`, `joinlan [host name]` (the LAN
@@ -232,7 +232,7 @@ These environment variables are read by both builds:
   again into, such as a test's `CONKER_VIRTUAL_PAD`) and `shot <file>`, which
   writes what the window shows as text (players, LAN games, join codes, the
   port's state, errors). Opening the host's port on the router
-  (src/runtime/net_portmap.hpp) is never wanted in a test:
+  (src/net/net_portmap.hpp) is never wanted in a test:
   `CONKER_NET_PORTMAP=0` turns it off, and `CONKER_NET_UPNP_URL=<root
   description URL>` and `CONKER_NET_NATPMP_GATEWAY=<IPv4>` send it to a
   stand-in instead (with either set, only those are tried).

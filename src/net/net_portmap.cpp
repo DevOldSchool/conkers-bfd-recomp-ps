@@ -1,5 +1,5 @@
 // Opening the host's port on its router; see net_portmap.hpp.
-#include "runtime/net_portmap.hpp"
+#include "net/net_portmap.hpp"
 
 #include <chrono>
 #include <condition_variable>
@@ -14,7 +14,7 @@
 #include <sys/select.h>
 #endif
 
-#include "runtime/net_codes.hpp"
+#include "net/net_codes.hpp"
 
 #if CONKER_PORT_MAPPING
 #include <miniupnpc.h>

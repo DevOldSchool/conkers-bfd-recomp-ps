@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-#include "runtime/net_socket.hpp"
+#include "net/net_socket.hpp"
 
 namespace conker::net {
 

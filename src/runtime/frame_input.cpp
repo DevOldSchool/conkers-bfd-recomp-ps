@@ -25,7 +25,7 @@
 #include "enhancements/switches.hpp"
 #include "platform/display_mode.hpp"
 #include "runtime/game.hpp"
-#include "runtime/net_play.hpp"
+#include "net/net_play.hpp"
 #include "runtime/state_hash.hpp"
 #include "ultramodern/ultramodern.hpp"
 #include "runtime/snapshot.hpp"

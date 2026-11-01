@@ -8,7 +8,7 @@
 #include "funcs.h"
 #include "ultramodern/ultramodern.hpp"
 #include "runtime/memory.hpp"
-#include "runtime/net_play.hpp"
+#include "net/net_play.hpp"
 #include "runtime/rzip.hpp"
 #include "runtime/snapshot.hpp"
 

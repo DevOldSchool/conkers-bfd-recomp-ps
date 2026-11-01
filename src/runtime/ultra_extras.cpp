@@ -21,7 +21,7 @@
 #include "platform/input.hpp"
 #include "runtime/frame_input.hpp"
 #include "runtime/memory.hpp"
-#include "runtime/net_play.hpp"
+#include "net/net_play.hpp"
 #include "runtime/snapshot.hpp"
 
 namespace {

@@ -25,9 +25,9 @@
 //     LEAVE    either way      this machine is quitting (sent a few times as it exits): the host drops
 //                              the guest's port at once, and a guest learns the session is over
 //
-// The game socket also answers the lobby's PROBE (runtime/net_lobby.hpp), so that JOIN finds a
+// The game socket also answers the lobby's PROBE (net/net_lobby.hpp), so that JOIN finds a
 // running session.
-#include "runtime/net_play.hpp"
+#include "net/net_play.hpp"
 
 #ifndef CONKER_NET_INTERNET_DEFAULT
 #define CONKER_NET_INTERNET_DEFAULT 0  // set by CMake (CONKER_NET_INTERNET_DEFAULT)
@@ -57,10 +57,10 @@
 #include "platform/display_mode.hpp"
 #include "platform/process.hpp"
 #include "runtime/game.hpp"
-#include "runtime/net_codes.hpp"
-#include "runtime/net_lobby.hpp"
-#include "runtime/net_portmap.hpp"
-#include "runtime/net_socket.hpp"
+#include "net/net_codes.hpp"
+#include "net/net_lobby.hpp"
+#include "net/net_portmap.hpp"
+#include "net/net_socket.hpp"
 #include "runtime/snapshot.hpp"
 #include "ultramodern/ultramodern.hpp"
 

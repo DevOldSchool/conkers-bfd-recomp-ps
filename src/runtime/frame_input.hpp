@@ -50,7 +50,7 @@ struct Record {
     Mouse mice[input::kPorts];
 };
 
-// Whether CONKER_FIXED_STEP=1, or a net session (src/runtime/net_play.hpp), which forces it.
+// Whether CONKER_FIXED_STEP=1, or a net session (src/net/net_play.hpp), which forces it.
 bool fixed_step();
 
 // A clock for game code that times things: the real one, or with the fixed step the game frames

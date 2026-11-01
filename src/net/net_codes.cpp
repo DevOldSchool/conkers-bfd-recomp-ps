@@ -1,5 +1,5 @@
 // Join codes; see net_codes.hpp.
-#include "runtime/net_codes.hpp"
+#include "net/net_codes.hpp"
 
 #include <algorithm>
 #include <atomic>
