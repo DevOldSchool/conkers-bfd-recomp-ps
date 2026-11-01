@@ -279,7 +279,8 @@ void aim_upright(uint8_t* rdram, recomp_context* ctx, int pad, int at) {
 
 // A match on foot: the right stick's X (and the port's mouse) turns the player and the camera
 // together; the left stick moves the player as the game has it, but for A and D stepping sideways
-// while the mouse is captured. The right stick's C buttons are taken off the pad. False, leaving the pad alone, when the
+// while the mouse is captured. The right stick's C buttons are taken off the pad (the keyboard's
+// I, J, K and L stay); D-pad down and Triangle give C-down, the grenade. False, leaving the pad alone, when the
 // controller has neither a right stick nor a captured mouse (the keyboard alone).
 bool match_look(uint8_t* rdram, recomp_context* ctx, uint32_t actor, int pad, int at, uint16_t& buttons) {
     float right_x;
@@ -289,7 +290,13 @@ bool match_look(uint8_t* rdram, recomp_context* ctx, uint32_t actor, int pad, in
     if ((!stick && !conker::frame_input::mouse_captured(pad)) || !conker::mouse_look::playing()) {
         return false;
     }
-    buttons &= static_cast<uint16_t>(~(kCUp | kCDown | kCLeft | kCRight));
+    if (stick) {
+        buttons &= static_cast<uint16_t>(~(kCUp | kCDown | kCLeft | kCRight));
+    }
+    // C-down throws a grenade; with the right stick taken it is D-pad down or Triangle.
+    if ((buttons & (kDDown | kExtra)) != 0) {
+        buttons |= kCDown;
+    }
     // Aiming with the mouse, A and D (the stick's X) step sideways as C-left and C-right do, as
     // in a shooter; on a pad the left stick moves the player as the game has it.
     if (conker::frame_input::mouse_captured(pad)) {
