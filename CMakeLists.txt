@@ -76,6 +76,8 @@ endif()
 # src/runtime: boot, memory layout, overlays and the libultra pieces the recompiled code needs.
 # src/platform: host backends (audio, input, window, renderer); the renderer-specific ones are
 # added below. src/fixes: hooks that make the recompiled game behave as it does on hardware.
+# src/net: online play (lockstep session, lobby, join codes, port mapping); the lobby window is
+# added with the RT64 renderer below.
 # src/credits: the port's own name in the ending credits.
 # src/enhancements: one folder per feature the console does not have, each with its own switch.
 add_executable(ConkersBadFurDayRecompiled
@@ -85,11 +87,6 @@ add_executable(ConkersBadFurDayRecompiled
     src/runtime/game.cpp
     src/runtime/heap_check.cpp
     src/runtime/memory.cpp
-    src/runtime/net_play.cpp
-    src/runtime/net_codes.cpp
-    src/runtime/net_lobby.cpp
-    src/runtime/net_portmap.cpp
-    src/runtime/net_socket.cpp
     src/runtime/snapshot.cpp
     src/runtime/overlays.cpp
     src/runtime/rsp.cpp
@@ -97,6 +94,11 @@ add_executable(ConkersBadFurDayRecompiled
     src/runtime/state_hash.cpp
     src/runtime/trace.cpp
     src/runtime/ultra_extras.cpp
+    src/net/net_play.cpp
+    src/net/net_codes.cpp
+    src/net/net_lobby.cpp
+    src/net/net_portmap.cpp
+    src/net/net_socket.cpp
     "${CONKER_RSP_DIR}/aspMain.cpp"
     src/platform/audio.cpp
     src/platform/display_mode.cpp
@@ -111,6 +113,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/fixes/projected_shadow.cpp
     src/fixes/rumble_banner.cpp
     src/fixes/scheduler_yield.cpp
+    src/fixes/weapon_rack.cpp
     src/enhancements/cutscene_skip/cutscene_skip.cpp
     src/enhancements/draw_distance/draw_distance.cpp
     src/enhancements/debug_menu/debug_menu.cpp
@@ -128,6 +131,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/enhancements/frame_rate/frame_rate.cpp
     src/enhancements/intro_skip/intro_skip.cpp
     src/enhancements/max_detail/max_detail.cpp
+    src/enhancements/my_view/my_view.cpp
     src/enhancements/pause_save/pause_save.cpp
     src/enhancements/pause_save/resume_point.cpp
     src/enhancements/pause_save/save_check.cpp
@@ -206,7 +210,7 @@ if(CONKER_RENDERER STREQUAL "rt64")
         target_compile_definitions(plume PRIVATE PLUME_APPLE_RETINA_ENABLED)
     endif()
     target_sources(ConkersBadFurDayRecompiled PRIVATE
-        src/platform/renderer_rt64.cpp src/platform/object_picker_rt64.cpp src/platform/lobby_ui_rt64.cpp src/platform/lobby_style_rt64.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/enhancements/sharp_menus/sharp_menus.cpp src/platform/window_sdl.cpp src/platform/hang_watch.cpp src/platform/input_sdl.cpp
+        src/platform/renderer_rt64.cpp src/platform/object_picker_rt64.cpp src/net/lobby_ui_rt64.cpp src/net/lobby_style_rt64.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/enhancements/sharp_menus/sharp_menus.cpp src/platform/window_sdl.cpp src/platform/hang_watch.cpp src/platform/input_sdl.cpp
         src/enhancements/pad_icons/pad_icons.cpp src/enhancements/pad_icons/b_pad.cpp src/enhancements/pad_icons/stone_pad.cpp src/enhancements/pad_icons/hex_pad.cpp src/enhancements/pad_icons/square_pad.cpp src/enhancements/pad_icons/oval_pad.cpp src/enhancements/pad_icons/rock_pad.cpp src/enhancements/pad_icons/rug_pad.cpp src/enhancements/pad_icons/plate_pad.cpp src/enhancements/pad_icons/crate_pad.cpp src/enhancements/pad_icons/block_pad.cpp src/enhancements/pad_icons/disc_pad.cpp src/enhancements/pad_icons/rust_pad.cpp src/enhancements/pad_icons/riveted_pad.cpp src/enhancements/pad_icons/panel_pad.cpp
         src/enhancements/pad_icons/button_art.cpp)
     if(WIN32)
@@ -267,7 +271,7 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------------------------
-# Opening an online host's port on the router (src/runtime/net_portmap.cpp): miniupnpc for UPnP IGD
+# Opening an online host's port on the router (src/net/net_portmap.cpp): miniupnpc for UPnP IGD
 # and libnatpmp for NAT-PMP, both BSD-3-Clause, fetched at configure time at pinned versions.
 # ---------------------------------------------------------------------------------------------
 option(CONKER_PORT_MAPPING "Open an online host's port on the router with UPnP and NAT-PMP" ON)
@@ -310,6 +314,8 @@ if(CONKER_PORT_MAPPING)
 endif()
 
 if(WIN32)
+    # The icon for Explorer, the window and the taskbar.
+    target_sources(ConkersBadFurDayRecompiled PRIVATE assets/app-icon.rc)
     # windows.h (included by librecomp's headers too) would otherwise define min and max macros, which
     # break std::min and std::max.
     target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE NOMINMAX)
@@ -323,7 +329,7 @@ if(WIN32)
     # M_PI and friends from <cmath>; and, as RT64 does for itself, SDL's prefetch intrinsic left to
     # SDL, which clang-cl's own header would define a second time.
     target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE _USE_MATH_DEFINES __PRFCHWINTRIN_H)
-    # Sockets and the network adapter list (src/runtime/net_*.cpp), crash backtraces (src/main.cpp).
+    # Sockets and the network adapter list (src/net/net_*.cpp), crash backtraces (src/main.cpp).
     target_link_libraries(ConkersBadFurDayRecompiled PRIVATE ws2_32 iphlpapi dbghelp)
 elseif(APPLE)
     target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_PLATFORM_POSIX=1)

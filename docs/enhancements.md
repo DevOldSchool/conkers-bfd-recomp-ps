@@ -208,7 +208,8 @@ button. Up and down choose a row, A or left and right change it:
   TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
   WIDESCREEN CULLING, SKIP INTRO, SKIP CUTSCENES, PAUSE SAVE AND LOAD, SAVE
   SNAPSHOTS, SURROUND DEFAULT, FULL DETAIL, DRAW DISTANCE,
-  CONSISTENT CONTROLS, PAD BUTTONS and 60 FPS. A or left and right switch the
+  CONSISTENT CONTROLS, PAD BUTTONS, 60 FPS and MY VIEW (online: only your own view and
+  sounds, see docs/online-play.md). A or left and right switch the
   chosen one. SHARP TEXT and WIDESCREEN are the OPTIONS rows' settings and
   are kept in `display.cfg` as those rows keep them (a new shape applies once
   the game carries on); the rest last until the game is closed, and a debug
@@ -383,9 +384,11 @@ place to the next, and aims like a plane, pushing up to look down.
 * On foot in a multiplayer match, where the N64 locks the camera behind the
   player and the right stick only steps sideways, the right stick (or the
   mouse) turns the player and the camera with them, so the view is where
-  they aim. The left stick runs forwards and back and steps sideways (as
-  C-left and C-right did), still facing the same way. Holding R, scoped or
-  in a tank keeps the controls above.
+  they aim. The left stick moves the player as on an N64; with the mouse,
+  A and D step sideways (as C-left and C-right did), still facing the same
+  way. C-down (a grenade, the right stick pushed down on an N64 pad's C
+  buttons) is D-pad down or Triangle (Y), or K on the keyboard. Holding R,
+  scoped or in a tank keeps the controls above.
 
 With the keyboard and mouse the mouse is that right stick: it turns the
 camera itself (0.15 degrees a pixel), and

@@ -11,7 +11,7 @@
 
 #include "platform/input.hpp"
 #include "enhancements/status.hpp"
-#include "runtime/net_play.hpp"
+#include "net/net_play.hpp"
 
 namespace {
 

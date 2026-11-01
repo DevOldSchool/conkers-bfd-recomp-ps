@@ -151,6 +151,7 @@ void conker::frame_input::make_audio_frame(uint8_t* rdram, recomp_context* hook_
     }
     // A copy of the hook's registers, with a stack frame below the hook's for the calls.
     recomp_context ctx = *hook_ctx;
+    ctx.f_odd = ctx.mips3_float_mode ? &ctx.f1.u32l : &ctx.f0.u32h;  // its own odd float registers, not the hook's
     ctx.r29 = hook_ctx->r29 - 0x80;
     const gpr message = ctx.r29 + 0x78;  // an OSMesg slot in the space below the hook's frame
     const uint32_t slot = static_cast<uint32_t>(MEM_W(0, kseg0(kAudioFrameCount))) % 3;

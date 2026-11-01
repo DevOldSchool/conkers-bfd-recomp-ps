@@ -29,6 +29,7 @@ nlohmann::json intro_skip();
 nlohmann::json max_detail();
 nlohmann::json draw_distance();
 nlohmann::json frame_rate();
+nlohmann::json my_view();
 nlohmann::json rumble_banner();
 nlohmann::json haptics();
 nlohmann::json adaptive_triggers();

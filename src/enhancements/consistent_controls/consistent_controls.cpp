@@ -22,7 +22,8 @@
 // The rocket launcher in a multiplayer match (THE VAULT) scoped with R works the same way: the
 // stick aims, up aiming down, and C-up and C-down walk. So while scoped it gets the shotgun's aim:
 // the right stick aims, up aiming up, and the left stick walks. Unscoped it walks with the stick.
-// The matches' scoped gun, item 0x24, scopes with R the same way and gets the same.
+// The matches' scoped gun, item 0x24, scopes with R the same way and gets the same, as does
+// anything else aimed through a sight there (the knives, item 0x14: +0x197 is 2 while R is held).
 // The mounted machine guns (the wasps' hive, scene 39; It's War's, scene 38) aim with the stick,
 // pushed up to aim down, as R's look does, and get the same: up aims up, the mouse aiming too.
 // The tanks (TANK in MULTI, any player): C-left and C-right turn the turret, C-left to the left,
@@ -46,9 +47,10 @@
 // lock, it swung back within about 1.5 s). The left stick runs where the camera looks, so pushed
 // sideways the player turns towards it and the camera follows, round in a circle. So there the
 // right stick's X and the mouse turn the player (facing +0x40, +0x76, +0x7A of the actor) and the
-// camera together (mouse_look::turn_camera), the view staying where they aim, and the left stick's
-// X steps as C-left and C-right do (C-left to the left), its Y running forwards and back. The right
-// stick's C buttons are taken off: C-up steps forwards with a gun. R's look without a gun gets
+// camera together (mouse_look::turn_camera), the view staying where they aim, and the left stick
+// moves the player as the game has it (it turns with the stick pushed sideways and the camera
+// follows, as on an N64); with the mouse captured, A and D step sideways as C-left and C-right do,
+// as in a shooter. The right stick's C buttons are taken off: C-up steps forwards with a gun. R's look without a gun gets
 // the gun's aim there, the right stick looking (up looks up) and the left stick the C buttons, so
 // the camera never moves with the left stick (looking, the game does not walk with them).
 // The pads as the game reads them are rewritten in func_1501BBB8 (sp+0x38, four OSContPads, after
@@ -264,6 +266,10 @@ bool looking(uint8_t* rdram, uint32_t player) {
 // On a mounted gun (the binocular frame up): u8 +0x197 is 2 there too, whatever he held.
 bool mounted(uint8_t* rdram, uint32_t player) { return MEM_BU(kPlayerScoped, kseg0(player)) == kScoped; }
 
+// Aiming through a sight: the camera's sight mode (func_15128CB0) copies its state into u8 +0x197
+// for whatever is held, and clears it when nothing is.
+bool sighted(uint8_t* rdram, uint32_t player) { return MEM_BU(kPlayerScoped, kseg0(player)) != 0; }
+
 // The stick, where the game aims down with it pushed up, turned round to aim up; the mouse adds
 // to it.
 void aim_upright(uint8_t* rdram, recomp_context* ctx, int pad, int at) {
@@ -277,8 +283,9 @@ void aim_upright(uint8_t* rdram, recomp_context* ctx, int pad, int at) {
 }
 
 // A match on foot: the right stick's X (and the port's mouse) turns the player and the camera
-// together, and the left stick runs forwards and back, sideways stepping as C-left and C-right do.
-// The right stick's C buttons are taken off the pad. False, leaving the pad alone, when the
+// together; the left stick moves the player as the game has it, but for A and D stepping sideways
+// while the mouse is captured. The right stick's C buttons are taken off the pad (the keyboard's
+// I, J, K and L stay); D-pad down and Triangle give C-down, the grenade. False, leaving the pad alone, when the
 // controller has neither a right stick nor a captured mouse (the keyboard alone).
 bool match_look(uint8_t* rdram, recomp_context* ctx, uint32_t actor, int pad, int at, uint16_t& buttons) {
     float right_x;
@@ -288,11 +295,21 @@ bool match_look(uint8_t* rdram, recomp_context* ctx, uint32_t actor, int pad, in
     if ((!stick && !conker::frame_input::mouse_captured(pad)) || !conker::mouse_look::playing()) {
         return false;
     }
-    const int walk_x = MEM_B(at + 2, ctx->r29);
-    buttons &= static_cast<uint16_t>(~(kCUp | kCDown | kCLeft | kCRight));
-    if (walk_x < -kStepAt) buttons |= kCLeft;
-    if (walk_x > kStepAt) buttons |= kCRight;
-    MEM_B(at + 2, ctx->r29) = 0;
+    if (stick) {
+        buttons &= static_cast<uint16_t>(~(kCUp | kCDown | kCLeft | kCRight));
+    }
+    // C-down throws a grenade; with the right stick taken it is D-pad down or Triangle.
+    if ((buttons & (kDDown | kExtra)) != 0) {
+        buttons |= kCDown;
+    }
+    // Aiming with the mouse, A and D (the stick's X) step sideways as C-left and C-right do, as
+    // in a shooter; on a pad the left stick moves the player as the game has it.
+    if (conker::frame_input::mouse_captured(pad)) {
+        const int walk_x = MEM_B(at + 2, ctx->r29);
+        if (walk_x < -kStepAt) buttons |= kCLeft;
+        if (walk_x > kStepAt) buttons |= kCRight;
+        MEM_B(at + 2, ctx->r29) = 0;
+    }
     // Squared, for small turns near the middle.
     const float turn = right_x * std::fabs(right_x) * kMatchTurn * read_float(rdram, kFrameDelta) +
                        conker::mouse_look::take_turn(pad);
@@ -313,7 +330,9 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player,
     const int at = kPad + pad * kPadSize;
     uint16_t buttons = MEM_HU(at, ctx->r29);
     const bool match = MEM_BU(0, kseg0(kMultiplayer)) != 0;
-    if (launcher_scoped(rdram, player)) {
+    // In a match whatever aims with a sight (the knives, item 0x14, as much as the launcher) aims
+    // as the launcher's scope does, a match's mounted gun (item 0x1B) too; tanks never get here.
+    if (launcher_scoped(rdram, player) || (match && sighted(rdram, player))) {
         if (twin_stick_aim(rdram, ctx, pad, at, buttons)) {
             MEM_H(at, ctx->r29) = static_cast<int16_t>(buttons);
         }

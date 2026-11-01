@@ -1,0 +1,126 @@
+--- a/src/rhi/rt64_render_hooks.h
++++ b/src/rhi/rt64_render_hooks.h
+@@ -52,6 +52,20 @@
+ 
+     void SetPresentedPicture(const PresentedPicture &picture);
+     bool GetPresentedPicture(PresentedPicture &picture);
++
++    // A part of the frame buffer presented on its own, scaled to fit the window and centered, with the
++    // rest of the picture left out: fractions of the frame buffer (x, y, width, height). A width or
++    // height of 0 presents the whole picture as usual. Safe to call from any thread; the next
++    // presented frame uses it.
++    struct PresentFocus {
++        float x = 0.0f;
++        float y = 0.0f;
++        float width = 0.0f;
++        float height = 0.0f;
++    };
++
++    void SetPresentFocus(const PresentFocus &focus);
++    PresentFocus GetPresentFocus();
+ };
+ 
+ #define RT64_DRAW_TAG_PUSH 0xD7A600
+--- a/src/rhi/rt64_render_hooks.cpp
++++ b/src/rhi/rt64_render_hooks.cpp
+@@ -17,6 +17,8 @@
+     static std::mutex presentedPictureMutex;
+     static PresentedPicture presentedPicture;
+     static bool presentedPictureSet = false;
++    static std::mutex presentFocusMutex;
++    static PresentFocus presentFocus;
+ 
+     RenderHookInit *GetRenderHookInit() {
+         return init;
+@@ -71,4 +73,14 @@
+         picture = presentedPicture;
+         return presentedPictureSet;
+     }
++
++    void SetPresentFocus(const PresentFocus &focus) {
++        const std::scoped_lock lock(presentFocusMutex);
++        presentFocus = focus;
++    }
++
++    PresentFocus GetPresentFocus() {
++        const std::scoped_lock lock(presentFocusMutex);
++        return presentFocus;
++    }
+ };
+--- a/src/render/rt64_vi_renderer.h
++++ b/src/render/rt64_vi_renderer.h
+@@ -7,6 +7,8 @@
+ #include "common/rt64_user_configuration.h"
+ #include "hle/rt64_vi.h"
+ 
++#include "rhi/rt64_render_hooks.h"
++
+ #include "rt64_descriptor_sets.h"
+ #include "rt64_shader_library.h"
+ 
+@@ -37,6 +39,6 @@
+         VIRenderer();
+         ~VIRenderer();
+         void render(const RenderParams &p);
+-        static void getViewportAndScissor(const RenderSwapChain *swapChain, const VI &vi, hlslpp::float2 resolutionScale, uint32_t downsamplingScale, bool removeBlackBorders, bool nativeSize, RenderViewport &viewport, RenderRect &scissor, float cropSides = 0.0f, uint32_t hideRows = 0);
++        static void getViewportAndScissor(const RenderSwapChain *swapChain, const VI &vi, hlslpp::float2 resolutionScale, uint32_t downsamplingScale, bool removeBlackBorders, bool nativeSize, RenderViewport &viewport, RenderRect &scissor, float cropSides = 0.0f, uint32_t hideRows = 0, const PresentFocus *focus = nullptr);
+     };
+ };
+\ No newline at end of file
+--- a/src/render/rt64_vi_renderer.cpp
++++ b/src/render/rt64_vi_renderer.cpp
+@@ -76,7 +76,8 @@
+ 
+         RenderViewport viewport;
+         RenderRect scissor;
+-        getViewportAndScissor(p.swapChain, *p.vi, p.resolutionScale, p.downsamplingScale, p.removeBlackBorders, p.nativeSize, viewport, scissor, p.cropSides, p.hideRows);
++        const PresentFocus focus = GetPresentFocus();
++        getViewportAndScissor(p.swapChain, *p.vi, p.resolutionScale, p.downsamplingScale, p.removeBlackBorders, p.nativeSize, viewport, scissor, p.cropSides, p.hideRows, &focus);
+ 
+         PresentedPicture picture;
+         picture.x = viewport.x;
+@@ -106,7 +107,7 @@
+         p.commandList->drawInstanced(3, 1, 0, 0);
+     }
+ 
+-    void VIRenderer::getViewportAndScissor(const RenderSwapChain *swapChain, const VI &vi, hlslpp::float2 resolutionScale, uint32_t downsamplingScale, bool removeBlackBorders, bool nativeSize, RenderViewport &viewport, RenderRect &scissor, float cropSides, uint32_t hideRows) {
++    void VIRenderer::getViewportAndScissor(const RenderSwapChain *swapChain, const VI &vi, hlslpp::float2 resolutionScale, uint32_t downsamplingScale, bool removeBlackBorders, bool nativeSize, RenderViewport &viewport, RenderRect &scissor, float cropSides, uint32_t hideRows, const PresentFocus *focus) {
+         // We define three different coordinate spaces to work with to translate the VI parameters into the Window.
+         //
+         // VideoSD: This corresponds to the SD TV Scanline space, which is what the VI natively works on.
+@@ -148,6 +149,35 @@
+             viCropRect.w = std::max(cropBottom - cropTop, 0.0f);
+         }
+ 
++        // A focus: its part of the picture fills the window as the whole picture would, and the scissor
++        // leaves out everything around it.
++        if ((focus != nullptr) && (focus->width > 0.0f) && (focus->height > 0.0f)) {
++            const hlslpp::float4 focusRect = {
++                float(viViewRect.x) + focus->x * float(viViewRect.z), float(viViewRect.y) + focus->y * float(viViewRect.w),
++                focus->width * float(viViewRect.z), focus->height * float(viViewRect.w) };
++            const hlslpp::float2 focusTopLeft = fromSDtoHD({ float(focusRect.x), float(focusRect.y) }, sdSize, hdSize);
++            const hlslpp::float2 focusSize = fromSDtoHD({ float(focusRect.z), float(focusRect.w) }, sdSize, hdSize);
++            const float scale = std::min(float(windowSize.x) / float(focusSize.x), float(windowSize.y) / float(focusSize.y));
++            const hlslpp::float2 focusCenter = focusTopLeft + focusSize / 2.0f;
++            const hlslpp::float2 windowCenter = windowSize / 2.0f;
++            auto toWindow = [&](float x, float y) {
++                const hlslpp::float2 hd = fromSDtoHD({ x, y }, sdSize, hdSize);
++                return windowCenter + (hd - focusCenter) * scale;
++            };
++
++            const float cropLeft = std::max(float(viCropRect.x), float(focusRect.x));
++            const float cropTop = std::max(float(viCropRect.y), float(focusRect.y));
++            const float cropRight = std::min(float(viCropRect.x + viCropRect.z), float(focusRect.x + focusRect.z));
++            const float cropBottom = std::min(float(viCropRect.y + viCropRect.w), float(focusRect.y + focusRect.w));
++            const hlslpp::float2 viewTopLeft = toWindow(viViewRect.x, viViewRect.y);
++            const hlslpp::float2 viewBottomRight = toWindow(viViewRect.x + viViewRect.z, viViewRect.y + viViewRect.w);
++            const hlslpp::float2 cropTopLeft = toWindow(cropLeft, cropTop);
++            const hlslpp::float2 cropBottomRight = toWindow(std::max(cropRight, cropLeft), std::max(cropBottom, cropTop));
++            viewport = RenderViewport(viewTopLeft.x, viewTopLeft.y, viewBottomRight.x - viewTopLeft.x, viewBottomRight.y - viewTopLeft.y);
++            scissor = RenderRect(lround(cropTopLeft.x), lround(cropTopLeft.y), lround(cropBottomRight.x), lround(cropBottomRight.y));
++            return;
++        }
++
+         // Scale all the rectangles to the space of the Window.
+         hlslpp::float2 topLeftViewport = fromSDtoHD({ float(viViewRect.x), float(viViewRect.y) }, sdSize, hdSize);
+         hlslpp::float2 bottomRightViewport = fromSDtoHD({ float(viViewRect.x + viViewRect.z), float(viViewRect.y + viViewRect.w) }, sdSize, hdSize);

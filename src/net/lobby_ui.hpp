@@ -1,6 +1,6 @@
 // The ONLINE lobby window (docs/online-multiplayer-plan.md, M5): a Dear ImGui window over the game,
 // using the ImGui that RT64 ships. Opened from the debug menu's ONLINE entry or with --net-lobby;
-// runtime/net_lobby does the network side.
+// net/net_lobby does the network side.
 //
 // The window's frame is built on the main thread, where SDL's events come in (update()), and drawn
 // into the swap chain by RT64's present thread through its draw hook. While it is open the game reads

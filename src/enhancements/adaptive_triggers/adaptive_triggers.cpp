@@ -51,7 +51,7 @@
 
 #include "platform/input.hpp"
 #include "runtime/game.hpp"
-#include "runtime/net_play.hpp"
+#include "net/net_play.hpp"
 #include "enhancements/status.hpp"
 #include "enhancements/switches.hpp"
 

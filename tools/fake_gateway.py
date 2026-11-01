@@ -9,7 +9,7 @@ port opened and closed again. Point the game at it with
     CONKER_NET_UPNP_URL=http://127.0.0.1:<http port>/rootDesc.xml
     CONKER_NET_NATPMP_GATEWAY=127.0.0.1
 
-(with either set, the game tries only the methods set; see src/runtime/net_portmap.hpp).
+(with either set, the game tries only the methods set; see src/net/net_portmap.hpp).
 
     tools/fake_gateway.py [--http-port N] [--external 203.0.113.7] [--upnp fail|conflict|off]
                           [--natpmp fail|off]

@@ -25,6 +25,9 @@ constexpr uint16_t kCUp = 0x0008;
 constexpr uint16_t kCDown = 0x0004;
 constexpr uint16_t kCLeft = 0x0002;
 constexpr uint16_t kCRight = 0x0001;
+// Not an N64 button (the pad's bit 0x0040 is unused): Triangle/Y, which the game ignores; in a
+// match consistent_controls makes it C-down, the grenade, the right stick being taken there.
+constexpr uint16_t kExtra = 0x0040;
 
 constexpr int kPorts = 4;
 
@@ -44,7 +47,7 @@ bool right_stick(float* x, float* y, int port = 0);
 // and clears them. Safe to call from any thread.
 void set_mouse_play(bool playing);
 
-// While a window over the game takes the input (the ONLINE lobby, src/platform/lobby_ui_rt64.cpp):
+// While a window over the game takes the input (the ONLINE lobby, src/net/lobby_ui_rt64.cpp):
 // the game reads every port as nothing pressed, no mouse motion and no debug menu press, and the
 // mouse is not captured. Safe to call from any thread.
 void set_blocked(bool blocked);

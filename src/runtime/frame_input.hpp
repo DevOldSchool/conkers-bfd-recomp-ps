@@ -50,7 +50,7 @@ struct Record {
     Mouse mice[input::kPorts];
 };
 
-// Whether CONKER_FIXED_STEP=1, or a net session (src/runtime/net_play.hpp), which forces it.
+// Whether CONKER_FIXED_STEP=1, or a net session (src/net/net_play.hpp), which forces it.
 bool fixed_step();
 
 // A clock for game code that times things: the real one, or with the fixed step the game frames
@@ -97,5 +97,10 @@ void apply_settings(const std::string& header, const char* source);
 // With the fixed step, makes the audio frame on the game thread at the start of the game frame
 // (src/runtime/frame_audio.cpp); hook_ctx is the frame hook's registers.
 void make_audio_frame(uint8_t* rdram, recomp_context* hook_ctx);
+
+// Under the fixed step, how many times the game thread has read osGetCount this frame (each read
+// is a step on); saved and put back by a pass that runs game code it must not count (my_view).
+uint32_t count_reads();
+void set_count_reads(uint32_t reads);
 
 }  // namespace conker::frame_input
