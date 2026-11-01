@@ -101,8 +101,8 @@ uint32_t widen_start(int32_t& start, int32_t per_pixel, uint32_t edge) {
 // Moves a TEXRECT's top up by whole pixels to reach the texture's first row, at most kMaxWiden
 // texels. When a rectangle's top is part way into a pixel, RT64 (as the RDP, whose first scanline is
 // the next whole one) samples its first row a whole dtdy further into the texture (rt64_rdp.cpp,
-// drawRect), so a move by part of a pixel skipped the texture's first row: the top of the R, the one
-// glyph whose ink starts there, was cut off flat. The game puts glyph tops on whole pixels, so moving
+// drawRect), so a move by part of a pixel skipped a row: the top of the R, the one glyph whose top
+// stroke starts at full strength, was cut off flat. The game puts glyph tops on whole pixels, so moving
 // from the whole row at or above the top keeps the texture in its place. `start` is t at the top
 // (s10.5), `per_pixel` dtdy (s5.10). Returns the new top (10.2).
 uint32_t widen_top(int32_t& start, int32_t per_pixel, uint32_t top) {

@@ -211,21 +211,6 @@ std::vector<uint8_t> enlarge(const Glyph& glyph, int& out_width, int& out_height
     return rgba;
 }
 
-// Rare's R starts with a full-strength row: unlike B, H or P it has no faint row of ink above its
-// top stroke, so sharpened its top looks sliced off flat. The enlarged R gets a faint row there, in
-// the glyph's empty row above (which the game draws, font_rects.cpp), as B and H have; the hash
-// stays the original glyph's.
-constexpr size_t kGlyphR = 27;
-constexpr uint8_t kRTop[] = {0, 16, 64, 112, 128, 112, 48, 0};  // columns 0-7, after the left zero column
-
-Glyph with_r_top(const Glyph& glyph) {
-    Glyph out = glyph;
-    if (out.stride >= int(sizeof(kRTop)) && out.rows > 1) {
-        for (size_t x = 0; x < sizeof(kRTop); x++) out.image[x] = kRTop[x];
-    }
-    return out;
-}
-
 } // namespace
 
 bool enabled() {
@@ -251,7 +236,7 @@ std::shared_ptr<RT64::FileSystem> make_pack(std::span<const uint8_t> rom) {
     auto pack = std::make_shared<memory_pack::Pack>();
     for (size_t i = 0; i < glyphs.size(); i++) {
         int width = 0, height = 0;
-        const std::vector<uint8_t> rgba = enlarge(i == kGlyphR ? with_r_top(glyphs[i]) : glyphs[i], width, height);
+        const std::vector<uint8_t> rgba = enlarge(glyphs[i], width, height);
         char name[32];
         std::snprintf(name, sizeof(name), "font/glyph_%02zu.png", i);
         pack->add(name, hash(glyphs[i]), width, height, rgba.data());
