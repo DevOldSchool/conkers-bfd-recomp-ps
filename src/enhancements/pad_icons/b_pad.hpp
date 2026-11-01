@@ -23,8 +23,9 @@ struct Texture {
 // The wooden B pad with the mark painted where its B was (src/enhancements/pad_icons/b_pad.cpp).
 std::optional<Texture> wood_pad(Mark::Shape shape);
 
-// The stone B pad's two halves, left then right, with the mark carved where its B was
-// (src/enhancements/pad_icons/stone_pad.cpp); empty if the ROM's are not where they should be.
+// The stone B pad's two halves, left then right, with the mark carved where its B was, then the
+// right half again for the copy's own right half (src/enhancements/pad_icons/stone_pad.cpp); empty if
+// the ROM's are not where they should be.
 std::vector<Texture> stone_pad(Mark::Shape shape);
 
 // The hexagonal wooden B pad's two halves, left then right, with the mark raised where its B was
