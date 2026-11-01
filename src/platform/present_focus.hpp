@@ -16,4 +16,12 @@ void set_present_focus(float x, float y, float width, float height);
 // keeps it for the next frame it is sent. The null build ignores it.
 void draw_next_frame_from(std::vector<uint8_t> image);
 
+// Held by the game thread while it copies the game's memory, draws in it and puts it back (the
+// online "my view"): the renderer writes nothing into RDRAM meanwhile, as a frame it finishes then
+// would have its frame buffers put back to what they were before, and RT64 took those as drawn by
+// the CPU and showed the game's 4:3 picture. Without the fixed step the renderer can be drawing the
+// last frame while the game makes the next. The null build has nothing to wait for.
+void hold_game_memory();
+void release_game_memory();
+
 }  // namespace conker::renderer

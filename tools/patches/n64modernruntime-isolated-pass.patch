@@ -37,7 +37,30 @@
  void dequeue_external_messages(RDRAM_ARG1) {
      QueuedMessage to_send;
      std::vector<QueuedMessage> requeued_messages{};
-@@ -202,6 +206,10 @@
+@@ -149,8 +153,10 @@
+     }
+ 
+     // If any threads were blocked on receiving from this message queue, pop the first one and schedule it.
++    // Not in an isolated pass: the queue is as it was in memory the pass put back, and the thread it names
++    // may be waiting on something else by now; it was woken for real when the message first came.
+     PTR(PTR(OSThread)) blocked_queue = GET_MEMBER(OSMesgQueue, mq_, blocked_on_recv);
+-    if (!ultramodern::thread_queue_empty(PASS_RDRAM blocked_queue)) {
++    if (!ultramodern_isolated && !ultramodern::thread_queue_empty(PASS_RDRAM blocked_queue)) {
+         ultramodern::schedule_running_thread(PASS_RDRAM ultramodern::thread_queue_pop(PASS_RDRAM blocked_queue));
+     }
+     
+@@ -184,8 +190,9 @@
+     mq->validCount--;
+ 
+     // If any threads were blocked on sending to this message queue, pop the first one and schedule it.
++    // Not in an isolated pass (see do_send).
+     PTR(PTR(OSThread)) blocked_queue = GET_MEMBER(OSMesgQueue, mq_, blocked_on_send);
+-    if (!ultramodern::thread_queue_empty(PASS_RDRAM blocked_queue)) {
++    if (!ultramodern_isolated && !ultramodern::thread_queue_empty(PASS_RDRAM blocked_queue)) {
+         ultramodern::schedule_running_thread(PASS_RDRAM ultramodern::thread_queue_pop(PASS_RDRAM blocked_queue));
+     }
+ 
+@@ -202,6 +209,10 @@
          return 0;
      }
      
@@ -48,7 +71,7 @@
      // Handle any messages that have been received from an external thread.
      dequeue_external_messages(PASS_RDRAM1);
  
-@@ -240,6 +248,11 @@
+@@ -240,6 +251,11 @@
      OSMesgQueue *mq = TO_PTR(OSMesgQueue, mq_);
      
      assert(ultramodern::is_game_thread() && "RecvMesg not allowed outside of game threads.");

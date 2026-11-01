@@ -665,6 +665,14 @@ std::vector<uint32_t> g_timer_texts;
 // with one view.
 constexpr int16_t kTimerX = 0x87, kSplitTimerY = 0x64, kOneViewTimerY = 0xC6;
 uint32_t g_count_reads_before = 0;    // and the frame's osGetCount reads then
+bool g_holding = false;               // conker::renderer::hold_game_memory from there to the pass's end
+
+void let_go_of_memory() {
+    if (g_holding) {
+        g_holding = false;
+        conker::renderer::release_game_memory();
+    }
+}
 
 // Calls one of the frame's drawing functions; returns $v0.
 uint32_t call(uint8_t* rdram, const recomp_context* ctx, void (*function)(uint8_t*, recomp_context*), gpr a0 = 0, gpr a1 = 0,
@@ -1050,14 +1058,15 @@ extern "C" void conker_my_view_draw_start(uint8_t* rdram, recomp_context* ctx) {
     g_list_pointer = ctx->r17;
     g_list_start = list_pointer(rdram);
     g_before_views.clear();
+    let_go_of_memory();
     // Paused, the game draws no views, only the copy of the last frame it made (the local view, drawn
     // whole) and the menu over the whole screen: that frame is shown as the game draws it.
     if (g_full && g_view >= 0 && MEM_BU(0, kseg0(kScreenHandler)) == 0 && MEM_BU(0, kseg0(kPaused)) == 0) {
-        // RT64 writes the last frame's colour and depth into RDRAM as it finishes it. Without the
-        // fixed step (offline) that could land between here and the pass, and the memory put back
-        // after it, and the image the renderer draws from, would then hold the frame buffers from
-        // before: RT64 took them as drawn by the CPU and showed them, 4:3, instead of its own.
-        conker::frame_input::wait_for_renderer(rdram);
+        // Until the pass has put the memory back the renderer writes none of it (hold_game_memory).
+        if (!g_holding) {
+            conker::renderer::hold_game_memory();
+            g_holding = true;
+        }
         g_before_views.assign(rdram, rdram + kGameMemory);
         g_count_reads_before = conker::frame_input::count_reads();
     }
@@ -1075,6 +1084,7 @@ extern "C" void conker_my_view_draw_end(uint8_t* rdram, recomp_context* ctx) {
     }
     if (g_before_views.empty()) {
         g_timer_texts.clear();
+        let_go_of_memory();
         return;
     }
     static std::vector<uint8_t> after;
@@ -1109,6 +1119,7 @@ extern "C" void conker_my_view_draw_end(uint8_t* rdram, recomp_context* ctx) {
     conker::renderer::draw_next_frame_from(std::vector<uint8_t>(rdram, rdram + kImageSize));
     std::memcpy(rdram, after.data(), kGameMemory);
     conker::frame_input::set_count_reads(count_reads);
+    let_go_of_memory();
 }
 
 bool conker::my_view::drawing_again() { return g_drawing; }

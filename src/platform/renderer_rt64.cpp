@@ -222,6 +222,7 @@ void require_conker_microcode(RT64::Application& app, const OSTask* task) {
 std::mutex g_texture_packs_mutex;
 std::mutex g_frame_memory_mutex;
 std::vector<uint8_t> g_frame_memory;  // draw_next_frame_from's
+std::timed_mutex g_game_memory_mutex;  // hold_game_memory's
 std::vector<std::string> g_texture_packs;  // in use, for texture_packs()
 std::string g_gpu_name;                    // after setup, for gpu_name() and graphics_api()
 std::string g_graphics_api;
@@ -438,6 +439,10 @@ public:
     }
 
     void send_dl(const OSTask* task) override {
+        // Not while the game thread holds the game's memory (hold_game_memory). A hold is a frame's
+        // drawing at most; one never let go is waited out rather than stopping the picture for good.
+        std::unique_lock memory_lock(g_game_memory_mutex, std::defer_lock);
+        (void)memory_lock.try_lock_for(std::chrono::milliseconds(250));
         // Online, nothing drawn is written back into game memory on any machine: each GPU draws a little
         // differently, and the game reads depth back for the camera (func_1512B1B8), so the games parted
         // at once between two Macs (rt64-online-writeback.patch). The frame buffers above stay written.
@@ -751,6 +756,9 @@ void draw_next_frame_from(std::vector<uint8_t> image) {
     std::lock_guard lock(g_frame_memory_mutex);
     g_frame_memory = std::move(image);
 }
+
+void hold_game_memory() { g_game_memory_mutex.lock(); }
+void release_game_memory() { g_game_memory_mutex.unlock(); }
 
 std::vector<std::string> texture_packs() {
     std::lock_guard lock(g_texture_packs_mutex);
