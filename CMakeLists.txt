@@ -98,6 +98,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/fixes/frame_effects.cpp
     src/fixes/level_seams.cpp
     src/fixes/music_start.cpp
+    src/fixes/projected_shadow.cpp
     src/fixes/scheduler_yield.cpp
     src/enhancements/cutscene_skip/cutscene_skip.cpp
     src/enhancements/draw_distance/draw_distance.cpp
