@@ -22,7 +22,8 @@
 // The rocket launcher in a multiplayer match (THE VAULT) scoped with R works the same way: the
 // stick aims, up aiming down, and C-up and C-down walk. So while scoped it gets the shotgun's aim:
 // the right stick aims, up aiming up, and the left stick walks. Unscoped it walks with the stick.
-// The matches' scoped gun, item 0x24, scopes with R the same way and gets the same.
+// The matches' scoped gun, item 0x24, scopes with R the same way and gets the same, as does
+// anything else aimed through a sight there (the knives, item 0x14: +0x197 is 2 while R is held).
 // The mounted machine guns (the wasps' hive, scene 39; It's War's, scene 38) aim with the stick,
 // pushed up to aim down, as R's look does, and get the same: up aims up, the mouse aiming too.
 // The tanks (TANK in MULTI, any player): C-left and C-right turn the turret, C-left to the left,
@@ -265,6 +266,10 @@ bool looking(uint8_t* rdram, uint32_t player) {
 // On a mounted gun (the binocular frame up): u8 +0x197 is 2 there too, whatever he held.
 bool mounted(uint8_t* rdram, uint32_t player) { return MEM_BU(kPlayerScoped, kseg0(player)) == kScoped; }
 
+// Aiming through a sight: the camera's sight mode (func_15128CB0) copies its state into u8 +0x197
+// for whatever is held, and clears it when nothing is.
+bool sighted(uint8_t* rdram, uint32_t player) { return MEM_BU(kPlayerScoped, kseg0(player)) != 0; }
+
 // The stick, where the game aims down with it pushed up, turned round to aim up; the mouse adds
 // to it.
 void aim_upright(uint8_t* rdram, recomp_context* ctx, int pad, int at) {
@@ -325,7 +330,9 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player,
     const int at = kPad + pad * kPadSize;
     uint16_t buttons = MEM_HU(at, ctx->r29);
     const bool match = MEM_BU(0, kseg0(kMultiplayer)) != 0;
-    if (launcher_scoped(rdram, player)) {
+    // In a match whatever aims with a sight (the knives, item 0x14, as much as the launcher) aims
+    // as the launcher's scope does, a match's mounted gun (item 0x1B) too; tanks never get here.
+    if (launcher_scoped(rdram, player) || (match && sighted(rdram, player))) {
         if (twin_stick_aim(rdram, ctx, pad, at, buttons)) {
             MEM_H(at, ctx->r29) = static_cast<int16_t>(buttons);
         }
