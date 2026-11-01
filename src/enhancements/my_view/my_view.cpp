@@ -658,7 +658,9 @@ constexpr uint32_t kHiddenDepth = 0x80640000;
 gpr g_list_pointer = 0;     // where func_1501878C keeps the display list pointer ($s1)
 uint32_t g_list_start = 0;  // where the views' commands start in the list
 std::vector<uint8_t> g_before_views;  // game memory where func_1501878C starts drawing the views
-std::vector<uint32_t> g_timer_texts;  // HUD text entries queued this frame at the split screen's timer spot
+// HUD text entries queued at the split screen's timer spot since the last pass: the timer is queued
+// after the frame's views are drawn, for the next frame's HUD.
+std::vector<uint32_t> g_timer_texts;
 // func_151DDC20 queues the match timer at (0x87, 0x64), between the split views, or at (0x87, 0xC6)
 // with one view.
 constexpr int16_t kTimerX = 0x87, kSplitTimerY = 0x64, kOneViewTimerY = 0xC6;
@@ -837,7 +839,6 @@ void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
 }  // namespace
 
 void conker::my_view::frame(uint8_t* rdram, recomp_context* ctx) {
-    g_timer_texts.clear();
     g_marked.set = g_start.set = g_play.set = false;
     g_view = local_view(rdram);
     present(rdram, g_view);
@@ -1064,7 +1065,11 @@ extern "C" void conker_my_view_draw_start(uint8_t* rdram, recomp_context* ctx) {
 // no other thread runs and nothing from outside is delivered (ultramodern_isolated; a ROM read
 // completes at once), so the game goes on exactly as on every other machine.
 extern "C" void conker_my_view_draw_end(uint8_t* rdram, recomp_context* ctx) {
-    if (g_before_views.empty() || g_drawing) {
+    if (g_drawing) {
+        return;
+    }
+    if (g_before_views.empty()) {
+        g_timer_texts.clear();
         return;
     }
     static std::vector<uint8_t> after;
@@ -1095,6 +1100,7 @@ extern "C" void conker_my_view_draw_end(uint8_t* rdram, recomp_context* ctx) {
     ultramodern_isolated = false;
     recomp_dma_done_now = false;
     g_drawing = false;
+    g_timer_texts.clear();
     conker::renderer::draw_next_frame_from(std::vector<uint8_t>(rdram, rdram + kImageSize));
     std::memcpy(rdram, after.data(), kGameMemory);
     conker::frame_input::set_count_reads(count_reads);
