@@ -658,9 +658,10 @@ constexpr uint32_t kHiddenDepth = 0x80640000;
 gpr g_list_pointer = 0;     // where func_1501878C keeps the display list pointer ($s1)
 uint32_t g_list_start = 0;  // where the views' commands start in the list
 std::vector<uint8_t> g_before_views;  // game memory where func_1501878C starts drawing the views
-// HUD text entries queued at the split screen's timer spot since the last pass: the timer is queued
-// after the frame's views are drawn, for the next frame's HUD.
-std::vector<uint32_t> g_timer_texts;
+// The HUD's text queue (func_15042ECC's nodes, drawn by func_15043384): a 0x5C-byte node each, with
+// the 3D object it is drawn over (or none), its position and its next node.
+constexpr uint32_t kTexts = 0x800CBD64;  // D_800CBD64: the first node
+constexpr uint32_t kTextAnchor = 0x0, kTextX = 0x8, kTextY = 0xA, kTextNext = 0x18;
 // func_151DDC20 queues the match timer at (0x87, 0x64), between the split views, or at (0x87, 0xC6)
 // with one view.
 constexpr int16_t kTimerX = 0x87, kSplitTimerY = 0x64, kOneViewTimerY = 0xC6;
@@ -708,6 +709,62 @@ void write_float(uint8_t* rdram, uint32_t address, float value) {
     MEM_W(0, kseg0(address)) = static_cast<int32_t>(bits);
 }
 
+struct Rect {
+    float left = 0.0f, top = 0.0f, right = 0.0f, bottom = 0.0f;
+    bool holds(float x, float y) const { return x >= left && x < right && y >= top && y < bottom; }
+};
+
+Rect view_rect(uint8_t* rdram, uint32_t record) {
+    return {read_float(rdram, record + kViewLeft), read_float(rdram, record + kViewTop), read_float(rdram, record + kViewRight),
+            read_float(rdram, record + kViewBottom)};
+}
+
+// The split screen's views, as the game laid them out for this frame.
+std::vector<Rect> split_views(uint8_t* rdram) {
+    std::vector<Rect> rects;
+    const uint32_t views = static_cast<uint32_t>(MEM_W(0, kseg0(kViews)));
+    const int32_t last = MEM_W(0, kseg0(kLastView));
+    for (int32_t view = 0; in_rdram(views) && view <= last && view < 4; view++) {
+        rects.push_back(view_rect(rdram, views + static_cast<uint32_t>(view) * kViewSize));
+    }
+    return rects;
+}
+
+// The HUD text the game queued outside the views' drawing, for the split screen: each player's lines
+// at places in their own view, the timer between the views. Drawn again for the local player alone,
+// the other players' lines go (they showed over this player's view) and the local player's keep their
+// distance from the nearer side of the view in each direction, now of the whole screen; the timer goes
+// where a one-view match has it. Lines over a 3D object are placed when drawn, from the camera.
+void place_queued_texts(uint8_t* rdram, const std::vector<Rect>& split, int local, const Rect& whole) {
+    uint32_t node = static_cast<uint32_t>(MEM_W(0, kseg0(kTexts)));
+    for (int count = 0; count < 256 && in_rdram(node); count++, node = static_cast<uint32_t>(MEM_W(kTextNext, kseg0(node)))) {
+        if (MEM_W(kTextAnchor, kseg0(node)) != 0) {
+            continue;
+        }
+        const int16_t x = MEM_H(kTextX, kseg0(node));
+        const int16_t y = MEM_H(kTextY, kseg0(node));
+        if (x == kTimerX && y == kSplitTimerY) {
+            MEM_H(kTextY, kseg0(node)) = kOneViewTimerY;
+            continue;
+        }
+        for (size_t view = 0; view < split.size(); view++) {
+            const Rect& in = split[view];
+            if (!in.holds(x, y)) {
+                continue;
+            }
+            if (view != static_cast<size_t>(local)) {
+                MEM_H(kTextY, kseg0(node)) = -4000;
+                break;
+            }
+            const float new_x = x - in.left < in.right - x ? whole.left + (x - in.left) : whole.right - (in.right - x);
+            const float new_y = y - in.top < in.bottom - y ? whole.top + (y - in.top) : whole.bottom - (in.bottom - y);
+            MEM_H(kTextX, kseg0(node)) = static_cast<int16_t>(new_x);
+            MEM_H(kTextY, kseg0(node)) = static_cast<int16_t>(new_y);
+            break;
+        }
+    }
+}
+
 // The views' part of the frame, as func_1501878C draws it from 0x15018938 to 0x15018CDC, again, with
 // the game set up as for one player (as with one pad against bots): one view, the local player's,
 // over the whole screen. The other views' records are moved off the screen, as the HUD draws each
@@ -715,6 +772,7 @@ void write_float(uint8_t* rdram, uint32_t address, float value) {
 // in place by the caller), so it is not stepped again.
 void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
     const gpr view = word(static_cast<int16_t>(local));
+    const std::vector<Rect> split = split_views(rdram);
     MEM_W(0, kseg0(kLastView)) = 0;
     MEM_BU(0, kseg0(kViewOrder)) = static_cast<uint8_t>(local);
     call(rdram, ctx, func_1501A8C0, view, 0, 0x3FF, 0);  // the local view's record over the whole screen
@@ -736,11 +794,7 @@ void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
         write_float(rdram, record + kViewHeight, read_float(rdram, own + kViewHeight));
     }
     set_list_pointer(rdram, g_list_start);
-    for (const uint32_t entry : g_timer_texts) {
-        if (MEM_H(0x8, kseg0(entry)) == kTimerX && MEM_H(0xA, kseg0(entry)) == kSplitTimerY) {
-            MEM_H(0xA, kseg0(entry)) = kOneViewTimerY;
-        }
-    }
+    place_queued_texts(rdram, split, local, view_rect(rdram, own));
 
     // The views before the local one are set up and drawn as the game draws them, in the game's order:
     // the game builds some of a frame's geometry once, as the first view that needs it draws, and
@@ -1083,7 +1137,6 @@ extern "C" void conker_my_view_draw_end(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     if (g_before_views.empty()) {
-        g_timer_texts.clear();
         let_go_of_memory();
         return;
     }
@@ -1115,7 +1168,6 @@ extern "C" void conker_my_view_draw_end(uint8_t* rdram, recomp_context* ctx) {
     ultramodern_isolated = false;
     recomp_dma_done_now = false;
     g_drawing = false;
-    g_timer_texts.clear();
     conker::renderer::draw_next_frame_from(std::vector<uint8_t>(rdram, rdram + kImageSize));
     std::memcpy(rdram, after.data(), kGameMemory);
     conker::frame_input::set_count_reads(count_reads);
@@ -1123,18 +1175,6 @@ extern "C" void conker_my_view_draw_end(uint8_t* rdram, recomp_context* ctx) {
 }
 
 bool conker::my_view::drawing_again() { return g_drawing; }
-
-// func_15042ECC at 0x150431D8, a text line's entry ($v0) with its position just stored.
-extern "C" void conker_my_view_text_queued(uint8_t* rdram, recomp_context* ctx) {
-    if (g_view < 0 || g_drawing || g_timer_texts.size() >= 8) {
-        return;
-    }
-    const uint32_t entry = static_cast<uint32_t>(ctx->r2);
-    if (in_rdram(entry) && MEM_H(0x8, kseg0(entry)) == kTimerX && MEM_H(0xA, kseg0(entry)) == kSplitTimerY) {
-        g_timer_texts.push_back(entry);
-    }
-}
-
 
 nlohmann::json conker::status::my_view() {
     return enhancement("my_view", "Online: only your own view and sounds", enabled(), "CONKER_MY_VIEW");
