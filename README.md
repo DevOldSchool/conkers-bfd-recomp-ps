@@ -28,15 +28,15 @@ microcode through RSPRecomp) and EEPROM saves all work that far.
 
 Platforms:
 
-* macOS (the only one tested so far)
-* Windows
+* macOS
+* Windows (tested once, with a build cross-compiled on a Mac)
 * Linux
 
 ## Building
 
 Step-by-step guides, one-time setup included:
 
-* [macOS](docs/building-macos.md) (the only platform tested so far)
+* [macOS](docs/building-macos.md) (the platform tested most)
 * [Windows](docs/building-windows.md)
 * [Linux](docs/building-linux.md)
 
@@ -104,12 +104,13 @@ Keys held with Cmd or Alt are not passed to the game, so the full-screen
 shortcuts (Cmd+Enter, Alt+Enter) do not press Start.
 
 The mouse is captured when you click in the window while playing (that click
-is not passed on): the cursor hides, moving the mouse turns the camera, and
+is not passed on): the cursor hides, moving the mouse turns the camera (in a
+multiplayer match it turns the player with it, A and D stepping sideways), and
 while aiming (R, or the slingshot) it aims, as the right stick does. Esc, pausing
 (Enter), a menu or another window lets it go; it is captured again when play
 carries on after a pause, or with a click. The wheel, or R and T, move the camera through its
 three distances, in and out (on a pad, C-up only steps in).
-`CONKER_MOUSE_SENSITIVITY` scales the mouse (1 by default, 2 twice as fast).
+MOUSE AIM on the OPTIONS page sets how fast the mouse aims (25% to 400%).
 
 ## Enhancements
 
@@ -127,7 +128,6 @@ says how to turn it off. The details, and every setting, are in
 | [Surround by default](docs/enhancements.md#surround-by-default) | A new save file's sound setting is surround instead of stereo | `CONKER_SURROUND_DEFAULT=0` |
 | [Characters at full detail](docs/enhancements.md#characters-at-full-detail) | Conker and others keep their most detailed model at any distance | `CONKER_MAX_DETAIL=0` |
 | [Everything seen from farther](docs/enhancements.md#everything-seen-from-farther) | Characters, props, bees, grass and flowers drawn two and a half times as far before they are left out | `CONKER_DRAW_DISTANCE=0` |
-| [No Rumble Pak banner](docs/enhancements.md#no-rumble-pak-banner-with-a-rumbling-pad) | No "INSERT RUMBLE PAK" banner when the pad can rumble | `CONKER_RUMBLE_BANNER=1` shows it |
 | [Pad haptics](docs/enhancements.md#pad-haptics) | Taps and buzzes in the pad's grips (and an Xbox pad's triggers) for some of Conker's sounds (slingshot, landing) | `CONKER_HAPTICS=0` |
 | [Peeing and the machine gun in the triggers](docs/enhancements.md#peeing-and-the-machine-gun-in-the-triggers) | A DualSense's triggers push back harder the further Z sends Conker's pee; at the mounted gun they pull heavy and every round thumps in both grips | `CONKER_ADAPTIVE_TRIGGERS=0` |
 | [Consistent controls](docs/enhancements.md#consistent-controls) | The same controls across the game, as modern pads have them: the left stick moves, the right stick turns the view (left turns it left) or aims (the shotgun, the rocket launcher's scope), and up looks up | `CONKER_CONSISTENT_CONTROLS=0` |
@@ -137,6 +137,15 @@ says how to turn it off. The details, and every setting, are in
 | [Texture packs](docs/enhancements.md#texture-packs) | RT64 replacement packs from `conker-recomp-data/texture_packs` | `CONKER_TEXTURE_PACKS=0` |
 | [60 fps (experimental)](docs/enhancements.md#60-fps-experimental) | Starts a frame on every retrace instead of every second one | Off by default; `CONKER_60FPS=1` turns it on |
 
+## Fixes
+
+Where the recompiled game behaves differently from hardware, or the original
+gets something wrong, it is fixed without a setting. One fix can be turned off:
+
+* **No Rumble Pak banner with a rumbling pad.** The title menu's "INSERT
+  RUMBLE PAK" banner shows on an N64 even with the pak inserted. It is left
+  out when controller 1's pad can rumble; `CONKER_RUMBLE_BANNER=1` shows it.
+
 ## Documentation
 
 * [docs/enhancements.md](docs/enhancements.md): each enhancement in full
@@ -145,6 +154,7 @@ says how to turn it off. The details, and every setting, are in
   audio dumps, scripted input, skipping the opening with a save
 * [docs/recompilation.md](docs/recompilation.md): how the recompilation is set
   up and what the submodule patches change
+* [docs/modding.md](docs/modding.md): installing (only from people you trust) and making code mods
 * [docs/memory-layout.md](docs/memory-layout.md): the TLB layout
 * [docs/rsp-microcode.md](docs/rsp-microcode.md): graphics and audio microcode
 * [docs/investigations.md](docs/investigations.md): open problems and what

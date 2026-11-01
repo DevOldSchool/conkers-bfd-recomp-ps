@@ -31,6 +31,9 @@
 //                      click lets it go (src/enhancements/object_inspector)
 //     ENHANCEMENTS     every enhancement that can be switched while the game runs, on and off
 //                      (src/enhancements/switches.hpp), until the game is closed
+//     MODS             the mods in conker-recomp-data/mods, on and off (kept in mods.json; a new one
+//                      starts off, and the page says to trust where a mod came from); mods load
+//                      when the game starts, so after a change RESTART TO APPLY starts it again
 //     TELEPORT         X, Y, Z, facing and camera yaw to move him to, and spots kept in
 //                      conker-recomp-data/debug_spots.txt
 //     LOAD SNAPSHOT    a list of saves/snapshots/; A starts one (resume_point.cpp)
@@ -50,6 +53,7 @@
 // the first page close it. The pad is read directly (conker::input::read), not through the game.
 // CONKER_DEBUG_MENU=0 turns it off.
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -64,6 +68,7 @@
 #include <vector>
 
 #include "recomp.h"
+#include "librecomp/mods.hpp"
 #include "enhancements/object_inspector/object_inspector.hpp"
 #include "enhancements/pause_save/resume_point.hpp"
 #include "enhancements/status.hpp"
@@ -123,6 +128,7 @@ constexpr int32_t kSoundPan = 0x40;
 constexpr uint32_t kTitleColor = 0xCEC461FF;    // the game's gold
 constexpr uint32_t kChosenColor = 0xFFFFFFFF;
 constexpr uint32_t kOtherColor = 0x9A9A9AFF;
+constexpr uint32_t kWarningColor = 0xFF8060FF;
 constexpr float kSmall = 0.8f;                  // rows, lines and the overlay: the title stays full size
 constexpr int kTitleY = 40;
 constexpr int kFirstRowY = 56;
@@ -137,8 +143,8 @@ constexpr int kSteps[] = {1, 10, 100, 1000};
 
 using Clock = std::chrono::steady_clock;
 
-enum class Page { Main, Enhancements, Teleport, Spots, Snapshots, Reports };
-enum MainRow { kWireframe, kShowFps, kShowPosition, kInspect, kEnhancements, kTeleport, kLoadSnapshot, kSaveReport, kLoadReport, kOnline, kMainRows };
+enum class Page { Main, Enhancements, Mods, Teleport, Spots, Snapshots, Reports };
+enum MainRow { kWireframe, kShowFps, kShowPosition, kInspect, kEnhancements, kMods, kTeleport, kLoadSnapshot, kSaveReport, kLoadReport, kOnline, kMainRows };
 enum TeleportRow { kX, kY, kZ, kFacing, kCameraYaw, kStep, kGo, kResetToCurrent, kRemember, kSpotList, kTeleportRows };
 
 bool g_open_requested = false;
@@ -161,6 +167,8 @@ Page g_page = Page::Main;
 int g_row = 0;           // on the first page
 int g_teleport_row = 0;
 int g_switch_row = 0;    // on the enhancements page
+int g_mod_row = 0;       // on the mods page, a list like the reports'
+int g_mod_top = 0;       // and its first row shown
 int g_entry = 0;         // in a list
 int g_top = 0;
 std::vector<conker::resume::Snapshot> g_snapshots;  // or the reports, on LOAD REPORT
@@ -200,6 +208,47 @@ void show_message(const std::string& message, const std::string& detail = "") {
 const std::vector<conker::switches::Switch>& switches() {
     static const std::vector<conker::switches::Switch> all = conker::switches::all();
     return all;
+}
+
+// --- mods ----------------------------------------------------------------------------------------
+
+constexpr char kModGameId[] = "conker";  // the game's mod_game_id (src/runtime/game.cpp)
+
+struct Mod {
+    std::string id;
+    std::string version;
+    std::string label;        // the display name, upper case for the game's font
+    std::string description;  // the short description, the same
+    bool loaded;              // on when the game started, so its code is running
+};
+
+std::string upper(std::string text) {
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return std::toupper(c); });
+    return text;
+}
+
+bool mod_on(const std::string& id) {
+    return recomp::mods::is_mod_enabled(id) || recomp::mods::is_mod_auto_enabled(id);
+}
+
+// The mods page's rows: the mods librecomp found when the game started (it scans the folder then).
+// Whether each was on is taken the first time, before the page can change anything.
+const std::vector<Mod>& mods() {
+    static const std::vector<Mod> all = [] {
+        std::vector<Mod> list;
+        for (const recomp::mods::ModDetails& details : recomp::mods::get_all_mod_details(kModGameId)) {
+            const std::string& description = details.short_description.empty() ? details.description : details.short_description;
+            list.push_back({details.mod_id, details.version.to_string(), upper(details.display_name), upper(description),
+                            mod_on(details.mod_id)});
+        }
+        return list;
+    }();
+    return all;
+}
+
+// A mod switched since the game started, which only a restart applies.
+bool mods_changed() {
+    return std::any_of(mods().begin(), mods().end(), [](const Mod& mod) { return mod_on(mod.id) != mod.loaded; });
 }
 
 // --- spots ---------------------------------------------------------------------------------------
@@ -490,8 +539,8 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
             draw_rows(rdram, ctx,
                       {std::string("WIREFRAME  ") + on_off(g_wireframe), std::string("SHOW FPS  ") + on_off(g_show_fps),
                        std::string("SHOW POSITION  ") + on_off(g_show_position),
-                       std::string("INSPECT  ") + on_off(conker::inspector::active()), "ENHANCEMENTS", "TELEPORT",
-                       "LOAD SNAPSHOT", "SAVE DEBUG REPORT", "LOAD REPORT", "ONLINE"},
+                       std::string("INSPECT  ") + on_off(conker::inspector::active()), "ENHANCEMENTS", "MODS",
+                       "TELEPORT", "LOAD SNAPSHOT", "SAVE DEBUG REPORT", "LOAD REPORT", "ONLINE"},
                       g_row, 0, kMainRows);
             break;
         case Page::Enhancements: {
@@ -502,6 +551,43 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
             }
             // More than fit scroll, keeping the chosen one in view at the foot.
             draw_rows(rdram, ctx, rows, g_switch_row, std::max(0, g_switch_row - (kSwitchRows - 1)), kSwitchRows);
+            break;
+        }
+        case Page::Mods: {
+            const int count = static_cast<int>(mods().size());
+            // A mod is code someone else wrote, running in the game: always said on this page.
+            draw_text(rdram, ctx, kCenterX, kInfoY + 2 * kLineHeight, kCentered, kWarningColor,
+                      "ONLY TURN ON MODS FROM PEOPLE YOU TRUST");
+            if (count > 0 && g_mod_row < count) {
+                std::snprintf(text, sizeof(text), "MODS  %d/%d", g_mod_row + 1, count);
+            } else {
+                std::snprintf(text, sizeof(text), "MODS");
+            }
+            draw_title(rdram, ctx, text);
+            if (count == 0) {
+                draw_rows(rdram, ctx, {"NO MODS INSTALLED", "PUT .NRM FILES IN", "CONKER-RECOMP-DATA/MODS"}, -1);
+                break;
+            }
+            std::vector<std::string> rows;
+            for (const Mod& mod : mods()) {
+                rows.push_back(mod.label + "  " + on_off(mod_on(mod.id)));
+            }
+            const bool changed = mods_changed();
+            if (changed) {
+                rows.push_back("RESTART TO APPLY");
+            }
+            draw_rows(rdram, ctx, rows, g_mod_row, g_mod_top);
+            const bool restart_row = g_mod_row == static_cast<int>(mods().size());
+            if (restart_row) {
+                draw_text(rdram, ctx, kCenterX, kInfoY, kCentered, kOtherColor, "STARTS THE GAME AGAIN");
+                draw_text(rdram, ctx, kCenterX, kInfoY + kLineHeight, kCentered, kOtherColor, "WHAT IS NOT SAVED IS LOST");
+            } else {
+                draw_text(rdram, ctx, kCenterX, kInfoY, kCentered, kOtherColor, mods()[g_mod_row].description);
+                if (changed) {
+                    draw_text(rdram, ctx, kCenterX, kInfoY + kLineHeight, kCentered, kOtherColor,
+                              "CHANGES APPLY WHEN THE GAME STARTS AGAIN");
+                }
+            }
             break;
         }
         case Page::Teleport:
@@ -722,6 +808,13 @@ std::string report_json(uint8_t* rdram) {
     report["settings"] = settings;
     report["system"] = conker::status::system();
     report["gpu_faults"] = conker::gpu_faults::status();
+    // Every installed mod, and whether it was on as the game started (what a change on the MODS page
+    // applies only after a restart), so a report from a modded game says so.
+    nlohmann::json installed = nlohmann::json::array();
+    for (const Mod& mod : mods()) {
+        installed.push_back({{"id", mod.id}, {"version", mod.version}, {"on", mod.loaded}});
+    }
+    report["mods"] = installed;
     // The CONKER_* variables set. A path names its file only: the folders could name the user.
     nlohmann::json environment = nlohmann::json::object();
     for (char** variable = environ; *variable != nullptr; variable++) {
@@ -768,6 +861,14 @@ int32_t main_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_horiz
                 return 0;
             }
             g_page = Page::Enhancements;
+            break;
+        case kMods:
+            if (!(pressed & conker::input::kA)) {
+                return 0;
+            }
+            g_page = Page::Mods;
+            g_mod_row = 0;
+            g_mod_top = 0;
             break;
         case kTeleport:
             if (!(pressed & conker::input::kA)) {
@@ -823,6 +924,46 @@ int32_t enhancements_page(int vertical, int horizontal, bool fresh_horizontal, u
     const conker::switches::Switch& sw = switches()[static_cast<size_t>(g_switch_row)];
     sw.set(!sw.on());
     std::printf("[conker] debug menu: %s %s\n", sw.label, sw.on() ? "on" : "off");
+    return kSelectSound;
+}
+
+int32_t mods_page(int vertical, int horizontal, bool fresh_horizontal, uint16_t pressed) {
+    if (pressed & conker::input::kB) {
+        g_page = Page::Main;
+        return kSelectSound;
+    }
+    const int count = static_cast<int>(mods().size()) + (mods_changed() ? 1 : 0);
+    if (count == 0) {
+        return 0;
+    }
+    // A list like the reports': it stops at either end and scrolls to keep the chosen row in view.
+    const auto keep_in_view = [](int rows) {
+        g_mod_row = std::clamp(g_mod_row, 0, rows - 1);
+        g_mod_top = std::clamp(g_mod_top, g_mod_row - kListRows + 1, g_mod_row);
+        g_mod_top = std::clamp(g_mod_top, 0, std::max(rows - kListRows, 0));
+    };
+    if (vertical != 0) {
+        g_mod_row += vertical;
+        keep_in_view(count);
+        return kMoveSound;
+    }
+    if (g_mod_row == static_cast<int>(mods().size())) {
+        if (!(pressed & conker::input::kA)) {
+            return 0;
+        }
+        // The same command line, as the online lobby starts a session (does not return if it can).
+        std::printf("[conker] debug menu: starting again for the mods\n");
+        conker::net::relaunch({});
+        show_message("COULD NOT START AGAIN");
+        return kSelectSound;
+    }
+    if (!(pressed & conker::input::kA) && !(horizontal != 0 && fresh_horizontal)) {
+        return 0;
+    }
+    const Mod& mod = mods()[static_cast<size_t>(g_mod_row)];
+    recomp::mods::enable_mod(mod.id, !mod_on(mod.id));  // librecomp writes mods.json
+    std::printf("[conker] debug menu: mod %s %s\n", mod.id.c_str(), mod_on(mod.id) ? "on" : "off");
+    keep_in_view(static_cast<int>(mods().size()) + (mods_changed() ? 1 : 0));  // the restart row comes and goes
     return kSelectSound;
 }
 
@@ -956,6 +1097,9 @@ int32_t menu_frame(uint8_t* rdram, recomp_context* ctx) {
             break;
         case Page::Enhancements:
             sound = enhancements_page(vertical, horizontal, fresh_horizontal, pressed);
+            break;
+        case Page::Mods:
+            sound = mods_page(vertical, horizontal, fresh_horizontal, pressed);
             break;
         case Page::Teleport:
             sound = teleport_page(rdram, vertical, horizontal, fresh_horizontal, pressed);

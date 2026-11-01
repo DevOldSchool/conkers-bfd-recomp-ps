@@ -21,6 +21,7 @@
 #include "imgui/imgui_impl_sdl2_custom.h"
 #include "platform/input.hpp"
 #include "platform/lobby_style.hpp"
+#include "platform/process.hpp"
 #include "rhi/rt64_render_hooks.h"
 #include "runtime/net_codes.hpp"
 #include "runtime/net_lobby.hpp"
@@ -173,7 +174,7 @@ void run_script() {
             // For the session this machine starts again into (a test's pad script, say).
             const size_t equals = step.text.find('=');
             if (equals != std::string::npos) {
-                setenv(step.text.substr(0, equals).c_str(), step.text.substr(equals + 1).c_str(), 1);
+                process::set_env(step.text.substr(0, equals).c_str(), step.text.substr(equals + 1).c_str());
             }
         } else if (step.action == "shot") {
             const std::string text = describe(lobby::view());

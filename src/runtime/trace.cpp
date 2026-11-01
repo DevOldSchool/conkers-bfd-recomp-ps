@@ -6,7 +6,12 @@
 #include <cstring>
 #include <vector>
 
+#if defined(_WIN32)
+#include <io.h>
+#define write(fd, data, size) _write(fd, data, static_cast<unsigned>(size))
+#else
 #include <unistd.h>
+#endif
 
 namespace {
 

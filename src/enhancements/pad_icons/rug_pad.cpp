@@ -178,8 +178,8 @@ std::optional<Texture> rug_pad(Mark::Shape shape) {
     Grid letter = part_at(ink, kStemX, kStemY);
     if (!letter[at(kStemX, kStemY)]) return std::nullopt;
     for (int t = 0; t < 3; t++) {
-        const Grid near = dilate(letter, 3);
-        for (int i = 0; i < N * N; i++) letter[i] = letter[i] || (ink[i] && near[i]);
+        const Grid nearby = dilate(letter, 3);
+        for (int i = 0; i < N * N; i++) letter[i] = letter[i] || (ink[i] && nearby[i]);
     }
     for (int t = 0; t < 2; t++) {
         const Grid beside = dilate(letter, 1, false);

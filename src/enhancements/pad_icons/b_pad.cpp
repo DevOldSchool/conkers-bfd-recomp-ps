@@ -184,11 +184,11 @@ std::optional<Texture> wood_pad(Mark::Shape shape) {
         solid[i] = opaque[index[i]];
     }
     paint = large_parts(paint, 30);  // the letter, not moss-coloured specks in the wood
-    const Grid near = dilate(paint, 3);
+    const Grid nearby = dilate(paint, 3);
     Grid letter{};
     for (int i = 0; i < kSize * kSize; i++) {
         const Rgb& c = palette[index[i]];
-        letter[i] = paint[i] || (near[i] && std::max({c[0], c[1], c[2]}) < 70);
+        letter[i] = paint[i] || (nearby[i] && std::max({c[0], c[1], c[2]}) < 70);
     }
     letter = erode(dilate(letter));
 

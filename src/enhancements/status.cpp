@@ -15,6 +15,9 @@
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
 #endif
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 #include "platform/display_mode.hpp"
 #include "platform/input.hpp"
@@ -152,6 +155,30 @@ nlohmann::json system() {
     memory = static_cast<uint64_t>(sysconf(_SC_PHYS_PAGES)) * static_cast<uint64_t>(sysconf(_SC_PAGESIZE));
 #elif defined(_WIN32)
     os["name"] = "Windows";
+    // RtlGetVersion gives the real version; GetVersionEx stops at 8.1 without a manifest.
+    using RtlGetVersionFn = LONG(WINAPI*)(OSVERSIONINFOW*);
+    auto rtl_get_version = reinterpret_cast<RtlGetVersionFn>(
+        reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion")));
+    OSVERSIONINFOW version{};
+    version.dwOSVersionInfoSize = sizeof(version);
+    if (rtl_get_version != nullptr && rtl_get_version(&version) == 0) {
+        os["version"] = std::to_string(version.dwMajorVersion) + "." + std::to_string(version.dwMinorVersion) + "." +
+                        std::to_string(version.dwBuildNumber);
+    }
+    SYSTEM_INFO info{};
+    GetNativeSystemInfo(&info);
+    os["architecture"] = info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64 ? "arm64" : "x86_64";
+    char brand[128] = {};
+    DWORD brand_size = sizeof(brand);
+    if (RegGetValueA(HKEY_LOCAL_MACHINE, "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", "ProcessorNameString",
+                     RRF_RT_REG_SZ, nullptr, brand, &brand_size) == ERROR_SUCCESS) {
+        cpu["model"] = std::string(brand);
+    }
+    MEMORYSTATUSEX status{};
+    status.dwLength = sizeof(status);
+    if (GlobalMemoryStatusEx(&status)) {
+        memory = static_cast<uint64_t>(status.ullTotalPhys);
+    }
 #endif
     const std::string gpu = conker::renderer::gpu_name();
     const std::string api = conker::renderer::graphics_api();

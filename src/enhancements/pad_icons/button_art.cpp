@@ -451,7 +451,7 @@ Render lit(const Button& b) {
     const bool grey = std::sqrt(spread / 3) < 0.1f;
     Rgb glow;
     for (int ch = 0; ch < 3; ch++) glow[ch] = std::clamp(b.ink[ch] * 1.2f + 0.1f, 0.0f, 1.0f);
-    const Plane near = blur(r.ink, R, R / 32.0f * 0.5f), wide = blur(r.ink, R, R / 32.0f * 1.5f);
+    const Plane narrow = blur(r.ink, R, R / 32.0f * 0.5f), wide = blur(r.ink, R, R / 32.0f * 1.5f);
     const Plane halo = grey ? Plane(R * R, 0.0f) : blur(r.alpha, R, R / 32.0f * 1.2f);
     const float strength = grey ? 0.55f : 1.0f;  // grey and white symbols bloom less
     for (int i = 0; i < R * R; i++) {
@@ -461,7 +461,7 @@ Render lit(const Button& b) {
         for (int ch = 0; ch < 3; ch++) {
             float v = c[ch] * 0.85f + glow[ch] * 0.07f;
             v = v * (1 - m) + std::clamp(glow[ch] * 1.15f + 0.25f, 0.0f, 1.0f) * m;
-            out_c[ch] = std::clamp(v + glow[ch] * strength * (near[i] * 1.6f + wide[i] * 1.1f) * a, 0.0f, 1.0f);
+            out_c[ch] = std::clamp(v + glow[ch] * strength * (narrow[i] * 1.6f + wide[i] * 1.1f) * a, 0.0f, 1.0f);
         }
         const float h = std::clamp(halo[i] * 0.45f, 0.0f, 0.85f);
         const float out_a = a + h * (1 - a);

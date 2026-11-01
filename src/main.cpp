@@ -20,11 +20,17 @@
 #include <string>
 #include <vector>
 
+#if defined(_WIN32)
+#include <windows.h>
+#include <dbghelp.h>
+#include <io.h>
+#else
 #include <execinfo.h>
 #include <unistd.h>
+#endif
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
-#else
+#elif !defined(_WIN32)
 static long _dyld_get_image_vmaddr_slide(int) { return 0; }
 #endif
 
@@ -125,55 +131,122 @@ void message_box(const char* msg) {
 void vi_callback() { vi_count++; }
 void gfx_init_callback() { std::printf("[conker] gfx thread started\n"); }
 
+#if defined(_WIN32)
+void write_stderr(const char* data, int size) { _write(2, data, static_cast<unsigned>(size)); }
+#else
+void write_stderr(const char* data, int size) { write(2, data, static_cast<size_t>(size)); }
+#endif
+
 // Crash reporter: prints the faulting address as an N64 address when it lies inside rdram, plus
 // a host backtrace. The recompiled functions are named after the decomp's symbols, so the
 // backtrace reads like an N64 call stack.
-void crash_handler(int sig, siginfo_t* info, void* /*uctx*/) {
+void report_crash(const char* what, void* address) {
     char buf[256];
     const uint8_t* rdram = conker::memory::current_rdram();
-    const uintptr_t fault = reinterpret_cast<uintptr_t>(info->si_addr);
-    int len = std::snprintf(buf, sizeof(buf), "\n[conker] fatal signal %d at host address %p", sig, info->si_addr);
-    write(2, buf, len);
+    const uintptr_t fault = reinterpret_cast<uintptr_t>(address);
+    int len = std::snprintf(buf, sizeof(buf), "\n[conker] %s at host address %p", what, address);
+    write_stderr(buf, len);
     if (rdram != nullptr && fault >= reinterpret_cast<uintptr_t>(rdram) && fault < reinterpret_cast<uintptr_t>(rdram) + 0x100000000ull) {
         const uint64_t offset = fault - reinterpret_cast<uintptr_t>(rdram);
         const uint32_t n64_addr = static_cast<uint32_t>(offset + 0xFFFFFFFF80000000ull);
         len = std::snprintf(buf, sizeof(buf), " = N64 address 0x%08X (rdram + 0x%llX)", n64_addr, static_cast<unsigned long long>(offset));
-        write(2, buf, len);
+        write_stderr(buf, len);
     } else if (rdram != nullptr && (fault - (reinterpret_cast<uintptr_t>(rdram) - recomp::rdram_guard_size) < recomp::rdram_guard_size ||
                                     fault - (reinterpret_cast<uintptr_t>(rdram) + recomp::allocation_size) < recomp::rdram_guard_size)) {
         // A pointer from game memory plus an instruction's offset ran past either end of the 4 GiB: the
         // guard around it stopped the access.
         const char msg[] = " = just outside game memory (the guard around RDRAM); stopping";
-        write(2, msg, sizeof(msg) - 1);
+        write_stderr(msg, sizeof(msg) - 1);
     }
-    write(2, "\n", 1);
+    write_stderr("\n", 1);
     if (recomp_context* ctx = conker::current_context()) {
         static const char* const names[32] = {"zero", "at", "v0", "v1", "a0", "a1", "a2", "a3", "t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7",
                                               "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "t8", "t9", "k0", "k1", "gp", "sp", "fp", "ra"};
         const gpr* regs = &ctx->r0;
         for (int i = 0; i < 32; i++) {
             len = std::snprintf(buf, sizeof(buf), "  %-4s %08X%s", names[i], static_cast<uint32_t>(regs[i]), (i % 4 == 3) ? "\n" : "");
-            write(2, buf, len);
+            write_stderr(buf, len);
         }
     }
     if (rdram != nullptr) {
         // Peek at the inflated game data image so a failed startup inflate is visible.
         len = std::snprintf(buf, sizeof(buf), "  game data @0x80082B20:");
-        write(2, buf, len);
+        write_stderr(buf, len);
         for (uint32_t i = 0; i < 16; i++) {
             len = std::snprintf(buf, sizeof(buf), " %02X", rdram[conker::memory::rdram_offset(0x80082B20 + i) ^ 3]);
-            write(2, buf, len);
+            write_stderr(buf, len);
         }
-        write(2, "\n", 1);
+        write_stderr("\n", 1);
     }
     conker::trace::dump_recent_calls(2);
-    len = std::snprintf(buf, sizeof(buf), "[conker] image slide 0x%llx (tools/symbolicate.sh)\n", static_cast<unsigned long long>(_dyld_get_image_vmaddr_slide(0)));
-    write(2, buf, len);
+}
+
+#if defined(_WIN32)
+// Names each frame from the PDB next to the executable when there is one.
+void print_backtrace(CONTEXT* context) {
+    HANDLE process = GetCurrentProcess();
+    SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+    const bool symbols = SymInitialize(process, nullptr, TRUE);
+    STACKFRAME64 frame{};
+    frame.AddrPC.Offset = context->Rip;
+    frame.AddrPC.Mode = AddrModeFlat;
+    frame.AddrFrame.Offset = context->Rbp;
+    frame.AddrFrame.Mode = AddrModeFlat;
+    frame.AddrStack.Offset = context->Rsp;
+    frame.AddrStack.Mode = AddrModeFlat;
+    alignas(SYMBOL_INFO) char symbol_buf[sizeof(SYMBOL_INFO) + 256];
+    for (int i = 0; i < 64; i++) {
+        if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, process, GetCurrentThread(), &frame, context, nullptr,
+                         SymFunctionTableAccess64, SymGetModuleBase64, nullptr) ||
+            frame.AddrPC.Offset == 0) {
+            break;
+        }
+        const DWORD64 pc = frame.AddrPC.Offset;
+        auto* symbol = reinterpret_cast<SYMBOL_INFO*>(symbol_buf);
+        symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+        symbol->MaxNameLen = 255;
+        DWORD64 displacement = 0;
+        char buf[384];
+        int len;
+        if (symbols && SymFromAddr(process, pc, &displacement, symbol)) {
+            len = std::snprintf(buf, sizeof(buf), "%-3d 0x%016llx %s + %llu\n", i, static_cast<unsigned long long>(pc), symbol->Name,
+                                static_cast<unsigned long long>(displacement));
+        } else {
+            len = std::snprintf(buf, sizeof(buf), "%-3d 0x%016llx\n", i, static_cast<unsigned long long>(pc));
+        }
+        write_stderr(buf, len);
+    }
+}
+
+LONG WINAPI crash_filter(EXCEPTION_POINTERS* info) {
+    const EXCEPTION_RECORD* record = info->ExceptionRecord;
+    char what[64];
+    void* address = record->ExceptionAddress;
+    if ((record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION || record->ExceptionCode == EXCEPTION_IN_PAGE_ERROR) &&
+        record->NumberParameters >= 2) {
+        // The data address the access was for, as si_addr gives it on POSIX.
+        address = reinterpret_cast<void*>(record->ExceptionInformation[1]);
+    }
+    std::snprintf(what, sizeof(what), "fatal exception 0x%08lX", record->ExceptionCode);
+    report_crash(what, address);
+    print_backtrace(info->ContextRecord);
+    TerminateProcess(GetCurrentProcess(), 128 + 11);  // the exit status a SIGSEGV gives on POSIX
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+#else
+void crash_handler(int sig, siginfo_t* info, void* /*uctx*/) {
+    char what[32];
+    std::snprintf(what, sizeof(what), "fatal signal %d", sig);
+    report_crash(what, info->si_addr);
+    char buf[128];
+    const int len = std::snprintf(buf, sizeof(buf), "[conker] image slide 0x%llx (tools/symbolicate.sh)\n", static_cast<unsigned long long>(_dyld_get_image_vmaddr_slide(0)));
+    write_stderr(buf, len);
     void* frames[64];
     const int count = backtrace(frames, 64);
     backtrace_symbols_fd(frames, count, 2);
     _exit(128 + sig);
 }
+#endif
 
 // librecomp calls std::exit on fatal runtime errors (e.g. a function-pointer call to an address
 // with no function). Show the calling thread's recent recompiled calls on the way out.
@@ -185,6 +258,9 @@ void dump_trace_at_exit() {
 
 void install_crash_handler() {
     std::atexit(dump_trace_at_exit);
+#if defined(_WIN32)
+    SetUnhandledExceptionFilter(crash_filter);
+#else
     struct sigaction action{};
     action.sa_sigaction = crash_handler;
     action.sa_flags = SA_SIGINFO | SA_ONSTACK;
@@ -193,6 +269,7 @@ void install_crash_handler() {
     sigaction(SIGBUS, &action, nullptr);
     sigaction(SIGILL, &action, nullptr);
     sigaction(SIGFPE, &action, nullptr);
+#endif
 }
 
 const char* rom_error_name(recomp::RomValidationError err) {

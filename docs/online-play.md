@@ -39,9 +39,12 @@ used by everyone for the session, since they change how the game plays; the lobb
 which differ from yours. Your own settings are back when you play alone again. The session plays
 on a copy of the host's save, so nobody's own save changes.
 
+A session loads no [mods](modding.md), on any machine: a mod on one machine and not the others
+would put them out of sync. They are still installed and on when you play alone again.
+
 ## The lobby
 
-Open the debug menu (Back on a pad, or the ` key, while the game is paused), choose **ONLINE**, or
+Open the debug menu (Back on a pad, or the `` ` `` key, while the game is paused), choose **ONLINE**, or
 start the game with `--net-lobby`. The lobby's window sits over the game, which keeps running
 underneath. It works with the mouse and keyboard, or with controller 1: the d-pad or stick moves,
 A presses, B goes back.

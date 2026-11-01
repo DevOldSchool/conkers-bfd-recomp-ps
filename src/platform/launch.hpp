@@ -1,6 +1,6 @@
 // Starting the game from the desktop rather than a terminal: the packaged macOS app
-// (tools/package_macos.sh, launch_apple.mm) and the Linux build (tools/linux/build.sh,
-// launch_linux.cpp). Opened by a double-click there is no terminal for the log or errors and no ROM
+// (tools/package_macos.sh, launch_apple.mm), the Linux build (tools/linux/build.sh,
+// launch_linux.cpp) and the Windows build (launch_windows.cpp). Opened by a double-click there is no terminal for the log or errors and no ROM
 // argument, so the game keeps its data in the user's data folder, writes its log there, asks for
 // the ROM the first time and shows errors in a window.
 #pragma once
@@ -9,7 +9,8 @@
 
 namespace conker::launch {
 
-// True when nobody can read the terminal: a macOS .app bundle, or on Linux no terminal on stderr.
+// True when nobody can read the terminal: a macOS .app bundle, on Linux no terminal on stderr, on
+// Windows a console opened for the game alone (a double-click in Explorer).
 // Errors are then shown in a window.
 bool from_desktop();
 
@@ -19,6 +20,7 @@ bool from_desktop();
 //   Linux: $XDG_DATA_HOME/ConkersBadFurDayRecompiled (~/.local/share/ConkersBadFurDayRecompiled),
 //          unless the working directory already has a conker-recomp-data folder (a checkout, or an
 //          older run there).
+//   Windows: %LOCALAPPDATA%\ConkersBadFurDayRecompiled, with the same exception as Linux.
 void enter_data_folder();
 
 // Asks for the ROM with an open dialog; empty when it is cancelled. Call on the main thread, on

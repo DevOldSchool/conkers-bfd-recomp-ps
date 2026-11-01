@@ -6,8 +6,8 @@ off for a run. The summary is in the [README](../README.md#enhancements).
 
 ## Display options
 
-The OPTIONS page of the title menu has a volume row under the sound setting,
-then five display rows.
+The OPTIONS page of the title menu has volume and mouse aim rows under the
+sound setting, then five display rows.
 
 * VOLUME, from OFF to 100% in steps of 10%, stopping at either end. It turns
   down what the game plays (the sound effects, music and speech together),
@@ -16,6 +16,13 @@ then five display rows.
   about 6 dB down). It is kept in `conker-recomp-data/audio.cfg`; full
   volume is the default. `CONKER_DUMP_AUDIO` still records the game's own
   output at full volume.
+
+* MOUSE AIM, from 25% to 400% (25, 50, 75, 100, 125, 150, 175, 200, 250,
+  300, 400), stopping at either end: how fast the captured mouse aims (R,
+  the slingshot, a scope or a mounted gun). Turning the camera stays at 0.15
+  degrees a pixel. 200% is the default. It is kept in
+  `conker-recomp-data/input.cfg`; `CONKER_MOUSE_SENSITIVITY` (a scale, 2 for
+  200%) sets it for one run.
 
 * SHARP TEXT or ORIGINAL TEXT: the [sharper text](#sharper-text) and
   [menus](#sharper-menus), or the game's own. It switches at once and is on
@@ -200,19 +207,23 @@ button. Up and down choose a row, A or left and right change it:
   runs, each ON or OFF, starting as its `CONKER_*` variable set it: SHARP
   TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
   WIDESCREEN CULLING, SKIP INTRO, SKIP CUTSCENES, PAUSE SAVE AND LOAD, SAVE
-  SNAPSHOTS, SURROUND DEFAULT, FULL DETAIL, DRAW DISTANCE, NO RUMBLE
-  PAK BANNER, CONSISTENT CONTROLS, PAD BUTTONS and 60 FPS. A or left and right switch the
+  SNAPSHOTS, SURROUND DEFAULT, FULL DETAIL, DRAW DISTANCE,
+  CONSISTENT CONTROLS, PAD BUTTONS and 60 FPS. A or left and right switch the
   chosen one. SHARP TEXT and WIDESCREEN are the OPTIONS rows' settings and
   are kept in `display.cfg` as those rows keep them (a new shape applies once
   the game carries on); the rest last until the game is closed, and a debug
   report records them as they are. Each acts the next time the game comes to
   it: SKIP INTRO only during the boot logos and the intro, PAUSE SAVE AND
   LOAD at the next pause, SURROUND DEFAULT only when the game finds no saved
-  options, the banner when the title menu next comes up. The tiled sky's
+  options. The tiled sky's
   room is set when a scene starts, so WIDESCREEN CULLING switched on in a
   scene may leave out sky tiles at the sides until the next one. The OPTIONS
   page's own rows (`CONKER_DISPLAY_OPTIONS`) and the debug menu are not
   switched here.
+* MODS: the mods in `conker-recomp-data/mods`, on and off. A new mod starts
+  off, and the page says to turn on only mods from people you trust. Mods
+  load when the game starts, so after a change RESTART TO APPLY starts it
+  again. See [modding.md](modding.md).
 * TELEPORT: X, Y, Z, FACING and CAMERA YAW, set to where Conker is and
   changed with left and right by STEP (1, 10, 100 or 1000; held, they keep
   changing). GO puts him there facing that way, and the camera where it
@@ -238,7 +249,8 @@ button. Up and down choose a row, A or left and right change it:
   facing, the camera (position, look-at point, forward vector, yaw, pitch),
   every enhancement (`id`, `name`, `on`, its `CONKER_*` `variable` and its
   `options` as values), the settings that go with them (display, texture
-  packs, controller, frame rate, `display.cfg`), the computer (operating
+  packs, controller, frame rate, `display.cfg`), every installed mod (`id`,
+  `version` and whether it was `on` as the game started), the computer (operating
   system, CPU, memory, GPU and graphics API, display size; nothing that
   names the computer or its user), the `CONKER_*` variables set (a path
   keeps only its file name), and what save is in the folder. The save is
@@ -295,12 +307,6 @@ as before. A scene with more grass and flowers than the game builds in a
 frame (110) would keep their limit, so that farther ones never take the
 place of nearer ones; none has been seen. `CONKER_DRAW_DISTANCE=0`
 keeps the game's distances.
-
-## No Rumble Pak banner with a rumbling pad
-
-The title menu's "INSERT RUMBLE PAK" banner shows on an N64 even with the
-pak inserted. It is left out when controller 1's pad can rumble;
-`CONKER_RUMBLE_BANNER=1` shows it.
 
 ## Pad haptics
 
@@ -374,10 +380,16 @@ place to the next, and aims like a plane, pushing up to look down.
   others that aim with R) handle as the shotgun does, and get the same.
 * With the rocket launcher or the scoped gun in a multiplayer match, while
   its scope is up (R), the right stick aims and the left stick walks.
+* On foot in a multiplayer match, where the N64 locks the camera behind the
+  player and the right stick only steps sideways, the right stick (or the
+  mouse) turns the player and the camera with them, so the view is where
+  they aim. The left stick runs forwards and back and steps sideways (as
+  C-left and C-right did), still facing the same way. Holding R, scoped or
+  in a tank keeps the controls above.
 
 With the keyboard and mouse the mouse is that right stick: it turns the
-camera itself (0.15 degrees a pixel, times `CONKER_MOUSE_SENSITIVITY`), and
-while aiming it aims (see the controls in the README). The keyboard alone,
+camera itself (0.15 degrees a pixel), and
+while aiming it aims, at the OPTIONS page's MOUSE AIM speed (see the controls in the README). The keyboard alone,
 with the mouse not captured, keeps the game's aiming. In a multiplayer match every player's pad gets
 these controls with their own right stick; only controller 1 has the mouse. `CONKER_CONSISTENT_CONTROLS=0`
 leaves the game's controls, and CONSISTENT CONTROLS on the debug menu's

@@ -194,14 +194,14 @@ std::vector<Texture> rust_pad(Mark::Shape shape) {
     for (int y = kB.top; y <= kB.bottom; y += kGrainBlock)
         for (int x = kB.left; x <= kB.right; x += kGrainBlock) {
             // One of the blocks nearest (the plate is lit unevenly, paler toward its lower left).
-            std::vector<std::pair<int, int>> near;
+            std::vector<std::pair<int, int>> nearby;
             for (int b : paint_blocks) {
                 const int bx = b % N - x, by = b / N - y;
-                near.emplace_back(bx * bx + by * by, b);
+                nearby.emplace_back(bx * bx + by * by, b);
             }
-            const size_t pick = std::min<size_t>(kPaintChoices, near.size());
-            std::partial_sort(near.begin(), near.begin() + pick, near.end());
-            const int from = near[random() % pick].second;
+            const size_t pick = std::min<size_t>(kPaintChoices, nearby.size());
+            std::partial_sort(nearby.begin(), nearby.begin() + pick, nearby.end());
+            const int from = nearby[random() % pick].second;
             for (int j = 0; j < kGrainBlock; j++)
                 for (int i = 0; i < kGrainBlock; i++)
                     if (in_box(kB, x + i, y + j)) paint[at(x + i, y + j)] = rgb[from + j * N + i];
