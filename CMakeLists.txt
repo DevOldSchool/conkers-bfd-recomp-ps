@@ -291,6 +291,8 @@ if(CONKER_PORT_MAPPING)
 endif()
 
 if(WIN32)
+    # The icon for Explorer, the window and the taskbar.
+    target_sources(ConkersBadFurDayRecompiled PRIVATE assets/app-icon.rc)
     # windows.h (included by librecomp's headers too) would otherwise define min and max macros, which
     # break std::min and std::max.
     target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE NOMINMAX)
