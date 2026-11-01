@@ -333,6 +333,15 @@ namespace conker::frame_input {
 
 bool fixed_step() { return fixed_on(); }
 
+void wait_for_renderer(uint8_t* rdram) {
+    if (!g_gfx_queue_made.load()) {
+        osCreateMesgQueue(rdram, static_cast<int32_t>(kGfxDoneQueue), static_cast<int32_t>(kGfxDoneSlots),
+                          kGfxDoneSlotCount);
+        g_gfx_queue_made.store(true);
+    }
+    wait_for_gfx(rdram);
+}
+
 uint32_t count_reads() { return g_count_calls; }
 void set_count_reads(uint32_t reads) { g_count_calls = reads; }
 

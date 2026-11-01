@@ -1053,6 +1053,11 @@ extern "C" void conker_my_view_draw_start(uint8_t* rdram, recomp_context* ctx) {
     // Paused, the game draws no views, only the copy of the last frame it made (the local view, drawn
     // whole) and the menu over the whole screen: that frame is shown as the game draws it.
     if (g_full && g_view >= 0 && MEM_BU(0, kseg0(kScreenHandler)) == 0 && MEM_BU(0, kseg0(kPaused)) == 0) {
+        // RT64 writes the last frame's colour and depth into RDRAM as it finishes it. Without the
+        // fixed step (offline) that could land between here and the pass, and the memory put back
+        // after it, and the image the renderer draws from, would then hold the frame buffers from
+        // before: RT64 took them as drawn by the CPU and showed them, 4:3, instead of its own.
+        conker::frame_input::wait_for_renderer(rdram);
         g_before_views.assign(rdram, rdram + kGameMemory);
         g_count_reads_before = conker::frame_input::count_reads();
     }

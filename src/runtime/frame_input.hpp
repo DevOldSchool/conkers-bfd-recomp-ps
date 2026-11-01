@@ -90,6 +90,10 @@ void apply_settings(const std::string& header, const char* source);
 // (src/runtime/frame_audio.cpp); hook_ctx is the frame hook's registers.
 void make_audio_frame(uint8_t* rdram, recomp_context* hook_ctx);
 
+// Waits for RT64 to finish every graphics task the game has sent, as the fixed step does each frame:
+// after it nothing writes the game's memory but the game thread until it sends its next task.
+void wait_for_renderer(uint8_t* rdram);
+
 // Under the fixed step, how many times the game thread has read osGetCount this frame (each read
 // is a step on); saved and put back by a pass that runs game code it must not count (my_view).
 uint32_t count_reads();
