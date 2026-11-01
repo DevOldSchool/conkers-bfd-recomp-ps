@@ -54,7 +54,7 @@
 #include "enhancements/switches.hpp"
 #include "platform/display_mode.hpp"
 #include "platform/present_focus.hpp"
-#include "runtime/net_play.hpp"
+#include "net/net_play.hpp"
 #include "runtime/frame_input.hpp"
 
 extern "C" void func_800114D0(uint8_t* rdram, recomp_context* ctx);
