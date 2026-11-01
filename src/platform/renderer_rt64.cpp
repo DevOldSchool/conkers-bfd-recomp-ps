@@ -42,6 +42,7 @@
 #include <windows.h>
 #endif
 #include "platform/renderer_rt64.hpp"
+#include "platform/present_focus.hpp"
 #include "platform/render_debug.hpp"
 
 #include <algorithm>
@@ -219,6 +220,9 @@ void require_conker_microcode(RT64::Application& app, const OSTask* task) {
 }
 
 std::mutex g_texture_packs_mutex;
+std::mutex g_frame_memory_mutex;
+std::vector<uint8_t> g_frame_memory;  // draw_next_frame_from's
+std::timed_mutex g_game_memory_mutex;  // hold_game_memory's
 std::vector<std::string> g_texture_packs;  // in use, for texture_packs()
 std::string g_gpu_name;                    // after setup, for gpu_name() and graphics_api()
 std::string g_graphics_api;
@@ -435,6 +439,10 @@ public:
     }
 
     void send_dl(const OSTask* task) override {
+        // Not while the game thread holds the game's memory (hold_game_memory). A hold is a frame's
+        // drawing at most; one never let go is waited out rather than stopping the picture for good.
+        std::unique_lock memory_lock(g_game_memory_mutex, std::defer_lock);
+        (void)memory_lock.try_lock_for(std::chrono::milliseconds(250));
         // Online, nothing drawn is written back into game memory on any machine: each GPU draws a little
         // differently, and the game reads depth back for the camera (func_1512B1B8), so the games parted
         // at once between two Macs (rt64-online-writeback.patch). The frame buffers above stay written.
@@ -448,6 +456,17 @@ public:
         if (conker::snapshot::take_framebuffer_discard()) {
             app_->forgetFramebuffers();
         }
+        // The online "my view" may have drawn this frame again in a copy of the game's memory.
+        std::vector<uint8_t> frame_memory;
+        {
+            std::lock_guard lock(g_frame_memory_mutex);
+            frame_memory.swap(g_frame_memory);
+        }
+        if (!frame_memory.empty()) {
+            frame_memory.resize(0x800000);
+        }
+        const uint32_t task_list = task->t.data_ptr;
+        uint8_t* const memory = frame_memory.empty() ? app_->core.RDRAM : frame_memory.data();
         // Whether the game drew a frame copy for this task (see apply_display_scale).
         const uint32_t copies = conker::display::frame_copy_count();
         tasks_without_copy_ = copies != seen_copies_ ? 0 : tasks_without_copy_ + 1;
@@ -472,7 +491,7 @@ public:
             }
         }
         if (widen_font_rects_) {
-            widen_font_rects(app_->core.RDRAM, task->t.data_ptr);
+            widen_font_rects(memory, task_list);
         }
         update_object_picker();
         const RenderSelfTest& self_test = render_self_test();
@@ -491,13 +510,17 @@ public:
         require_conker_microcode(*app_, task);
         // The effects the game makes on the CPU over a frame at its swap are made by RT64 after the
         // frame's last draw (src/fixes/frame_effects.cpp).
-        if (const uint32_t frame = conker::frame_effects::frame_effects(app_->core.RDRAM, task->t.data_ptr, &frame_effects_)) {
+        if (const uint32_t frame = conker::frame_effects::frame_effects(memory, task_list, &frame_effects_)) {
             request_frame_effects(frame);
         }
         // Online, the session's status in the corner, drawn after the game's frame from a list of its
         // own (net_play.cpp), so the game's memory never holds it.
-        const uint32_t list = conker::net::overlay_display_list(app_->core.RDRAM, task->t.data_ptr & 0x3FFFFFF);
-        app_->processDisplayLists(app_->core.RDRAM, list, 0, true);
+        const uint32_t list = conker::net::overlay_display_list(app_->core.RDRAM, task_list & 0x3FFFFFF);
+        if (frame_memory.empty()) {
+            app_->processDisplayLists(app_->core.RDRAM, list, 0, true);
+        } else {
+            draw_from(frame_memory, list);
+        }
         if (self_test_now && self_test.kind != "ucode") {
             run_render_self_test(*app_, self_test.kind);
         }
@@ -505,6 +528,29 @@ public:
     }
 
     void send_dummy_workload(uint32_t /*fb_address*/) override {}
+
+    // The frame's list drawn from a copy of the game's memory (the online "my view"): RT64 reads and
+    // writes the copy instead, which has RDRAM's own memory above the game's 4 MiB (the status
+    // overlay's list) put in first. What RT64 writes into the copy (frame buffers, and offline the depth
+    // the game reads back) goes to RDRAM after, as it would have been written there.
+    void draw_from(std::vector<uint8_t>& memory, uint32_t list) {
+        constexpr size_t kGame = 0x400000;          // the game's 4 MiB
+        constexpr size_t kScratch = 0x7F0000;       // RDRAM's own lists up to 8 MiB (net_play's overlay)
+        std::memcpy(memory.data() + kScratch, app_->core.RDRAM + kScratch, 0x800000 - kScratch);
+        drawn_before_.assign(memory.begin(), memory.begin() + kGame);
+        uint8_t* const rdram = app_->state->RDRAM;
+        app_->state->RDRAM = memory.data();
+        app_->processDisplayLists(memory.data(), list, 0, true);
+        app_->state->RDRAM = rdram;
+        const uint32_t* before = reinterpret_cast<const uint32_t*>(drawn_before_.data());
+        const uint32_t* after = reinterpret_cast<const uint32_t*>(memory.data());
+        uint32_t* out = reinterpret_cast<uint32_t*>(rdram);
+        for (size_t i = 0; i < kGame / 4; i++) {
+            if (after[i] != before[i]) {
+                out[i] = after[i];
+            }
+        }
+    }
 
     void request_frame_effects(uint32_t frame) {
         using conker::frame_effects::Type;
@@ -696,12 +742,23 @@ private:
     uint64_t tasks_sent_ = 0;  // graphics tasks so far, for CONKER_RENDER_SELFTEST
     int tasks_without_copy_ = 1 << 20;  // graphics tasks since the last frame copy
     uint32_t reported_skips_ = 0;  // write-backs kept out of game memory (online), once reported
+    std::vector<uint8_t> drawn_before_;  // draw_from's copy before RT64 drew from it
     static constexpr int kHoldTasks = 4;
 };
 
 } // namespace
 
 void set_wireframe(bool on) { RT64::SetRenderWireframe(on); }
+
+void set_present_focus(float x, float y, float width, float height) { RT64::SetPresentFocus({x, y, width, height}); }
+
+void draw_next_frame_from(std::vector<uint8_t> image) {
+    std::lock_guard lock(g_frame_memory_mutex);
+    g_frame_memory = std::move(image);
+}
+
+void hold_game_memory() { g_game_memory_mutex.lock(); }
+void release_game_memory() { g_game_memory_mutex.unlock(); }
 
 std::vector<std::string> texture_packs() {
     std::lock_guard lock(g_texture_packs_mutex);
