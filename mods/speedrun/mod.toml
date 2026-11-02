@@ -1,6 +1,6 @@
 [manifest]
 id = "conker_speedrun"
-version = "2.0.0"
+version = "1.0.0"
 display_name = "Speedrun"
 description = "Times chapters played from the CHAPTERS page, split by sub-chapter in a pane on the left, against your best times. The pause menu stops the clock, and cutscenes are skipped while it runs."
 short_description = "Speedrun timer with sub-chapter splits for CHAPTERS replays."
