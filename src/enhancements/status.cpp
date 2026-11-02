@@ -75,6 +75,7 @@ nlohmann::json enhancements(uint8_t* rdram) {
         pause_save(),
         save_snapshots(),
         surround_default(rdram),
+        mp_characters(),
         max_detail(),
         draw_distance(),
         rumble_banner(),

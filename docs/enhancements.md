@@ -207,12 +207,13 @@ button. Up and down choose a row, A or left and right change it:
   runs, each ON or OFF, starting as its `CONKER_*` variable set it: SHARP
   TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
   WIDESCREEN CULLING, SKIP INTRO, SKIP CUTSCENES, PAUSE SAVE AND LOAD, SAVE
-  SNAPSHOTS, SURROUND DEFAULT, FULL DETAIL, DRAW DISTANCE,
-  CONSISTENT CONTROLS, PAD BUTTONS, 60 FPS and MY VIEW (online: only your own view and
-  sounds, see docs/online-play.md). A or left and right switch the
-  chosen one. SHARP TEXT and WIDESCREEN are the OPTIONS rows' settings and
-  are kept in `display.cfg` as those rows keep them (a new shape applies once
-  the game carries on); the rest last until the game is closed, and a debug
+  SNAPSHOTS, SURROUND DEFAULT, MP CHARACTERS, FULL DETAIL, DRAW DISTANCE,
+  CONSISTENT CONTROLS, PAD BUTTONS, 60 FPS and MY VIEW (online: only your own
+  view and sounds, see docs/online-play.md), in a list like LOAD REPORT's
+  (nine rows at a time, scrolling). A or left and right switch the chosen one.
+  SHARP TEXT and WIDESCREEN are the OPTIONS rows' settings and are kept in
+  `display.cfg` as those rows keep them (a new shape applies once the game
+  carries on); the rest last until the game is closed, and a debug
   report records them as they are. Each acts the next time the game comes to
   it: SKIP INTRO only during the boot logos and the intro, PAUSE SAVE AND
   LOAD at the next pause, SURROUND DEFAULT only when the game finds no saved
@@ -281,6 +282,18 @@ With no saved options (a new save file), the OPTIONS menu's sound setting is
 surround instead of stereo. The game keeps its options in EEPROM next to the
 saved games, so a sound setting chosen and saved from that menu stays as it
 was. `CONKER_SURROUND_DEFAULT=0` keeps the stereo default.
+
+## Every multiplayer character
+
+MULTI's character choice has every character the cheat codes unlock, without
+typing them on the CHEATS page: the Caveman (EATBOX), Conker (WELLYTOP), Neo
+Conker (EASTEREGGSRUS), the Sergeant and the Tediz Leader
+(RUSTYSHERIFFSBADGE), the Weasel henchmen (CHINDITVICTORY), the Zombies and
+Villagers (BEEFCURTAINS) and Gregg (BILLYMILLROUNDABOUT). Those seven cheats
+are entered once a frame, so switched on in the debug menu they hold at once;
+switched off, the ones it entered go again and the ones typed stay. Online,
+the host's setting holds for everyone in the match.
+`CONKER_MP_CHARACTERS=0` leaves them to the codes.
 
 ## Characters at full detail
 

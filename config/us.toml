@@ -1114,3 +1114,16 @@ text = "{ void conker_60fps_doppler_easing(uint8_t*, recomp_context*); conker_60
 func = "func_1501B320"
 before_vram = 0x1501B420
 text = "{ void conker_60fps_heading_easing(uint8_t*, recomp_context*); conker_60fps_heading_easing(rdram, ctx); }"
+
+# HUD text a mod queues with flag 0x20 is placed from the left edge of the widened picture: RT64's
+# rect alignment is set around each run of such nodes as func_15043384 draws them ($s0 the node,
+# $s2 the display list; $v0 after func_150417AC). See src/enhancements/display_options/edge_text.cpp.
+[[patches.hook]]
+func = "func_15043384"
+before_vram = 0x150435D4
+text = "{ void conker_edge_text_begin(uint8_t*, recomp_context*); conker_edge_text_begin(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_15043384"
+before_vram = 0x150436B0
+text = "{ void conker_edge_text_end(uint8_t*, recomp_context*); conker_edge_text_end(rdram, ctx); }"

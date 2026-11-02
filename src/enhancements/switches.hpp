@@ -29,6 +29,7 @@ Switch cutscene_skip();
 Switch pause_save();
 Switch save_snapshots();
 Switch surround_default();
+Switch mp_characters();
 Switch max_detail();
 Switch draw_distance();
 Switch haptics();

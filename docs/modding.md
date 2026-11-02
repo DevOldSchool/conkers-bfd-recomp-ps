@@ -30,10 +30,39 @@ report lists the installed mods and which were on.
 
 ## Making a mod
 
-`mods/example` is a complete mod to copy: a hook that enters the seven
-multiplayer character cheats (EATBOX, WELLYTOP and the rest) just after the
-game clears the cheats as it starts, so those characters are unlocked without
-typing the codes. `conker.h` names every
+`mods/speedrun` is a complete mod to copy: Speedrun, a speedrun timer
+for chapters replayed from CHAPTERS. Playing a sub-chapter from the title's
+CHAPTERS page (a hook on `func_151E30C4`) times the rest of that chapter, in a
+pane at the left edge of the window. A hook on `func_15042D78`, which the
+game's menu handler calls once a frame before it queues any text, adds up the
+time from `osGetCount`, leaving out the time the pause menu is open, and
+queues the pane as HUD text with `func_15042D94`, the way the game writes its
+own; each digit of a time has a place of its own, as the game's letters are
+not all as wide. The flag `HUD_TEXT_LEFT_EDGE`, which the port adds, counts
+the text's x from the window's left side in widescreen instead of the 4:3
+picture's.
+
+Splits come from `event_flags`: each sub-chapter has an event that ends it,
+and splits when that is set, in whatever order they are played, with its time
+counted from the split before. Where nothing better is known that is the event
+the CHAPTERS page lists it by, which the game sets as some sub-chapters start
+and as others end. Most ends in the table come from replaying every
+sub-chapter from CHAPTERS and comparing the events each replay sets beforehand
+with the next one's; a few were found by playing (SCAREDY BIRDY as Conker
+sobers up, PAN HANDLED as the key opens the door, MRS BEE as she has her hive
+back). GARGOYLE's event is set as he is spoken to, so it splits when Conker
+leaves that level. Each split shows how far ahead (-) or behind (+) the best
+time from before the run it is. A sub-chapter keeps two bests, one for a split
+after another and one for the run's first, which a replay times from its start
+and so leaves out what came before it in the chapter; the chapter keeps one
+total for each sub-chapter a run can start at. WINDY's sub-chapters are played
+in between BARN BOYS' (and other chapters run into each other the same way),
+so another chapter's page event being set ends the run, and so does an end
+marked as the end of a stretch (MRS BEE's, before BARN BOYS). The bests are
+kept with `conker_mod_data_save`. While it runs, hooks on `func_1501E400`,
+which runs a cutscene for a frame, hold L for the game, so every cutscene is
+skipped as soon as the game allows (with SKIP CUTSCENES on, the port's
+default, that is every one). `conker.h` declares what it uses, and names every
 cheat's bit in `cheat_flags`.
 
 You need:
@@ -44,7 +73,7 @@ You need:
   `cmake -S lib/N64Recomp -B build/N64Recomp -G Ninja && cmake --build build/N64Recomp --target RecompModTool`
   (`tools/regenerate.sh` builds the rest of that folder).
 
-Then in `mods/example`:
+Then in `mods/speedrun`:
 
 ```sh
 make
@@ -102,9 +131,15 @@ The markers are in `mods/include/modding.h`:
 * librecomp's own functions are imported from `"*"`: `recomp_alloc` and
   `recomp_free` (memory outside the game's), the mod config calls
   (`recomp_get_config_u32` and the rest, for options declared in the
-  manifest's `config_options`), `recomp_get_save_file_path`,
+  manifest's `config_schema`; the game has no page to change them yet, so
+  they keep their defaults), `recomp_get_save_file_path`,
   `recomp_get_mod_folder_path`, `recomp_get_mod_file_path` and
   `recomp_change_save_file` (a save file of the mod's own).
+* The port's own, also imported from `"*"` and declared in `conker.h`:
+  `conker_mod_data_load` and `conker_mod_data_save` keep up to 16 KiB of the
+  mod's own data between runs (best times, settings), in
+  `saves/mods/<mod id>.bin` in the data folder. The file is named by the
+  loader's id for the mod, not by the mod.
 
 ### What a mod cannot do
 

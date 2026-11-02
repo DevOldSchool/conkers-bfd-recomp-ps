@@ -39,5 +39,7 @@ uint64_t current_vi();
 // Implemented in overlays.cpp (which includes the generated recomp_overlays.inl).
 void register_overlays();
 void register_runtime_addresses();
+// conker_mod_data_load and conker_mod_data_save for mods (src/runtime/mod_data.cpp).
+void register_mod_data_exports();
 
 } // namespace conker

@@ -1,0 +1,14 @@
+[manifest]
+id = "conker_speedrun"
+version = "1.0.0"
+display_name = "Speedrun"
+description = "Times chapters played from the CHAPTERS page, split by sub-chapter in a pane on the left, against your best times. The pause menu stops the clock, and cutscenes are skipped while it runs."
+short_description = "Speedrun timer with sub-chapter splits for CHAPTERS replays."
+authors = ["Conker recomp contributors"]
+game_id = "conker"
+minimum_recomp_version = "0.0.0"
+[inputs]
+elf_path = "build/mod.elf"
+mod_filename = "conker_speedrun"
+func_reference_syms_file = "../../config/us.syms.toml"
+data_reference_syms_files = ["../../config/us.data.syms.toml"]

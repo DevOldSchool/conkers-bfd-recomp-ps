@@ -89,6 +89,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/runtime/memory.cpp
     src/runtime/snapshot.cpp
     src/runtime/overlays.cpp
+    src/runtime/mod_data.cpp
     src/runtime/rsp.cpp
     src/runtime/rzip.cpp
     src/runtime/state_hash.cpp
@@ -125,6 +126,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/enhancements/display_options/widescreen_intro.cpp
     src/enhancements/display_options/widescreen_copies.cpp
     src/enhancements/display_options/widescreen_culling.cpp
+    src/enhancements/display_options/edge_text.cpp
     src/enhancements/display_options/widescreen_frame.cpp
     src/enhancements/display_options/widescreen_out.cpp
     src/enhancements/display_options/widescreen_timer.cpp
@@ -142,6 +144,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/enhancements/sharp_menus/menu_art.cpp
     src/enhancements/sharp_menus/pause_signs.cpp
     src/enhancements/surround_default/surround_default.cpp
+    src/enhancements/mp_characters/mp_characters.cpp
 )
 target_include_directories(ConkersBadFurDayRecompiled PRIVATE
     "${CMAKE_SOURCE_DIR}/src"

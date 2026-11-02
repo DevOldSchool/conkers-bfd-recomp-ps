@@ -30,6 +30,7 @@ std::vector<Switch> all() {
         pause_save(),
         save_snapshots(),
         surround_default(),
+        mp_characters(),
         max_detail(),
         draw_distance(),
         haptics(),
