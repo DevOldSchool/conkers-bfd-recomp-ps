@@ -1,7 +1,7 @@
 // The B pads on the ground (Conker's context-sensitive spots), wooden (octagonal, hexagonal and
 // square), stone, teal (set in a floor), grey stone, the rug, the round stone plate, the crate top,
-// the stone block, the purple disc, the rusty and riveted plates and the dark stone panel, drawn from Rare's own
-// textures in the ROM with `shape` where their B was: a Square for a PlayStation pad, an E (the
+// the stone block, the purple disc, the rusty and riveted plates, the dark stone panel and the red
+// wooden tile, drawn from Rare's own textures in the ROM with `shape` where their B was: a Square for a PlayStation pad, an E (the
 // key that is B) for the keyboard (src/enhancements/pad_icons/pad_mark.hpp). An Xbox pad's B is
 // B, so its pads stay as they are.
 #pragma once
@@ -70,5 +70,9 @@ std::optional<Texture> riveted_pad(Mark::Shape shape);
 
 // The dark stone panel B pad with the mark raised where its B was (src/enhancements/pad_icons/panel_pad.cpp).
 std::optional<Texture> panel_pad(Mark::Shape shape);
+
+// The red wooden B tile's two halves, left then right (resources 1083 and 1084), with the mark laid where its B
+// was (src/enhancements/pad_icons/tile_pad.cpp); empty if the ROM's are not where they should be.
+std::vector<Texture> tile_pad(Mark::Shape shape);
 
 } // namespace conker::pad_icons
