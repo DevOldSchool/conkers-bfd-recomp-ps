@@ -184,6 +184,12 @@ std::shared_ptr<RT64::FileSystem> make_pack(Style style, bool camera_swapped) {
         } else {
             std::fprintf(stderr, "[conker] pad buttons: no dark stone panel B pad texture in the ROM; left as it is\n");
         }
+        const std::vector<Texture> tile = tile_pad(shape);
+        for (size_t i = 0; i < tile.size(); i++) {
+            pack->add(pads + "tile_pad_" + std::to_string(i) + ".png", tile[i].hash, tile[i].width,
+                      tile[i].height, tile[i].rgba.data());
+        }
+        if (tile.empty()) std::fprintf(stderr, "[conker] pad buttons: no red wooden B tile textures in the ROM; left as they are\n");
     }
     if (pack->files.empty()) return nullptr;
     pack->finish();
