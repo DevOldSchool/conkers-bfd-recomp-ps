@@ -135,7 +135,6 @@ constexpr int kFirstRowY = 56;
 constexpr int kRowHeight = 10;
 constexpr int kLineHeight = 9;                  // the small lines under the rows and in the overlay
 constexpr int kListRows = 9;
-constexpr int kSwitchRows = 16;                 // the ENHANCEMENTS page's rows that fit above the screen's foot
 constexpr int kInfoY = 176;                     // the position and camera lines under the rows
 constexpr int kOverlayX = 16;                   // FPS and position in play, top left
 constexpr int kOverlayY = 12;
@@ -166,7 +165,8 @@ bool g_shadows = true;
 Page g_page = Page::Main;
 int g_row = 0;           // on the first page
 int g_teleport_row = 0;
-int g_switch_row = 0;    // on the enhancements page
+int g_switch_row = 0;    // on the enhancements page, a list like the reports'
+int g_switch_top = 0;    // and its first row shown
 int g_mod_row = 0;       // on the mods page, a list like the reports'
 int g_mod_top = 0;       // and its first row shown
 int g_entry = 0;         // in a list
@@ -544,13 +544,14 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
                       g_row, 0, kMainRows);
             break;
         case Page::Enhancements: {
-            draw_title(rdram, ctx, "ENHANCEMENTS");
+            std::snprintf(text, sizeof(text), "ENHANCEMENTS  %d/%d", g_switch_row + 1,
+                          static_cast<int>(switches().size()));
+            draw_title(rdram, ctx, text);
             std::vector<std::string> rows;
             for (const conker::switches::Switch& sw : switches()) {
                 rows.push_back(std::string(sw.label) + "  " + on_off(sw.on()));
             }
-            // More than fit scroll, keeping the chosen one in view at the foot.
-            draw_rows(rdram, ctx, rows, g_switch_row, std::max(0, g_switch_row - (kSwitchRows - 1)), kSwitchRows);
+            draw_rows(rdram, ctx, rows, g_switch_row, g_switch_top);
             break;
         }
         case Page::Mods: {
@@ -861,6 +862,8 @@ int32_t main_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_horiz
                 return 0;
             }
             g_page = Page::Enhancements;
+            g_switch_row = 0;
+            g_switch_top = 0;
             break;
         case kMods:
             if (!(pressed & conker::input::kA)) {
@@ -914,8 +917,11 @@ int32_t enhancements_page(int vertical, int horizontal, bool fresh_horizontal, u
         return kSelectSound;
     }
     const int count = static_cast<int>(switches().size());
+    // A list like the reports': it stops at either end and scrolls to keep the chosen row in view.
     if (vertical != 0) {
-        g_switch_row = (g_switch_row + vertical + count) % count;
+        g_switch_row = std::clamp(g_switch_row + vertical, 0, count - 1);
+        g_switch_top = std::clamp(g_switch_top, g_switch_row - kListRows + 1, g_switch_row);
+        g_switch_top = std::clamp(g_switch_top, 0, std::max(count - kListRows, 0));
         return kMoveSound;
     }
     if (!(pressed & conker::input::kA) && !(horizontal != 0 && fresh_horizontal)) {

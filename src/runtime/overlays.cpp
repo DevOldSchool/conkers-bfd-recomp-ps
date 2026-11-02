@@ -67,6 +67,7 @@ void register_overlays() {
     // A mod runs its own code in the game, so a newly installed one waits for the player to turn it
     // on (the debug menu's MODS page, which says to trust where it came from).
     recomp::mods::set_enable_new_mods(false);
+    register_mod_data_exports();
     recomp::overlays::overlay_section_table_data_t sections{
         .code_sections = section_table,
         .num_code_sections = ARRLEN(section_table),

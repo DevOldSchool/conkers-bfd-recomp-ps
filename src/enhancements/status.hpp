@@ -34,6 +34,7 @@ nlohmann::json haptics();
 nlohmann::json adaptive_triggers();
 nlohmann::json consistent_controls();
 nlohmann::json surround_default(uint8_t* rdram);
+nlohmann::json mp_characters();
 nlohmann::json display_options();
 nlohmann::json pause_save();
 nlohmann::json save_snapshots();

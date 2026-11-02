@@ -21,6 +21,7 @@
 #include "build_version.h"
 #include "enhancements/consistent_controls/mouse_look.hpp"
 #include "enhancements/frame_rate/frame_rate.hpp"
+#include "enhancements/mp_characters/mp_characters.hpp"
 #include "enhancements/switches.hpp"
 #include "platform/display_mode.hpp"
 #include "runtime/game.hpp"
@@ -646,6 +647,7 @@ extern "C" void conker_frame_input_begin(uint8_t* rdram, recomp_context* ctx) {
             conker::frame_input::apply_settings(conker::net::host_settings(), "net: the host's setting");
         }
     }
+    conker::mp_characters::frame(rdram);
     g_count_calls = 0;
     // The frame before's depth: func_1512B1B8, for one, scans it around the camera during the logic.
     if (fixed_on()) {

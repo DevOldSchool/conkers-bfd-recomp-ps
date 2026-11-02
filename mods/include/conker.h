@@ -31,6 +31,7 @@ void func_15042ECC(const char* format, s32* argument_words);
 
 #define HUD_TEXT_SHADOW 0x80    // flags: a black copy one pixel down and right
 #define HUD_TEXT_CENTERED 0x01  // flags: centered on x instead of starting there
+#define HUD_TEXT_LEFT_EDGE 0x20 // flags: x counts from the window's left edge in widescreen (the port's, not the game's)
 #define HUD_CENTER_X 0x92       // the middle of the picture
 
 extern u32 D_800CBD60;
@@ -50,6 +51,36 @@ extern s32 D_800BE9F0;
 extern u16 D_800BE930[4];
 #define current_scene D_800BE9F0
 #define pad_pressed D_800BE930  // buttons pressed this frame, per controller port
+
+extern u16 D_800BE710;
+extern u8 D_800BEAC1;
+#define pad_held D_800BE710      // controller 1's buttons held, as the game reads them
+#define pause_open D_800BEAC1    // set while the pause menu is open
+
+#define PAD_L 0x0020
+
+// The game's event flags, a bit per event (bit n & 7 of byte n >> 3): set once the event is done.
+extern u8* D_800D2E4C;
+#define event_flags D_800D2E4C
+
+// --- CHAPTERS menu -------------------------------------------------------------------------------
+
+// Plays the sub-chapter chosen on the CHAPTERS page (D_8008FF04 of chapter D_8008FF00, both counted
+// in the page's order: HUNGOVER, WINDY, BATS TOWER, BARN BOYS, SLOPRANO, UGA BUGA, SPOOKY, IT'S WAR,
+// HEIST).
+void func_151E30C4(void);
+extern s8 D_8008FF00;  // bytes, as the game loads them (lb, lbu)
+extern u8 D_8008FF04;
+#define chapters_chapter D_8008FF00
+#define chapters_sub_chapter D_8008FF04
+
+// --- cutscenes -----------------------------------------------------------------------------------
+
+// Runs cutscene slot `slot` for a frame; while one plays there, it skips it if L is held and the
+// skip is allowed (func_1501E05C: watched before, or any with the port's SKIP CUTSCENES on).
+void func_1501E400(s32 slot);
+extern u8 D_800C35EA[];
+#define cutscene_playing D_800C35EA  // 1 while a cutscene plays in that slot
 
 // --- cheats --------------------------------------------------------------------------------------
 
@@ -80,5 +111,15 @@ extern u32 D_800E9D00;
 #define CHEAT_ANCHOVYBAY (1u << 24)
 #define CHEAT_PRINCEALBERT (1u << 25)
 #define CHEAT_CLAMPIRATE (1u << 26)
+
+// --- the port's own calls for mods ---------------------------------------------------------------
+
+#include "modding.h"
+
+// A little data of the mod's own kept between runs, at most 16 KiB (saves/mods/<mod id>.bin in the
+// data folder): load fills `data` with up to `size` bytes and returns how many there were (0 with
+// none yet); save replaces it and returns 1, or 0 when it could not.
+RECOMP_IMPORT("*", u32 conker_mod_data_load(void* data, u32 size));
+RECOMP_IMPORT("*", u32 conker_mod_data_save(const void* data, u32 size));
 
 #endif
