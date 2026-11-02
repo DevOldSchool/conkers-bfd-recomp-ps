@@ -30,7 +30,7 @@ report lists the installed mods and which were on.
 
 ## Making a mod
 
-`mods/example` is a complete mod to copy: Speedrun, a speedrun timer
+`mods/speedrun` is a complete mod to copy: Speedrun, a speedrun timer
 for chapters replayed from CHAPTERS. Playing a sub-chapter from the title's
 CHAPTERS page (a hook on `func_151E30C4`) times the rest of that chapter, in a
 pane at the left edge of the window. A hook on `func_15042D78`, which the
@@ -73,7 +73,7 @@ You need:
   `cmake -S lib/N64Recomp -B build/N64Recomp -G Ninja && cmake --build build/N64Recomp --target RecompModTool`
   (`tools/regenerate.sh` builds the rest of that folder).
 
-Then in `mods/example`:
+Then in `mods/speedrun`:
 
 ```sh
 make

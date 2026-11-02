@@ -90,7 +90,7 @@ void grow_to_tile(int32_t& start, uint32_t& first, uint32_t& end, uint32_t tile_
 // texture coordinate at the rectangle's first pixel (s10.5), `per_pixel` its step (s5.10).
 // Returns the quarter pixels to move the edge by.
 // Rounded up: shrunk text steps more than a texel a quarter pixel, and rounding down left up to half
-// a texel of the first row of ink cut off (the pane of the example mod, at 0.6). The texture is
+// a texel of the first row of ink cut off (the Speedrun mod's pane, at 0.6). The texture is
 // clamped and its first row and column are empty, so a start a little before 0 shows nothing more.
 uint32_t widen_start(int32_t& start, int32_t per_pixel, uint32_t edge) {
     const double texels = start / 32.0;  // to the texture's first row or column, at 0

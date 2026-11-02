@@ -1,4 +1,4 @@
-// Example mod: Speedrun. Playing a sub-chapter from the title's CHAPTERS page times the rest of
+// Speedrun, the example mod. Playing a sub-chapter from the title's CHAPTERS page times the rest of
 // that chapter, in a pane on the left, split by sub-chapter in whatever order they are played: the
 // clock never stops between them (the pause menu stops it), and cutscenes are skipped while it runs.
 // Each split shows how far ahead (-) or behind (+) the best time for that sub-chapter it is; the best
