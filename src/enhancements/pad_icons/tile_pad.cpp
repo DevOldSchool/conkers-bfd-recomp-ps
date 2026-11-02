@@ -38,7 +38,8 @@ constexpr uint32_t kTlutRgba16 = 0x8000;  // G_TT_RGBA16, as RT64 hashes a TLUT 
 // The board inside the frame's bevels (inclusive), a texel of the B's stem and how bright (r + g + b)
 // its face is at the least. Then the mark, where the B is and as heavy as it: its middle, how far it
 // is turned (clockwise, in degrees) and for the square and the E its outer half-width (the E's half
-// height) and stroke width, in texels.
+// height) and stroke width, in texels. The mark is centred on the board, a little above where the B's
+// middle was.
 struct Box {
     int left, top, right, bottom;
 };
@@ -47,7 +48,7 @@ constexpr int kStemX = 30, kStemY = 25;
 constexpr float kFace = 160;
 constexpr int kBlur = 2;        // the smooth colour's reach either way, in texels
 constexpr int kGrainBlock = 3;  // the grain is copied in blocks this many texels square
-constexpr float kOX = 33.7f, kOY = 34.0f, kTurn = 56.0f;
+constexpr float kOX = 33.0f, kOY = 31.0f, kTurn = 56.0f;
 constexpr float kSquareOuter = 17.0f, kSquareWidth = 11.5f;
 constexpr float kEOuter = 21.0f, kEWidth = 15.0f;
 
