@@ -1,5 +1,5 @@
 // The online lobby's network side; see net_lobby.hpp.
-#include "runtime/net_lobby.hpp"
+#include "net/net_lobby.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -17,9 +17,9 @@
 #include "platform/input.hpp"
 #include "runtime/frame_input.hpp"
 #include "runtime/game.hpp"
-#include "runtime/net_codes.hpp"
-#include "runtime/net_play.hpp"
-#include "runtime/net_socket.hpp"
+#include "net/net_codes.hpp"
+#include "net/net_play.hpp"
+#include "net/net_socket.hpp"
 
 namespace conker::net::lobby {
 

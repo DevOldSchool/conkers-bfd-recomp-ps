@@ -1,4 +1,5 @@
 #include "platform/renderer_null.hpp"
+#include "platform/present_focus.hpp"
 #include "platform/render_debug.hpp"
 
 #include <cstdio>
@@ -310,6 +311,12 @@ private:
 } // namespace
 
 void set_wireframe(bool /*on*/) {}
+
+void set_present_focus(float /*x*/, float /*y*/, float /*width*/, float /*height*/) {}
+
+void draw_next_frame_from(std::vector<uint8_t> /*image*/) {}
+void hold_game_memory() {}
+void release_game_memory() {}
 
 std::vector<std::string> texture_packs() { return {}; }
 std::string gpu_name() { return ""; }

@@ -101,6 +101,22 @@ uint32_t widen_start(int32_t& start, int32_t per_pixel, uint32_t edge) {
     return quarters;
 }
 
+// Moves a TEXRECT's top up by whole pixels to reach the texture's first row, at most kMaxWiden
+// texels. When a rectangle's top is part way into a pixel, RT64 (as the RDP, whose first scanline is
+// the next whole one) samples its first row a whole dtdy further into the texture (rt64_rdp.cpp,
+// drawRect), so a move by part of a pixel skipped a row: the top of the R, the one glyph whose top
+// stroke starts at full strength, was cut off flat. The game puts glyph tops on whole pixels, so moving
+// from the whole row at or above the top keeps the texture in its place. `start` is t at the top
+// (s10.5), `per_pixel` dtdy (s5.10). Returns the new top (10.2).
+uint32_t widen_top(int32_t& start, int32_t per_pixel, uint32_t top) {
+    const double texels = start / 32.0;
+    if (texels <= 0.0 || texels > kMaxWiden || per_pixel <= 0) return top;
+    const uint32_t row = top & ~3u;
+    const uint32_t pixels = std::min(static_cast<uint32_t>(std::ceil(texels * 1024.0 / per_pixel)), row / 4);
+    start -= static_cast<int32_t>(pixels * per_pixel / 32);
+    return row - pixels * 4;
+}
+
 uint32_t widen_end(double reached, double target, int32_t per_pixel, uint32_t edge) {
     const double texels = target - reached;
     if (texels <= 0.0 || texels > kMaxWiden || per_pixel <= 0) return 0;
@@ -205,9 +221,8 @@ void widen_font_rects(uint8_t* rdram, uint32_t display_list) {
                 if (dsdx <= 0 || dtdy <= 0 || lrx <= ulx || lry <= uly) break;
 
                 const uint32_t left = widen_start(s, dsdx, ulx);
-                const uint32_t top = widen_start(t, dtdy, uly);
                 ulx -= left;
-                uly -= top;
+                uly = widen_top(t, dtdy, uly);
                 const double right_reached = s / 32.0 + (lrx - ulx) / 4.0 * dsdx / 1024.0;
                 const double bottom_reached = t / 32.0 + (lry - uly) / 4.0 * dtdy / 1024.0;
                 // One column past the glyph's width when the texture has it (the soft edge of a

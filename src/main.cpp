@@ -45,7 +45,7 @@ static long _dyld_get_image_vmaddr_slide(int) { return 0; }
 #include "platform/window.hpp"
 #include "runtime/frame_input.hpp"
 #include "runtime/game.hpp"
-#include "runtime/net_play.hpp"
+#include "net/net_play.hpp"
 #include "runtime/rsp.hpp"
 #if CONKER_LAUNCH_UI
 #include "platform/launch.hpp"

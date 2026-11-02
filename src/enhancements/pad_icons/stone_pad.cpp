@@ -1,5 +1,8 @@
 // The stone B pads (as in Windy) are a round marble disc split into two 32x64 CI8 textures with
-// their own 256-colour RGBA16 palettes, flat resources 509 (left) and 510 (right). The B is the
+// their own 256-colour RGBA16 palettes, flat resources 509 (left) and 510 (right). A second copy,
+// 511 and 512 (as in the barnyard at night after Frying Tonight), has the same left half and a right
+// half quantized again (a few texels a shade off, its seam column different), so it gets the same
+// picture as 510. The B is the
 // disc's own marble, raised: a dark band along its top and left, dark counters, a faint blue-grey
 // line along its right and bottom and a white highlight on its edge facing down and right. A ring
 // round it has a shadow along its top left.
@@ -29,6 +32,7 @@ namespace conker::pad_icons {
 namespace {
 
 constexpr int kHalves[2] = {509, 510};  // left, right
+constexpr int kRightCopy = 512;         // 511, the copy's left half, is 509 byte for byte
 constexpr int kW = 32, kH = 64;         // each half
 constexpr int N = 64;                   // the whole disc
 constexpr int kTexelBytes = kW * kH;
@@ -289,6 +293,10 @@ std::vector<Texture> stone_pad(Mark::Shape shape) {
                 p[3] = alpha[i];
             }
         textures.push_back(std::move(t));
+    }
+    const std::vector<uint8_t> copy = menu_art::load_resource(kRightCopy);
+    if (copy.size() == size_t(kResourceBytes)) {
+        textures.push_back(Texture{hash(copy), kW, kH, textures[1].rgba});
     }
     return textures;
 }

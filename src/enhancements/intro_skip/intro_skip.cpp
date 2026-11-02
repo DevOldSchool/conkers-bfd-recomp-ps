@@ -15,7 +15,7 @@
 #include "enhancements/status.hpp"
 #include "enhancements/switches.hpp"
 #include "runtime/frame_input.hpp"
-#include "runtime/net_play.hpp"
+#include "net/net_play.hpp"
 #include "runtime/snapshot.hpp"
 
 namespace {
