@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "runtime/game.hpp"
+#include "ultramodern/ultramodern.hpp"
 
 #if defined(_WIN32)
 #include <io.h>
@@ -68,6 +69,7 @@ thread_local bool t_game_thread = false;
 // PC's, say) show the first call where their games part (docs/diagnostics.md).
 struct ArgTrace {
     FILE* log = nullptr;
+    std::string path;
     uint32_t first = 0;
     uint32_t last = 0;
     uint32_t frame = 0;
@@ -75,16 +77,35 @@ struct ArgTrace {
 ArgTrace* g_args = nullptr;
 thread_local bool t_args_thread = false;
 
+thread_local FILE* t_args_log = nullptr;  // another game thread's own file, <file>.<its OSThread>
+
 void trace_args(const char* name) {
     ArgTrace& a = *g_args;
-    if (a.frame < a.first || a.frame > a.last) {
+    const uint32_t frame = __atomic_load_n(&a.frame, __ATOMIC_RELAXED);
+    if (frame > a.last && t_args_log != nullptr) {
+        std::fclose(t_args_log);  // runs end by being killed: the file is complete once past the frames
+        t_args_log = nullptr;
+    }
+    if (frame < a.first || frame > a.last) {
         return;
     }
     const recomp_context* ctx = conker::current_context();
     if (ctx == nullptr) {
         return;
     }
-    std::fprintf(a.log, "%u %s %08x %08x %08x %08x %08x %08x %08x\n", a.frame, name, static_cast<uint32_t>(ctx->r4),
+    FILE* log = a.log;
+    if (!t_args_thread) {
+        if (t_args_log == nullptr) {
+            char path[1100];
+            std::snprintf(path, sizeof(path), "%s.%08x", a.path.c_str(), static_cast<uint32_t>(ultramodern::this_thread()));
+            t_args_log = std::fopen(path, "w");
+            if (t_args_log == nullptr) {
+                return;
+            }
+        }
+        log = t_args_log;
+    }
+    std::fprintf(log, "%u %s %08x %08x %08x %08x %08x %08x %08x\n", a.frame, name, static_cast<uint32_t>(ctx->r4),
                  static_cast<uint32_t>(ctx->r5), static_cast<uint32_t>(ctx->r6), static_cast<uint32_t>(ctx->r7),
                  ctx->f12.u32l, ctx->f14.u32l, static_cast<uint32_t>(ctx->r29));
 }
@@ -145,7 +166,7 @@ extern "C" void conker_trace_entry(const char* name) {
     if (t_game_thread) {
         count_call(name);
     }
-    if (t_args_thread) {
+    if (g_args != nullptr) {
         trace_args(name);
     }
 }
@@ -173,13 +194,14 @@ void game_frame(uint32_t frame) {
         const std::string path(spec, colon2);
         g_args->first = static_cast<uint32_t>(std::strtoul(colon2 + 1, nullptr, 10));
         g_args->last = static_cast<uint32_t>(std::strtoul(colon + 1, nullptr, 10));
+        g_args->path = path;
         g_args->log = std::fopen(path.c_str(), "w");
         return g_args->log != nullptr;
     }();
     if (args_on) {
         t_args_thread = true;
         // The record for this frame was just made: the calls from here to the next are this frame's.
-        g_args->frame = frame;
+        __atomic_store_n(&g_args->frame, frame, __ATOMIC_RELAXED);
         if (frame == g_args->last + 1) {
             std::fflush(g_args->log);
         }

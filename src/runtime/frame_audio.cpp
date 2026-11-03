@@ -26,6 +26,7 @@
 #include "recomp.h"
 #include "enhancements/frame_rate/frame_rate.hpp"
 #include "runtime/frame_input.hpp"
+#include "runtime/game.hpp"
 #include "runtime/snapshot.hpp"
 
 extern "C" void func_800095A0(uint8_t* rdram, recomp_context* ctx);
@@ -188,7 +189,12 @@ void conker::frame_input::make_audio_frame(uint8_t* rdram, recomp_context* hook_
     const uint32_t slot = static_cast<uint32_t>(MEM_W(0, kseg0(kAudioFrameCount))) % 3;
     ctx.r4 = kseg0(static_cast<uint32_t>(MEM_W(4 * slot, kseg0(kTaskRecords))));
     ctx.r5 = kseg0(g_previous);
+    // The registers the recompiled code runs on are the copy's while it runs (the call tracer and
+    // anything else that asks for the thread's context, runtime/game.hpp).
+    recomp_context* const thread_ctx = conker::current_context();
+    conker::set_current_context(&ctx);
     func_800095A0(rdram, &ctx);
+    conker::set_current_context(thread_ctx);
     if (static_cast<int32_t>(ctx.r2) == 0) {
         return;
     }
