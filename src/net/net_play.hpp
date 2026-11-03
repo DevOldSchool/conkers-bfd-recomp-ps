@@ -148,8 +148,8 @@ std::string title_status();
 // draw.
 uint32_t overlay_display_list(uint8_t* rdram, uint32_t game_list);
 
-// Online, the end of the game memory every machine must keep the same (physical; the frame buffers
-// lie above it): the renderer writes nothing it drew below it. 0 when not online.
+// Online, the end of the game memory every machine must keep the same (physical: all of its 4 MiB, the
+// frame buffers too): the renderer writes nothing it drew below it. 0 when not online.
 uint32_t game_memory_end();
 
 }  // namespace conker::net
