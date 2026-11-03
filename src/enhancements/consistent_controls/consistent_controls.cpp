@@ -27,7 +27,8 @@
 // anything else aimed through a sight there (the knives, item 0x14: +0x197 is 2 while R is held).
 // Heist's B pads (Enter the Vertex, scene 54), the Uzis out: B jumps sideways in slow motion, and
 // through the jump the stick moves the aimer, not Conker, whose path is set when he takes off. So
-// through it the right stick (and the mouse) is the stick, as the left stick is: the same way up.
+// through it the right stick (and the mouse) is the stick; pushed up, the game's aimer goes down,
+// so it is turned round to aim up.
 // The left stick and the right stick's C buttons do nothing then.
 // The mounted machine guns (the wasps' hive, scene 39; It's War's, scene 38) aim with the stick,
 // pushed up to aim down, as R's look does, and get the same: up aims up, the mouse aiming too.
@@ -343,7 +344,7 @@ bool uzi_jumping(uint8_t* rdram, uint32_t actor) {
     return std::find(std::begin(kUziJumps), std::end(kUziJumps), animation) != std::end(kUziJumps);
 }
 
-// The right stick (and the port's mouse) as the stick, the same way up, the C buttons off. False,
+// The right stick (and the port's mouse) as the stick, up aiming up, the C buttons off. False,
 // leaving the pad alone, when the controller has neither.
 bool right_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16_t& buttons) {
     float aim_x;
@@ -356,7 +357,7 @@ bool right_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint1
     }
     buttons &= static_cast<uint16_t>(~(kCUp | kCDown | kCLeft | kCRight));
     MEM_B(at + 2, ctx->r29) = stick_axis(aim_x + mouse_x);
-    MEM_B(at + 3, ctx->r29) = stick_axis(aim_y + mouse_y);
+    MEM_B(at + 3, ctx->r29) = stick_axis(-(aim_y + mouse_y));
     return true;
 }
 
