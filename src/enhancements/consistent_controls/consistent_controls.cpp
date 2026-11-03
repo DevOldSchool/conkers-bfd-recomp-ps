@@ -22,6 +22,7 @@
 // The rocket launcher in a multiplayer match (THE VAULT) scoped with R works the same way: the
 // stick aims, up aiming down, and C-up and C-down walk. So while scoped it gets the shotgun's aim:
 // the right stick aims, up aiming up, and the left stick walks. Unscoped it walks with the stick.
+// It's War's rocket launcher (item 0x0C, from its B pads) scopes the same way and gets the same.
 // The matches' scoped gun, item 0x24, scopes with R the same way and gets the same, as does
 // anything else aimed through a sight there (the knives, item 0x14: +0x197 is 2 while R is held).
 // The mounted machine guns (the wasps' hive, scene 39; It's War's, scene 38) aim with the stick,
@@ -97,6 +98,7 @@ constexpr uint32_t kPlayerItemState = 0x11A;  // u8
 constexpr uint8_t kGuns[] = {0x09, 0x15, 0x26, 0x37, 0x38, 0x39, 0x3A, 0x3B};
 constexpr uint8_t kItemHeld = 2;
 constexpr uint8_t kRocketLauncher = 0x16;
+constexpr uint8_t kStoryRocketLauncher = 0x0C;  // It's War's, from its B pads; scoped the same way
 constexpr uint8_t kScopedGun = 0x24;  // a match's gun with a scope on R, as the launcher's
 constexpr uint8_t kSlingshot = 0x02;  // out with B on its pad, aimed without R
 constexpr uint32_t kPlayerScoped = 0x197;  // u8: 2 while the launcher's scope is up, or mounted
@@ -185,7 +187,8 @@ bool holding_gun(uint8_t* rdram, uint32_t player) {
 }
 
 bool launcher_scoped(uint8_t* rdram, uint32_t player) {
-    return (holding(rdram, player, kRocketLauncher) || holding(rdram, player, kScopedGun)) &&
+    return (holding(rdram, player, kRocketLauncher) || holding(rdram, player, kStoryRocketLauncher) ||
+            holding(rdram, player, kScopedGun)) &&
            MEM_BU(kPlayerScoped, kseg0(player)) == kScoped;
 }
 
