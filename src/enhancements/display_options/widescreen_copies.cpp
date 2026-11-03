@@ -112,13 +112,13 @@ gpr write_commands(uint8_t* rdram, gpr start, const std::vector<Command>& out) {
 
 // At func_151D61B0's entry: nonzero to return without blurring.
 extern "C" int conker_widescreen_skip_blur() {
-    return conker::display::rendered_widescreen() ? 1 : 0;
+    return conker::display::logic_widescreen() ? 1 : 0;
 }
 
 // At func_151D5E90's entry: $a0 is the display list pointer it writes from.
 extern "C" void conker_widescreen_copy_begin(uint8_t* /*rdram*/, recomp_context* ctx) {
     conker::display::note_frame_copy();
-    g_rewriting = conker::display::rendered_widescreen();
+    g_rewriting = conker::display::logic_widescreen();
     g_start = ctx->r4;
 }
 

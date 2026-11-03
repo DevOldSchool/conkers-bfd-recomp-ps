@@ -291,6 +291,11 @@ float logic_aspect() {
     return aspect > 0.0f ? aspect : rendered_aspect();
 }
 
+bool logic_widescreen() {
+    const float aspect = g_logic_aspect.load();
+    return aspect > 0.0f ? aspect > float(kPictureWidth) / kPictureHeight * 1.001f : rendered_widescreen();
+}
+
 bool take_request(Mode* mode) {
     if (!g_requested.exchange(false)) {
         return false;

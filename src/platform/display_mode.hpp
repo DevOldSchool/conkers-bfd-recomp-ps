@@ -136,6 +136,9 @@ float rendered_aspect();
 // differs between machines and changes at a moment that is not a game frame.
 void set_logic_aspect(float aspect);
 float logic_aspect();
+// Whether the game draws for a widened picture: rendered_widescreen(), or online the session's choice
+// (the host's), so that every machine writes the same display lists whatever its own window's shape.
+bool logic_widescreen();
 
 // For the window: whether the mode, the window's multiple or the picture's shape changed since the
 // last call, and the mode to be in.
