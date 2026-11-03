@@ -285,6 +285,13 @@ std::string settings_differ(const std::string& theirs) {
 // docs/online-multiplayer-plan.md, M8).
 std::string mismatch(const std::string& build_in, const std::string& /*os*/, uint64_t rom, uint16_t protocol) {
     const std::string build = printable(build_in, 40);
+    const auto base = [](const std::string& text) { return text.substr(0, text.find("+mods-")); };
+    if (build_in != conker::net::build_text() && protocol == kProtocol && base(build_in) == base(conker::net::build_text())) {
+        return "different mods (the host has " +
+               std::string(build_in.find("+mods-") != std::string::npos ? "some on" : "none on") + ", this machine " +
+               (conker::net::build_text().find("+mods-") != std::string::npos ? "some" : "none") +
+               "); everyone needs the same mods on, or none (MODS page, then restart)";
+    }
     if (build_in != conker::net::build_text() || protocol != kProtocol) {
         return "a different version of the game (the host runs " + build + ", this machine " +
                conker::net::build_text() + "); everyone needs the same build";

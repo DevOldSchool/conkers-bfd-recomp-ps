@@ -66,6 +66,7 @@
 #include "net/net_socket.hpp"
 #include "runtime/snapshot.hpp"
 #include "ultramodern/ultramodern.hpp"
+#include "librecomp/mods.hpp"
 
 namespace {
 
@@ -2170,10 +2171,43 @@ ssize_t receive(uint8_t* buffer, size_t size, sockaddr_storage* from, socklen_t*
     }
 }
 
+// The mods this run loaded, as "+mods-<hash>" ("" for none). A session started in place keeps the mods
+// the game started with (only one from the command line starts without any), and a mod on one machine
+// and not the others puts them out of sync: so they are part of the build the handshake compares. The
+// mods on when the lobby first asks (switching one on the MODS page applies only after a restart, so
+// this can be wrong only until then).
+std::string mods_text() {
+    static const std::string text = [] {
+        if (g_active.load()) {
+            return std::string();  // from the command line: no mods loaded (game.cpp)
+        }
+        std::vector<std::string> on;
+        for (const recomp::mods::ModDetails& details : recomp::mods::get_all_mod_details("conker")) {
+            if (recomp::mods::is_mod_enabled(details.mod_id) || recomp::mods::is_mod_auto_enabled(details.mod_id)) {
+                on.push_back(details.mod_id + "@" + details.version.to_string());
+            }
+        }
+        if (on.empty()) {
+            return std::string();
+        }
+        std::sort(on.begin(), on.end());
+        uint64_t hash = 0xCBF29CE484222325ull;
+        for (const std::string& mod : on) {
+            for (const char c : mod + ";") {
+                hash = (hash ^ static_cast<uint8_t>(c)) * 0x100000001B3ull;
+            }
+        }
+        char suffix[32];
+        std::snprintf(suffix, sizeof(suffix), "+mods-%08x", static_cast<uint32_t>(hash ^ (hash >> 32)));
+        return std::string(suffix);
+    }();
+    return text;
+}
+
 // CONKER_NET_TEST_BUILD=<text> poses as another build, to see the handshake and the lobby refuse it.
 std::string build_text() {
     const char* test = std::getenv("CONKER_NET_TEST_BUILD");
-    return test != nullptr ? std::string(test) : std::string(CONKER_BUILD_VERSION);
+    return test != nullptr ? std::string(test) : std::string(CONKER_BUILD_VERSION) + mods_text();
 }
 std::string os_text() { return std::string(kOs) + "-" + kCpu; }
 // CONKER_NET_TEST_ROM=<hex> poses as another ROM, the same way.
