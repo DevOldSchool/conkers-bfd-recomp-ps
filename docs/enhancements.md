@@ -6,7 +6,7 @@ off for a run. The summary is in the [README](../README.md#enhancements).
 
 ## Display options
 
-The OPTIONS page of the title menu has volume and mouse aim rows under the
+The OPTIONS page of the title menu has volume and controls rows under the
 sound setting, then five display rows.
 
 * VOLUME, from OFF to 100% in steps of 10%, stopping at either end. It turns
@@ -17,12 +17,12 @@ sound setting, then five display rows.
   volume is the default. `CONKER_DUMP_AUDIO` still records the game's own
   output at full volume.
 
-* MOUSE AIM, from 25% to 400% (25, 50, 75, 100, 125, 150, 175, 200, 250,
-  300, 400), stopping at either end: how fast the captured mouse aims (R,
-  the slingshot, a scope or a mounted gun). Turning the camera stays at 0.15
-  degrees a pixel. 200% is the default. It is kept in
-  `conker-recomp-data/input.cfg`; `CONKER_MOUSE_SENSITIVITY` (a scale, 2 for
-  200%) sets it for one run.
+* CONTROLS: A (or left or right) opens the controls page over OPTIONS, the
+  same page as the [debug menu's CONTROLS](#debug-menu): each controller's
+  buttons and keys, INVERT AIM, MOUSE AIM and INVERT MOUSE AIM. It takes
+  OPTIONS' place and the title scene goes on behind it, as behind OPTIONS;
+  B goes back. Not online, where only your game would stop reading the pad
+  and drawing OPTIONS while it is open.
 
 * SHARP TEXT or ORIGINAL TEXT: the [sharper text](#sharper-text) and
   [menus](#sharper-menus), or the game's own. It switches at once and is on
@@ -171,38 +171,39 @@ pause menu. Where the pause cannot open, the menu stops the game itself with
 the same pause flag (the world, the cutscene and the sound stop; the screen's
 own menu waits underneath). The game reads no buttons while it is open, nor
 after it closes until they are let go. It closes with B, Start or the same
-button. Up and down choose a row, A or left and right change it:
+button. Up and down choose a row, A or left and right change it, B goes back:
 
-* WIREFRAME: the game's 3D triangles drawn as their edges on black; text,
-  sprites and the HUD stay solid. Metal only for now.
-* SHOW FPS: the frames the game draws per second, in the top left corner.
-* SHOW POSITION: the scene, Conker's X, Y and Z and his facing, and the
-  camera's yaw and pitch, under the frame rate during play. Angles are in
-  degrees, and facing and yaw share their zero (+Z) and direction (towards
-  +X), so walking away from the camera they agree. The first page shows them
-  too, and opening the menu prints them in the terminal, with the camera's
-  position, the point it looks at and its forward vector.
-* INSPECT: for telling exactly which model or object has a problem. With it
-  on (or `CONKER_INSPECT=1` from the start) the mouse cursor shows, and what
-  is under it is tinted cyan and named under the other overlay lines: an
-  actor with its index, model number and model name (from the decomp's model
-  registry), an attachment with its parent actor, a prop with its index in
-  the prop table, an object of a layer (grass and other effects) with the
-  callback that drew it, a 2D sprite tile by its resource number (and, for
-  the menus' signs, which sign and tile: `SPRITE GAME1 1/3 (2011)`), or else
-  the game function that drew it
-  (LEVEL for the terrain, `FUNC 1515D6D0`, ...), then the display list it came from, its
-  triangle count, its texture hash and, for an actor or prop, where it is. A
-  left click picks it out: every part of it pulses magenta (for the level,
-  every part with the same texture), and the terminal gets a full report
-  (scene, tag, display list, the command that drew it and its vertices,
-  combiner, texture hash, and for an actor its table address, model, kind and
-  position, for a prop its position and record). A right click lets it go.
-  Texture transparency is not known, so a cut-out (a grass sprite's clear
-  parts) covers what is behind it: the mouse wheel steps through everything
-  under the cursor, front to back (shown as 2/3), until the mouse moves. Text
-  is never picked. RT64 build only; see
-  `src/enhancements/object_inspector/object_inspector.cpp`.
+* DEBUG VIEW: a page of what is drawn to look into the game:
+  * WIREFRAME: the game's 3D triangles drawn as their edges on black; text,
+    sprites and the HUD stay solid. Metal only for now.
+  * SHOW FPS: the frames the game draws per second, in the top left corner.
+  * SHOW POSITION: the scene, Conker's X, Y and Z and his facing, and the
+    camera's yaw and pitch, under the frame rate during play. Angles are in
+    degrees, and facing and yaw share their zero (+Z) and direction (towards
+    +X), so walking away from the camera they agree. The first page shows them
+    too, and opening the menu prints them in the terminal, with the camera's
+    position, the point it looks at and its forward vector.
+  * INSPECT: for telling exactly which model or object has a problem. With it
+    on (or `CONKER_INSPECT=1` from the start) the mouse cursor shows, and what
+    is under it is tinted cyan and named under the other overlay lines: an
+    actor with its index, model number and model name (from the decomp's model
+    registry), an attachment with its parent actor, a prop with its index in
+    the prop table, an object of a layer (grass and other effects) with the
+    callback that drew it, a 2D sprite tile by its resource number (and, for
+    the menus' signs, which sign and tile: `SPRITE GAME1 1/3 (2011)`), or else
+    the game function that drew it
+    (LEVEL for the terrain, `FUNC 1515D6D0`, ...), then the display list it came from, its
+    triangle count, its texture hash and, for an actor or prop, where it is. A
+    left click picks it out: every part of it pulses magenta (for the level,
+    every part with the same texture), and the terminal gets a full report
+    (scene, tag, display list, the command that drew it and its vertices,
+    combiner, texture hash, and for an actor its table address, model, kind and
+    position, for a prop its position and record). A right click lets it go.
+    Texture transparency is not known, so a cut-out (a grass sprite's clear
+    parts) covers what is behind it: the mouse wheel steps through everything
+    under the cursor, front to back (shown as 2/3), until the mouse moves. Text
+    is never picked. RT64 build only; see
+    `src/enhancements/object_inspector/object_inspector.cpp`.
 * ENHANCEMENTS: every enhancement that can be switched while the game
   runs, each ON or OFF, starting as its `CONKER_*` variable set it: SHARP
   TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
@@ -222,6 +223,48 @@ button. Up and down choose a row, A or left and right change it:
   scene may leave out sky tiles at the sides until the next one. The OPTIONS
   page's own rows (`CONKER_DISPLAY_OPTIONS`) and the debug menu are not
   switched here.
+* CONTROLS: for each controller (CONTROLLER 1 PAD, CONTROLLER 1 KEYBOARD,
+  then 2 to 4, left and right choose; the line under it says what kind of
+  pad holds it):
+  * INVERT AIM: the stick aims the N64's way round, pushed up to aim down,
+    wherever [consistent controls](#consistent-controls) aim it (R's look,
+    the slingshot, the guns, scopes, mounted guns and the tank's gun).
+    With CONSISTENT CONTROLS off the stick aims that way anyway.
+  * MOUSE AIM, from 25% to 400% (25, 50, 75, 100, 125, 150, 175, 200, 250,
+    300, 400), left and right, stopping at either end: how fast the captured
+    mouse aims (R, the slingshot, a scope or a mounted gun). Turning the
+    camera stays at 0.15 degrees a pixel. 200% is the default.
+    `CONKER_MOUSE_SENSITIVITY` (a scale, 2 for 200%) sets it for one run.
+  * INVERT MOUSE AIM: the same for controller 1's mouse.
+  * A row for each of the game's buttons (A, B, Z, START, L, R, the D-pad,
+    C-UP, C-DOWN, C-LEFT and C-RIGHT, which are the right stick pushed that
+    way and turn the view, and GRENADE IN MULTI, Triangle or Y) with the pad's
+    controls that press it. A, then a press on that controller's pad (a
+    button, a trigger or the right stick pushed one way), or for the
+    keyboard a key, maps it, taking it off any other button; R adds another (so B can be both Square and
+    Circle again); Z leaves the button unmapped; L puts that button's
+    controls back as they were, taking them off any other. The hints name
+    these as your pad has them (Cross, R1, R2, L1 on a PlayStation pad).
+    Nothing pressed for five seconds, or Back (`` ` `` for the keyboard),
+    leaves it as it was. Back and the guide button are never mapped, nor
+    `` ` `` (the debug menu), Esc (lets the mouse go), Cmd and Alt, or the
+    mouse's buttons.
+  * For the keyboard, after the buttons: STICK UP, DOWN, LEFT and RIGHT (W,
+    S, A and D), WALK (Shift, the stick half way) and ZOOM IN and OUT (R and
+    T), mapped the same way. RESET BUTTONS puts the controller's
+    back as in the README's table.
+  All are kept in `conker-recomp-data/input.cfg` (`map1=a:a;b:x,b;...`,
+  `keys=a:44;...` by SDL scancode, `invert_aim1=1`, `invert_mouse_aim=1`).
+  The debug menu itself reads controller 1 and the keys as the README's
+  table has them, so it can always be steered back. The button pictures in the menus and
+  speech bubbles show what each button is mapped to (any Xbox or
+  PlayStation control: face buttons, shoulders, triggers, stick clicks, the
+  D-pad (a PlayStation pad's arrow key, an Xbox pad's whole D-pad), Menu or
+  Options, Share or the touchpad, paddles, the right stick, or any key),
+  drawn again when the mapping changes; a button left unmapped shows Rare's
+  N64 picture. The B pads on the ground show a Square (or E) only while B is
+  still Square (or E). Online and in replays the mapped buttons and INVERT AIM
+  go with each player's input, so each machine keeps its own.
 * MODS: the mods in `conker-recomp-data/mods`, on and off. A new mod starts
   off, and the page says to turn on only mods from people you trust. Mods
   load when the game starts, so after a change RESTART TO APPLY starts it
@@ -402,10 +445,13 @@ place to the next, and aims like a plane, pushing up to look down.
   way. C-down (a grenade, the right stick pushed down on an N64 pad's C
   buttons) is D-pad down or Triangle (Y), or K on the keyboard. Holding R,
   scoped or in a tank keeps the controls above.
+* Wherever C-left and C-right step sideways (a gun held or aimed, on foot in
+  a multiplayer match), D-pad left and right step left and right too, as the
+  right stick turns or aims there.
 
 With the keyboard and mouse the mouse is that right stick: it turns the
 camera itself (0.15 degrees a pixel), and
-while aiming it aims, at the OPTIONS page's MOUSE AIM speed (see the controls in the README). The keyboard alone,
+while aiming it aims, at the CONTROLS page's MOUSE AIM speed (see the controls in the README). The keyboard alone,
 with the mouse not captured, keeps the game's aiming. In a multiplayer match every player's pad gets
 these controls with their own right stick; only controller 1 has the mouse. `CONKER_CONSISTENT_CONTROLS=0`
 leaves the game's controls, and CONSISTENT CONTROLS on the debug menu's
@@ -427,6 +473,9 @@ Rare's pre-rendered ones, and change when another kind of pad is connected:
 | L, R | LB, RB | L1, R1 |
 | C-left, C-right | right stick pushed right, left (left, right without consistent controls) | the same |
 | C-up, C-down | right stick pushed up, down | the same |
+
+That is the default mapping; buttons mapped differently on the debug menu's
+CONTROLS page show the pad's control they are mapped to.
 
 B is also on the other side face button (X on Xbox, Circle on PlayStation) and Z on the left trigger,
 and the C pictures point the way to push the stick, which is swapped left to

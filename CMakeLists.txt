@@ -104,6 +104,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/platform/audio.cpp
     src/platform/display_mode.cpp
     src/platform/gpu_faults.cpp
+    src/platform/input_config.cpp
     src/platform/process.cpp
     src/credits/credits.cpp
     src/fixes/alien_shadow.cpp

@@ -1,4 +1,4 @@
-// A VOLUME row and a MOUSE AIM row under the sound row on the title menu's OPTIONS page, and display rows between
+// A VOLUME row and a CONTROLS row under the sound row on the title menu's OPTIONS page, and display rows between
 // it and CHEATS: whether the sharper text and menus are drawn (SHARP TEXT or ORIGINAL
 // TEXT), the display mode (WINDOWED, BORDERLESS, FULL SCREEN), the picture's shape (4:3 or
 // WIDESCREEN), the resolution the picture is drawn at in that mode, and whether it is scaled to
@@ -26,11 +26,11 @@
 //   option after the sound row's (9) is taken by a display row, so the engine puts this row
 //   first; it is drawn under the sound row, and moving up or down follows the rows down the page. The volume scales the host's audio output only
 //   (src/platform/audio.cpp), so it is the same in every game mode, multiplayer included.
-// * The mouse aim row borrows option 8 (PICTURE 4:3/16:9, two values, hidden on the US page and
-//   read by nothing else; see the shape row), drawn under the volume row. With two values a step
-//   either way wraps to the other, so which way it went is read from controller 1 (left on the
-//   stick or D-pad is slower); the speed the mouse aims at goes through kMouseSpeeds, stopping at either end, and
-//   is kept in conker-recomp-data/input.cfg (src/runtime/frame_input.cpp).
+// * The controls row borrows option 8 (PICTURE 4:3/16:9, two values, hidden on the US page and
+//   read by nothing else; see the shape row), drawn under the volume row. A step either way, or A
+//   on it, opens the controls page over this one (src/enhancements/debug_menu/debug_menu.hpp):
+//   each controller's buttons and keys, the aim's inversion and MOUSE AIM. Not online, where the
+//   row is left out.
 // * The sharp row borrows option 10 (five values) as a carousel like the resolution row: the
 //   setting is in the middle and the other one on either side, so a step either way switches it.
 //   SHARP TEXT loads the built-in sharper font and menus (src/platform/renderer_rt64.cpp),
@@ -65,6 +65,7 @@
 #include "platform/audio.hpp"
 #include "platform/display_mode.hpp"
 #include "platform/input.hpp"
+#include "enhancements/debug_menu/debug_menu.hpp"
 #include "enhancements/status.hpp"
 #include "runtime/frame_input.hpp"
 
@@ -118,9 +119,9 @@ Borrowed g_shape_row{15, 39, 2, {31, 32, 33}, kStringArea + 10 * kStringStride};
 Borrowed g_sharp_row{10, 23, 5, {21, 22, 25, 23, 24, 26}, kStringArea + 12 * kStringStride};
 // Option 0 shares string 4 with option 12; string 2 is both options' label, unused while borrowed.
 Borrowed g_volume_row{0, 0, 3, {2, 3, 4, 5}, kStringArea + 17 * kStringStride, {3, 2, 5}};
-Borrowed g_mouse_row{8, 18, 2, {13, 14, 15}, kStringArea + 20 * kStringStride};
-// The mouse speeds the row steps through, percent.
-constexpr int kMouseSpeeds[] = {25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 400};
+Borrowed g_mouse_row{8, 18, 2, {13, 14, 15}, kStringArea + 20 * kStringStride};  // CONTROLS
+bool g_controls_shown = false;   // this call has the controls row
+bool g_a_was_held = false;       // controller 1's A at the last call, for a press on that row
 constexpr int8_t kCarouselMiddle = 2;
 constexpr int8_t kVolumeMiddle = 1;
 
@@ -303,26 +304,6 @@ std::string volume_words(int volume) {
     return text;
 }
 
-std::string mouse_words(int percent) {
-    char text[32];
-    std::snprintf(text, sizeof(text), "MOUSE AIM %d%%", percent);
-    return text;
-}
-
-// The next mouse speed in kMouseSpeeds from this one, either way, or the same at either end.
-int next_mouse_speed(int percent, int direction) {
-    if (direction > 0) {
-        for (int speed : kMouseSpeeds) {
-            if (speed > percent) return speed;
-        }
-    } else {
-        for (auto it = std::rbegin(kMouseSpeeds); it != std::rend(kMouseSpeeds); ++it) {
-            if (*it < percent) return *it;
-        }
-    }
-    return percent;
-}
-
 std::string scale_words(Mode mode, int scale) {
     const int width = mode == Mode::Windowed ? conker::display::window_picture_width(scale)
                                              : conker::display::screen_picture_width(scale);
@@ -374,9 +355,11 @@ extern "C" void conker_display_options_begin(uint8_t* rdram, recomp_context* ctx
     borrow(rdram, g_volume_row, kVolumeMiddle, {volume_words(volume - 1), volume_words(volume), volume_words(volume + 1)});
     ctx->r4 |= 1u << g_volume_row.option;
 
-    const std::string speed = mouse_words(conker::frame_input::mouse_speed());
-    borrow(rdram, g_mouse_row, 0, {speed, speed});
-    ctx->r4 |= 1u << g_mouse_row.option;
+    g_controls_shown = conker::debug_menu::controls_available();
+    if (g_controls_shown) {
+        borrow(rdram, g_mouse_row, 0, {"CONTROLS", "CONTROLS"});
+        ctx->r4 |= 1u << g_mouse_row.option;
+    }
 
     const bool sharp = conker::display::sharp();
     const char* const same = sharp ? "SHARP TEXT" : "ORIGINAL TEXT";
@@ -417,7 +400,13 @@ extern "C" void conker_display_options_end(uint8_t* rdram, recomp_context* /*ctx
     MEM_B(0, kseg0(kSelected)) =
         static_cast<int8_t>(follow_page_order(g_selected_before, MEM_BU(0, kseg0(kSelected))));
     const int8_t volume_step = static_cast<int8_t>(give_back(rdram, g_volume_row) - kVolumeMiddle);
-    const bool mouse_stepped = give_back(rdram, g_mouse_row) != 0;
+    const bool controls_stepped = g_controls_shown && give_back(rdram, g_mouse_row) != 0;
+    uint16_t buttons;
+    float x;
+    float y;
+    conker::frame_input::read(&buttons, &x, &y, 0);
+    const bool a_pressed = (buttons & conker::input::kA) != 0 && !g_a_was_held;
+    g_a_was_held = (buttons & conker::input::kA) != 0;
     const int8_t mode = give_back(rdram, g_mode_row);
     const int8_t shape = give_back(rdram, g_shape_row);
     const int8_t step = static_cast<int8_t>(give_back(rdram, g_scale_row) - kCarouselMiddle);
@@ -425,13 +414,8 @@ extern "C" void conker_display_options_end(uint8_t* rdram, recomp_context* /*ctx
     const int8_t sharp_step = static_cast<int8_t>(give_back(rdram, g_sharp_row) - kCarouselMiddle);
     if (volume_step != 0) {
         conker::audio::set_volume(conker::audio::volume() + (volume_step > 0 ? 1 : -1));
-    } else if (mouse_stepped) {
-        uint16_t buttons;
-        float x;
-        float y;
-        conker::frame_input::read(&buttons, &x, &y, 0);
-        const int direction = (buttons & conker::input::kDLeft) != 0 || x < 0.0f ? -1 : 1;
-        conker::frame_input::set_mouse_speed(next_mouse_speed(conker::frame_input::mouse_speed(), direction));
+    } else if (controls_stepped || (g_controls_shown && a_pressed && MEM_BU(0, kseg0(kSelected)) == g_mouse_row.option)) {
+        conker::debug_menu::open_controls();
     } else if (sharp_step != 0) {
         conker::display::request_sharp(!conker::display::sharp());
     } else if (mode != g_shown_mode && mode >= 0 && mode < conker::display::kModeCount) {

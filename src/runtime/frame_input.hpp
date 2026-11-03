@@ -26,6 +26,7 @@ struct Port {
     static constexpr uint8_t kConnected = 0x01;
     static constexpr uint8_t kRightStick = 0x02;  // a pad holds the port, so it has a right stick
     static constexpr uint8_t kRumble = 0x04;
+    static constexpr uint8_t kInvertAim = 0x08;  // the player's INVERT AIM (invert_aim below)
 
     uint16_t buttons = 0;  // N64 bits (conker::input::kA...), scripted presses included
     int8_t stick_x = 0;    // as the PIF answers it: about +-80, +y up
@@ -77,13 +78,22 @@ bool mouse_captured(int port);
 // The port's mouse motion this frame, the first time it is asked for in a frame; nothing after that.
 void take_mouse(int port, float* dx, float* dy, int* zoom);
 
-// How fast the mouse aims, as a percentage: the OPTIONS page's MOUSE AIM row
-// (src/enhancements/display_options/display_options.cpp), kept in conker-recomp-data/input.cfg.
+// How fast the mouse aims, as a percentage: the CONTROLS page's MOUSE AIM row
+// (src/enhancements/debug_menu/debug_menu.cpp), kept in conker-recomp-data/input.cfg.
 // It scales the motion as it goes into the record while the mouse aims; the camera is not scaled.
 constexpr int kMinMouseSpeed = 25;
 constexpr int kMaxMouseSpeed = 400;
 int mouse_speed();
 void set_mouse_speed(int percent);
+
+// The debug menu's CONTROLS page, kept in input.cfg too. INVERT AIM, per port, turns the stick's aim
+// the other way (pushed up aims down, as on the N64) wherever consistent controls aim it; it goes
+// into the record as Port::kInvertAim. INVERT MOUSE AIM turns controller 1's mouse's aim the other
+// way, as its motion goes into the record.
+bool invert_aim(int port);
+void set_invert_aim(int port, bool on);
+bool invert_mouse_aim();
+void set_invert_mouse_aim(bool on);
 
 // The settings a run depends on besides its input, as "# " header lines: the build, the fixed step
 // and every switch ("# switch LABEL=0|1"). A replay log starts with them; online the host sends

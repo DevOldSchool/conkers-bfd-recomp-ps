@@ -14,9 +14,10 @@ struct Picture {
     std::vector<uint8_t> rgba;   // straight alpha, rows top first
 };
 
-// Every picture of `style`'s set (N64, Xbox, PlayStation or the keyboard's), drawn on every core. With
-// `camera_swapped`, C-left is the right stick pushed right (input::camera_swapped), else left.
-std::vector<Picture> draw_set(Style style, bool camera_swapped);
+// Every picture of `style`'s set (N64, Xbox, PlayStation or the keyboard's), drawn on every core: an
+// Xbox or PlayStation set's as the pad controls `shown` gives, the keyboard's as its keys (none
+// for a 0).
+std::vector<Picture> draw_set(Style style, const Shown& shown);
 
 // Keycaps as the keyboard set draws them, one a label ("ESC", "ENTER"; longer than three letters
 // makes a wide key), each named by its label.

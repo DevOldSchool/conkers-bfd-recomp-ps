@@ -515,7 +515,9 @@ void build() {
 }
 
 // RT64's SDL backend for ImGui reads no game controller: give ImGui the first one's buttons and left
-// stick for its gamepad navigation (A activates, B is back, the d-pad or stick moves).
+// stick for its gamepad navigation (A activates, B is back, the d-pad or stick moves). ImGui moves
+// between items with the d-pad only (its left stick scrolls), so the stick pushed past half way
+// presses the d-pad that way too.
 void feed_pad() {
     ImGuiIO& io = ImGui::GetIO();
     static SDL_GameController* pad = nullptr;
@@ -540,10 +542,6 @@ void feed_pad() {
         {ImGuiKey_GamepadFaceRight, SDL_CONTROLLER_BUTTON_B},
         {ImGuiKey_GamepadFaceLeft, SDL_CONTROLLER_BUTTON_X},
         {ImGuiKey_GamepadFaceUp, SDL_CONTROLLER_BUTTON_Y},
-        {ImGuiKey_GamepadDpadLeft, SDL_CONTROLLER_BUTTON_DPAD_LEFT},
-        {ImGuiKey_GamepadDpadRight, SDL_CONTROLLER_BUTTON_DPAD_RIGHT},
-        {ImGuiKey_GamepadDpadUp, SDL_CONTROLLER_BUTTON_DPAD_UP},
-        {ImGuiKey_GamepadDpadDown, SDL_CONTROLLER_BUTTON_DPAD_DOWN},
         {ImGuiKey_GamepadL1, SDL_CONTROLLER_BUTTON_LEFTSHOULDER},
         {ImGuiKey_GamepadR1, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER},
     };
@@ -560,6 +558,15 @@ void feed_pad() {
     stick(ImGuiKey_GamepadLStickRight, SDL_CONTROLLER_AXIS_LEFTX, 1.0f);
     stick(ImGuiKey_GamepadLStickUp, SDL_CONTROLLER_AXIS_LEFTY, -1.0f);
     stick(ImGuiKey_GamepadLStickDown, SDL_CONTROLLER_AXIS_LEFTY, 1.0f);
+    const auto dpad = [&](ImGuiKey key, SDL_GameControllerButton button, SDL_GameControllerAxis axis, float sign) {
+        constexpr Sint16 kHalfWay = 16384;
+        const bool pushed = sign * static_cast<float>(SDL_GameControllerGetAxis(pad, axis)) > kHalfWay;
+        io.AddKeyEvent(key, SDL_GameControllerGetButton(pad, button) != 0 || pushed);
+    };
+    dpad(ImGuiKey_GamepadDpadLeft, SDL_CONTROLLER_BUTTON_DPAD_LEFT, SDL_CONTROLLER_AXIS_LEFTX, -1.0f);
+    dpad(ImGuiKey_GamepadDpadRight, SDL_CONTROLLER_BUTTON_DPAD_RIGHT, SDL_CONTROLLER_AXIS_LEFTX, 1.0f);
+    dpad(ImGuiKey_GamepadDpadUp, SDL_CONTROLLER_BUTTON_DPAD_UP, SDL_CONTROLLER_AXIS_LEFTY, -1.0f);
+    dpad(ImGuiKey_GamepadDpadDown, SDL_CONTROLLER_BUTTON_DPAD_DOWN, SDL_CONTROLLER_AXIS_LEFTY, 1.0f);
 }
 
 // RT64's present thread: the window over the frame.

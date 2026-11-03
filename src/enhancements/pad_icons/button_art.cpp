@@ -215,8 +215,180 @@ const Glyph* glyph(char c) {
         line(s, o, k, h, {0.234f, -0.085f}, {-0.27f, 0.5f});
         line(s, o, k, h, {-0.27f, 0.5f}, {0.28f, 0.5f});
     }};
+    static const Glyph x{0.66f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.28f, -0.5f}, {0.28f, 0.5f});
+        line(s, o, k, h, {0.28f, -0.5f}, {-0.28f, 0.5f});
+    }};
+    static const Glyph y{0.66f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.29f, -0.5f}, {0, 0.02f});
+        line(s, o, k, h, {0.29f, -0.5f}, {0, 0.02f});
+        line(s, o, k, h, {0, 0.02f}, {0, 0.5f});
+    }};
+    static const Glyph v{0.68f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.3f, -0.5f}, {0, 0.5f});
+        line(s, o, k, h, {0, 0.5f}, {0.3f, -0.5f});
+    }};
+    static const Glyph w{0.9f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.42f, -0.5f}, {-0.21f, 0.5f});
+        line(s, o, k, h, {-0.21f, 0.5f}, {0, -0.2f});
+        line(s, o, k, h, {0, -0.2f}, {0.21f, 0.5f});
+        line(s, o, k, h, {0.21f, 0.5f}, {0.42f, -0.5f});
+    }};
+    static const Glyph o_{0.74f, [](Symbol& s, Vec o, float k, float h) {
+        arc(s, o, k, h, {0, -0.13f}, 0.37f, 180, 180);
+        line(s, o, k, h, {0.37f, -0.13f}, {0.37f, 0.13f});
+        arc(s, o, k, h, {0, 0.13f}, 0.37f, 0, 180);
+        line(s, o, k, h, {-0.37f, 0.13f}, {-0.37f, -0.13f});
+    }};
+    static const Glyph h_{0.64f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.26f, -0.5f}, {-0.26f, 0.5f});
+        line(s, o, k, h, {0.26f, -0.5f}, {0.26f, 0.5f});
+        line(s, o, k, h, {-0.26f, 0}, {0.26f, 0});
+    }};
+    static const Glyph u{0.64f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.26f, -0.5f}, {-0.26f, 0.24f});
+        arc(s, o, k, h, {0, 0.24f}, 0.26f, 180, -180);
+        line(s, o, k, h, {0.26f, 0.24f}, {0.26f, -0.5f});
+    }};
+    static const Glyph m{0.8f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.33f, 0.5f}, {-0.33f, -0.5f});
+        line(s, o, k, h, {-0.33f, -0.5f}, {0, 0.18f});
+        line(s, o, k, h, {0, 0.18f}, {0.33f, -0.5f});
+        line(s, o, k, h, {0.33f, -0.5f}, {0.33f, 0.5f});
+    }};
+    static const Glyph three{0.62f, [](Symbol& s, Vec o, float k, float h) {
+        arc(s, o, k, h, {0, -0.255f}, 0.245f, 200, 250);
+        arc(s, o, k, h, {0, 0.245f}, 0.255f, -90, 250);
+    }};
+    static const Glyph four{0.64f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {0.14f, 0.5f}, {0.14f, -0.5f});
+        line(s, o, k, h, {0.14f, -0.5f}, {-0.28f, 0.2f});
+        line(s, o, k, h, {-0.28f, 0.2f}, {0.3f, 0.2f});
+    }};
+    static const Glyph d{0.66f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.27f, -0.5f}, {-0.27f, 0.5f});
+        line(s, o, k, h, {-0.27f, -0.5f}, {-0.05f, -0.5f});
+        arc(s, o, k, h, {-0.05f, -0.18f}, 0.32f, -90, 90);
+        line(s, o, k, h, {0.27f, -0.18f}, {0.27f, 0.18f});
+        arc(s, o, k, h, {-0.05f, 0.18f}, 0.32f, 0, 90);
+        line(s, o, k, h, {-0.05f, 0.5f}, {-0.27f, 0.5f});
+    }};
+    static const Glyph g{0.7f, [](Symbol& s, Vec o, float k, float h) {
+        arc(s, o, k, h, {0.02f, -0.13f}, 0.33f, -30, -150);
+        line(s, o, k, h, {-0.31f, -0.13f}, {-0.31f, 0.13f});
+        arc(s, o, k, h, {0.02f, 0.13f}, 0.33f, 180, -180);
+        line(s, o, k, h, {0.35f, 0.13f}, {0.35f, 0.04f});
+        line(s, o, k, h, {0.35f, 0.04f}, {0.05f, 0.04f});
+    }};
+    static const Glyph zero{0.62f, [](Symbol& s, Vec o, float k, float h) {
+        arc(s, o, k, h, {0, -0.2f}, 0.27f, 180, 180);
+        line(s, o, k, h, {0.27f, -0.2f}, {0.27f, 0.2f});
+        arc(s, o, k, h, {0, 0.2f}, 0.27f, 0, 180);
+        line(s, o, k, h, {-0.27f, 0.2f}, {-0.27f, -0.2f});
+    }};
+    static const Glyph five{0.62f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {0.26f, -0.5f}, {-0.22f, -0.5f});
+        line(s, o, k, h, {-0.22f, -0.5f}, {-0.25f, -0.05f});
+        arc(s, o, k, h, {0, 0.2f}, 0.29f, -120, 260);
+    }};
+    static const Glyph six{0.62f, [](Symbol& s, Vec o, float k, float h) {
+        arc(s, o, k, h, {0, 0.2f}, 0.28f, 0, 360);
+        line(s, o, k, h, {-0.28f, 0.2f}, {0.12f, -0.5f});
+    }};
+    static const Glyph seven{0.62f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.27f, -0.5f}, {0.27f, -0.5f});
+        line(s, o, k, h, {0.27f, -0.5f}, {-0.08f, 0.5f});
+    }};
+    static const Glyph eight{0.62f, [](Symbol& s, Vec o, float k, float h) {
+        arc(s, o, k, h, {0, -0.27f}, 0.23f, 0, 360);
+        arc(s, o, k, h, {0, 0.23f}, 0.27f, 0, 360);
+    }};
+    static const Glyph nine{0.62f, [](Symbol& s, Vec o, float k, float h) {
+        arc(s, o, k, h, {0, -0.2f}, 0.28f, 0, 360);
+        line(s, o, k, h, {0.28f, -0.2f}, {-0.12f, 0.5f});
+    }};
+    static const Glyph minus{0.5f, [](Symbol& s, Vec o, float k, float h) { line(s, o, k, h, {-0.18f, 0}, {0.18f, 0}); }};
+    static const Glyph plus{0.6f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.24f, 0}, {0.24f, 0});
+        line(s, o, k, h, {0, -0.24f}, {0, 0.24f});
+    }};
+    static const Glyph equals{0.6f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.24f, -0.13f}, {0.24f, -0.13f});
+        line(s, o, k, h, {-0.24f, 0.13f}, {0.24f, 0.13f});
+    }};
+    static const Glyph star{0.6f, [](Symbol& s, Vec o, float k, float h) {
+        for (float a : {90.0f, 30.0f, 150.0f}) {
+            const Vec d{std::cos(a * kPi / 180) * 0.26f, std::sin(a * kPi / 180) * 0.26f};
+            line(s, o, k, h, Vec{0, -0.12f} - d, Vec{0, -0.12f} + d);
+        }
+    }};
+    static const Glyph open{0.42f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {0.12f, -0.56f}, {-0.1f, -0.56f});
+        line(s, o, k, h, {-0.1f, -0.56f}, {-0.1f, 0.56f});
+        line(s, o, k, h, {-0.1f, 0.56f}, {0.12f, 0.56f});
+    }};
+    static const Glyph close{0.42f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.12f, -0.56f}, {0.1f, -0.56f});
+        line(s, o, k, h, {0.1f, -0.56f}, {0.1f, 0.56f});
+        line(s, o, k, h, {0.1f, 0.56f}, {-0.12f, 0.56f});
+    }};
+    static const Glyph slash{0.5f, [](Symbol& s, Vec o, float k, float h) { line(s, o, k, h, {0.18f, -0.56f}, {-0.18f, 0.56f}); }};
+    static const Glyph backslash{0.5f, [](Symbol& s, Vec o, float k, float h) { line(s, o, k, h, {-0.18f, -0.56f}, {0.18f, 0.56f}); }};
+    static const Glyph dot{0.3f, [](Symbol& s, Vec o, float k, float h) { line(s, o, k, h, {0, 0.48f}, {0, 0.5f}); }};
+    static const Glyph comma{0.3f, [](Symbol& s, Vec o, float k, float h) { line(s, o, k, h, {0.03f, 0.42f}, {-0.05f, 0.64f}); }};
+    static const Glyph semicolon{0.3f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {0.02f, -0.1f}, {0.02f, -0.08f});
+        line(s, o, k, h, {0.03f, 0.42f}, {-0.05f, 0.64f});
+    }};
+    static const Glyph colon{0.3f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {0, -0.1f}, {0, -0.08f});
+        line(s, o, k, h, {0, 0.48f}, {0, 0.5f});
+    }};
+    static const Glyph quote{0.3f, [](Symbol& s, Vec o, float k, float h) { line(s, o, k, h, {0, -0.5f}, {0, -0.22f}); }};
+    static const Glyph grave{0.36f, [](Symbol& s, Vec o, float k, float h) { line(s, o, k, h, {-0.08f, -0.5f}, {0.08f, -0.3f}); }};
+    static const Glyph hash{0.66f, [](Symbol& s, Vec o, float k, float h) {
+        line(s, o, k, h, {-0.08f, -0.5f}, {-0.16f, 0.5f});
+        line(s, o, k, h, {0.16f, -0.5f}, {0.08f, 0.5f});
+        line(s, o, k, h, {-0.28f, -0.17f}, {0.3f, -0.17f});
+        line(s, o, k, h, {-0.3f, 0.17f}, {0.28f, 0.17f});
+    }};
     switch (c) {
+        case '#': return &hash;
+        case 'D': return &d;
+        case 'G': return &g;
+        case '0': return &zero;
+        case '5': return &five;
+        case '6': return &six;
+        case '7': return &seven;
+        case '8': return &eight;
+        case '9': return &nine;
+        case '-': return &minus;
+        case '+': return &plus;
+        case '=': return &equals;
+        case '*': return &star;
+        case '[': return &open;
+        case ']': return &close;
+        case '(': return &open;
+        case ')': return &close;
+        case '/': return &slash;
+        case '\\': return &backslash;
+        case '.': return &dot;
+        case ',': return &comma;
+        case ';': return &semicolon;
+        case ':': return &colon;
+        case '\'': return &quote;
+        case '`': return &grave;
         case 'A': return &a;
+        case 'H': return &h_;
+        case 'M': return &m;
+        case 'O': return &o_;
+        case 'U': return &u;
+        case 'V': return &v;
+        case 'W': return &w;
+        case 'X': return &x;
+        case 'Y': return &y;
+        case '3': return &three;
+        case '4': return &four;
         case 'B': return &b;
         case 'C': return &c_;
         case 'E': return &e;
@@ -241,12 +413,17 @@ const Glyph* glyph(char c) {
 // `text` centred on the cap, its capitals `height` tall (world units).
 Symbol letters(const std::string& text, float height) {
     constexpr float kGap = 0.14f, kWeight = 0.085f;  // between letters; half the stroke, of the height
+    constexpr float kUnknown = 0.4f;  // a character the font has not: a space
     float width = -kGap;
-    for (char c : text) width += glyph(c)->width + kGap;
+    for (char c : text) width += (glyph(c) != nullptr ? glyph(c)->width : kUnknown) + kGap;
     Symbol s;
     float x = -width / 2;
     for (char c : text) {
         const Glyph* g = glyph(c);
+        if (g == nullptr) {
+            x += kUnknown + kGap;
+            continue;
+        }
         const float inset = kWeight;  // strokes are centred on the outline, so pull them inside it
         g->strokes(s, {(x + g->width / 2) * height, 0}, height * (1 - 2 * inset), kWeight * height);
         x += g->width + kGap;
@@ -254,7 +431,7 @@ Symbol letters(const std::string& text, float height) {
     return s;
 }
 
-enum class Kind { Cross, Square, Menu, Left, Right, Up, Down };
+enum class Kind { Cross, Square, Circle, Triangle, Menu, Create, View, Left, Right, Up, Down };
 
 // A symbol `scale` across from its middle, strokes `width` wide; with a ring of radius `ring`.
 Symbol shape(Kind kind, float scale, float width, float ring = 0, float ring_width = 0.05f, float forward = 0) {
@@ -272,6 +449,31 @@ Symbol shape(Kind kind, float scale, float width, float ring = 0, float ring_wid
             const float h = k - width / 2;
             const Vec corners[4] = {{c.x - h, c.y - h}, {c.x + h, c.y - h}, {c.x + h, c.y + h}, {c.x - h, c.y + h}};
             for (int i = 0; i < 4; i++) s.lines.push_back({corners[i], corners[(i + 1) % 4], width / 2});
+            break;
+        }
+        case Kind::Circle:
+            s.arcs.push_back({c, k - width / 2, 0, 2 * kPi, width / 2});
+            break;
+        case Kind::Triangle: {  // pointing up, its middle where a circle round it would have its
+            const Vec top{c.x, c.y - k}, left{c.x - k * 0.95f, c.y + k * 0.62f}, right{c.x + k * 0.95f, c.y + k * 0.62f};
+            s.lines.push_back({top, left, width / 2});
+            s.lines.push_back({left, right, width / 2});
+            s.lines.push_back({right, top, width / 2});
+            break;
+        }
+        case Kind::Create:  // the DualSense's Create (Share): three short strokes fanning upwards
+            for (float angle : {-30.0f, 0.0f, 30.0f}) {  // apart, as rays from a point below them
+                const Vec d{std::sin(angle * kPi / 180), -std::cos(angle * kPi / 180)};
+                const Vec from{c.x, c.y + k * 1.25f};
+                s.lines.push_back({from + d * (k * 1.0f), from + d * (k * 1.9f), width / 2});
+            }
+            break;
+        case Kind::View: {  // Xbox's View: two windows, one over the other's corner
+            const float w = k * 0.62f, h = k * 0.48f;
+            for (const Vec o : {Vec{c.x - k * 0.26f, c.y - k * 0.22f}, Vec{c.x + k * 0.26f, c.y + k * 0.22f}}) {
+                const Vec corners[4] = {{o.x - w, o.y - h}, {o.x + w, o.y - h}, {o.x + w, o.y + h}, {o.x - w, o.y + h}};
+                for (int i = 0; i < 4; i++) s.lines.push_back({corners[i], corners[(i + 1) % 4], width / 2});
+            }
             break;
         }
         case Kind::Menu:
@@ -313,6 +515,9 @@ Vec3 normalise(Vec3 a) {
 
 struct Button {
     float rx = 0.72f, ry = 0.72f, wall = 0.26f, dome = 0.10f, concave = 0, squareness = 2;
+    // A PlayStation D-pad key: the way its inner end faces (the pad's middle), which tapers to a
+    // point; rx is then its width and ry its length. None while zero.
+    Vec inward{0, 0};
     float tilt = kTilt, row = 0.12f, shine = 60, spec = 0.9f;
     bool engrave = false;
     Rgb base{}, ink{};
@@ -354,7 +559,17 @@ Render render(const Button& b, float ambient = 0.22f, float shine = 0.9f) {
     Plane h(G * G), inside(G * G);
     for (int i = 0; i < G; i++) {
         for (int j = 0; j < G; j++) {
-            const float wx = float(j) / G * 2 - 1, wy = float(i) / G * 2 - 1;
+            float wx = float(j) / G * 2 - 1, wy = float(i) / G * 2 - 1;
+            if (b.inward.x != 0 || b.inward.y != 0) {
+                // Across and along the key, the inner end narrowing from just inside its middle
+                // to a blunt point.
+                const float along = wx * b.inward.x + wy * b.inward.y;
+                const float across = wx * b.inward.y - wy * b.inward.x;
+                constexpr float kTaperFrom = 0.3f, kTip = 0.22f;
+                const float t = std::clamp((along / b.ry - kTaperFrom) / (1 - kTaperFrom), 0.0f, 1.0f);
+                wx = across / (1 - (1 - kTip) * t);
+                wy = along;
+            }
             const float s = std::pow(std::pow(std::abs(wx / b.rx), b.squareness) + std::pow(std::abs(wy / b.ry), b.squareness),
                                      1 / b.squareness);
             const float top = std::pow(std::clamp(1 - s * s * s * s, 0.0f, 1.0f), 0.25f);
@@ -539,7 +754,28 @@ Button keycap(bool wide) {
     return key;
 }
 
-std::vector<Entry> entries(Style style, bool swapped) {
+// The D-pad pushed one way: its cross outlined, the arm pushed filled in.
+Symbol dpad(Kind way, float width) {
+    constexpr float w = 0.19f, L = 0.66f;  // an arm's half width and the cross's reach
+    const Vec outline[12] = {{w, -L}, {w, -w}, {L, -w}, {L, w}, {w, w}, {w, L},
+                             {-w, L}, {-w, w}, {-L, w}, {-L, -w}, {-w, -w}, {-w, -L}};
+    Symbol s;
+    for (int i = 0; i < 12; i++) s.lines.push_back({outline[i], outline[(i + 1) % 12], width / 2});
+    // The arm pushed, from the middle square's edge to its end, as two triangles.
+    Vec a, b, c, d;
+    switch (way) {
+        case Kind::Up: a = {-w, -L}, b = {w, -L}, c = {w, -w}, d = {-w, -w}; break;
+        case Kind::Down: a = {-w, w}, b = {w, w}, c = {w, L}, d = {-w, L}; break;
+        case Kind::Left: a = {-L, -w}, b = {-w, -w}, c = {-w, w}, d = {-L, w}; break;
+        default: a = {w, -w}, b = {L, -w}, c = {L, w}, d = {w, w}; break;
+    }
+    s.triangles.push_back({{a, b, c}});
+    s.triangles.push_back({{a, c, d}});
+    s.lines.push_back({a, c, width / 2});  // over the seam where the two meet
+    return s;
+}
+
+std::vector<Entry> entries(Style style, const Shown& shown) {
     Button face;  // A and B: a little smaller than Rare's, to clear the text beside them
     face.rx = face.ry = 0.66f;
     Button stick;
@@ -559,16 +795,112 @@ std::vector<Entry> entries(Style style, bool swapped) {
     std::vector<Entry> out;
     auto add = [&](const char* name, int w, int h, bool has_lit, Button b) { out.push_back({name, w, h, has_lit, std::move(b)}); };
 
-    // The C buttons are the right stick. Each C picture points the way to push it: with the
-    // camera swap (src/platform/input_sdl.cpp) C-left is the stick pushed right and C-right left.
-    const Kind to_left = swapped ? Kind::Right : Kind::Left, to_right = swapped ? Kind::Left : Kind::Right;
-    auto sticks = [&](Rgb cap, Rgb ink) {
-        add("c_left", 32, 32, false, with(stick, cap, ink, shape(to_left, 0.36f, 0, 0.66f)));
-        add("c_right", 32, 32, false, with(stick, cap, ink, shape(to_right, 0.36f, 0, 0.66f)));
-        add("c_up", 32, 32, false, with(stick, cap, ink, shape(Kind::Up, 0.36f, 0, 0.66f)));
-        add("c_down", 32, 32, false, with(stick, cap, ink, shape(Kind::Down, 0.36f, 0, 0.66f)));
-        add("c_left_small", 16, 16, false, with(stick, cap, ink, shape(to_left, 0.36f, 0, 0.66f)));
-        add("c_right_small", 16, 16, false, with(stick, cap, ink, shape(to_right, 0.36f, 0, 0.66f)));
+    // An Xbox or PlayStation pad's controls, each drawn as it is on the pad: the face buttons'
+    // coloured letters or symbols on black caps, the shoulders and triggers named, a stick pressed
+    // named, the D-pad and the right stick (the C buttons by default) with an arrow the way pushed.
+    using input::PadControl;
+    const bool playstation = style == Style::PlayStation;
+    const Rgb pad_cap = colour(playstation ? 0x1b1c20 : 0x1d1f22);
+    const Rgb pad_ink = colour(playstation ? 0xc9ccd4 : 0xe8e8ea);
+    Button options = wide;  // PlayStation's Options and Create (Share) are small and upright
+    options.rx = 0.64f, options.ry = 0.84f;
+    Button pill = wide;  // the touchpad and the microphone button: wide and low
+    pill.rx = 0.94f, pill.ry = 0.5f, pill.dome = 0.02f;
+    Button touchpad = wide;
+    touchpad.rx = 0.94f, touchpad.ry = 0.54f, touchpad.dome = 0;
+    Button dpad_cap = wide;  // Xbox: the whole D-pad, the arm pushed filled in
+    dpad_cap.rx = dpad_cap.ry = 0.8f;
+    // PlayStation: the D-pad is four keys, each with a little arrow; the one pushed, long the way
+    // it points.
+    auto dpad_key = [&](Kind way) {
+        Button key = wide;
+        key.squareness = 4, key.dome = 0.03f, key.wall = 0.22f;
+        key.rx = 0.62f, key.ry = 0.88f;
+        key.inward = way == Kind::Up ? Vec{0, 1} : way == Kind::Down ? Vec{0, -1} : way == Kind::Left ? Vec{1, 0} : Vec{-1, 0};
+        Symbol arrow = shape(way, 0.17f, 0);  // towards the outer end, as on the pad
+        for (Symbol::Triangle& t : arrow.triangles)
+            for (Vec& p : t.p) p = p - key.inward * 0.3f;
+        return with(key, pad_cap, pad_ink, arrow);
+    };
+    auto dpad_button = [&](Kind way) {
+        return playstation ? dpad_key(way) : with(dpad_cap, pad_cap, pad_ink, dpad(way, 0.06f));
+    };
+    auto named = [&](auto xbox, auto ps) { return playstation ? ps : xbox; };
+    auto pad_control = [&](PadControl control) -> Button {
+
+        switch (control) {
+            case PadControl::South:
+                return playstation ? with(face, pad_cap, colour(0x7fb0f2), shape(Kind::Cross, 0.33f, 0.095f))
+                                   : with(face, pad_cap, colour(0x4fd24f), label("A", 0.72f));
+            case PadControl::East:
+                return playstation ? with(face, pad_cap, colour(0xff6b6b), shape(Kind::Circle, 0.31f, 0.09f))
+                                   : with(face, pad_cap, colour(0xff4a40), label("B", 0.72f));
+            case PadControl::West:
+                return playstation ? with(face, pad_cap, colour(0xf28fcf), shape(Kind::Square, 0.25f, 0.085f))
+                                   : with(face, pad_cap, colour(0x3a8ef0), label("X", 0.72f));
+            case PadControl::North:
+                return playstation ? with(face, pad_cap, colour(0x3fd7b4), shape(Kind::Triangle, 0.3f, 0.085f, 0, 0.05f, 0.04f))
+                                   : with(face, pad_cap, colour(0xf2c21b), label("Y", 0.72f));
+            case PadControl::Start:
+                return playstation ? with(options, pad_cap, pad_ink, shape(Kind::Menu, 0.36f, 0.11f))
+                                   : with(wide, pad_cap, pad_ink, shape(Kind::Menu, 0.38f, 0.11f));
+            case PadControl::Back:  // never mapped (the debug menu's), drawn all the same
+                return playstation ? with(options, pad_cap, pad_ink, shape(Kind::Create, 0.36f, 0.075f))
+                                   : with(wide, pad_cap, pad_ink, shape(Kind::View, 0.42f, 0.09f));
+            case PadControl::Guide: return with(face, pad_cap, pad_ink, label(named("XBOX", "PS"), named(0.3f, 0.5f)));
+            case PadControl::LeftStick: return with(stick, pad_cap, pad_ink, label(named("LS", "L3"), 0.5f));
+            case PadControl::RightStick: return with(stick, pad_cap, pad_ink, label(named("RS", "R3"), 0.5f));
+            case PadControl::LeftShoulder: return with(bumper, pad_cap, pad_ink, label(named("LB", "L1"), 0.56f));
+            case PadControl::RightShoulder: return with(bumper, pad_cap, pad_ink, label(named("RB", "R1"), 0.56f));
+            case PadControl::LeftTrigger: return with(trigger, pad_cap, pad_ink, label(named("LT", "L2"), 0.48f));
+            case PadControl::RightTrigger: return with(trigger, pad_cap, pad_ink, label(named("RT", "R2"), 0.48f));
+            case PadControl::DpadUp: return dpad_button(Kind::Up);
+            case PadControl::DpadDown: return dpad_button(Kind::Down);
+            case PadControl::DpadLeft: return dpad_button(Kind::Left);
+            case PadControl::DpadRight: return dpad_button(Kind::Right);
+            case PadControl::Misc: return with(playstation ? pill : wide, pad_cap, pad_ink, label(named("SHARE", "MIC"), named(0.24f, 0.3f)));
+            // The paddles under the pad, as SDL numbers them: right then left upper, right then left
+            // lower; on an Xbox Elite P1, P3, P2 and P4, on a DualSense Edge its right and left back
+            // buttons, then its right and left Fn buttons.
+            case PadControl::Paddle1: return with(bumper, pad_cap, pad_ink, label(named("P1", "RBACK"), named(0.56f, 0.3f)));
+            case PadControl::Paddle2: return with(bumper, pad_cap, pad_ink, label(named("P3", "LBACK"), named(0.56f, 0.3f)));
+            case PadControl::Paddle3: return with(bumper, pad_cap, pad_ink, label(named("P2", "R FN"), named(0.56f, 0.34f)));
+            case PadControl::Paddle4: return with(bumper, pad_cap, pad_ink, label(named("P4", "L FN"), named(0.56f, 0.34f)));
+            case PadControl::Touchpad: return with(touchpad, pad_cap, pad_ink, label("TOUCH", 0.26f));
+            case PadControl::RightStickUp: return with(stick, pad_cap, pad_ink, shape(Kind::Up, 0.36f, 0, 0.66f));
+            case PadControl::RightStickDown: return with(stick, pad_cap, pad_ink, shape(Kind::Down, 0.36f, 0, 0.66f));
+            case PadControl::RightStickLeft: return with(stick, pad_cap, pad_ink, shape(Kind::Left, 0.36f, 0, 0.66f));
+            default: return with(stick, pad_cap, pad_ink, shape(Kind::Right, 0.36f, 0, 0.66f));
+        }
+    };
+    // A key as the keyboard set draws it: dark, with a white legend (the arrow keys an arrow), wide
+    // for a long one.
+    const Rgb key_cap = colour(0x26282d), key_ink = colour(0xeceef2);
+    auto key_picture = [&](int scancode) {
+        const std::string text = input::key_label(scancode);
+        const Kind arrow = text == "UP" ? Kind::Up : text == "DOWN" ? Kind::Down : text == "LEFT" ? Kind::Left : Kind::Right;
+        if (text == "UP" || text == "DOWN" || text == "LEFT" || text == "RIGHT") {
+            return with(keycap(false), key_cap, key_ink, shape(arrow, 0.3f, 0));
+        }
+        const float em = text.size() == 1 ? 0.62f : text.size() <= 3 ? 0.44f : text.size() == 4 ? 0.4f : 0.34f;
+        return with(keycap(text.size() > 3), key_cap, key_ink, label(text, em));
+    };
+    // Each picture as the control or key shown for its button; none for a button nothing presses.
+    auto picture = [&](int shown) {
+        return style == Style::Keyboard ? key_picture(shown) : pad_control(PadControl(shown));
+    };
+    auto pad_set = [&] {
+        struct Place { const char* name; int w, h; bool has_lit; Slot slot; };
+        constexpr Place kPlaces[] = {
+            {"a", 32, 32, true, kSlotA}, {"b", 32, 32, true, kSlotB}, {"start", 32, 32, true, kSlotStart},
+            {"z", 16, 32, false, kSlotZ}, {"l", 32, 16, false, kSlotL}, {"r", 32, 16, false, kSlotR},
+            {"c_left", 32, 32, false, kSlotCLeft}, {"c_right", 32, 32, false, kSlotCRight},
+            {"c_up", 32, 32, false, kSlotCUp}, {"c_down", 32, 32, false, kSlotCDown},
+            {"c_left_small", 16, 16, false, kSlotCLeft}, {"c_right_small", 16, 16, false, kSlotCRight},
+        };
+        for (const Place& place : kPlaces) {
+            if (shown[place.slot] != 0) add(place.name, place.w, place.h, place.has_lit, picture(shown[place.slot]));
+        }
     };
 
     switch (style) {
@@ -592,52 +924,13 @@ std::vector<Entry> entries(Style style, bool swapped) {
             add("c_right_small", 16, 16, false, with(c, yellow, deep, shape(Kind::Right, 0.34f, 0, 0, 0, 0.14f), true));
             break;
         }
-        case Style::Xbox: {  // black caps, coloured letters; Z is drawn as the right trigger
-            const Rgb cap = colour(0x1d1f22), white = colour(0xe8e8ea);
-            add("a", 32, 32, true, with(face, cap, colour(0x4fd24f), label("A", 0.72f)));
-            add("b", 32, 32, true, with(face, cap, colour(0xff4a40), label("B", 0.72f)));
-            add("start", 32, 32, true, with(wide, cap, white, shape(Kind::Menu, 0.38f, 0.11f)));
-            add("z", 16, 32, false, with(trigger, cap, white, label("RT", 0.48f)));
-            add("l", 32, 16, false, with(bumper, cap, white, label("LB", 0.56f)));
-            add("r", 32, 16, false, with(bumper, cap, white, label("RB", 0.56f)));
-            sticks(cap, white);
+        case Style::Xbox:         // black caps, coloured letters
+        case Style::PlayStation:  // the DualShock 4's black caps and coloured symbols
+            pad_set();
             break;
-        }
-        case Style::PlayStation: {  // the DualShock 4's black caps and coloured symbols
-            const Rgb cap = colour(0x1b1c20), grey = colour(0xc9ccd4);
-            Button options = wide;
-            options.rx = 0.64f, options.ry = 0.84f;
-            add("a", 32, 32, true, with(face, cap, colour(0x7fb0f2), shape(Kind::Cross, 0.33f, 0.095f)));
-            add("b", 32, 32, true, with(face, cap, colour(0xf28fcf), shape(Kind::Square, 0.25f, 0.085f)));
-            add("start", 32, 32, true, with(options, cap, grey, shape(Kind::Menu, 0.36f, 0.11f)));
-            add("z", 16, 32, false, with(trigger, cap, grey, label("R2", 0.48f)));
-            add("l", 32, 16, false, with(bumper, cap, grey, label("L1", 0.56f)));
-            add("r", 32, 16, false, with(bumper, cap, grey, label("R1", 0.56f)));
-            sticks(cap, grey);
+        case Style::Keyboard:  // dark keycaps with white legends, the keys that press each button
+            pad_set();
             break;
-        }
-        case Style::Keyboard: {  // dark keycaps with white legends, the keys that press each button
-            const Rgb cap = colour(0x26282d), white = colour(0xeceef2);
-            const Button key = keycap(false);
-            const Button space = keycap(true);
-            // START is Enter (Esc only lets the mouse go). Z is C (crouch), Left Ctrl and the left
-            // mouse button too; L is Q and Tab, R F and the right mouse button. C-left is L with the camera swap, as on the stick, else J.
-            const char* to_left = swapped ? "L" : "J";
-            const char* to_right = swapped ? "J" : "L";
-            add("a", 32, 32, true, with(space, cap, white, label("SPACE", 0.4f)));
-            add("b", 32, 32, true, with(key, cap, white, label("E", 0.62f)));
-            add("start", 32, 32, true, with(space, cap, white, label("ENTER", 0.4f)));
-            add("z", 16, 32, false, with(key, cap, white, label("C", 0.62f)));
-            add("l", 32, 16, false, with(key, cap, white, label("Q", 0.62f)));
-            add("r", 32, 16, false, with(key, cap, white, label("F", 0.62f)));
-            add("c_left", 32, 32, false, with(key, cap, white, label(to_left, 0.62f)));
-            add("c_right", 32, 32, false, with(key, cap, white, label(to_right, 0.62f)));
-            add("c_up", 32, 32, false, with(key, cap, white, label("I", 0.62f)));
-            add("c_down", 32, 32, false, with(key, cap, white, label("K", 0.62f)));
-            add("c_left_small", 16, 16, false, with(key, cap, white, label(to_left, 0.62f)));
-            add("c_right_small", 16, 16, false, with(key, cap, white, label(to_right, 0.62f)));
-            break;
-        }
         default:
             break;
     }
@@ -681,8 +974,8 @@ std::vector<Picture> draw_keys(const std::vector<std::string>& labels) {
     return out;
 }
 
-std::vector<Picture> draw_set(Style style, bool camera_swapped) {
-    const std::vector<Entry> list = entries(style, camera_swapped);
+std::vector<Picture> draw_set(Style style, const Shown& shown) {
+    const std::vector<Entry> list = entries(style, shown);
     std::vector<std::vector<Picture>> made(list.size());
     std::atomic<size_t> next{0};
     std::vector<std::thread> workers;

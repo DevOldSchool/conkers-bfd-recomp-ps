@@ -5,7 +5,7 @@
 // first-person look; consistent_controls.cpp) it is a stick deflection for this frame instead, as
 // the game aims at the speed the stick asks. The wheel, or R and T, step the camera in and out
 // through the game's three distances, both ways, where C-up only steps in.
-// The OPTIONS page's MOUSE AIM speed scales the aiming (200% by default), not the camera, applied as
+// The CONTROLS page's MOUSE AIM speed scales the aiming (200% by default), not the camera, applied as
 // the motion goes into the frame's input record (src/runtime/frame_input.cpp) when the mouse aimed
 // the frame before.
 //
