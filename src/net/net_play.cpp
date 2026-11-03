@@ -179,7 +179,6 @@ constexpr int32_t kWaitSlotCount = 8;
 // without the words that hold clock readings (state_hash.cpp's masked words).
 constexpr uint32_t kHashStart = 0x00082B20;
 constexpr uint32_t kHashEnd = 0x003B0000;
-constexpr uint32_t kGameMemoryEnd = 0x00400000;  // the game's 4 MiB (physical)
 struct Range {
     uint32_t start;
     uint32_t end;
@@ -3085,10 +3084,7 @@ bool parse_args(int* argc, char** argv) {
 
 bool active() { return g_active; }
 
-// The frame buffers too: the game reads pixels of the frame it drew (a visibility test placed
-// vertices off screen on one machine and not the other, a Mac's Metal and a Linux VM's Vulkan drawing
-// a pixel differently), so nothing drawn is written into any of the game's 4 MiB online.
-uint32_t game_memory_end() { return g_active ? kGameMemoryEnd : 0; }
+uint32_t game_memory_end() { return g_active ? kHashEnd : 0; }
 
 bool lobby_at_boot() { return g_options.lobby; }
 
