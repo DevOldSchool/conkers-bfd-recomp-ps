@@ -17,6 +17,7 @@
 // length by is a model instead of the real queue: what the frames made, less 1/30 s at the
 // output rate a frame. It averages out to the real rate, as Rare's choice does.
 #include <cstdint>
+#include <cstdio>
 #include <deque>
 
 #include <cstring>
@@ -201,6 +202,13 @@ void conker::frame_input::make_audio_frame(uint8_t* rdram, recomp_context* hook_
     // not wait here, and the "done" is taken on a later frame.
     g_in_flight++;
     const bool room = MEM_W(0, kseg0(kGameQueueCount)) + 4 < MEM_W(0, kseg0(kGameQueueSize));
+    if (!room && g_in_flight > 0) {
+        static uint32_t full_logged = 0;
+        if (full_logged++ < 20) {
+            std::printf("[conker] audio frame: the game's queue is full (%d of %d); its task's \"done\" is taken later\n",
+                        static_cast<int>(MEM_W(0, kseg0(kGameQueueCount))), static_cast<int>(MEM_W(0, kseg0(kGameQueueSize))));
+        }
+    }
     while (room && g_in_flight > 0) {
         receive_done(rdram, ctx, hook_ctx, message);
     }
