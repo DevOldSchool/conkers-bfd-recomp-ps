@@ -23,6 +23,8 @@ void on_init(uint8_t* rdram, recomp_context* ctx);
 
 // Puts a thread context into the FR=1 FPU register layout the game runs with (see game.cpp).
 void use_fr1_float_mode(recomp_context* ctx);
+// The thread's float environment as IEEE has it (rounding to nearest, no flush to zero).
+void use_ieee_float_environment();
 
 // The recomp context of the N64 thread running on this host thread (diagnostics).
 void set_current_context(recomp_context* ctx);

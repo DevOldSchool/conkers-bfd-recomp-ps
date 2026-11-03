@@ -36,6 +36,7 @@
 #include "recomp.h"
 #include "enhancements/object_inspector/object_inspector.hpp"
 #include "platform/input.hpp"
+#include "runtime/exact_math.hpp"
 #include "runtime/frame_input.hpp"
 #include "runtime/snapshot.hpp"
 
@@ -225,8 +226,8 @@ extern "C" void conker_mouse_camera(uint8_t* rdram, recomp_context* ctx) {
     }
     // Turned right, the view turns right: C-left's way, a negative angle.
     const float angle = -degrees * read_float(rdram, kDegreesToRadians);
-    const float c = std::cos(angle);
-    const float s = std::sin(angle);
+    const float c = conker::exact_math::cos(angle);
+    const float s = conker::exact_math::sin(angle);
     const float x = read_float(rdram, camera + kCameraEye) - read_float(rdram, camera + kCameraPivot);
     const float z = read_float(rdram, camera + kCameraEye + 8) - read_float(rdram, camera + kCameraPivot + 8);
     write_float(rdram, camera + kCameraEye, c * x + s * z + read_float(rdram, camera + kCameraPivot));

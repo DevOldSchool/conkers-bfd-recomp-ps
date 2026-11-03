@@ -31,6 +31,7 @@
 #include "enhancements/display_options/widescreen_culling.hpp"
 #include "enhancements/switches.hpp"
 #include "platform/display_mode.hpp"
+#include "runtime/exact_math.hpp"
 #include "runtime/snapshot.hpp"
 
 namespace {
@@ -60,7 +61,7 @@ extern "C" void conker_widescreen_culling(uint8_t* /*rdram*/, recomp_context* ct
     if (!(fov > 0.0f && fov < kMaxFov)) {
         return;
     }
-    const float wide = 2.0f * std::atan(std::tan(fov * 0.5f * kDegrees) * widening * kMargin) / kDegrees;
+    const float wide = 2.0f * conker::exact_math::atan(conker::exact_math::tan(fov * 0.5f * kDegrees) * widening * kMargin) / kDegrees;
     ctx->f4.fl = wide < kMaxFov ? wide : kMaxFov;
 }
 

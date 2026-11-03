@@ -39,7 +39,7 @@ patches_for() {
                 rt64-vi-copy.patch rt64-rsp-indices.patch rt64-online-writeback.patch rt64-metal-version.patch \
                 rt64-cross-dxc.patch rt64-present-focus.patch ;;
         lib/N64ModernRuntime/N64Recomp) echo n64modernruntime-n64recomp-jump-tables.patch \
-            n64modernruntime-n64recomp-address-window.patch ;;
+            n64modernruntime-n64recomp-address-window.patch n64modernruntime-n64recomp-float-determinism.patch ;;
         lib/rt64/src/contrib/plume) echo plume-wireframe.patch plume-gpu-errors.patch plume-moltenvk-robustness.patch ;;
     esac
 }

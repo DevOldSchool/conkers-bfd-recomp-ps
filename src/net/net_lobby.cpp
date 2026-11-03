@@ -279,16 +279,15 @@ std::string settings_differ(const std::string& theirs) {
     return out;
 }
 
-// Why this machine could not play with a game of this build, OS, ROM and lobby version ("" if it can).
-std::string mismatch(const std::string& build_in, const std::string& os, uint64_t rom, uint16_t protocol) {
+// Why this machine could not play with a game of this build, ROM and lobby version ("" if it can). The
+// OS and CPU do not matter: Macs, Linux and Windows PCs run the same game to the bit (the float
+// conversions, fused multiply-adds and libm calls that differ between them are made the same, see
+// docs/online-multiplayer-plan.md, M8).
+std::string mismatch(const std::string& build_in, const std::string& /*os*/, uint64_t rom, uint16_t protocol) {
     const std::string build = printable(build_in, 40);
     if (build_in != conker::net::build_text() || protocol != kProtocol) {
         return "a different version of the game (the host runs " + build + ", this machine " +
                conker::net::build_text() + "); everyone needs the same build";
-    }
-    if (os != conker::net::os_text()) {
-        return "a different system (the host runs " + printable(os, 40) + ", this machine " + conker::net::os_text() +
-               "); for now everyone needs the same OS and CPU";
     }
     if (rom != conker::net::rom_hash()) {
         return "a different ROM; everyone needs Conker's Bad Fur Day (US)";

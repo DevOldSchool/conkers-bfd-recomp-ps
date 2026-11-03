@@ -26,6 +26,15 @@ endif()
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|x86_64)$")
     add_compile_options(-msse4.1)
 endif()
+# Online play runs the same game on every player's machine, Macs, Linux and Windows PCs together, and
+# their games must stay the same to the bit. A compiler may fuse a multiply and an add into one
+# instruction with a single rounding (arm64 clang does within an expression, GCC anywhere), which
+# x86-64 without FMA never does: so never, here and in every library built with the game.
+if(CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    add_compile_options(/clang:-ffp-contract=off)
+else()
+    add_compile_options(-ffp-contract=off)
+endif()
 # N64ModernRuntime brings ultramodern (libultra reimplementation), librecomp (glue for N64Recomp
 # output, ROM/PI, saves), the N64Recomp library used for live recompilation, and miniz.
 add_subdirectory(lib/N64ModernRuntime)

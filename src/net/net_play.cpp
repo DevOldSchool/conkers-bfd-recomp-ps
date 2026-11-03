@@ -1441,7 +1441,7 @@ std::filesystem::path data_dir();
 // takes the port in as on a console.
 void on_rejoin_hello(const sockaddr_storage& from, socklen_t from_len, Reader& r, uint64_t secret) {
     const std::string build = r.text(200);
-    const std::string os = r.text(64);
+    r.text(64);  // its OS and CPU: any (net_lobby.cpp's mismatch says why)
     const uint64_t rom = r.u64();
     const int wanted = r.u8();
     const bool no_snapshot = r.u8() != 0;
@@ -1474,8 +1474,6 @@ void on_rejoin_hello(const sockaddr_storage& from, socklen_t from_len, Reader& r
         problem = "a bad HELLO";
     } else if (build != build_text()) {
         problem = "the host runs build " + build_text() + ", this is " + conker::net::printable(build, 40);
-    } else if (os != os_text()) {
-        problem = "the host runs on " + os_text() + ", this on " + conker::net::printable(os, 40);
     } else if (rom != conker::net::rom_hash()) {
         problem = "the host plays another ROM";
     } else if (g_options.token != 0 && !conker::net::same_secret(token, g_options.token)) {
@@ -2222,9 +2220,6 @@ bool host_connect() {
                 std::string problem;
                 if (build != build_text()) {
                     problem = "the host runs build " + build_text() + ", this is " + conker::net::printable(build, 40);
-                } else if (os != os_text()) {
-                    problem = "the host runs on " + os_text() + ", this on " + conker::net::printable(os, 40) +
-                              " (the same OS and CPU are needed for now)";
                 } else if (rom != conker::net::rom_hash()) {
                     problem = "the host plays another ROM";
                 } else if (g_options.token != 0 && !conker::net::same_secret(token, g_options.token)) {
@@ -2259,8 +2254,8 @@ bool host_connect() {
                 joined.last_heard = now;
                 g_peers.push_back(joined);
                 blobs.push_back(session_blob(joined.port, 0, false));
-                std::printf("[conker] net: player %d joined from %s\n", joined.port + 1,
-                            address_text(from, from_len).c_str());
+                std::printf("[conker] net: player %d joined from %s (%s)\n", joined.port + 1,
+                            address_text(from, from_len).c_str(), conker::net::printable(os, 40).c_str());
                 g_offer_players.store(static_cast<int>(g_peers.size()) + 1);
                 g_offer_joinable.store(static_cast<int>(g_peers.size()) + 1 < g_options.players);
                 last_send = 0;
