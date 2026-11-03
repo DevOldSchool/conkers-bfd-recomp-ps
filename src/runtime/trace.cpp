@@ -4,7 +4,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
+
+#include "runtime/game.hpp"
 
 #if defined(_WIN32)
 #include <io.h>
@@ -58,6 +61,33 @@ struct CallCheck {
 
 CallCheck* g_calls = nullptr;
 thread_local bool t_game_thread = false;
+
+// CONKER_ARG_TRACE=<file>:<first frame>:<last frame>: every recompiled function the game thread
+// enters in those frames, by name, with its argument registers ($a0-$a3, $f12, $f14) and $sp. Names
+// and the game's addresses are the same in every build, so two machines' files (a Mac's and a Linux
+// PC's, say) show the first call where their games part (docs/diagnostics.md).
+struct ArgTrace {
+    FILE* log = nullptr;
+    uint32_t first = 0;
+    uint32_t last = 0;
+    uint32_t frame = 0;
+};
+ArgTrace* g_args = nullptr;
+thread_local bool t_args_thread = false;
+
+void trace_args(const char* name) {
+    ArgTrace& a = *g_args;
+    if (a.frame < a.first || a.frame > a.last) {
+        return;
+    }
+    const recomp_context* ctx = conker::current_context();
+    if (ctx == nullptr) {
+        return;
+    }
+    std::fprintf(a.log, "%u %s %08x %08x %08x %08x %08x %08x %08x\n", a.frame, name, static_cast<uint32_t>(ctx->r4),
+                 static_cast<uint32_t>(ctx->r5), static_cast<uint32_t>(ctx->r6), static_cast<uint32_t>(ctx->r7),
+                 ctx->f12.u32l, ctx->f14.u32l, static_cast<uint32_t>(ctx->r29));
+}
 
 void write_names(const char* suffix, const char* what) {
     const char* path = std::getenv("CONKER_CALL_HASH_LOG");
@@ -115,6 +145,9 @@ extern "C" void conker_trace_entry(const char* name) {
     if (t_game_thread) {
         count_call(name);
     }
+    if (t_args_thread) {
+        trace_args(name);
+    }
 }
 
 extern "C" void conker_trace_return(const char* /*name*/) {
@@ -126,6 +159,31 @@ extern "C" void conker_trace_return(const char* /*name*/) {
 namespace conker::trace {
 
 void game_frame(uint32_t frame) {
+    static const bool args_on = [] {
+        const char* spec = std::getenv("CONKER_ARG_TRACE");
+        if (spec == nullptr) {
+            return false;
+        }
+        const char* colon = std::strrchr(spec, ':');
+        const char* colon2 = colon != nullptr ? static_cast<const char*>(std::memchr(spec, ':', colon - spec)) : nullptr;
+        if (colon2 == nullptr) {
+            return false;
+        }
+        g_args = new ArgTrace;
+        const std::string path(spec, colon2);
+        g_args->first = static_cast<uint32_t>(std::strtoul(colon2 + 1, nullptr, 10));
+        g_args->last = static_cast<uint32_t>(std::strtoul(colon + 1, nullptr, 10));
+        g_args->log = std::fopen(path.c_str(), "w");
+        return g_args->log != nullptr;
+    }();
+    if (args_on) {
+        t_args_thread = true;
+        // The record for this frame was just made: the calls from here to the next are this frame's.
+        g_args->frame = frame;
+        if (frame == g_args->last + 1) {
+            std::fflush(g_args->log);
+        }
+    }
     static const bool on = [] {
         const char* path = std::getenv("CONKER_CALL_HASH_LOG");
         if (path == nullptr || path[0] == '\0') {
