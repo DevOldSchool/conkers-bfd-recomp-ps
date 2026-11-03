@@ -59,6 +59,16 @@ target_include_directories(ConkerRecompiled PUBLIC
 # so everything that includes funcs.h needs it.
 target_include_directories(ConkerRecompiled PUBLIC "${CMAKE_SOURCE_DIR}/src/runtime")
 target_compile_options(ConkerRecompiled PRIVATE ${CONKER_RECOMPILED_OPT} -w)
+# The game switches the FPU's rounding mode (CTC1, set_cop1_cs) hundreds of times, to truncate for a
+# conversion and back. Without this a compiler may fold or move float arithmetic across the switch as
+# if it always rounded to nearest, and two compilers (Apple's clang, a Linux clang, clang-cl) do so
+# differently: online, a Mac and a Linux machine placed a vertex on and off the screen from the same
+# memory. With it every machine does each operation in the mode the game set.
+if(CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    target_compile_options(ConkerRecompiled PRIVATE /clang:-frounding-math)
+else()
+    target_compile_options(ConkerRecompiled PRIVATE -frounding-math)
+endif()
 if(CONKER_TRACE)
     target_compile_definitions(ConkerRecompiled PRIVATE CONKER_TRACE=1)
 endif()
