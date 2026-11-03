@@ -30,10 +30,17 @@ endif()
 # their games must stay the same to the bit. A compiler may fuse a multiply and an add into one
 # instruction with a single rounding (arm64 clang does within an expression, GCC anywhere), which
 # x86-64 without FMA never does: so never, here and in every library built with the game.
+#
+# The recompiled code (and the native code that reads game memory) reaches the same RDRAM through
+# 32-, 16- and 8-bit pointers (recomp.h's MEM_W, MEM_H, MEM_B). Under C's strict aliasing a compiler
+# may take a 16-bit load and a 32-bit store as different memory and swap them: a Linux clang read
+# the stack word __n_vsVol had just stored before the store, so the title music's notes came out
+# louder there than on a Mac, and online the two machines' games parted at once. So no
+# type-based aliasing anywhere either.
 if(CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-    add_compile_options(/clang:-ffp-contract=off)
+    add_compile_options(/clang:-ffp-contract=off /clang:-fno-strict-aliasing)
 else()
-    add_compile_options(-ffp-contract=off)
+    add_compile_options(-ffp-contract=off -fno-strict-aliasing)
 endif()
 # N64ModernRuntime brings ultramodern (libultra reimplementation), librecomp (glue for N64Recomp
 # output, ROM/PI, saves), the N64Recomp library used for live recompilation, and miniz.
