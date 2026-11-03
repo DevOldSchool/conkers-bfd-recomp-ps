@@ -15,10 +15,13 @@
 #include <thread>
 
 #include "platform/input.hpp"
+#include "platform/process.hpp"
 #include "runtime/frame_input.hpp"
 #include "runtime/game.hpp"
 #include "net/net_codes.hpp"
+#include "net/net_keys.hpp"
 #include "net/net_play.hpp"
+#include "net/net_seal.hpp"
 #include "net/net_socket.hpp"
 
 namespace conker::net::lobby {
@@ -29,7 +32,7 @@ namespace {
 // that a game of another version still shows in the LAN list as one ("a different version"); the rest
 // changed with the security fixes  and has its own magic.
 constexpr uint32_t kDiscoveryMagic = 0x314C4B43;  // "CKL1"
-constexpr uint32_t kMagic = 0x324C4B43;           // "CKL2"
+constexpr uint32_t kMagic = 0x334C4B43;           // "CKL3": inside sealed datagrams (net_seal.hpp)
 enum Type : uint8_t { kProbe = 1, kOffer, kJoin, kReject, kState, kHeartbeat, kStart, kGo, kLeave, kCookie };
 // The lobby's version, in every OFFER: games of another one cannot play together.
 // 3: each member carries the host's per-member secret in HEARTBEAT/GO/LEAVE.
@@ -42,7 +45,9 @@ enum Type : uint8_t { kProbe = 1, kOffer, kJoin, kReject, kState, kHeartbeat, kS
 // 8: the session's records go as changes from the frame before (session magic CKN7).
 // 9: fewer session packets, hashes and drop blocks (session magic CKN8).
 // 10: a packet's first record as changes from the frame acknowledged (session magic CKN9).
-constexpr uint16_t kProtocol = 10;
+// 11: every packet but PROBE and OFFER sealed (net_seal.hpp; magics CKL3, CKNA), join codes with the
+// host key's fingerprint.
+constexpr uint16_t kProtocol = 11;
 // A PROBE is padded to this size and an OFFER is never bigger than the PROBE it answers, so that a
 // PROBE with a forged sender gets no more sent to that address than it took to send.
 constexpr size_t kProbeSize = 400;
@@ -110,7 +115,7 @@ std::string clean_name(const std::string& text) {
     return out.empty() ? "Player" : out;
 }
 
-void send_to(int socket, const sockaddr_storage& addr, socklen_t len, const Writer& w) {
+void send_bytes(int socket, const sockaddr_storage& addr, socklen_t len, const uint8_t* data, size_t size) {
     sockaddr_storage own{};
     socklen_t own_len = sizeof(own);
     getsockname(socket, reinterpret_cast<sockaddr*>(&own), &own_len);
@@ -126,10 +131,24 @@ void send_to(int socket, const sockaddr_storage& addr, socklen_t len, const Writ
 #if defined(__APPLE__)
         mapped.sin6_len = sizeof(mapped);
 #endif
-        socket_send_to(socket, w.data, w.size, reinterpret_cast<const sockaddr*>(&mapped), sizeof(mapped));
+        socket_send_to(socket, data, size, reinterpret_cast<const sockaddr*>(&mapped), sizeof(mapped));
         return;
     }
-    socket_send_to(socket, w.data, w.size, reinterpret_cast<const sockaddr*>(&addr), len);
+    socket_send_to(socket, data, size, reinterpret_cast<const sockaddr*>(&addr), len);
+}
+
+// In the clear: PROBE and OFFER only.
+void send_to(int socket, const sockaddr_storage& addr, socklen_t len, const Writer& w) {
+    send_bytes(socket, addr, len, w.data, w.size);
+}
+
+// Every other packet, sealed on its link (net_seal.hpp).
+void send_sealed(int socket, seal::Channel& channel, const sockaddr_storage& addr, socklen_t len, const Writer& w) {
+    uint8_t out[sizeof(w.data) + seal::kOverhead];
+    const size_t size = seal::seal(channel, w.data, w.size, out, sizeof(out));
+    if (size > 0) {
+        send_bytes(socket, addr, len, out, size);
+    }
 }
 
 bool same_address(const sockaddr_storage& a, socklen_t, const sockaddr_storage& b, socklen_t) {
@@ -284,6 +303,7 @@ struct Member {
     socklen_t len = 0;
     uint32_t nonce = 0;
     uint64_t secret = 0;   // the host's, told to this member in STATE and required in its HEARTBEAT/GO/LEAVE
+    seal::Channel channel; // the sealed link with it
     std::string name;
     std::string pad;
     int ping = -1;
@@ -311,6 +331,8 @@ int g_discovery_socket = -1;   // hosting: the discovery port
 uint16_t g_port = 0;
 uint32_t g_nonce = 0;          // browsing: the LAN list's PROBEs (broadcast, so anyone on the network has it)
 uint64_t g_session_token = 0;  // hosting: the session's token, given to each guest in START
+seal::KeyPair g_host_key;      // hosting: this machine's host key (net_keys.hpp), its session's too
+seal::Channel g_contact;       // hosting: the link of the JOIN being handled (its FIRST's)
 std::string g_error;
 std::string g_notice;
 bool g_browsing = false;
@@ -341,6 +363,17 @@ uint64_t g_join_cookie = 0;      // joining: the host's COOKIE for this machine'
 uint64_t g_member_secret = 0;    // joined: the host's per-member secret, from the first STATE; in every control
                                  // packet either way after it
 uint64_t g_start_token = 0;      // joined: the session token START gave
+seal::KeyPair g_guest_key;       // joining: this machine's key for this join
+seal::Expected g_expected;       // joining: the host's key as the join code has it (or nothing)
+bool g_keyed = false;            // joining: the host's key is in, and g_host_channel is the link
+uint8_t g_host_pub[32] = {};
+seal::Channel g_host_channel;
+bool g_told_other_key = false;
+// Joining: a host whose key changed since this machine last joined it was refused; JOIN on the same
+// address again takes that key (the player compared the key checks).
+std::string g_changed_address;
+uint8_t g_changed_key[32] = {};
+bool g_take_changed = false;
 std::vector<Player> g_players;  // joined: the host's list
 std::string g_settings;         // joined: the host's settings summary
 int g_start_port = -1;          // joined: the port START gave this machine
@@ -417,7 +450,7 @@ void write_offer(Writer& w, uint32_t nonce, const Offer& offer) {
 }
 
 // Answers a PROBE (its reader past the type) with an OFFER, if the PROBE was padded to at least the
-// OFFER's size; one from an older game, unpadded, gets nothing.
+// OFFER's size; an unpadded one gets nothing.
 void offer_to(int socket, Reader& r, size_t probe_size, const sockaddr_storage& from, socklen_t from_len, const Offer& offer) {
     const uint32_t nonce = r.u32();
     if (!r.ok) {
@@ -463,7 +496,7 @@ std::vector<Player> host_players() {
 
 // STATE goes to each member on the lobby's tick only, never in answer to a datagram, so that nothing
 // sent makes the host send more.
-void send_state(const Member& to, int64_t now) {
+void send_state(Member& to, int64_t now) {
     Writer w(kState);
     w.u32(to.nonce);
     w.u64(to.secret);  // this member's secret: required in its HEARTBEAT/GO/LEAVE
@@ -480,7 +513,7 @@ void send_state(const Member& to, int64_t now) {
         w.u8((p.ready ? 1 : 0) | (p.host ? 2 : 0) | (to_them ? 4 : 0));
     }
     w.text(settings_summary(conker::frame_input::settings_header()), 1000);
-    send_to(g_socket, to.addr, to.len, w);
+    send_sealed(g_socket, to.channel, to.addr, to.len, w);
 }
 
 // An OFFER: for the LAN list (an answer to the broadcast PROBEs' nonce) or, with the JOIN's own nonce,
@@ -499,7 +532,7 @@ void on_found(const sockaddr_storage& from, socklen_t from_len, Reader& r, bool 
     found.game.playing = r.u8() != 0;
     found.game.players = r.u8();
     found.game.joinable = r.u8() != 0;
-    const uint16_t protocol = r.size - r.at >= 2 ? r.u16() : 1;  // an older game's OFFER ends before it
+    const uint16_t protocol = r.u16();
     if (!r.ok) {
         return;
     }
@@ -582,6 +615,11 @@ int session_delay() {
 }
 
 // Builds the session's command line and starts this game again with it (does not return if it can).
+// The session token goes in CONKER_NET_TOKEN, not on the command line, where other users of this
+// machine could read it (ps); the restarts to rejoin keep it, as they keep the environment. So does
+// the host's key (net_seal.hpp): the host's session has the same (net_keys.hpp), and a guest's
+// session takes only that host key (CONKER_NET_HOST_PUBLIC; a join code's fingerprint of it
+// when this machine goes straight into a running session).
 void relaunch_now() {
     std::vector<std::string> args;
     const std::string name = clean_name(read_setting("name"));
@@ -595,33 +633,128 @@ void relaunch_now() {
         const int delay = session_delay();
         args.insert(args.end(), {"--net-delay", std::to_string(delay)});
         std::snprintf(token, sizeof(token), "%016llx", static_cast<unsigned long long>(g_session_token));
-        args.insert(args.end(), {"--net-token", token});
+        conker::process::set_env("CONKER_NET_TOKEN", token);
+        conker::process::unset_env("CONKER_NET_HOST_PUBLIC");
     } else {
+        if (g_keyed) {
+            conker::process::set_env("CONKER_NET_HOST_PUBLIC", seal::hex(g_host_pub).c_str());
+        } else if (g_expected.has_fingerprint) {
+            char fingerprint[11];
+            std::snprintf(fingerprint, sizeof(fingerprint), "%010llx", static_cast<unsigned long long>(g_expected.fingerprint));
+            conker::process::set_env("CONKER_NET_HOST_PUBLIC", fingerprint);
+        } else {
+            conker::process::unset_env("CONKER_NET_HOST_PUBLIC");
+        }
         args = {"--net-join", address_with_port(g_host_addr, g_host_len), "--net-name", name};
         if (g_start_port > 0) {
             args.push_back("--net-want-port");
             args.push_back(std::to_string(g_start_port + 1));
             std::snprintf(token, sizeof(token), "%016llx", static_cast<unsigned long long>(g_start_token));
-            args.insert(args.end(), {"--net-token", token});
+            conker::process::set_env("CONKER_NET_TOKEN", token);
+        } else {
+            conker::process::unset_env("CONKER_NET_TOKEN");
         }
     }
     close_sockets();
     std::string line;
-    for (size_t i = 0; i < args.size(); i++) {
-        line += " " + (i > 0 && args[i - 1] == "--net-token" ? std::string("<token>") : args[i]);
+    for (const std::string& arg : args) {
+        line += " " + arg;
     }
     std::printf("[conker] net: the lobby starts the session: starting again with%s\n", line.c_str());
     conker::net::relaunch(args);
 }
 
-void handle_packet(int socket, const uint8_t* data, size_t size, const sockaddr_storage& from, socklen_t from_len) {
-    Reader r{data, size};
-    const uint32_t magic = r.u32();
-    const uint8_t type = r.u8();
-    if (!r.ok || magic != (type == kProbe || type == kOffer ? kDiscoveryMagic : kMagic)) {
-        return;
+// The member whose address a datagram came from, hosting; nullptr for none.
+Member* member_from(const sockaddr_storage& from, socklen_t from_len) {
+    for (Member& m : g_members) {
+        if (same_address(m.addr, m.len, from, from_len)) {
+            return &m;
+        }
     }
-    const int64_t now = now_ms();
+    return nullptr;
+}
+
+// A sealed datagram on the game port opened into `plain` (net_seal.hpp). False if there is nothing
+// more to do with it: an ASK or the host's key offered (taken here), or a packet that does not check
+// out on its sender's link. Hosting, a FIRST from an address no member has opens on a link of its
+// own, kept in g_contact for the JOIN it carries: *contact says so.
+bool open_sealed(const uint8_t* data, size_t size, const sockaddr_storage& from, socklen_t from_len, uint8_t* plain,
+                 size_t capacity, size_t* plain_size, bool* contact) {
+    *contact = false;
+    const uint8_t kind = seal::kind_of(data, size);
+    if (g_mode == Mode::Hosting) {
+        if (kind == seal::kAsk || kind == seal::kFirst) {
+            uint64_t cookie = 0;
+            const bool first = kind == seal::kFirst && member_from(from, from_len) == nullptr;
+            // An ASK, or a FIRST whose cookie (in the clear, checked before the key exchange) is too old:
+            // the key and a new cookie, smaller than either.
+            if ((kind == seal::kAsk && seal::is_ask(data, size)) ||
+                (first && seal::first_cookie(data, size, &cookie) && !address_cookie_ok(from, kCookiePurpose, cookie))) {
+                uint8_t out[64];
+                const size_t n = seal::write_offer(g_host_key, address_cookie(from, kCookiePurpose), out, sizeof(out));
+                send_bytes(g_socket, from, from_len, out, n);
+                return false;
+            }
+            if (first) {
+                *contact = seal::open_first(g_host_key, data, size, &g_contact, plain, capacity, plain_size);
+                return *contact;
+            }
+        }
+        Member* member = member_from(from, from_len);
+        return member != nullptr && seal::open(member->channel, data, size, plain, capacity, plain_size);
+    }
+    if (!same_address(from, from_len, g_host_addr, g_host_len)) {
+        return false;
+    }
+    uint64_t cookie = 0;
+    uint8_t key[32];
+    if (g_mode == Mode::Probing && seal::read_offer(data, size, &cookie, key)) {
+        if (!g_expected.matches(key)) {
+            if (!g_told_other_key) {
+                g_told_other_key = true;
+                std::printf("[conker] net: lobby: %s answered with another key than its join code's: a machine "
+                            "posing as the host? Not joining it\n", address_with_port(from, from_len).c_str());
+                g_error = "Cannot join " + g_target_text + ": the machine that answered is not the one the join code "
+                          "names (another machine posing as the host?). Ask the host for the code again.";
+                g_mode = Mode::Idle;
+            }
+            return false;
+        }
+        // Joined by address or from the LAN list: the key this machine saw there before, if it has
+        // joined it, unless the player took the new one.
+        const std::string address = address_with_port(g_host_addr, g_host_len);
+        uint8_t known[32];
+        const bool taken = g_take_changed && std::memcmp(g_changed_key, key, sizeof(key)) == 0;
+        if (!g_keyed && !g_expected.has_fingerprint && !taken && keys::known_host(address, known) &&
+            std::memcmp(known, key, sizeof(key)) != 0) {
+            g_changed_address = address;
+            std::memcpy(g_changed_key, key, sizeof(key));
+            std::printf("[conker] net: lobby: %s's key has changed since this machine last joined it (key check %s, was "
+                        "%s)\n", address.c_str(), keys::key_check(key).c_str(), keys::key_check(known).c_str());
+            g_error = "The host at " + address + " has another key than when you last joined it: its key check is " +
+                      keys::key_check(key) + ", it was " + keys::key_check(known) + ". It may have a new key (a new "
+                      "install, or another machine at that address), or another machine may be posing as it. If the "
+                      "host's screen shows KEY CHECK " + keys::key_check(key) + ", press JOIN again.";
+            g_mode = Mode::Idle;
+            return false;
+        }
+        if (!g_keyed) {
+            g_keyed = true;
+            std::memcpy(g_host_pub, key, sizeof(g_host_pub));
+            g_host_channel = seal::guest_channel(g_guest_key, g_host_pub);
+            g_last_probe_to_host = 0;  // the JOIN at once
+        }
+        // The first key offered is the host's from then on; a new cookie for it is taken.
+        if (std::memcmp(g_host_pub, key, sizeof(g_host_pub)) == 0 && cookie != g_join_cookie) {
+            g_join_cookie = cookie;
+            g_last_probe_to_host = 0;
+        }
+        return false;
+    }
+    return g_keyed && kind == seal::kSealed && seal::open(g_host_channel, data, size, plain, capacity, plain_size);
+}
+
+void handle_packet(int socket, const uint8_t* data_in, size_t size_in, const sockaddr_storage& from, socklen_t from_len) {
     // CONKER_NET_TEST_DEAF=1: a hosting lobby ignores its game port (the LAN list still finds it), as
     // a firewall dropping a joining game's replies looks to it.
     static const bool deaf = [] {
@@ -631,6 +764,26 @@ void handle_packet(int socket, const uint8_t* data, size_t size, const sockaddr_
     if (deaf && g_mode == Mode::Hosting && socket == g_socket) {
         return;
     }
+    // PROBE and OFFER come in the clear; everything else sealed, on the game port only.
+    uint8_t plain[1500];
+    const uint8_t* data = data_in;
+    size_t size = size_in;
+    bool contact = false;
+    if (seal::kind_of(data_in, size_in) != 0) {
+        if (socket != g_socket || !open_sealed(data_in, size_in, from, from_len, plain, sizeof(plain), &size, &contact)) {
+            return;
+        }
+        data = plain;
+    }
+    const bool sealed = data == plain;
+    Reader r{data, size};
+    const uint32_t magic = r.u32();
+    const uint8_t type = r.u8();
+    const bool discovery = type == kProbe || type == kOffer;
+    if (!r.ok || magic != (discovery ? kDiscoveryMagic : kMagic) || discovery == sealed) {
+        return;
+    }
+    const int64_t now = now_ms();
     if (type == kProbe && g_mode == Mode::Hosting) {
         // The discovery port is for this network only (it is not mapped on the router).
         if (socket != g_discovery_socket || local_network_address(from)) {
@@ -648,11 +801,9 @@ void handle_packet(int socket, const uint8_t* data, size_t size, const sockaddr_
         return;
     }
     if (g_mode == Mode::Hosting) {
-        Member* member = nullptr;
-        for (Member& m : g_members) {
-            if (same_address(m.addr, m.len, from, from_len)) {
-                member = &m;
-            }
+        Member* member = contact ? nullptr : member_from(from, from_len);
+        if (type == kJoin && !contact) {
+            return;  // a JOIN sent again on a member's link: its own HEARTBEATs keep it (below)
         }
         if (type == kJoin) {
             const uint32_t nonce = r.u32();
@@ -662,7 +813,7 @@ void handle_packet(int socket, const uint8_t* data, size_t size, const sockaddr_
             const std::string os = r.text(64);
             const uint64_t rom = r.u64();
             const uint64_t cookie = r.u64();
-            const uint16_t protocol = r.size - r.at >= 2 ? r.u16() : 0;  // a JOIN before version 5 ends before it
+            const uint16_t protocol = r.u16();
             if (!r.ok) {
                 return;
             }
@@ -678,7 +829,7 @@ void handle_packet(int socket, const uint8_t* data, size_t size, const sockaddr_
                 Writer w(kCookie);
                 w.u32(nonce);
                 w.u64(address_cookie(from, kCookiePurpose));
-                send_to(socket, from, from_len, w);
+                send_sealed(socket, g_contact, from, from_len, w);
                 return;
             }
             std::string problem = mismatch(build, os, rom, protocol);
@@ -694,10 +845,12 @@ void handle_packet(int socket, const uint8_t* data, size_t size, const sockaddr_
                 w.u32(nonce);
                 w.u64(0);  // not a member: no secret yet
                 w.text("Cannot join: " + problem + ".", 300);
-                send_to(socket, from, from_len, w);
+                send_sealed(socket, g_contact, from, from_len, w);
                 g_notice = name + " could not join: " + problem + ".";
-                std::printf("[conker] net: lobby: %s turned away: %s\n", address_with_port(from, from_len).c_str(),
-                            problem.c_str());
+                if (log_refusal()) {
+                    std::printf("[conker] net: lobby: %s turned away: %s\n", address_with_port(from, from_len).c_str(),
+                                problem.c_str());
+                }
                 return;
             }
             Member m;
@@ -705,6 +858,7 @@ void handle_packet(int socket, const uint8_t* data, size_t size, const sockaddr_
             m.len = from_len;
             m.nonce = nonce;
             m.secret = random64();  // told to this member in STATE; required in its control packets (J)
+            m.channel = g_contact;
             m.name = name;
             m.pad = pad;
             m.last_heard = now;
@@ -714,7 +868,7 @@ void handle_packet(int socket, const uint8_t* data, size_t size, const sockaddr_
             send_state(g_members.back(), now);
             return;
         }
-        if (member == nullptr) {
+        if (member == nullptr || contact) {
             return;
         }
         // HEARTBEAT, GO and LEAVE carry the member's secret (told it in STATE): a sender who only forged
@@ -817,6 +971,8 @@ void handle_packet(int socket, const uint8_t* data, size_t size, const sockaddr_
         if (g_mode == Mode::Probing) {
             g_mode = Mode::Joined;
             g_joined_lobby = true;
+            keys::remember_host(address_with_port(g_host_addr, g_host_len), g_host_pub);
+            std::printf("[conker] net: lobby: in the host's lobby; host key check %s\n", keys::key_check(g_host_pub).c_str());
             g_notice = "In " + (players.empty() ? std::string("the host") : players[0].name) + "'s lobby. Press READY.";
             write_setting("last", g_target_text);
         }
@@ -833,7 +989,7 @@ void handle_packet(int socket, const uint8_t* data, size_t size, const sockaddr_
         }
         Writer w(kGo);
         w.u64(g_member_secret);
-        send_to(socket, g_host_addr, g_host_len, w);
+        send_sealed(socket, g_host_channel, g_host_addr, g_host_len, w);
         if (g_mode != Mode::Starting) {
             g_mode = Mode::Starting;
             g_start_port = port;
@@ -896,7 +1052,7 @@ void tick(int64_t now) {
     }
     if (g_mode == Mode::Hosting) {
         if (due) {
-            for (const Member& m : g_members) {
+            for (Member& m : g_members) {
                 send_state(m, now);
             }
         }
@@ -918,7 +1074,7 @@ void tick(int64_t now) {
                 w.u8(static_cast<uint8_t>(i + 1));
                 w.u8(static_cast<uint8_t>(g_start_players));
                 w.u64(g_session_token);
-                send_to(g_socket, g_members[i].addr, g_members[i].len, w);
+                send_sealed(g_socket, g_members[i].channel, g_members[i].addr, g_members[i].len, w);
                 all_go = all_go && g_members[i].go;
             }
             if (all_go || now - g_start_at >= kStartWaitMs) {
@@ -942,9 +1098,15 @@ void tick(int64_t now) {
             join.u64(conker::net::rom_hash());
             join.u64(g_join_cookie);
             join.u16(kProtocol);
-            // Not from the LAN list: it keeps one address a host, maybe not the one being joined.
-            if (g_target_in_lobby) {
-                send_to(g_socket, g_host_addr, g_host_len, join);
+            // Not from the LAN list: it keeps one address a host, maybe not the one being joined. The
+            // host's key first (net_seal.hpp), then the JOIN sealed with it.
+            if (g_target_in_lobby && !g_keyed) {
+                uint8_t ask[seal::kAskSize];
+                send_bytes(g_socket, g_host_addr, g_host_len, ask, seal::write_ask(g_guest_key, ask, sizeof(ask)));
+            } else if (g_target_in_lobby) {
+                uint8_t out[sizeof(join.data) + seal::kFirstOverhead];
+                const size_t size = seal::seal_first(g_host_channel, g_join_cookie, join.data, join.size, out, sizeof(out));
+                send_bytes(g_socket, g_host_addr, g_host_len, out, size);
             }
         }
         if (now - g_probe_since > kProbeGiveUpMs) {
@@ -980,7 +1142,7 @@ void tick(int64_t now) {
             w.u32(static_cast<uint32_t>(now) | 1);
             w.u8(g_ready ? 1 : 0);
             w.u16(static_cast<uint16_t>(g_ping < 0 ? 0xFFFF : std::min(g_ping, 9999)));
-            send_to(g_socket, g_host_addr, g_host_len, w);
+            send_sealed(g_socket, g_host_channel, g_host_addr, g_host_len, w);
         }
         if (now - g_host_heard > kGoneAfterMs) {
             g_error = "The host has not been heard from for " + std::to_string(kGoneAfterMs / 1000) + " s: the lobby is gone.";
@@ -1078,11 +1240,12 @@ bool host(uint16_t port) {
         return false;
     }
     g_port = port;
+    g_host_key = keys::host_key();
     g_discovery_socket = open_ipv4_socket(kDiscoveryPort, true);
     g_mode = Mode::Hosting;
     g_map_tried = internet_allowed();
     portmap::open(port);  // not with internet play off: its status says so
-    std::printf("[conker] net: lobby: hosting on UDP port %u\n", port);
+    std::printf("[conker] net: lobby: hosting on UDP port %u; key check %s\n", port, keys::key_check(g_host_key.pub).c_str());
     return true;
 }
 
@@ -1097,7 +1260,8 @@ void join(const std::string& target) {
     sockaddr_storage addr{};
     socklen_t len = 0;
     std::string why;
-    const bool ok = read_join_target(target, kDefaultPort, &addr, &len, &why);  // may ask DNS: not under the lock
+    uint64_t fingerprint = kNoFingerprint;
+    const bool ok = read_join_target(target, kDefaultPort, &addr, &len, &why, &fingerprint);  // may ask DNS: not under the lock
     std::lock_guard lock(g_mutex);
     ensure_thread();
     g_error.clear();
@@ -1125,6 +1289,17 @@ void join(const std::string& target) {
     g_target_in_lobby = false;
     g_join_cookie = 0;
     g_member_secret = 0;
+    g_guest_key = seal::new_key_pair();
+    g_expected = seal::Expected{};
+    g_expected.has_fingerprint = fingerprint != kNoFingerprint;
+    g_expected.fingerprint = fingerprint;
+    g_keyed = false;
+    g_told_other_key = false;
+    g_take_changed = !g_changed_address.empty() && g_changed_address == address_with_port(addr, len);
+    if (!g_take_changed) {
+        g_changed_address.clear();
+    }
+    g_host_channel = seal::Channel{};
     g_join_nonce = static_cast<uint32_t>(random64()) | 1;
     g_last_probe_to_host = 0;
     g_ready = false;
@@ -1162,12 +1337,12 @@ void kick(size_t player) {
     if (g_mode != Mode::Hosting || player == 0 || player > g_members.size() || g_start_at != 0) {
         return;
     }
-    const Member m = g_members[player - 1];
+    Member m = g_members[player - 1];
     Writer w(kReject);
     w.u32(m.nonce);
     w.u64(m.secret);
     w.text("The host removed you from the lobby.", 300);
-    send_to(g_socket, m.addr, m.len, w);
+    send_sealed(g_socket, m.channel, m.addr, m.len, w);
     const std::string address = address_with_port(m.addr, m.len);
     g_refused.push_back(address.substr(0, address.rfind(':')));
     g_members.erase(g_members.begin() + static_cast<std::ptrdiff_t>(player - 1));
@@ -1178,16 +1353,16 @@ void kick(size_t player) {
 void leave() {
     std::lock_guard lock(g_mutex);
     if (g_mode == Mode::Hosting) {
-        for (const Member& m : g_members) {
+        for (Member& m : g_members) {
             Writer w(kLeave);
             w.u64(m.secret);  // host -> member LEAVE carries the member's secret too (N2)
-            send_to(g_socket, m.addr, m.len, w);
+            send_sealed(g_socket, m.channel, m.addr, m.len, w);
         }
         portmap::close();
     } else if (g_mode == Mode::Joined) {
         Writer w(kLeave);
         w.u64(g_member_secret);  // member -> host LEAVE carries the secret (J)
-        send_to(g_socket, g_host_addr, g_host_len, w);
+        send_sealed(g_socket, g_host_channel, g_host_addr, g_host_len, w);
     }
     close_sockets();
     g_members.clear();
@@ -1207,6 +1382,11 @@ View view() {
     v.notice = g_notice;
     v.ready = g_ready;
     v.game_port = g_port;
+    if (g_mode == Mode::Hosting) {
+        v.key_check = keys::key_check(g_host_key.pub);
+    } else if (g_keyed && g_mode != Mode::Idle) {
+        v.key_check = keys::key_check(g_host_pub);
+    }
     for (const Found& f : g_found) {
         v.games.push_back(f.game);
     }
@@ -1219,12 +1399,15 @@ View view() {
         static int64_t codes_at = 0;
         static std::vector<std::pair<std::string, std::string>> codes;
         static std::string codes_external;
-        if (now_ms() - codes_at < 2000 && codes_external == v.port.external) {
+        static uint64_t codes_key = 0;
+        const uint64_t key = seal::fingerprint(g_host_key.pub);
+        if (now_ms() - codes_at < 2000 && codes_external == v.port.external && codes_key == key) {
             v.codes = codes;
             return v;
         }
         codes_at = now_ms();
         codes_external = v.port.external;
+        codes_key = key;
         const LocalAddresses local = local_addresses();
         if (v.port.state == portmap::Status::State::Opened && !v.port.external.empty()) {
             sockaddr_storage outside{};
@@ -1237,19 +1420,19 @@ View view() {
             if (inet_pton(AF_INET, v.port.external.c_str(), &external) == 1 &&
                 ipv4_kind(ntohl(external.s_addr)) == AddressKind::Public &&
                 read_join_target(v.port.external, g_port, &outside, &outside_len, &why)) {
-                v.codes.push_back({"Internet", make_join_code(outside, g_port)});
+                v.codes.push_back({"Internet", make_join_code(outside, g_port, seal::fingerprint(g_host_key.pub))});
             }
         }
         for (const sockaddr_storage& a : local.ipv6) {
             if (!internet_allowed()) {
                 break;  // a global IPv6 address is the internet
             }
-            v.codes.push_back({"IPv6", make_join_code(a, g_port)});
+            v.codes.push_back({"IPv6", make_join_code(a, g_port, seal::fingerprint(g_host_key.pub))});
             break;
         }
         for (const sockaddr_storage& a : local.ipv4) {
             v.codes.push_back({"This network (" + address_with_port(a, 0).substr(0, address_with_port(a, 0).rfind(':')) + ")",
-                               make_join_code(a, g_port)});
+                               make_join_code(a, g_port, seal::fingerprint(g_host_key.pub))});
         }
         codes = v.codes;
     } else {

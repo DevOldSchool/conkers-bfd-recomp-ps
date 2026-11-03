@@ -115,6 +115,9 @@ std::string describe(const lobby::View& v) {
     if (v.mode == Mode::Hosting) {
         out += "port " + v.port.message + "\n";
     }
+    if (!v.key_check.empty()) {
+        out += "key check " + v.key_check + "\n";
+    }
     if (!v.settings_differ.empty()) {
         out += "differ " + v.settings_differ;
     }
@@ -332,13 +335,17 @@ void main_page(const lobby::View& v) {
     ImGui::TextColored(ImColor(style::grey()), "on UDP port %u", conker::net::kDefaultPort);
     ImGui::Separator();
     ImGui::TextUnformatted("JOIN: the host's address or join code");
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16);
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 20);  // a code is 24 characters
     const bool entered = ImGui::InputText("##target", g_target, sizeof(g_target), ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::SameLine();
     if (ImGui::Button("JOIN") || entered) {
         lobby::set_name(g_name);
         lobby::join(g_target);
     }
+    // The host's game is the match: it sends its game memory to every player's machine (a snapshot),
+    // and nothing a guest can check limits what that game does inside the match.
+    text_wrapped("Join only hosts you trust: the host runs the match and sends its game to your machine.",
+                 style::yellow());
     ImGui::Spacing();
     ImGui::TextUnformatted("GAMES ON THIS NETWORK");
     if (v.games.empty()) {
@@ -381,8 +388,12 @@ void hosting_page(const lobby::View& v) {
             ImGui::Text("%s   %s", v.codes[i].second.c_str(), v.codes[i].first.c_str());
             ImGui::PopID();
         }
-        text_wrapped("A code is this machine's address: whoever joins learns it, as you learn theirs.", style::grey());
+        text_wrapped("A code is this machine's address and part of its key: whoever joins learns the address, as "
+                     "you learn theirs, and a machine posing as yours is refused.", style::grey());
     }
+    ImGui::Text("KEY CHECK   %s", v.key_check.c_str());
+    text_wrapped("Players who joined see the same under the host's name. A different one means another machine is "
+                 "posing as yours: ask them to compare.", style::grey());
     ImGui::Separator();
     players_table(v);
     settings_box(v);
@@ -413,6 +424,9 @@ void hosting_page(const lobby::View& v) {
 
 void joined_page(const lobby::View& v) {
     players_table(v);
+    ImGui::Text("HOST KEY CHECK   %s", v.key_check.c_str());
+    text_wrapped("The host's screen shows the same KEY CHECK. A different one means another machine is posing as the "
+                 "host: leave.", style::grey());
     settings_box(v);
     ImGui::Separator();
     if (button(v.ready ? "NOT READY" : "READY")) {

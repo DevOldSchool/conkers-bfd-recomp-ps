@@ -1,0 +1,22 @@
+diff --git a/plume_vulkan.cpp b/plume_vulkan.cpp
+index f1dd503..5ca5447 100644
+--- a/plume_vulkan.cpp
++++ b/plume_vulkan.cpp
+@@ -3954,6 +3954,17 @@ namespace plume {
+         }
+ 
+         nullDescriptorSupported = robustnessFeatures.nullDescriptor;
++
++        // MoltenVK (Apple's GPU, directly or through a VM's Venus driver) turns robustBufferAccess2 into
++        // bounds checks in the Metal it generates whose out-of-range value, StructType(0), does not
++        // compile for a struct: every RT64 pipeline with such a buffer read failed, and Venus then
++        // aborted the process. Only nullDescriptor is used from the extension; core robustBufferAccess
++        // stays on.
++        constexpr uint32_t AppleVendorID = 0x106B;
++        if (physicalDeviceProperties.vendorID == AppleVendorID) {
++            robustnessFeatures.robustBufferAccess2 = VK_FALSE;
++        }
++
+         if (nullDescriptorSupported) {
+             robustnessFeatures.pNext = createDeviceChain;
+             createDeviceChain = &robustnessFeatures;

@@ -14,7 +14,9 @@
 // JOIN on it starts this machine straight into the session, which takes it in from a snapshot of
 // the host's game (a free port plays from the next match's join screen; see net_play.cpp).
 //
-// The wire: UDP datagrams starting with the magic "CKL1" and a type.
+// The wire: UDP datagrams starting with a magic and a type: "CKL1" for PROBE and OFFER, in the clear;
+// "CKL3" for the rest, sealed on the link between a guest and the host (net_seal.hpp: the guest asks
+// for the host's key first, and its JOIN comes in a FIRST).
 //     PROBE    anyone -> a host        is a game here? (to the game port, or broadcast to the
 //                                      discovery port 37799, which every host on the network answers)
 //     OFFER    host -> prober          its name, build, OS, ROM, game port, lobby or playing, players
@@ -70,6 +72,7 @@ struct View {
     std::vector<std::pair<std::string, std::string>> codes;  // (what it is for, join code)
     portmap::Status port;            // hosting: the router's port
     uint16_t game_port = 0;
+    std::string key_check;           // hosting: this machine's key check; joined: the host's (net_keys.hpp)
     bool can_start = false;          // hosting: a guest is here and every guest is ready
     bool ready = false;              // joined: this machine's READY
 };

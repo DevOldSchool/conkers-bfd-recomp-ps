@@ -14,7 +14,7 @@ export CONKER_NET_UPNP_URL=http://127.0.0.1:38111/rootDesc.xml CONKER_NET_NATPMP
 export CONKER_AUDIO=0 CONKER_DISPLAY=windowed CONKER_ORIGINAL_SIZE=1
 print "1000 host 37810" > $D/host.script
 # A mapping test: nothing is mapped without --net-unsafe-internet (the stand-in gateway only, still).
-if [[ $HOW == lobby ]]; then ARGS=(--net-lobby --net-unsafe-internet); else ARGS=(--net-host 37810 --net-map --net-unsafe-internet); fi
+if [[ $HOW == lobby ]]; then ARGS=(--net-lobby --net-unsafe-internet); else ARGS=(--net-host 37810 --net-map --net-open --net-unsafe-internet); fi
 (cd $D && CONKER_LOBBY_SCRIPT=$D/host.script exec $BIN $ROM $ARGS > $L.out 2>&1) & P=$!
 if [[ $HOW == playing ]]; then
   mkdir -p $D/g; (cd $D/g && CONKER_NET_PORTMAP=0 exec $BIN $ROM --net-join 127.0.0.1:37810 > $L.g.out 2>&1) & G=$!
