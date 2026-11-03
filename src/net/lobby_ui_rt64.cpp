@@ -166,6 +166,8 @@ void run_script() {
             lobby::start();
         } else if (step.action == "kick") {
             lobby::kick(static_cast<size_t>(std::atoi(step.text.c_str())));
+        } else if (step.action == "leavesession") {
+            conker::net::request_leave();
         } else if (step.action == "leave") {
             lobby::leave();
             lobby::browse();
@@ -316,9 +318,34 @@ bool button(const char* label, bool enabled = true) {
     return pressed;
 }
 
+// A session started from the lobby: starting (CANCEL), or on (back to the game, or LEAVE).
+void session_page(conker::net::InPlace session) {
+    if (session == conker::net::InPlace::kStarting) {
+        text_wrapped("Starting the session...", style::green());
+        if (button("CANCEL")) {
+            conker::net::cancel_in_place();
+        }
+        return;
+    }
+    text_wrapped("In an online session: " + conker::net::status_line(), style::green());
+    text_wrapped("Leaving brings your own game back as it was before the session.", style::grey());
+    if (button("BACK TO THE GAME")) {
+        close();
+    }
+    if (button("LEAVE THE SESSION")) {
+        conker::net::request_leave();
+        close();
+    }
+    const bool typing = ImGui::GetIO().WantTextInput;
+    if (!typing && (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))) {
+        close();
+    }
+}
+
 void main_page(const lobby::View& v) {
     ImGui::TextWrapped("Play MULTI with friends over the network. One player hosts; the others join.");
-    text_wrapped("When the session starts, the game starts again: progress here that is not saved is lost.", style::grey());
+    text_wrapped("Macs, Linux and Windows PCs can play together. When the session starts, everyone plays on from the "
+                 "host's game; leaving it brings your own game back as it was.", style::grey());
     ImGui::Spacing();
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12);
     if (ImGui::InputText("YOUR NAME", g_name, sizeof(g_name), ImGuiInputTextFlags_EnterReturnsTrue) ||
@@ -484,6 +511,19 @@ void build() {
         text_wrapped("LAN only: internet play is off until its security is trusted. It needs --net-unsafe-internet "
                      "on the command line (docs/online-play.md).", style::grey());
     }
+    std::string session_message;
+    const conker::net::InPlace session = conker::net::in_place_state(&session_message);
+    if (session != conker::net::InPlace::kNone) {
+        session_page(session);
+        ImGui::End();
+        if (style::font() != nullptr) {
+            ImGui::PopFont();
+        }
+        return;
+    }
+    if (!session_message.empty()) {
+        text_wrapped(session_message, style::red());  // why the last session could not start, or ended
+    }
     switch (v.mode) {
         case Mode::Idle:
             main_page(v);
@@ -607,8 +647,8 @@ void attach(RT64::Application* app) {
 }
 
 void open() {
-    if (conker::net::active()) {
-        return;  // a session is already on
+    if (conker::net::active() && !conker::net::in_place()) {
+        return;  // a session from the command line: nothing to do here
     }
     if (!g_open.exchange(true)) {
         if (g_opened_at == 0) {
@@ -620,7 +660,9 @@ void open() {
         }
         g_focus_first = true;
         conker::input::set_blocked(true);
-        lobby::browse();
+        if (!conker::net::in_place()) {
+            lobby::browse();
+        }
         std::printf("[conker] lobby: window open\n");
     }
 }
@@ -628,7 +670,7 @@ void open() {
 void close() {
     if (g_open.exchange(false)) {
         g_frame_ready.store(false);
-        if (lobby::view().mode != Mode::Starting) {
+        if (lobby::view().mode != Mode::Starting && !conker::net::in_place()) {
             lobby::leave();
         }
         conker::input::set_blocked(false);
@@ -651,6 +693,13 @@ void update() {
     if (!g_script.empty() && g_opened_at != 0) {
         run_script();
     }
+    // The session the lobby started is on: the window gives the game back.
+    static conker::net::InPlace was = conker::net::InPlace::kNone;
+    const conker::net::InPlace session = conker::net::in_place_state(nullptr);
+    if (was == conker::net::InPlace::kStarting && session == conker::net::InPlace::kPlaying) {
+        close();
+    }
+    was = session;
     if (!g_open.load()) {
         return;
     }

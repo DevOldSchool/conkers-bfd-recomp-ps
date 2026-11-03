@@ -43,6 +43,10 @@ void add_check(std::function<const char*()> check);
 // From each game thread as it starts, with its registers (game.cpp).
 void note_thread(recomp_context* ctx);
 
+// The registers of the game thread waiting on the message queue at `queue` (KSEG0), or nullptr when
+// none is (game thread, at the start of a frame).
+recomp_context* thread_waiting_on(uint8_t* rdram, uint32_t queue);
+
 // On the game thread at the start of a frame (see frame_input.cpp): the game as it is now, or empty
 // with the reason when it cannot be taken here (a task still out, say).
 std::vector<uint8_t> save(uint8_t* rdram, recomp_context* ctx, uint32_t frame, std::string* why);

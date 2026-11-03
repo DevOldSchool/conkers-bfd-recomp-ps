@@ -240,9 +240,9 @@ bool debug_menu_enabled() {
     // Off online: it pauses the game and writes its memory on one machine only.
     static const bool enabled = [] {
         const char* value = std::getenv("CONKER_DEBUG_MENU");
-        return (value == nullptr || value[0] != '0') && !conker::net::active();
+        return value == nullptr || value[0] != '0';
     }();
-    return enabled;
+    return enabled && !conker::net::active() && !conker::net::in_place();
 }
 
 void show_message(const std::string& message, const std::string& detail = "") {
@@ -1563,7 +1563,13 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
             g_controls_top = 0;
         }
     }
-    if (conker::input::take_debug_menu_press() && debug_menu_enabled()) {
+    const bool menu_press = conker::input::take_debug_menu_press();
+    // In a session started from the lobby, the debug menu's key (Back, `) opens the session's window
+    // instead: LEAVE THE SESSION is there.
+    if (menu_press && conker::net::in_place() && !conker::lobby_ui::is_open()) {
+        conker::lobby_ui::open();
+    }
+    if (menu_press && debug_menu_enabled()) {
         if (g_active) {
             g_close_requested = true;
         } else if (MEM_BU(0, kseg0(kMenuHandler)) != 0) {

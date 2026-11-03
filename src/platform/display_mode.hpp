@@ -123,6 +123,8 @@ void request_sharp(bool sharp);
 // player's own as they are now. Online, a guest plays with the host's (net_play.hpp), for that
 // session only.
 void keep_saved_picture();
+// After a session started in place: the player's own widescreen and sharp settings back, saved again.
+void release_saved_picture();
 
 // The shape (width / height) of the picture RT64 is rendering, set by the renderer every screen
 // refresh: the picture's own 292:216 in 4:3, the window's or screen's shape widened.

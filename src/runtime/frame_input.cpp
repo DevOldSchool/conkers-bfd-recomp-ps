@@ -52,8 +52,10 @@ const bool g_fixed_step_variable = [] {
     return value != nullptr && value[0] == '1';
 }();
 
-// A net session is known once main has read the command line, before the game starts.
-bool fixed_on() { return g_fixed_step_variable || conker::net::active(); }
+// A net session started from the command line is known once main has read it, before the game
+// starts; one the lobby starts turns it on while the game runs (enter_fixed_step).
+std::atomic<bool> g_fixed_in_place{false};
+bool fixed_on() { return g_fixed_step_variable || g_fixed_in_place.load(std::memory_order_relaxed) || conker::net::active(); }
 
 // The mouse aim speed (the CONTROLS page's MOUSE AIM row, a percentage) scales the mouse's motion
 // while it aims (it aimed the frame before, mouse_look::aiming), not while it turns the camera. It
@@ -386,6 +388,50 @@ bool fixed_step() { return fixed_on(); }
 uint32_t count_reads() { return g_count_calls; }
 void set_count_reads(uint32_t reads) { g_count_calls = reads; }
 
+bool enter_fixed_step(uint8_t* rdram) {
+    if (fixed_on()) {
+        g_fixed_in_place.store(true);
+        return true;
+    }
+    if (!take_audio_frames(rdram)) {
+        return false;
+    }
+    if (!g_gfx_queue_made.load()) {
+        osCreateMesgQueue(rdram, static_cast<int32_t>(kGfxDoneQueue), static_cast<int32_t>(kGfxDoneSlots),
+                          kGfxDoneSlotCount);
+        g_gfx_queue_made.store(true);
+    }
+    recomp_get_count_override = frame_count;
+    g_fixed_in_place.store(true);
+    std::printf("[conker] fixed step on (online session)\n");
+    return true;
+}
+
+void leave_fixed_step() {
+    if (!g_fixed_in_place.exchange(false) || fixed_on()) {
+        return;
+    }
+    recomp_get_count_override = nullptr;
+    std::printf("[conker] fixed step off\n");
+}
+
+void set_frame(uint32_t frame) {
+    std::lock_guard lock(g_mutex);
+    g_record.frame = frame;
+}
+
+void restore_settings(const std::string& header) {
+    size_t at = 0;
+    while (at < header.size()) {
+        size_t end = header.find('\n', at);
+        if (end == std::string::npos) {
+            end = header.size();
+        }
+        apply_header_line(header.substr(at, end - at).c_str(), "back from the session", false);
+        at = end + 1;
+    }
+}
+
 std::string settings_header() {
     std::string text = "# conker-replay 1 build=" + std::string(CONKER_BUILD_VERSION) +
                        " fixed_step=" + (fixed_on() ? "1" : "0") + "\n";
@@ -715,6 +761,7 @@ extern "C" void conker_frame_input_begin(uint8_t* rdram, recomp_context* ctx) {
             conker::frame_input::apply_settings(conker::net::host_settings(), "net: the host's setting");
         }
     }
+    conker::net::frame_start(rdram);  // a session started in place turns the fixed step on here
     conker::mp_characters::frame(rdram);
     g_count_calls = 0;
     // The frame before's depth: func_1512B1B8, for one, scans it around the camera during the logic.
@@ -732,6 +779,9 @@ extern "C" void conker_frame_input_begin(uint8_t* rdram, recomp_context* ctx) {
         }
         test_runtime_checks(rdram, ctx, next);
     }
+    // Into or out of a session started in place: the frame's graphics and audio are done here, so
+    // this machine's own game can be kept or put back.
+    conker::net::before_input(rdram, ctx);
     Record record = sample_live();
     int zoom = 0;
     take_live_mouse(conker::net::active() ? conker::net::local_port() : 0, &record.mice[0].dx, &record.mice[0].dy, &zoom);

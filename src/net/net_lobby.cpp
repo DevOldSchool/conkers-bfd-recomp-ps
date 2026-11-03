@@ -613,13 +613,14 @@ int session_delay() {
     return std::clamp(static_cast<int>(std::ceil((ping + 15 + 30) / 33.3)), 2, 15);
 }
 
-// Builds the session's command line and starts this game again with it (does not return if it can).
+// Builds the session's options and starts it in place (net_play.hpp's start_in_place): the game goes on,
+// and the lobby is done (the session has the game port now). False if it could not start.
 // The session token goes in CONKER_NET_TOKEN, not on the command line, where other users of this
 // machine could read it (ps); the restarts to rejoin keep it, as they keep the environment. So does
 // the host's key (net_seal.hpp): the host's session has the same (net_keys.hpp), and a guest's
 // session takes only that host key (CONKER_NET_HOST_PUBLIC; a join code's fingerprint of it
 // when this machine goes straight into a running session).
-void relaunch_now() {
+bool start_session() {
     std::vector<std::string> args;
     const std::string name = clean_name(read_setting("name"));
     char token[17];
@@ -659,8 +660,19 @@ void relaunch_now() {
     for (const std::string& arg : args) {
         line += " " + arg;
     }
-    std::printf("[conker] net: the lobby starts the session: starting again with%s\n", line.c_str());
-    conker::net::relaunch(args);
+    std::printf("[conker] net: the lobby starts the session in place with%s\n", line.c_str());
+    g_members.clear();
+    g_found.clear();
+    g_browsing = false;
+    g_mode = Mode::Idle;
+    g_joined_lobby = false;
+    g_start_at = 0;
+    g_go_at = 0;
+    if (!conker::net::start_in_place(args)) {
+        g_error = "Could not start the session (the log says why).";
+        return false;
+    }
+    return true;
 }
 
 // The member whose address a datagram came from, hosting; nullptr for none.
@@ -1078,7 +1090,7 @@ void tick(int64_t now) {
             }
             if (all_go || now - g_start_at >= kStartWaitMs) {
                 g_start_port = 0;
-                relaunch_now();
+                start_session();
             }
         }
         return;
@@ -1151,9 +1163,7 @@ void tick(int64_t now) {
         return;
     }
     if (g_mode == Mode::Starting && g_go_at != 0 && now >= g_go_at) {
-        relaunch_now();
-        g_error = "Could not start the game again for the session.";
-        g_mode = Mode::Idle;
+        start_session();
     }
 }
 
@@ -1452,17 +1462,25 @@ bool answer_probe(int socket, const uint8_t* data, size_t size, const sockaddr_s
     return true;
 }
 
+// serve_discovery's thread runs while its generation is the current one (stop_discovery moves it on).
+std::atomic<uint32_t> g_discovery_generation{0};
+
 void serve_discovery(Offer (*offer)()) {
     const int s = open_ipv4_socket(kDiscoveryPort, true);
     if (s < 0) {
         std::printf("[conker] net: no LAN discovery: UDP port %u is not free\n", kDiscoveryPort);
         return;
     }
-    std::thread([s, offer] {
+    const uint32_t generation = ++g_discovery_generation;
+    std::thread([s, offer, generation] {
         uint8_t buffer[1500];
         for (;;) {
             pollfd fd = socket_poll_in(s);
-            socket_poll(&fd, 1, 1000);
+            socket_poll(&fd, 1, 200);
+            if (g_discovery_generation.load() != generation) {
+                socket_close(s);
+                return;
+            }
             sockaddr_storage from{};
             socklen_t from_len = sizeof(from);
             const ssize_t got = socket_receive_from(s, buffer, sizeof(buffer), reinterpret_cast<sockaddr*>(&from), &from_len);
@@ -1472,5 +1490,7 @@ void serve_discovery(Offer (*offer)()) {
         }
     }).detach();
 }
+
+void stop_discovery() { ++g_discovery_generation; }
 
 }  // namespace conker::net::lobby

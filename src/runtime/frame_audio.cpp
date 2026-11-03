@@ -40,6 +40,7 @@ constexpr uint32_t kShuttingDown = 0x8002AC5C;     // D_8002AC5C (u8)
 constexpr uint32_t kAudioFrameCount = 0x8002AE44;  // D_8002AE44: audio frames made
 constexpr uint32_t kTaskRecords = 0x8003E390;      // D_8003E390: three AudioTaskRecord pointers
 constexpr uint32_t kCompletionQueue = 0x8003E608;  // D_8003E608: the RSP's "audio task done" messages
+constexpr uint32_t kAudioQueue = 0x8003E5D0;       // D_8003E5D0: the audio thread's own (the scheduler's messages)
 constexpr uint32_t kShortFrame = 0x80040F88;       // D_80040F88: samples in a short audio frame
 constexpr uint32_t kLongFrame = 0x80040F8C;        // D_80040F8C: in a long one
 constexpr uint32_t kShortCooldown = 0x80040F84;    // D_80040F84: frames before another short one
@@ -119,6 +120,35 @@ void receive_done(uint8_t* rdram, recomp_context& ctx, const recomp_context* hoo
 }
 
 }  // namespace
+
+// Online sessions the lobby starts turn the fixed step on while the game runs (frame_input.hpp's
+// enter_fixed_step). The audio thread then has a frame's task out whose "done" it would take after
+// making the next frame (unless it has made none yet), and keeps the frame before's record in $s5
+// ($s4 is still 1 before its first frame): the model carries on from there, as the thread would.
+// Only with the thread waiting at the top of its loop (on D_8003E5D0): waiting for a "done" itself, it
+// would take the one the model waits for.
+bool conker::frame_input::take_audio_frames(uint8_t* rdram) {
+    g_in_flight = 0;
+    g_finished.clear();
+    g_calls = 0;
+    if (MEM_BU(0, kseg0(kAudioStarted)) == 0) {
+        g_previous = 0;
+        g_first = true;
+        return true;
+    }
+    if (conker::snapshot::thread_waiting_on(rdram, kCompletionQueue) != nullptr) {
+        return false;
+    }
+    const recomp_context* audio = conker::snapshot::thread_waiting_on(rdram, kAudioQueue);
+    if (audio == nullptr) {
+        return false;
+    }
+    g_first = audio->r20 != 0;
+    const uint32_t previous = static_cast<uint32_t>(audio->r21);
+    g_previous = g_first || !in_rdram(previous) ? 0 : previous;
+    g_in_flight = g_first ? 0 : 1;
+    return true;
+}
 
 // func_80009400, with the message type it just received in $v0: under the fixed step a retrace
 // message does nothing, as the game thread makes the audio frames.

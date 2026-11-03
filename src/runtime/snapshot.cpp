@@ -278,6 +278,16 @@ void note_thread(recomp_context* ctx) {
     g_threads.push_back({thread, ctx});
 }
 
+recomp_context* thread_waiting_on(uint8_t* rdram, uint32_t queue) {
+    std::lock_guard lock(g_threads_mutex);
+    for (const Thread& t : g_threads) {
+        if (place_of(rdram, t).queue == queue) {
+            return t.ctx;
+        }
+    }
+    return nullptr;
+}
+
 std::vector<uint8_t> save(uint8_t* rdram, recomp_context* ctx, uint32_t frame, std::string* why) {
     std::vector<Thread> threads;
     {

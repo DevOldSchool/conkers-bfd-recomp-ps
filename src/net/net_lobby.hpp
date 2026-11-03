@@ -115,5 +115,7 @@ bool answer_probe(int socket, const uint8_t* data, size_t size, const sockaddr_s
 // Answers PROBEs on the discovery port from now on (a thread of its own), with what `offer` says
 // at the time.
 void serve_discovery(Offer (*offer)());
+// The answers stop (a session started in place has ended).
+void stop_discovery();
 
 }  // namespace conker::net::lobby

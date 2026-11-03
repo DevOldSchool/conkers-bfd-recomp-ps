@@ -108,6 +108,23 @@ void apply_settings(const std::string& header, const char* source);
 // (src/runtime/frame_audio.cpp); hook_ctx is the frame hook's registers.
 void make_audio_frame(uint8_t* rdram, recomp_context* hook_ctx);
 
+// A session the online lobby starts turns the fixed step on while the game runs, and off when the
+// player leaves it (src/net/net_play.cpp). On the game thread at the start of a frame, before the
+// frame waits for its graphics: from then on the frames step evenly, osGetCount counts frames, and
+// the game thread makes the audio frames instead of Rare's audio thread (take_audio_frames). False,
+// changing nothing, while the audio thread is not waiting at the top of its loop (the next frame
+// tries again).
+bool enter_fixed_step(uint8_t* rdram);
+void leave_fixed_step();
+// The audio frames from Rare's audio thread to the game thread's model, carrying on where the thread
+// was (frame_audio.cpp); false while it is not at the top of its loop.
+bool take_audio_frames(uint8_t* rdram);
+// The frame number the next frame's record follows: a session's frames count from 1.
+void set_frame(uint32_t frame);
+// After a session: this machine's own settings (settings_header() before it) back, its own
+// (Switch::local) ones too.
+void restore_settings(const std::string& header);
+
 // Under the fixed step, how many times the game thread has read osGetCount this frame (each read
 // is a step on); saved and put back by a pass that runs game code it must not count (my_view).
 uint32_t count_reads();
