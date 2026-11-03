@@ -310,6 +310,13 @@ These environment variables are read by both builds:
   in every build, so two machines' logs of an online session (a Mac's and a
   Linux PC's) agree up to the first call where their games part. Frame numbers
   restart when a session starts in place: compare the last run of the frames.
+  A guest that is dropped starts itself again and the restart truncates its
+  logs: `CONKER_NET_REJOIN_COUNT=99` keeps it stopped so they survive.
+  `CONKER_AUDIO_COUNT_LOG=<file>` writes, after each audio frame, how many of
+  the synth's update params, its free, allocated and stopping voices and the
+  sound player's free events there are. Online the machines may hear sounds at
+  different volumes (the "my view"), so the audio memory below 0x80082B20
+  differs, but these counts must be equal on every frame of every machine.
   `CONKER_CALL_HASH_LOG=<file>` hashes the game thread's sequence of
   recompiled function entries (a line each 4096 calls and at the end of each
   frame), and `CONKER_CALL_HASH_REF=<log of another run>` compares as it

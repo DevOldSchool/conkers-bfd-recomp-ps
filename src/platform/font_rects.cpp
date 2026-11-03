@@ -28,6 +28,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <utility>
+#include <vector>
 
 namespace conker::renderer {
 
@@ -51,7 +53,11 @@ uint32_t read32(const uint8_t* rdram, uint32_t addr) {
     return value;
 }
 
+// The words changed and what they held, for put_back_font_rects.
+std::vector<std::pair<uint32_t, uint32_t>> g_changed;
+
 void write32(uint8_t* rdram, uint32_t addr, uint32_t value) {
+    g_changed.emplace_back(addr, read32(rdram, addr));
     std::memcpy(rdram + addr, &value, 4);
 }
 
@@ -127,6 +133,7 @@ uint32_t widen_end(double reached, double target, int32_t per_pixel, uint32_t ed
 } // namespace
 
 void widen_font_rects(uint8_t* rdram, uint32_t display_list) {
+    g_changed.clear();
     Font fonts[kMaxFonts];
     int font_count = 0;
     for (int i = 0; i < kMaxFonts; i++) {
@@ -241,6 +248,13 @@ void widen_font_rects(uint8_t* rdram, uint32_t display_list) {
                 break;
         }
     }
+}
+
+void put_back_font_rects(uint8_t* rdram) {
+    for (auto it = g_changed.rbegin(); it != g_changed.rend(); ++it) {
+        std::memcpy(rdram + it->first, &it->second, 4);
+    }
+    g_changed.clear();
 }
 
 } // namespace conker::renderer

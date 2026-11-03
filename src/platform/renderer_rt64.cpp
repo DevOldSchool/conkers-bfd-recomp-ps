@@ -529,6 +529,9 @@ public:
         } else {
             draw_from(frame_memory, list);
         }
+        if (widen_font_rects_) {
+            put_back_font_rects(memory);
+        }
         if (self_test_now && self_test.kind != "ucode") {
             run_render_self_test(*app_, self_test.kind);
         }

@@ -31,9 +31,15 @@
 // or pan (sndp_post_event, types 8 and 4), they are worked out again for the local listener alone,
 // by the game's own functions with the listener table holding only it, and other players' own
 // sounds become positional around their characters. Once a frame, before the audio frame, a sound
-// whose local volume or pan has moved while the game sent nothing gets new values posted, if the
-// sound player's event queue has plenty of room left (a full queue drops events, which would change
-// when sounds end). The sound player's volume and pan feed only the mix.
+// whose volume or pan has moved in some view while the game sent nothing gets new values posted, if
+// the sound player's event queue has plenty of room left (a full queue drops events, which would
+// change when sounds end). The sound player's volume and pan feed only the mix, so the audio memory
+// below 0x80082B20 differs between machines (the desync hash leaves it out), but every machine has
+// to post the same events: each one takes an event and a synth update param, and a machine that ran
+// short of either would drop work the others did (a voice not freed, a sound bank not released,
+// in the hashed heap). So every machine of a session follows every view's sounds, whatever its own
+// MY VIEW switch or view, decides from all views' values when to post, and posts its own view's
+// values (the game's where it has none). CONKER_AUDIO_COUNT_LOG compares the counts.
 //
 // CONKER_MY_VIEW=0 keeps the split screen and the shared sounds online. CONKER_MY_VIEW_PORT=<1-4>
 // tries it outside a session, as that port's player (local split screen, for testing).
@@ -193,6 +199,20 @@ int local_view(uint8_t* rdram) {
     return port <= last ? port : -1;
 }
 
+// The views whose sounds are followed: every view of a split-screen match in an online session
+// (or while CONKER_MY_VIEW_PORT tries it), on every machine alike, so that every machine posts the
+// same events to the sound player whichever view it hears from.
+int sound_views(uint8_t* rdram) {
+    if (!conker::net::active() && g_test_port < 0) {
+        return 0;
+    }
+    if (MEM_BU(0, kseg0(kMultiplayer)) == 0) {
+        return 0;
+    }
+    const int32_t last = MEM_W(0, kseg0(kLastView));
+    return last >= 1 && last <= 3 ? last + 1 : 0;
+}
+
 // ---- The picture ----
 
 struct Focus {
@@ -274,13 +294,16 @@ struct Query {
     bool pan = true;  // flag 0x100 keeps a kept sound centred
 };
 
+constexpr int kMaxViews = 4;
+
 struct Source {
     Kind kind = Kind::Kept;
     Query query;          // Kept until the record has the handle; Spot: the point
     uint32_t owner = 0;   // Owner: the actor
     int32_t base = 0;     // Spot and Owner: the volume at full strength
-    int32_t sent_volume = -1;
-    int32_t sent_pan = -1;
+    // What each view was sent last (index view + 1; 0 the game's own), -1 before anything was.
+    int32_t sent_volume[kMaxViews + 1] = {-1, -1, -1, -1, -1};
+    int32_t sent_pan[kMaxViews + 1] = {-1, -1, -1, -1, -1};
 };
 
 struct Pending {
@@ -298,7 +321,10 @@ Pending g_marked;     // the sound a caller of func_80010BE8 is about to start
 Pending g_start;      // the sound func_80010BE8 is starting
 Pending g_play;       // the sound func_80010BE8 hands sndp_play_sound
 bool g_posting = false;  // the refresh's own events
-int g_view = -1;      // the local view while a match runs, for the hooks
+int g_view = -1;      // the local view while a match runs, for the hooks (-1: none, or MY VIEW off)
+// The match's views while sounds are followed, the same on every machine of a session whatever its
+// own MY VIEW switch or port: 0 for none.
+int g_sound_views = 0;
 bool g_drawing = false;  // the local view is being drawn again
 
 // A context for calling the game's functions from a hook, with a stack frame well below the hook's.
@@ -339,29 +365,56 @@ private:
     int32_t saved_[kWords];
 };
 
-// The volume (of 0x7FFF) and pan the game gives a sound of the query, from every listener or from
-// the local one alone (the listener table briefly holds only it).
+// The volume (of 0x7FFF) and pan the game gives a sound of the query, from every listener (view -1,
+// as the game itself asks) or from one view's alone (the listener table briefly holds only it).
 struct Heard {
     int32_t volume = 0;
     int32_t pan = 0x40;  // with 0x80 for the effects mix, as the game keeps it
 };
 
-Heard ask(uint8_t* rdram, const recomp_context* ctx, const Query& query, bool local) {
-    gpr sp;
-    recomp_context c = call_context(ctx, &sp);
-    own_float_registers(c);
-    const uint32_t saved_last = static_cast<uint32_t>(MEM_W(0, kseg0(kLastView)));
-    uint32_t saved[kListenerSize / 4];
-    const uint32_t listener = local ? kListeners + static_cast<uint32_t>(g_view) * kListenerSize : kListeners;
-    if (local) {
+// While a query is asked for one view: the listener table holds only that view's listener.
+class OneListener {
+public:
+    OneListener(uint8_t* rdram, int view) : rdram_(rdram), view_(view) {
+        if (view_ < 0) {
+            return;
+        }
+        saved_last_ = static_cast<uint32_t>(MEM_W(0, kseg0(kLastView)));
+        const uint32_t listener = kListeners + static_cast<uint32_t>(view_) * kListenerSize;
         for (uint32_t i = 0; i < kListenerSize / 4; i++) {
-            saved[i] = static_cast<uint32_t>(MEM_W(i * 4, kseg0(kListeners)));
+            saved_[i] = static_cast<uint32_t>(MEM_W(i * 4, kseg0(kListeners)));
         }
         for (uint32_t i = 0; i < kListenerSize / 4; i++) {
             MEM_W(i * 4, kseg0(kListeners)) = MEM_W(i * 4, kseg0(listener));
         }
         MEM_W(0, kseg0(kLastView)) = 0;
     }
+    ~OneListener() {
+        if (view_ < 0) {
+            return;
+        }
+        uint8_t* rdram = rdram_;
+        for (uint32_t i = 0; i < kListenerSize / 4; i++) {
+            MEM_W(i * 4, kseg0(kListeners)) = static_cast<int32_t>(saved_[i]);
+        }
+        MEM_W(0, kseg0(kLastView)) = static_cast<int32_t>(saved_last_);
+    }
+    // Listener 0 while the query runs.
+    uint32_t listener() const { return kListeners; }
+
+private:
+    uint8_t* rdram_;
+    int view_;
+    uint32_t saved_last_ = 0;
+    uint32_t saved_[kListenerSize / 4] = {};
+};
+
+Heard ask(uint8_t* rdram, const recomp_context* ctx, const Query& query, int view) {
+    gpr sp;
+    recomp_context c = call_context(ctx, &sp);
+    own_float_registers(c);
+    const OneListener only(rdram, view);
+    const uint32_t listener = only.listener();
     Heard heard;
     const gpr pan = sp + 0x40, volume = sp + 0x44, distance = sp + 0x48;
     MEM_W(0, pan) = 0x40;
@@ -397,30 +450,15 @@ Heard ask(uint8_t* rdram, const recomp_context* ctx, const Query& query, bool lo
         heard.volume = MEM_W(0, volume);
     }
     heard.pan = MEM_W(0, pan);
-    if (local) {
-        for (uint32_t i = 0; i < kListenerSize / 4; i++) {
-            MEM_W(i * 4, kseg0(kListeners)) = static_cast<int32_t>(saved[i]);
-        }
-        MEM_W(0, kseg0(kLastView)) = static_cast<int32_t>(saved_last);
-    }
     return heard;
 }
 
-// A sound at a point as func_8000F6B8 hears it from the local listener alone.
-Heard ask_point(uint8_t* rdram, const recomp_context* ctx, const Query& query) {
+// A sound at a point as func_8000F6B8 hears it, from every listener (view -1) or one view's alone.
+Heard ask_point(uint8_t* rdram, const recomp_context* ctx, const Query& query, int view) {
     gpr sp;
     recomp_context c = call_context(ctx, &sp);
     own_float_registers(c);
-    const uint32_t saved_last = static_cast<uint32_t>(MEM_W(0, kseg0(kLastView)));
-    uint32_t saved[kListenerSize / 4];
-    const uint32_t listener = kListeners + static_cast<uint32_t>(g_view) * kListenerSize;
-    for (uint32_t i = 0; i < kListenerSize / 4; i++) {
-        saved[i] = static_cast<uint32_t>(MEM_W(i * 4, kseg0(kListeners)));
-    }
-    for (uint32_t i = 0; i < kListenerSize / 4; i++) {
-        MEM_W(i * 4, kseg0(kListeners)) = MEM_W(i * 4, kseg0(listener));
-    }
-    MEM_W(0, kseg0(kLastView)) = 0;
+    const OneListener only(rdram, view);
     const gpr pan = sp + 0x40;
     MEM_W(0, pan) = 0x40;
     c.r4 = 0;
@@ -434,10 +472,6 @@ Heard ask_point(uint8_t* rdram, const recomp_context* ctx, const Query& query) {
     Heard heard;
     heard.volume = static_cast<int32_t>(c.r2);
     heard.pan = MEM_W(0, pan);
-    for (uint32_t i = 0; i < kListenerSize / 4; i++) {
-        MEM_W(i * 4, kseg0(kListeners)) = static_cast<int32_t>(saved[i]);
-    }
-    MEM_W(0, kseg0(kLastView)) = static_cast<int32_t>(saved_last);
     return heard;
 }
 
@@ -471,28 +505,40 @@ Query record_query(uint8_t* rdram, uint32_t record) {
     return query;
 }
 
-// The volume and pan for the local listener of a sound the game gives game_volume and game_pan.
-// For a kept sound the game's volume is scaled by how much quieter it is here than at the nearest
-// listener, which keeps whatever its callback did to it.
+// The volume and pan one view hears a sound at that the game gives game_volume and game_pan (view
+// -1: the game's own, as every view together hears it). For a kept sound the game's volume is
+// scaled by how much quieter it is in the view than at the nearest listener, which keeps whatever
+// its callback did to it. Whether it is valid never depends on the view, so every machine follows
+// the same sounds.
 struct Local {
     bool valid = false;
     int32_t volume = 0;
     int32_t pan = -1;  // -1: keep the game's
 };
 
-Local local_sound(uint8_t* rdram, const recomp_context* ctx, Source& source, uint16_t handle, int32_t game_volume,
-                  int32_t game_pan) {
+bool is_own_player(uint8_t* rdram, uint32_t owner, int view) {
+    const uint32_t camera = static_cast<uint32_t>(MEM_W(kActorCamera, kseg0(owner)));
+    const uint32_t cameras = static_cast<uint32_t>(MEM_W(0, kseg0(kCameras)));
+    return camera == cameras + static_cast<uint32_t>(view) * kCameraSize;
+}
+
+Local local_sound(uint8_t* rdram, const recomp_context* ctx, const Source& source, uint16_t handle, int32_t game_volume,
+                  int32_t game_pan, int view) {
     Local local;
     switch (source.kind) {
         case Kind::Kept: {
             const uint32_t record = kept_record(rdram, handle);
             const Query query = record != 0 ? record_query(rdram, record) : source.query;
-            const Heard everyone = ask(rdram, ctx, query, false);
-            const Heard here = ask(rdram, ctx, query, true);
+            const Heard everyone = ask(rdram, ctx, query, -1);
             if (everyone.volume <= 0) {
                 return local;
             }
             local.valid = true;
+            if (view < 0) {
+                local.volume = game_volume;
+                return local;
+            }
+            const Heard here = ask(rdram, ctx, query, view);
             local.volume = static_cast<int32_t>(std::min<int64_t>(0x7FFF, int64_t{game_volume} * here.volume / everyone.volume));
             if (query.pan && game_pan >= 0) {
                 if (game_pan == (everyone.pan & 0x7F)) {
@@ -504,7 +550,7 @@ Local local_sound(uint8_t* rdram, const recomp_context* ctx, Source& source, uin
             return local;
         }
         case Kind::Spot: {
-            const Heard here = ask_point(rdram, ctx, source.query);
+            const Heard here = ask_point(rdram, ctx, source.query, view);
             local.valid = true;
             local.volume = (source.base * here.volume) >> 15;
             local.pan = here.pan & 0x7F;
@@ -514,18 +560,52 @@ Local local_sound(uint8_t* rdram, const recomp_context* ctx, Source& source, uin
             if (MEM_W(kActorAlive, kseg0(source.owner)) == 0) {
                 return local;
             }
+            local.valid = true;
+            if (view < 0 || is_own_player(rdram, source.owner, view)) {
+                local.volume = source.base;  // as the game plays a player's own sound, with its pan
+                return local;
+            }
             Query query = source.query;
             query.x = static_cast<int32_t>(read_float(rdram, source.owner + kActorX));
             query.y = static_cast<int32_t>(read_float(rdram, source.owner + kActorX + 4));
             query.z = static_cast<int32_t>(read_float(rdram, source.owner + kActorX + 8));
-            const Heard here = ask_point(rdram, ctx, query);
-            local.valid = true;
+            const Heard here = ask_point(rdram, ctx, query, view);
             local.volume = (source.base * here.volume) >> 15;
             local.pan = here.pan & 0x7F;
             return local;
         }
     }
     return local;
+}
+
+// Every view's values (index view + 1), the game's own first.
+struct Locals {
+    Local view[kMaxViews + 1];
+};
+
+Locals local_sounds(uint8_t* rdram, const recomp_context* ctx, const Source& source, uint16_t handle, int32_t game_volume,
+                    int32_t game_pan) {
+    Locals locals;
+    for (int view = -1; view < g_sound_views; view++) {
+        locals.view[view + 1] = local_sound(rdram, ctx, source, handle, game_volume, game_pan, view);
+    }
+    return locals;
+}
+
+// This machine's values of the view's: the game's own when it has no view (or shows the split
+// screen), and the game's pan where the view keeps it.
+int local_index() { return g_view >= 0 && g_view < g_sound_views ? g_view + 1 : 0; }
+
+// What every view was last sent: the view's own pan where it has one, else the game's.
+void record_sent(Source& source, const Locals& locals, bool volume, bool pan, int32_t game_pan) {
+    for (int i = 0; i <= g_sound_views; i++) {
+        if (volume) {
+            source.sent_volume[i] = locals.view[i].volume;
+        }
+        if (pan) {
+            source.sent_pan[i] = locals.view[i].pan >= 0 ? locals.view[i].pan : game_pan;
+        }
+    }
 }
 
 // The handle whose sound state this is, or 0.
@@ -539,21 +619,20 @@ uint16_t handle_of(uint8_t* rdram, uint32_t state) {
     return 0;
 }
 
-bool sounds_active() { return g_view >= 0 && !g_drawing; }
+bool sounds_active() { return g_sound_views > 0 && !g_drawing; }
 
-// Whether an actor's own sound is another player's: a player (it has a camera record) not here.
-bool other_player(uint8_t* rdram, uint32_t owner) {
+// Whether an actor's own sound is a player's (it has a camera record), heard positionally in every
+// other player's view.
+bool player_owned(uint8_t* rdram, uint32_t owner) {
     if (!in_rdram(owner) || MEM_W(kActorAlive, kseg0(owner)) == 0) {
         return false;
     }
-    const uint32_t camera = static_cast<uint32_t>(MEM_W(kActorCamera, kseg0(owner)));
-    const uint32_t cameras = static_cast<uint32_t>(MEM_W(0, kseg0(kCameras)));
-    return camera != 0 && camera != cameras + static_cast<uint32_t>(g_view) * kCameraSize;
+    return MEM_W(kActorCamera, kseg0(owner)) != 0;
 }
 
 void set_owner(uint8_t* rdram, uint32_t owner, int32_t near_distance, int32_t far_distance, bool centred) {
     g_owner.set = false;
-    if (!sounds_active() || !other_player(rdram, owner)) {
+    if (!sounds_active() || !player_owned(rdram, owner)) {
         return;
     }
     g_owner.set = true;
@@ -565,8 +644,9 @@ void set_owner(uint8_t* rdram, uint32_t owner, int32_t near_distance, int32_t fa
     g_owner_centred = centred;
 }
 
-// Once a frame: new volumes and pans for sounds the local listener hears differently now, posted
-// while the sound player's event queue has room to spare.
+// Once a frame: new volumes and pans for sounds a view hears differently now, posted while the
+// sound player's event queue has room to spare. Whether an event is posted is decided from every
+// view's values, so every machine posts the same events and only their values differ.
 void refresh(uint8_t* rdram, recomp_context* ctx) {
     if (!sounds_active()) {
         g_sources.clear();
@@ -584,6 +664,7 @@ void refresh(uint8_t* rdram, recomp_context* ctx) {
     constexpr int kSpareEvents = 24;  // left free for what the sound player posts itself this frame
     StackGuard guard(rdram, ctx);
     std::unordered_map<uint16_t, Source> live;
+    const int here = local_index();
     for (int i = 0; i < kHandleCount; i++) {
         const uint32_t entry = kHandles + static_cast<uint32_t>(i) * kHandleSize;
         const uint16_t handle = MEM_HU(0, kseg0(entry));
@@ -594,7 +675,7 @@ void refresh(uint8_t* rdram, recomp_context* ctx) {
         }
         Source source = it->second;
         if (MEM_BU(kStatePlaying, kseg0(state)) != 0) {
-            int32_t game_volume = source.sent_volume;
+            int32_t game_volume = source.sent_volume[0];
             int32_t game_pan = -1;
             if (source.kind == Kind::Kept) {
                 const uint32_t record = kept_record(rdram, handle);
@@ -603,14 +684,20 @@ void refresh(uint8_t* rdram, recomp_context* ctx) {
                     game_pan = MEM_BU(0x22, kseg0(record)) & 0x7F;
                 }
             }
-            const Local local = local_sound(rdram, ctx, source, handle, game_volume, game_pan);
-            if (local.valid) {
-                const int32_t step = std::max(64, source.sent_volume / 16);
-                const bool volume_moved = source.sent_volume < 0 || std::abs(local.volume - source.sent_volume) > step ||
-                                          ((local.volume == 0) != (source.sent_volume == 0));
-                const bool pan_moved = local.pan >= 0 && local.pan != source.sent_pan;
+            const Locals locals = local_sounds(rdram, ctx, source, handle, game_volume, game_pan);
+            if (locals.view[0].valid) {
+                bool volume_moved = false, pan_moved = false;
+                for (int v = 0; v <= g_sound_views; v++) {
+                    const Local& local = locals.view[v];
+                    const int32_t sent = source.sent_volume[v];
+                    const int32_t step = std::max(64, sent / 16);
+                    volume_moved = volume_moved || sent < 0 || std::abs(local.volume - sent) > step ||
+                                   ((local.volume == 0) != (sent == 0));
+                    pan_moved = pan_moved || (local.pan >= 0 && local.pan != source.sent_pan[v]);
+                }
                 const int wanted = (volume_moved ? 1 : 0) + (pan_moved ? 1 : 0);
                 if (wanted > 0 && free_events - wanted >= kSpareEvents) {
+                    const int32_t kept_pan = game_pan >= 0 ? game_pan : source.sent_pan[0];
                     g_posting = true;
                     gpr sp;
                     if (volume_moved) {
@@ -618,20 +705,22 @@ void refresh(uint8_t* rdram, recomp_context* ctx) {
                         own_float_registers(c);
                         c.r4 = kseg0(state);
                         c.r5 = 8;
-                        c.r6 = word(local.volume);
+                        c.r6 = word(locals.view[here].volume);
                         sndp_post_event(rdram, &c);
-                        source.sent_volume = local.volume;
                     }
                     if (pan_moved) {
+                        const int32_t pan = locals.view[here].pan >= 0 ? locals.view[here].pan
+                                            : source.sent_pan[here] >= 0 ? source.sent_pan[here]
+                                            : kept_pan >= 0 ? kept_pan : 0x40;
                         recomp_context c = call_context(ctx, &sp);
                         own_float_registers(c);
                         c.r4 = kseg0(state);
                         c.r5 = 4;
-                        c.r6 = word(local.pan);
+                        c.r6 = word(pan);
                         sndp_post_event(rdram, &c);
-                        source.sent_pan = local.pan;
                     }
                     g_posting = false;
+                    record_sent(source, locals, volume_moved, pan_moved, kept_pan);
                     free_events -= wanted;
                 }
             }
@@ -955,6 +1044,7 @@ void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
 void conker::my_view::frame(uint8_t* rdram, recomp_context* ctx) {
     g_marked.set = g_start.set = g_play.set = false;
     g_view = local_view(rdram);
+    g_sound_views = sound_views(rdram);
     present(rdram, g_view);
     refresh(rdram, ctx);
 }
@@ -1092,22 +1182,20 @@ extern "C" void conker_my_view_play(uint8_t* rdram, recomp_context* ctx) {
     if (source.kind == Kind::Owner) {
         source.base = game_volume;
     }
-    Local local;
+    Locals locals;
     {
         StackGuard guard(rdram, ctx);
-        local = local_sound(rdram, ctx, source, handle, game_volume, game_pan);
+        locals = local_sounds(rdram, ctx, source, handle, game_volume, game_pan);
     }
-    if (!local.valid) {
+    if (!locals.view[0].valid) {
         return;
     }
+    const Local& local = locals.view[local_index()];
     ctx->r6 = word(local.volume);
-    source.sent_volume = local.volume;
     if (local.pan >= 0) {
         ctx->r7 = word(local.pan);
-        source.sent_pan = local.pan;
-    } else {
-        source.sent_pan = game_pan;
     }
+    record_sent(source, locals, true, true, game_pan);
     g_sources[handle] = source;
     if (g_log) {
         std::printf("[conker] my view: sound %u (handle 0x%X, %s) volume %d -> %d, pan %d -> %d\n",
@@ -1119,7 +1207,7 @@ extern "C" void conker_my_view_play(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // sndp_post_event's entry (state, type, value): the game changing a sound's volume (8) or pan (4)
-// gets the local listener's.
+// gets the local view's.
 extern "C" void conker_my_view_post(uint8_t* rdram, recomp_context* ctx) {
     const int16_t type = static_cast<int16_t>(ctx->r5);
     if (g_posting || !sounds_active() || (type != 8 && type != 4)) {
@@ -1135,27 +1223,27 @@ extern "C" void conker_my_view_post(uint8_t* rdram, recomp_context* ctx) {
     if (type == 8 && source.kind == Kind::Owner) {
         source.base = value;
     }
-    int32_t game_volume = type == 8 ? value : source.sent_volume;
+    int32_t game_volume = type == 8 ? value : source.sent_volume[0];
     int32_t game_pan = type == 4 ? value : -1;
     if (source.kind == Kind::Kept && type == 4) {
         const uint32_t record = kept_record(rdram, handle);
-        game_volume = record != 0 ? static_cast<uint16_t>(MEM_H(0x26, kseg0(record))) : source.sent_volume;
+        game_volume = record != 0 ? static_cast<uint16_t>(MEM_H(0x26, kseg0(record))) : source.sent_volume[0];
     }
-    Local local;
+    Locals locals;
     {
         StackGuard guard(rdram, ctx);
-        local = local_sound(rdram, ctx, source, handle, game_volume, game_pan);
+        locals = local_sounds(rdram, ctx, source, handle, game_volume, game_pan);
     }
-    if (!local.valid) {
+    if (!locals.view[0].valid) {
         return;
     }
+    const Local& local = locals.view[local_index()];
     if (type == 8) {
         ctx->r6 = word(local.volume);
-        source.sent_volume = local.volume;
     } else if (local.pan >= 0) {
         ctx->r6 = word(local.pan);
-        source.sent_pan = local.pan;
     }
+    record_sent(source, locals, type == 8, type == 4, game_pan);
 }
 
 // func_1501878C at 0x15018938, where it starts drawing the views: the display list pointer's

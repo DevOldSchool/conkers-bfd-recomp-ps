@@ -18,6 +18,7 @@
 // output rate a frame. It averages out to the real rate, as Rare's choice does.
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <deque>
 
 #include <cstring>
@@ -172,6 +173,44 @@ extern "C" void conker_audio_queued(uint8_t* rdram, recomp_context* ctx) {
     g_queued += MEM_W(0, kseg0(short_frame ? kShortFrame : kLongFrame));
 }
 
+namespace {
+
+// CONKER_AUDIO_COUNT_LOG=<file>: after each audio frame, the frame's number and how many of the
+// synth's update params, free/allocated/stopping voices and the sound player's events are free or
+// in use. Machines of a session may hear sounds at different volumes (the online "my view") but
+// must agree on these counts on every frame: a list one machine ran out of drops work only there
+// (an unfreed voice, a lost event), which changes when its sounds end (docs/diagnostics.md).
+constexpr uint32_t kSynth = 0x8002BA44;        // n_syn
+constexpr uint32_t kSoundPlayer = 0x8002BA2C;  // D_8002BA2C
+void log_audio_counts(uint8_t* rdram) {
+    static FILE* const out = [] {
+        const char* path = std::getenv("CONKER_AUDIO_COUNT_LOG");
+        return path != nullptr ? std::fopen(path, "w") : nullptr;
+    }();
+    if (out == nullptr) {
+        return;
+    }
+    const uint32_t synth = static_cast<uint32_t>(MEM_W(0, kseg0(kSynth)));
+    const uint32_t player = static_cast<uint32_t>(MEM_W(0, kseg0(kSoundPlayer)));
+    if (!in_rdram(synth) || !in_rdram(player)) {
+        return;
+    }
+    auto length = [&](uint32_t link) {  // of a list linked through its first word
+        int count = 0;
+        for (; in_rdram(link) && count < 10000; count++) {
+            link = static_cast<uint32_t>(MEM_W(0, kseg0(link)));
+        }
+        return count;
+    };
+    auto list = [&](uint32_t base, uint32_t offset) { return length(static_cast<uint32_t>(MEM_W(offset, kseg0(base)))); };
+    std::fprintf(out, "%u params %d free %d alloc %d lame %d events %d\n",
+                 static_cast<unsigned>(MEM_W(0, kseg0(kAudioFrameCount))), list(synth, 0x40), list(synth, 0x4),
+                 list(synth, 0xC), list(synth, 0x14), list(player, 0x14));
+    std::fflush(out);
+}
+
+}  // namespace
+
 // At the start of each game frame, on the game thread: the audio frame, as func_80009400 makes it.
 void conker::frame_input::make_audio_frame(uint8_t* rdram, recomp_context* hook_ctx) {
     if (!fixed_step() || MEM_BU(0, kseg0(kAudioStarted)) == 0 || MEM_BU(0, kseg0(kShuttingDown)) != 0) {
@@ -195,6 +234,7 @@ void conker::frame_input::make_audio_frame(uint8_t* rdram, recomp_context* hook_
     conker::set_current_context(&ctx);
     func_800095A0(rdram, &ctx);
     conker::set_current_context(thread_ctx);
+    log_audio_counts(rdram);
     if (static_cast<int32_t>(ctx.r2) == 0) {
         return;
     }
