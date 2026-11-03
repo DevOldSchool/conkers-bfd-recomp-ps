@@ -74,8 +74,11 @@ Up to four SDL game controllers are read, one per controller port in the
 order they connect, so local multiplayer works: each player presses Start on
 the MULTI join screen. Pads are hot-pluggable: one that disconnects frees its
 port and the others keep theirs, and the next pad to connect takes the lowest
-free port. The keyboard plays controller 1 alongside its pad. There is no
-remapping yet. A pad that can rumble (DualSense, DualShock 4, Xbox, Switch
+free port. The keyboard plays controller 1 alongside its pad. The debug menu's
+CONTROLS page maps each controller's pad buttons and the keyboard's keys
+differently and inverts the aim (see
+[docs/enhancements.md](docs/enhancements.md#debug-menu)); below are the
+defaults. A pad that can rumble (DualSense, DualShock 4, Xbox, Switch
 Pro) counts as a Rumble Pak in its port. Connect controller 1's pad before
 starting the game, which looks for the pak at boot. Each pad has its own
 haptics and adaptive triggers, felt for its own player in a multiplayer match;
@@ -110,7 +113,8 @@ while aiming (R, or the slingshot) it aims, as the right stick does. Esc, pausin
 (Enter), a menu or another window lets it go; it is captured again when play
 carries on after a pause, or with a click. The wheel, or R and T, move the camera through its
 three distances, in and out (on a pad, C-up only steps in).
-MOUSE AIM on the OPTIONS page sets how fast the mouse aims (25% to 400%).
+MOUSE AIM on the CONTROLS page (OPTIONS, then CONTROLS) sets how fast the mouse
+aims (25% to 400%).
 
 ## Enhancements
 

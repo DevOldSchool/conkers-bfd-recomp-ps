@@ -12,11 +12,15 @@
 // Other pads get the N64's buttons redrawn the same way, sharper than Rare's
 // small pictures, unless the OPTIONS menu asks for the original text and menus.
 //
-// The N64 buttons map to the pad's by position (src/platform/input_sdl.cpp): A to the bottom face
-// button (Xbox A, Cross), B to the right and left ones (Xbox B and X, drawn as B; Circle and
-// Square, drawn as Square), START to Menu or Options, Z to either trigger (drawn as the right one),
-// L and R to the shoulder buttons and the C buttons to the right stick. The stick is swapped left to right (C-left is pushing it
-// right), so the C-left picture shows the stick pushed right, and C-right pushed left. The keys:
+// The N64 buttons map to the pad's by position by default (src/platform/input_sdl.cpp): A to the
+// bottom face button (Xbox A, Cross), B to the right and left ones (Xbox B and X, drawn as B; Circle
+// and Square, drawn as Square), START to Menu or Options, Z to either trigger (drawn as the right
+// one), L and R to the shoulder buttons and the C buttons to the right stick. The stick is swapped
+// left to right (C-left is pushing it right), so the C-left picture shows the stick pushed right,
+// and C-right pushed left. The debug menu's CONTROLS page maps them differently: an Xbox or
+// PlayStation set then shows what controller 1's mapping has press each button (any of the pad's
+// controls can be drawn), and a new set is drawn when it changes. The B pads on the ground show a
+// PlayStation Square only while B is still Square, and are Rare's B otherwise. The keys:
 // A Space, B E, START Enter, Z C (crouch; Left Ctrl and the left mouse button too), L Q, R F, and
 // the C buttons I, K and J and L, swapped as the stick is.
 #include "enhancements/pad_icons/pad_icons.hpp"
@@ -82,18 +86,45 @@ uint64_t hash(const std::vector<uint8_t>& tile, const Button& button) {
 
 } // namespace
 
-std::shared_ptr<RT64::FileSystem> make_pack(Style style, bool camera_swapped) {
+Shown shown(Style style, bool camera_swapped) {
+    Shown out;
+    out.fill(0);
+    if (style != Style::Xbox && style != Style::PlayStation && style != Style::Keyboard) return out;
+    const input::PadKind kind = style == Style::PlayStation ? input::PadKind::PlayStation : input::PadKind::Xbox;
+    // The mapping's buttons are its rows: C-LEFT is the N64's C-right, which the camera swap
+    // makes C-left (input.hpp's kMappedButtons).
+    auto row = [](uint16_t n64) {
+        for (int i = 0; i < input::kMappedButtonCount; i++) {
+            if (input::kMappedButtons[i].n64 == n64) return i;
+        }
+        return -1;
+    };
+    const uint16_t c_left = camera_swapped ? input::kCLeft : input::kCRight;
+    const uint16_t c_right = camera_swapped ? input::kCRight : input::kCLeft;
+    const uint16_t buttons[kSlots] = {input::kA, input::kB, input::kStart, input::kZ, input::kL, input::kR,
+                                      c_left, c_right, input::kCUp, input::kCDown};
+    for (int slot = 0; slot < kSlots; slot++) {
+        out[slot] = style == Style::Keyboard ? input::shown_key(row(buttons[slot]))
+                                             : int(input::shown_control(0, row(buttons[slot]), kind));
+    }
+    return out;
+}
+
+std::shared_ptr<RT64::FileSystem> make_pack(Style style, const Shown& shown) {
     if (style == Style::Original) return nullptr;
     const std::string folder = style == Style::Xbox          ? "xbox"
                                : style == Style::PlayStation ? "playstation"
                                : style == Style::Keyboard    ? "keyboard"
                                                              : "n64";
     const auto started = std::chrono::steady_clock::now();
-    const std::vector<Picture> pictures = draw_set(style, camera_swapped);
+    const std::vector<Picture> pictures = draw_set(style, shown);
     auto pack = std::make_shared<memory_pack::Pack>();
     for (const Button& button : kButtons) {
         const std::vector<uint8_t> tile = menu_art::load_resource(button.resource);
         const auto picture = std::find_if(pictures.begin(), pictures.end(), [&](const Picture& p) { return p.name == button.picture; });
+        if (picture == pictures.end() && style != Style::N64) {
+            continue;  // a button nothing on the pad presses keeps Rare's picture
+        }
         if (tile.size() != size_t(button.width) * button.height * button.bits / 8 || picture == pictures.end()) {
             std::fprintf(stderr, "[conker] pad buttons: no %s picture for resource %d; left as it is\n", button.picture, button.resource);
             continue;
@@ -103,7 +134,10 @@ std::shared_ptr<RT64::FileSystem> make_pack(Style style, bool camera_swapped) {
     }
     // The B pads on the ground: an Xbox pad's B is B, so only a PlayStation pad's (a Square) and the
     // keyboard's (an E) change.
-    if (style == Style::PlayStation || style == Style::Keyboard) {
+    // Only while B is still Square or E: the pads have no other mark.
+    const bool b_is_square = shown[kSlotB] == int(input::PadControl::West);
+    const bool b_is_e = shown[kSlotB] != 0 && input::key_label(shown[kSlotB]) == "E";
+    if ((style == Style::PlayStation && b_is_square) || (style == Style::Keyboard && b_is_e)) {
         const Mark::Shape shape = style == Style::PlayStation ? Mark::Shape::Square : Mark::Shape::E;
         const std::string pads = "pad_icons/" + folder + "/";
         if (const std::optional<Texture> pad = wood_pad(shape)) {

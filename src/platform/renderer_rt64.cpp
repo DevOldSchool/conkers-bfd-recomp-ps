@@ -51,9 +51,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "enhancements/pad_icons/pad_icons.hpp"
@@ -231,7 +233,8 @@ std::string g_graphics_api;
 struct Packs {
     std::shared_ptr<RT64::FileSystem> font;
     std::shared_ptr<RT64::FileSystem> menus;
-    std::shared_ptr<RT64::FileSystem> buttons[conker::pad_icons::kStyles][2];  // by Style and camera swap, made when first wanted
+    // By Style, camera swap and the controls shown (pad_icons::shown), made when first wanted.
+    std::map<std::tuple<int, bool, conker::pad_icons::Shown>, std::shared_ptr<RT64::FileSystem>> buttons;
     std::vector<std::filesystem::path> user;
 };
 
@@ -281,8 +284,9 @@ bool use_packs(RT64::Application& app, Packs& packs, bool sharp, conker::pad_ico
     if (pad == conker::pad_icons::Style::N64 && !sharp) pad = conker::pad_icons::Style::Original;
     // The N64 set shows the C buttons themselves, so the camera swap does not change it.
     if (pad == conker::pad_icons::Style::N64) swapped = true;
-    std::shared_ptr<RT64::FileSystem>& buttons = packs.buttons[int(pad)][swapped];
-    if (!buttons) buttons = conker::pad_icons::make_pack(pad, swapped);
+    const conker::pad_icons::Shown shown = conker::pad_icons::shown(pad, swapped);
+    std::shared_ptr<RT64::FileSystem>& buttons = packs.buttons[{int(pad), swapped, shown}];
+    if (!buttons) buttons = conker::pad_icons::make_pack(pad, shown);
     if (buttons) {
         const std::string name = std::string("built-in ") + conker::pad_icons::name(pad) + " buttons";
         directories.emplace_back(buttons, name);
@@ -477,16 +481,20 @@ public:
             used_sharp_ = conker::display::sharp();
             used_pad_ = conker::pad_icons::style();
             used_swap_ = conker::input::camera_swapped();
+            used_shown_ = conker::pad_icons::shown(used_pad_, used_swap_);
             widen_font_rects_ = use_packs(*app_, packs_, used_sharp_, used_pad_, used_swap_, true);
         } else {
             const bool sharp = conker::display::sharp();
             const conker::pad_icons::Style pad = conker::pad_icons::style();
             const bool swap = conker::input::camera_swapped();
-            if (sharp != used_sharp_ || pad != used_pad_ || swap != used_swap_) {
-                const bool new_pad = pad != used_pad_;
+            // The controls the pictures show change with the CONTROLS page's mapping.
+            const conker::pad_icons::Shown shown = conker::pad_icons::shown(pad, swap);
+            if (sharp != used_sharp_ || pad != used_pad_ || swap != used_swap_ || shown != used_shown_) {
+                const bool new_pad = pad != used_pad_ || shown != used_shown_;
                 used_sharp_ = sharp;
                 used_pad_ = pad;
                 used_swap_ = swap;
+                used_shown_ = shown;
                 widen_font_rects_ = use_packs(*app_, packs_, used_sharp_, used_pad_, used_swap_, new_pad);
             }
         }
@@ -727,6 +735,7 @@ private:
     bool used_sharp_ = true;         // the built-in packs are in use
     conker::pad_icons::Style used_pad_ = conker::pad_icons::Style::Original;  // the button pictures in use
     bool used_swap_ = true;                                                  // and the camera swap they show
+    conker::pad_icons::Shown used_shown_{};                                  // and the pad's controls they show
     bool widen_font_rects_ = false;  // the built-in font or a texture pack is in use
     std::vector<conker::frame_effects::Effect> frame_effects_;  // the effects on the task's frame
     mutable float reported_scale_ = 0.0f;

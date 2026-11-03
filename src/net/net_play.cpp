@@ -497,9 +497,9 @@ Port neutral_port() {
 }
 
 // What a held port reads: connected, with a rumble pak (always, so that the game, which looks at
-// the paks at boot, sees the same as later), the right stick as the sender's pad has it.
+// the paks at boot, sees the same as later), the right stick and INVERT AIM as the sender has them.
 Port normalized(Port port) {
-    port.flags = Port::kConnected | Port::kRumble | (port.flags & Port::kRightStick);
+    port.flags = Port::kConnected | Port::kRumble | (port.flags & (Port::kRightStick | Port::kInvertAim));
     return port;
 }
 

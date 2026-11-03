@@ -32,6 +32,32 @@ std::string controller_name(int /*port*/) { return ""; }
 std::string controller_model() { return ""; }
 
 PadKind controller_kind() { return PadKind::None; }
+PadKind controller_kind(int /*port*/) { return PadKind::None; }
+
+Controls mapping(int /*port*/, int /*button*/) { return 0; }
+void set_mapping(int /*port*/, int /*button*/, Controls /*controls*/) {}
+Controls default_mapping(int /*button*/) { return 0; }
+void reset_mapping(int /*port*/) {}
+bool mapping_is_default(int /*port*/) { return true; }
+std::string control_names(Controls /*controls*/, int /*port*/) { return "NONE"; }
+PadControl shown_control(int /*port*/, int /*button*/, PadKind /*kind*/) { return PadControl::None; }
+void start_listening(int /*port*/) {}
+void stop_listening() {}
+Controls take_heard() { return 0; }
+
+void read_menu(uint16_t* buttons, float* x, float* y) { read(buttons, x, y, 0); }
+
+const char* key_row_label(int /*row*/) { return ""; }
+std::vector<int> key_mapping(int /*button*/) { return {}; }
+std::vector<int> default_key_mapping(int /*button*/) { return {}; }
+void set_key_mapping(int /*button*/, const std::vector<int>& /*keys*/) {}
+void reset_key_mapping() {}
+bool key_mapping_is_default() { return true; }
+int shown_key(int /*button*/) { return 0; }
+std::string key_label(int /*scancode*/) { return ""; }
+std::string key_names(const std::vector<int>& /*keys*/) { return "NONE"; }
+void start_listening_keys() {}
+int take_heard_key() { return 0; }
 
 bool take_debug_menu_press() { return false; }
 

@@ -54,8 +54,9 @@ would put them out of sync. They are still installed and on when you play alone 
 
 ## The lobby
 
-Open the debug menu (Back on a pad, or the `` ` `` key, while the game is paused), choose **ONLINE**, or
-start the game with `--net-lobby`. The lobby's window sits over the game, which keeps running
+On the title, turn to the **MULTI** door and press Start (Options on a PlayStation pad, Menu on an
+Xbox pad, Enter on the keyboard), as the line under the door says, or start the game with
+`--net-lobby`. The lobby's window sits over the game, which keeps running
 underneath. It works with the mouse and keyboard, or with controller 1: the d-pad or stick moves,
 A presses, B goes back.
 

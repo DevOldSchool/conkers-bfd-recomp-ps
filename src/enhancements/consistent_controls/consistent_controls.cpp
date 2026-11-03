@@ -56,6 +56,10 @@
 // the camera never moves with the left stick (looking, the game does not walk with them).
 // The pads as the game reads them are rewritten in func_1501BBB8 (sp+0x38, four OSContPads, after
 // osContGetReadData; the [[patches.hook]] in config/us.toml), so the game sees nothing else.
+// D-pad left and right step sideways wherever C-left and C-right do (a gun held or aimed, a match
+// on foot), as the right stick turns or aims there (step_with_dpad).
+// The debug menu's CONTROLS page has INVERT AIM per controller (frame_input::invert_aim): the stick
+// aims the N64's way round everywhere above, pushed up to aim down; the mouse has its own.
 // CONKER_CONSISTENT_CONTROLS=0 leaves the game's controls.
 //
 // Found in scene 60 (debug report scene60-20261025-081607, B to take the shotgun out): the item
@@ -205,6 +209,12 @@ void write_float(uint8_t* rdram, uint32_t address, float value) {
     MEM_W(0, kseg0(address)) = static_cast<int32_t>(word);
 }
 
+// The player's INVERT AIM (the debug menu's CONTROLS page), from the port's record: the stick's aim
+// the N64's way round, pushed up to aim down. The mouse has its own (frame_input.cpp).
+bool invert_aim(int pad) {
+    return (conker::frame_input::port(pad).flags & conker::frame_input::Port::kInvertAim) != 0;
+}
+
 // The mouse's aim, the pad's port's mouse; false when it has none (not captured).
 bool mouse_aim(int pad, float* x, float* y) {
     return conker::mouse_look::take_aim(pad, x, y);
@@ -223,7 +233,7 @@ bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16
         return false;
     }
     aim_x += mouse_x;
-    aim_y += mouse_y;
+    aim_y = (invert_aim(pad) ? -aim_y : aim_y) + mouse_y;
     const int walk_x = MEM_B(at + 2, ctx->r29);
     const int walk_y = MEM_B(at + 3, ctx->r29);
     buttons &= static_cast<uint16_t>(~(kCUp | kCDown | kCLeft | kCRight));
@@ -280,7 +290,8 @@ void aim_upright(uint8_t* rdram, recomp_context* ctx, int pad, int at) {
     float mouse_y;
     mouse_aim(pad, &mouse_x, &mouse_y);
     const float x = MEM_B(at + 2, ctx->r29) / kStickRange + mouse_x;
-    const float y = -MEM_B(at + 3, ctx->r29) / kStickRange - mouse_y;
+    const float stick_y = MEM_B(at + 3, ctx->r29) / kStickRange;
+    const float y = (invert_aim(pad) ? stick_y : -stick_y) - mouse_y;
     MEM_B(at + 2, ctx->r29) = stick_axis(x);
     MEM_B(at + 3, ctx->r29) = stick_axis(y);
 }
@@ -328,6 +339,17 @@ bool match_look(uint8_t* rdram, recomp_context* ctx, uint32_t actor, int pad, in
     return true;
 }
 
+// D-pad left and right step sideways, as C-left and C-right do wherever they step (a gun held or
+// aimed, a match on foot): the right stick, which the C buttons are, turns or aims there, so a pad
+// has no other way to step. `buttons` has the N64's C-left and C-right (C-left steps left). Only
+// while the game is played: the pause menu has the D-pad.
+uint16_t step_with_dpad(uint16_t buttons) {
+    if (!conker::mouse_look::playing()) return buttons;
+    if (buttons & kDLeft) buttons |= kCLeft;
+    if (buttons & kDRight) buttons |= kCRight;
+    return buttons;
+}
+
 // Rewrites the pad of the player whose block this is, read from controller `pad`.
 void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player, int pad) {
     const int at = kPad + pad * kPadSize;
@@ -337,7 +359,7 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player,
     // as the launcher's scope does, a match's mounted gun (item 0x1B) too; tanks never get here.
     if (launcher_scoped(rdram, player) || (match && sighted(rdram, player))) {
         if (twin_stick_aim(rdram, ctx, pad, at, buttons)) {
-            MEM_H(at, ctx->r29) = static_cast<int16_t>(buttons);
+            MEM_H(at, ctx->r29) = static_cast<int16_t>(step_with_dpad(buttons));
         }
         return;
     }
@@ -350,24 +372,24 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player,
         if (aiming && looking(rdram, player)) {
             // In a match the right stick aims and the left stick walks, as with a gun.
             if (match && twin_stick_aim(rdram, ctx, pad, at, buttons)) {
-                MEM_H(at, ctx->r29) = static_cast<int16_t>(buttons);
+                MEM_H(at, ctx->r29) = static_cast<int16_t>(step_with_dpad(buttons));
             } else {
                 aim_upright(rdram, ctx, pad, at);
             }
         } else if (match && (buttons & kR) == 0 && match_look(rdram, ctx, actor, pad, at, buttons)) {
-            MEM_H(at, ctx->r29) = static_cast<int16_t>(buttons);
+            MEM_H(at, ctx->r29) = static_cast<int16_t>(step_with_dpad(buttons));
         }
         return;
     }
     const bool aimed = (buttons & kR) != 0 && twin_stick_aim(rdram, ctx, pad, at, buttons);
     if (!aimed && match && (buttons & kR) == 0 && match_look(rdram, ctx, actor, pad, at, buttons)) {
-        MEM_H(at, ctx->r29) = static_cast<int16_t>(buttons);
+        MEM_H(at, ctx->r29) = static_cast<int16_t>(step_with_dpad(buttons));
         return;
     }
     if (!aimed && camera_swapped()) {
         buttons = swap_c_left_right(buttons);
     }
-    MEM_H(at, ctx->r29) = static_cast<int16_t>(buttons);
+    MEM_H(at, ctx->r29) = static_cast<int16_t>(step_with_dpad(buttons));
 }
 
 }  // namespace

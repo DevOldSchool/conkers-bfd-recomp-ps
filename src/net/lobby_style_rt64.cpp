@@ -294,7 +294,13 @@ void make_art() {
         }
         return;
     }
-    for (const pad_icons::Picture& p : pad_icons::draw_set(style, false)) {
+    // The lobby reads the pad itself, not through the mapping: the bottom face button presses, the
+    // right one goes back.
+    pad_icons::Shown shown;
+    shown.fill(0);
+    shown[pad_icons::kSlotA] = int(conker::input::PadControl::South);
+    shown[pad_icons::kSlotB] = int(conker::input::PadControl::East);
+    for (const pad_icons::Picture& p : pad_icons::draw_set(style, shown)) {
         if (p.name == "a" || p.name == "b") {
             put_art(p.name, p);
         }

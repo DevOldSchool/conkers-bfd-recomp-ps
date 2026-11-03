@@ -14,7 +14,7 @@ void frame(uint8_t* rdram);
 // from the camera. False when the mouse is not captured.
 bool take_aim(int port, float* x, float* y);
 
-// Whether the port's mouse aimed (take_aim) in the last pad hook: the OPTIONS page's MOUSE AIM speed
+// Whether the port's mouse aimed (take_aim) in the last pad hook: the CONTROLS page's MOUSE AIM speed
 // then scales its motion as it goes into the next frame's record (src/runtime/frame_input.cpp).
 bool aiming(int port);
 

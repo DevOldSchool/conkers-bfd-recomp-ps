@@ -21,16 +21,26 @@
 // While the menu is open, and after it closes until the buttons are let go, the game reads no
 // pad (func_1501BBB8's pads are emptied), so its buttons do nothing in the game underneath.
 //
-//     WIREFRAME        the game's 3D triangles drawn as their edges (src/platform/render_debug.hpp)
-//     SHOW FPS         the frames the game draws per second, in the corner, on every screen
-//     SHOW POSITION    Conker's scene, position and facing, and the camera's yaw and pitch, under
+//     DEBUG VIEW       a page of what is drawn to look into the game:
+//       WIREFRAME      the game's 3D triangles drawn as their edges (src/platform/render_debug.hpp)
+//       SHOW FPS       the frames the game draws per second, in the corner, on every screen
+//       SHOW POSITION  Conker's scene, position and facing, and the camera's yaw and pitch, under
 //                      it, during play
-//     INSPECT          the mouse points at something to name it (an actor and its model, an
+//       INSPECT        the mouse points at something to name it (an actor and its model, an
 //                      attachment, a prop, the function that drew it), the wheel looks behind it, a
 //                      left click picks it out, highlighted and reported in the console, a right
 //                      click lets it go (src/enhancements/object_inspector)
 //     ENHANCEMENTS     every enhancement that can be switched while the game runs, on and off
 //                      (src/enhancements/switches.hpp), until the game is closed
+//     CONTROLS         for each controller: INVERT AIM (consistent controls' aim, pushed up to aim
+//                      down), INVERT MOUSE AIM, and the pad's button for each of the game's buttons:
+//                      A, then a press on that controller's pad (or controller 1's keyboard, which
+//                      is listed on its own), maps it (taking it off any other),
+//                      R adds another, Z clears it, L puts that button's back; RESET BUTTONS puts
+//                      them all back. The hints name the buttons as controller 1's pad has them. Kept in
+//                      conker-recomp-data/input.cfg (src/platform/input.hpp's mapping). The menu
+//                      itself reads controller 1 as the default mapping has it, so it can always be
+//                      steered back
 //     MODS             the mods in conker-recomp-data/mods, on and off (kept in mods.json; a new one
 //                      starts off, and the page says to trust where a mod came from); mods load
 //                      when the game starts, so after a change RESTART TO APPLY starts it again
@@ -44,13 +54,12 @@
 //     LOAD REPORT      a list of those; A checks one (it may come from anyone) and starts its save,
 //                      where and as it was made, on a copy (saves/debug/); R starts it at its
 //                      checkpoint instead, as the game itself would
-//     ONLINE           closes the menu and opens the online lobby's window (src/net/lobby_ui.hpp)
 //
 // The first page also shows where Conker is and where the camera looks, and opening the menu prints
 // them (with the camera's position, look-at point and forward vector). Without Conker (the title)
 // the rows that need him say so. Up and down choose,
 // A or left and right change (held, a number keeps changing), B goes back, and Back, Start or B on
-// the first page close it. The pad is read directly (conker::input::read), not through the game.
+// the first page close it. The pad is read directly (conker::input::read_menu), not through the game.
 // CONKER_DEBUG_MENU=0 turns it off.
 #include <algorithm>
 #include <cctype>
@@ -69,6 +78,7 @@
 
 #include "recomp.h"
 #include "librecomp/mods.hpp"
+#include "enhancements/debug_menu/debug_menu.hpp"
 #include "enhancements/object_inspector/object_inspector.hpp"
 #include "enhancements/pause_save/resume_point.hpp"
 #include "enhancements/status.hpp"
@@ -79,6 +89,7 @@
 #include "platform/input.hpp"
 #include "net/lobby_ui.hpp"
 #include "platform/render_debug.hpp"
+#include "runtime/frame_input.hpp"
 #include "net/net_play.hpp"
 #include "ultramodern/ultramodern.hpp"
 
@@ -130,20 +141,47 @@ constexpr uint32_t kChosenColor = 0xFFFFFFFF;
 constexpr uint32_t kOtherColor = 0x9A9A9AFF;
 constexpr uint32_t kWarningColor = 0xFF8060FF;
 constexpr float kSmall = 0.8f;                  // rows, lines and the overlay: the title stays full size
-constexpr int kTitleY = 40;
-constexpr int kFirstRowY = 56;
+constexpr int kTitleY = 47;   // under the sign at the top of a menu screen (GAME1, OPTIONS)
+constexpr int kFirstRowY = 63;
 constexpr int kRowHeight = 10;
 constexpr int kLineHeight = 9;                  // the small lines under the rows and in the overlay
 constexpr int kListRows = 9;
 constexpr int kInfoY = 176;                     // the position and camera lines under the rows
 constexpr int kOverlayX = 16;                   // FPS and position in play, top left
 constexpr int kOverlayY = 12;
+// The title's doors (screen 3, func_151DE8F0), found by watching memory while scripted presses
+// turned the doors and went into MULTI: the selected door, u8 at D_800E0B1C, is 5 GAME1, 0 MULTI,
+// 1 OPTIONS, 2 CHAPTERS, and 4 once GAME1's or MULTI's door is opened. Behind MULTI's door (the
+// barrel with the skull) f32 D_800E0AF8 goes from 0 to 1 as the barrel turns to the modes, and
+// back as it turns away; u8 D_800E0B30 is 4 on the join screen and 0 before it.
+constexpr uint32_t kTitleDoor = 0x800E0B1C;
+constexpr uint32_t kBarrelTurn = 0x800E0AF8;
+constexpr uint32_t kMultiJoin = 0x800E0B30;
+constexpr int kTitleScreen = 3;
+constexpr uint8_t kMultiDoor = 0;
+constexpr uint8_t kDoorOpened = 4;
+constexpr int kOnlinePromptY = 196;  // under the door
 constexpr int kSteps[] = {1, 10, 100, 1000};
 
 using Clock = std::chrono::steady_clock;
 
-enum class Page { Main, Enhancements, Mods, Teleport, Spots, Snapshots, Reports };
-enum MainRow { kWireframe, kShowFps, kShowPosition, kInspect, kEnhancements, kMods, kTeleport, kLoadSnapshot, kSaveReport, kLoadReport, kOnline, kMainRows };
+enum class Page { Main, DebugView, Enhancements, Controls, Mods, Teleport, Spots, Snapshots, Reports };
+enum MainRow { kDebugView, kEnhancements, kControls, kMods, kTeleport, kLoadSnapshot, kSaveReport, kLoadReport, kMainRows };
+enum DebugViewRow { kWireframe, kShowFps, kShowPosition, kInspect, kDebugViewRows };
+// The controls page's rows: these, then a row for each of the mapped buttons (for the keyboard, then
+// its stick, walk and zoom keys), then RESET BUTTONS.
+enum ControlsRow { kController, kInvertAim, kMouseAim, kInvertMouseAim, kFirstMappedRow };
+// MOUSE AIM's speeds, percent: how fast the captured mouse aims (frame_input::mouse_speed).
+constexpr int kMouseSpeeds[] = {25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 400};
+int reset_buttons_row(bool keys) {
+    return kFirstMappedRow + (keys ? conker::input::kKeyRows : conker::input::kMappedButtonCount);
+}
+int controls_rows(bool keys) { return reset_buttons_row(keys) + 1; }
+constexpr auto kListenFor = std::chrono::seconds(5);
+// The controls page's controllers: controller 1's pad, its keyboard, then controllers 2 to 4.
+constexpr int kKeyboardDevice = 1;
+constexpr int kDevices = conker::input::kPorts + 1;
+int device_port(int device) { return device <= kKeyboardDevice ? 0 : device - 1; }
 enum TeleportRow { kX, kY, kZ, kFacing, kCameraYaw, kStep, kGo, kResetToCurrent, kRemember, kSpotList, kTeleportRows };
 
 bool g_open_requested = false;
@@ -164,11 +202,20 @@ bool g_close_requested = false;
 bool g_shadows = true;
 Page g_page = Page::Main;
 int g_row = 0;           // on the first page
+int g_view_row = 0;      // on the debug view page
 int g_teleport_row = 0;
 int g_switch_row = 0;    // on the enhancements page, a list like the reports'
 int g_switch_top = 0;    // and its first row shown
 int g_mod_row = 0;       // on the mods page, a list like the reports'
 int g_mod_top = 0;       // and its first row shown
+int g_controls_row = 0;  // on the controls page, a list like the reports'
+int g_controls_top = 0;  // and its first row shown
+int g_controls_device = 0;  // the controller it shows: kKeyboardDevice is controller 1's keyboard
+int g_listening = -1;    // the mapped button a press on the pad is waiting for, or -1
+bool g_controls_requested = false;  // the OPTIONS page's CONTROLS row asked for the page
+bool g_controls_only = false;       // the menu shows the controls page alone, over OPTIONS
+bool g_listen_adds = false;  // and whether it adds to the button's controls (R) or replaces them (A)
+Clock::time_point g_listen_until;
 int g_entry = 0;         // in a list
 int g_top = 0;
 std::vector<conker::resume::Snapshot> g_snapshots;  // or the reports, on LOAD REPORT
@@ -321,12 +368,19 @@ std::string describe(const Position& p) {
 // set for the game's next text, so they are put back: the OPTIONS rows lost their centering.
 void draw_text(uint8_t* rdram, recomp_context* ctx, int x, int y, uint8_t flags, uint32_t color, const std::string& text,
                float scale = kSmall) {
-    const size_t length = std::min<size_t>(text.size(), kTextSize - 1);
-    for (size_t i = 0; i < length; i++) {
-        const char c = text[i] == '%' || text[i] == '#' ? ' ' : text[i];  // format characters
-        MEM_B(static_cast<int>(i), kseg0(kText)) = c;
+    // The text is a format string: % is written %%, and # (a format character too) as a space.
+    int length = 0;
+    for (const char c : text) {
+        const int room = c == '%' ? 2 : 1;
+        if (length + room > kTextSize - 1) {
+            break;
+        }
+        MEM_B(length++, kseg0(kText)) = c == '#' ? ' ' : c;
+        if (c == '%') {
+            MEM_B(length++, kseg0(kText)) = '%';
+        }
     }
-    MEM_B(static_cast<int>(length), kseg0(kText)) = 0;
+    MEM_B(length, kseg0(kText)) = 0;
     const int32_t previous_color = MEM_W(0, kseg0(kTextColor));
     const int32_t previous_scale = MEM_W(0, kseg0(kTextScale));
     const int32_t previous_place = MEM_W(0, kseg0(kTextPlace));
@@ -350,6 +404,35 @@ void draw_text(uint8_t* rdram, recomp_context* ctx, int x, int y, uint8_t flags,
 }
 
 const char* on_off(bool on) { return on ? "ON" : "OFF"; }
+
+// `text` broken at spaces into lines short enough to fit across the picture in the small text (the
+// 39-letter warning on the mods page spans about 60% of it), at most `max_lines`, the last cut with
+// "..." if the rest does not fit.
+std::vector<std::string> wrap_lines(const std::string& text, size_t max_lines) {
+    constexpr size_t kLineLetters = 38;
+    std::vector<std::string> lines;
+    std::string line;
+    size_t at = 0;
+    while (at < text.size()) {
+        size_t end = text.find(' ', at);
+        if (end == std::string::npos) end = text.size();
+        std::string word = text.substr(at, end - at);
+        at = end + 1;
+        if (word.size() > kLineLetters) word = word.substr(0, kLineLetters);
+        if (!line.empty() && line.size() + 1 + word.size() > kLineLetters) {
+            lines.push_back(line);
+            line.clear();
+        }
+        line += (line.empty() ? "" : " ") + word;
+    }
+    if (!line.empty()) lines.push_back(line);
+    if (lines.size() > max_lines) {
+        lines.resize(max_lines);
+        std::string& last = lines.back();
+        last = last.substr(0, std::min(last.size(), kLineLetters - 3)) + "...";
+    }
+    return lines;
+}
 
 // The chapter a scene belongs to, as the CHAPTERS menu names it, or "SCENE n" for the rest. Each
 // sub-chapter there (bank 8, one record per chapter) starts an event, and the event table at
@@ -531,17 +614,116 @@ void draw_rows(uint8_t* rdram, recomp_context* ctx, const std::vector<std::strin
     }
 }
 
+// The menu's A, R, Z and L as controller 1 has them (read_menu: the default mapping), for the hints.
+struct MenuButtonNames {
+    const char* a;
+    const char* r;
+    const char* z;
+    const char* l;
+};
+
+MenuButtonNames menu_button_names() {
+    switch (conker::input::controller_kind()) {
+        case conker::input::PadKind::PlayStation:
+            return {"CROSS", "R1", "R2", "L1"};
+        case conker::input::PadKind::None:
+            return {"SPACE", "F", "C", "Q"};
+        default:
+            return {"A", "RB", "RT", "LB"};
+    }
+}
+
+// What a controller's pad is, without its name (often the owner's).
+std::string pad_line(int port) {
+    if (port != 0 && !conker::input::connected(port)) {
+        return "NOT CONNECTED";
+    }
+    switch (conker::input::controller_kind(port)) {
+        case conker::input::PadKind::PlayStation:
+            return "PLAYSTATION PAD";
+        case conker::input::PadKind::Xbox:
+            return "XBOX PAD";
+        case conker::input::PadKind::Other:
+            return "PAD";
+        default:
+            return "KEYBOARD ONLY, NO PAD";
+    }
+}
+
+void draw_controls_page(uint8_t* rdram, recomp_context* ctx) {
+    namespace input = conker::input;
+    const int port = device_port(g_controls_device);
+    const bool keys = g_controls_device == kKeyboardDevice;
+    if (g_listening >= 0) {
+        draw_title(rdram, ctx, std::string(keys ? "PRESS A KEY FOR " : "PRESS A BUTTON FOR ") +
+                                   (keys ? input::key_row_label(g_listening) : input::kMappedButtons[g_listening].label));
+    } else {
+        // Where in the list, as the other lists show it: it scrolls.
+        draw_title(rdram, ctx, "CONTROLS  " + std::to_string(g_controls_row + 1) + "/" + std::to_string(controls_rows(keys)));
+    }
+    std::vector<std::string> rows = {
+        "CONTROLLER  " + std::to_string(port + 1) + (port != 0 ? "" : keys ? "  KEYBOARD" : "  PAD"),
+        std::string("INVERT AIM  ") + on_off(conker::frame_input::invert_aim(port)),
+        "MOUSE AIM  " + std::to_string(conker::frame_input::mouse_speed()) + "%",
+        std::string("INVERT MOUSE AIM  ") + on_off(conker::frame_input::invert_mouse_aim()),
+    };
+    for (int i = 0; i < (keys ? input::kKeyRows : input::kMappedButtonCount); i++) {
+        const std::string controls = i == g_listening                  ? "..."
+                                     : keys                            ? input::key_names(input::key_mapping(i))
+                                                                       : input::control_names(input::mapping(port, i), port);
+        rows.push_back(std::string(keys ? input::key_row_label(i) : input::kMappedButtons[i].label) + "  " + controls);
+    }
+    const bool changed = keys ? !input::key_mapping_is_default() : !input::mapping_is_default(port);
+    rows.push_back(changed ? "RESET BUTTONS  CHANGED" : "RESET BUTTONS");
+    draw_rows(rdram, ctx, rows, g_controls_row, g_controls_top);
+
+    std::string info;
+    std::string more;
+    uint32_t more_color = kOtherColor;
+    if (g_listening >= 0) {
+        const auto left = std::chrono::duration_cast<std::chrono::seconds>(g_listen_until - Clock::now()).count() + 1;
+        info = keys ? "ON THE KEYBOARD" : "ON CONTROLLER " + std::to_string(port + 1) + "'S PAD";
+        more = (keys ? "THE MENU KEY CANCELS  OR WAIT " : "BACK CANCELS  OR WAIT ") + std::to_string(std::max<long long>(left, 1));
+    } else if (g_controls_row == kController) {
+        info = keys ? "EVERY KEY BUT ESC AND THE MENU KEY" : pad_line(port);
+        more = "LEFT AND RIGHT CHOOSE";
+    } else if (g_controls_row == kMouseAim) {
+        info = "HOW FAST CONTROLLER 1'S MOUSE AIMS";
+        more = "LEFT AND RIGHT CHANGE";
+    } else if (g_controls_row == kInvertAim || g_controls_row == kInvertMouseAim) {
+        info = g_controls_row == kInvertAim ? "THE STICK PUSHED UP AIMS DOWN AS ON THE N64" : "CONTROLLER 1'S MOUSE PUSHED UP AIMS DOWN";
+        if (!conker::switches::consistent_controls().on()) {
+            more = "NEEDS CONSISTENT CONTROLS ON";
+            more_color = kWarningColor;
+        }
+    } else if (g_controls_row == reset_buttons_row(keys)) {
+        info = keys ? "THE KEYBOARD'S KEYS AS THEY WERE" : "CONTROLLER " + std::to_string(port + 1) + "'S BUTTONS AS THEY WERE";
+    } else {
+        const MenuButtonNames names = menu_button_names();
+        info = std::string(names.a) + " CHANGES   " + names.r + " ADDS ANOTHER";
+        more = std::string(names.z) + " CLEARS   " + names.l + " PUTS IT BACK";
+    }
+    draw_text(rdram, ctx, kCenterX, kInfoY, kCentered, kOtherColor, info);
+    draw_text(rdram, ctx, kCenterX, kInfoY + kLineHeight, kCentered, more_color, more);
+}
+
 void draw_page(uint8_t* rdram, recomp_context* ctx) {
     char text[kTextSize];
     switch (g_page) {
         case Page::Main:
             draw_title(rdram, ctx, "DEBUG MENU");
             draw_rows(rdram, ctx,
+                      {"DEBUG VIEW", "ENHANCEMENTS", "CONTROLS", "MODS", "TELEPORT", "LOAD SNAPSHOT", "SAVE DEBUG REPORT",
+                       "LOAD REPORT"},
+                      g_row, 0, kMainRows);
+            break;
+        case Page::DebugView:
+            draw_title(rdram, ctx, "DEBUG VIEW");
+            draw_rows(rdram, ctx,
                       {std::string("WIREFRAME  ") + on_off(g_wireframe), std::string("SHOW FPS  ") + on_off(g_show_fps),
                        std::string("SHOW POSITION  ") + on_off(g_show_position),
-                       std::string("INSPECT  ") + on_off(conker::inspector::active()), "ENHANCEMENTS", "MODS",
-                       "TELEPORT", "LOAD SNAPSHOT", "SAVE DEBUG REPORT", "LOAD REPORT", "ONLINE"},
-                      g_row, 0, kMainRows);
+                       std::string("INSPECT  ") + on_off(conker::inspector::active())},
+                      g_view_row, 0, kDebugViewRows);
             break;
         case Page::Enhancements: {
             std::snprintf(text, sizeof(text), "ENHANCEMENTS  %d/%d", g_switch_row + 1,
@@ -554,6 +736,9 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
             draw_rows(rdram, ctx, rows, g_switch_row, g_switch_top);
             break;
         }
+        case Page::Controls:
+            draw_controls_page(rdram, ctx);
+            break;
         case Page::Mods: {
             const int count = static_cast<int>(mods().size());
             // A mod is code someone else wrote, running in the game: always said on this page.
@@ -583,7 +768,12 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
                 draw_text(rdram, ctx, kCenterX, kInfoY, kCentered, kOtherColor, "STARTS THE GAME AGAIN");
                 draw_text(rdram, ctx, kCenterX, kInfoY + kLineHeight, kCentered, kOtherColor, "WHAT IS NOT SAVED IS LOST");
             } else {
-                draw_text(rdram, ctx, kCenterX, kInfoY, kCentered, kOtherColor, mods()[g_mod_row].description);
+                // Wrapped, ending on the line where one line would be, so the lines below stay put.
+                const std::vector<std::string> lines = wrap_lines(mods()[g_mod_row].description, 3);
+                const int first_y = kInfoY - static_cast<int>(lines.size() - 1) * kLineHeight;
+                for (size_t i = 0; i < lines.size(); i++) {
+                    draw_text(rdram, ctx, kCenterX, first_y + static_cast<int>(i) * kLineHeight, kCentered, kOtherColor, lines[i]);
+                }
                 if (changed) {
                     draw_text(rdram, ctx, kCenterX, kInfoY + kLineHeight, kCentered, kOtherColor,
                               "CHANGES APPLY WHEN THE GAME STARTS AGAIN");
@@ -679,6 +869,11 @@ Repeat g_vertical;
 Repeat g_horizontal;
 
 void close_menu(uint8_t* rdram) {
+    if (g_listening >= 0) {
+        g_listening = -1;
+        conker::input::stop_listening();
+    }
+    g_controls_only = false;
     g_active = false;
     g_close_requested = false;
     g_shadows = true;
@@ -694,13 +889,14 @@ void close_menu(uint8_t* rdram) {
     MEM_B(0, kseg0(kPauseClosing)) = 10;
 }
 
-// Opens the menu, in the pause that just opened, or (`hold`) holding the game itself.
-void open_menu(uint8_t* rdram, bool hold) {
+// Opens the menu, in the pause that just opened, or (`hold`) holding the game itself: the screen's
+// own handler stopped and, with `pause`, the world too.
+void open_menu(uint8_t* rdram, bool hold, bool pause = true) {
     g_active = true;
     g_holding = hold;
-    g_first_frame = hold;
+    g_first_frame = hold && pause;  // a frame for the paused picture
     g_set_pause = false;
-    if (hold && MEM_BU(0, kseg0(kPauseOpen)) == 0) {
+    if (hold && pause && MEM_BU(0, kseg0(kPauseOpen)) == 0) {
         MEM_B(0, kseg0(kPauseOpen)) = 1;
         g_set_pause = true;
     }
@@ -709,7 +905,7 @@ void open_menu(uint8_t* rdram, bool hold) {
     g_message.clear();
     uint16_t buttons;
     float x, y;
-    conker::input::read(&buttons, &x, &y);
+    conker::input::read_menu(&buttons, &x, &y);
     g_previous_buttons = buttons;  // a button held while opening does not count as a press
     std::printf("[conker] debug menu: open (%s, screen %d)\n", hold ? "holding the game" : "in the pause",
                 MEM_BU(0, kseg0(kMenuHandler)));
@@ -845,17 +1041,12 @@ int32_t main_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_horiz
         return 0;
     }
     switch (g_row) {
-        case kWireframe:
-            set_wireframe(!g_wireframe);
-            break;
-        case kShowFps:
-            g_show_fps = !g_show_fps;
-            break;
-        case kShowPosition:
-            g_show_position = !g_show_position;
-            break;
-        case kInspect:
-            conker::inspector::set_active(!conker::inspector::active());
+        case kDebugView:
+            if (!(pressed & conker::input::kA)) {
+                return 0;
+            }
+            g_page = Page::DebugView;
+            g_view_row = 0;
             break;
         case kEnhancements:
             if (!(pressed & conker::input::kA)) {
@@ -864,6 +1055,14 @@ int32_t main_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_horiz
             g_page = Page::Enhancements;
             g_switch_row = 0;
             g_switch_top = 0;
+            break;
+        case kControls:
+            if (!(pressed & conker::input::kA)) {
+                return 0;
+            }
+            g_page = Page::Controls;
+            g_controls_row = 0;
+            g_controls_top = 0;
             break;
         case kMods:
             if (!(pressed & conker::input::kA)) {
@@ -899,13 +1098,34 @@ int32_t main_page(uint8_t* rdram, int vertical, int horizontal, bool fresh_horiz
             show_message(conker::resume::request_report(rdram, report_json(rdram)).empty() ? "SAVING, TRY AGAIN"
                                                                                              : "REPORT SAVED");
             break;
-        case kOnline:
-            if (!(pressed & conker::input::kA)) {
-                return 0;
-            }
-            // The lobby's window over the game, which plays on underneath (src/net/lobby_ui.hpp).
-            close_menu(rdram);
-            conker::lobby_ui::open();
+    }
+    return kSelectSound;
+}
+
+int32_t debug_view_page(int vertical, int horizontal, bool fresh_horizontal, uint16_t pressed) {
+    if (pressed & conker::input::kB) {
+        g_page = Page::Main;
+        return kSelectSound;
+    }
+    if (vertical != 0) {
+        g_view_row = (g_view_row + vertical + kDebugViewRows) % kDebugViewRows;
+        return kMoveSound;
+    }
+    if (!(pressed & conker::input::kA) && !(horizontal != 0 && fresh_horizontal)) {
+        return 0;
+    }
+    switch (g_view_row) {
+        case kWireframe:
+            set_wireframe(!g_wireframe);
+            break;
+        case kShowFps:
+            g_show_fps = !g_show_fps;
+            break;
+        case kShowPosition:
+            g_show_position = !g_show_position;
+            break;
+        case kInspect:
+            conker::inspector::set_active(!conker::inspector::active());
             break;
     }
     return kSelectSound;
@@ -930,6 +1150,134 @@ int32_t enhancements_page(int vertical, int horizontal, bool fresh_horizontal, u
     const conker::switches::Switch& sw = switches()[static_cast<size_t>(g_switch_row)];
     sw.set(!sw.on());
     std::printf("[conker] debug menu: %s %s\n", sw.label, sw.on() ? "on" : "off");
+    return kSelectSound;
+}
+
+// The controls page. While a press on the pad is awaited, that is all it does.
+int32_t controls_page(int vertical, int horizontal, bool fresh_horizontal, uint16_t pressed) {
+    namespace input = conker::input;
+    const int port = device_port(g_controls_device);
+    const bool keys = g_controls_device == kKeyboardDevice;
+    if (g_listening >= 0) {
+        if (keys) {
+            if (const int heard = input::take_heard_key(); heard != 0) {
+                std::vector<int> mapped = g_listen_adds ? input::key_mapping(g_listening) : std::vector<int>();
+                mapped.push_back(heard);
+                input::set_key_mapping(g_listening, mapped);
+                g_listening = -1;
+                return kSelectSound;
+            }
+        } else if (const input::Controls heard = input::take_heard(); heard != 0) {
+            const input::Controls controls = g_listen_adds ? input::mapping(port, g_listening) | heard : heard;
+            input::set_mapping(port, g_listening, controls);
+            g_listening = -1;
+            return kSelectSound;
+        }
+        if (Clock::now() >= g_listen_until) {
+            input::stop_listening();
+            g_listening = -1;
+            show_message("NOTHING PRESSED");
+        }
+        return 0;
+    }
+    if (pressed & input::kB) {
+        if (g_controls_only) {
+            g_close_requested = true;  // back to the OPTIONS page it came from
+        } else {
+            g_page = Page::Main;
+        }
+        return kSelectSound;
+    }
+    // A list like the reports': it stops at either end and scrolls to keep the chosen row in view.
+    if (vertical != 0) {
+        g_controls_row = std::clamp(g_controls_row + vertical, 0, controls_rows(keys) - 1);
+        g_controls_top = std::clamp(g_controls_top, g_controls_row - kListRows + 1, g_controls_row);
+        g_controls_top = std::clamp(g_controls_top, 0, std::max(controls_rows(keys) - kListRows, 0));
+        return kMoveSound;
+    }
+    const bool a = (pressed & input::kA) != 0;
+    const bool toggle = a || (horizontal != 0 && fresh_horizontal);
+    if (g_controls_row == reset_buttons_row(keys)) {
+        if (!a) {
+            return 0;
+        }
+        if (keys) {
+            input::reset_key_mapping();
+        } else {
+            input::reset_mapping(port);
+        }
+        show_message(keys ? "KEYS RESET" : "BUTTONS RESET");
+        return kSelectSound;
+    }
+    switch (g_controls_row) {
+        case kController:
+            if (!toggle) {
+                return 0;
+            }
+            g_controls_device = (g_controls_device + (horizontal != 0 ? horizontal : 1) + kDevices) % kDevices;
+            return kMoveSound;
+        case kInvertAim:
+            if (!toggle) {
+                return 0;
+            }
+            conker::frame_input::set_invert_aim(port, !conker::frame_input::invert_aim(port));
+            return kSelectSound;
+        case kInvertMouseAim:
+            if (!toggle) {
+                return 0;
+            }
+            conker::frame_input::set_invert_mouse_aim(!conker::frame_input::invert_mouse_aim());
+            return kSelectSound;
+        case kMouseAim: {
+            // Left slower, right (or A) faster, stopping at either end.
+            if (horizontal == 0 && !a) {
+                return 0;
+            }
+            const int now = conker::frame_input::mouse_speed();
+            int next = now;
+            if (horizontal < 0) {
+                for (int speed : kMouseSpeeds) next = speed < now ? speed : next;
+            } else {
+                for (auto it = std::rbegin(kMouseSpeeds); it != std::rend(kMouseSpeeds); ++it) next = *it > now ? *it : next;
+            }
+            conker::frame_input::set_mouse_speed(next);
+            return next != now && fresh_horizontal ? kMoveSound : 0;
+        }
+        default:
+            break;
+    }
+    const int button = g_controls_row - kFirstMappedRow;
+    if (pressed & input::kZ) {
+        if (keys) {
+            input::set_key_mapping(button, {});
+        } else {
+            input::set_mapping(port, button, 0);
+        }
+        return kSelectSound;
+    }
+    if (pressed & input::kL) {
+        if (keys) {
+            input::set_key_mapping(button, input::default_key_mapping(button));
+        } else {
+            input::set_mapping(port, button, input::default_mapping(button));
+        }
+        return kSelectSound;
+    }
+    if (!a && !(pressed & input::kR)) {
+        return 0;
+    }
+    if (!keys && (port != 0 ? !input::connected(port) : input::controller_kind(0) == input::PadKind::None)) {
+        show_message("NO PAD ON CONTROLLER " + std::to_string(port + 1));
+        return kSelectSound;
+    }
+    g_listening = button;
+    g_listen_adds = !a;
+    g_listen_until = Clock::now() + kListenFor;
+    if (keys) {
+        input::start_listening_keys();
+    } else {
+        input::start_listening(port);
+    }
     return kSelectSound;
 }
 
@@ -1081,7 +1429,7 @@ int32_t list_page(uint8_t* rdram, int vertical, uint16_t pressed) {
 int32_t menu_frame(uint8_t* rdram, recomp_context* ctx) {
     uint16_t buttons;
     float x, y;
-    conker::input::read(&buttons, &x, &y);
+    conker::input::read_menu(&buttons, &x, &y);
     const uint16_t pressed = buttons & ~g_previous_buttons;
     g_previous_buttons = buttons;
     bool fresh_vertical, fresh_horizontal;
@@ -1090,8 +1438,9 @@ int32_t menu_frame(uint8_t* rdram, recomp_context* ctx) {
     const int vertical = g_vertical.step(up_down, &fresh_vertical);
     const int horizontal = g_horizontal.step(left_right, &fresh_horizontal);
 
-    if (g_close_requested || (pressed & conker::input::kStart) ||
-        (g_page == Page::Main && (pressed & conker::input::kB))) {
+    // While a press on the pad is awaited (CONTROLS) the pad's buttons are that press: only Back closes.
+    if (g_close_requested || (g_listening < 0 && ((pressed & conker::input::kStart) ||
+                                                  (g_page == Page::Main && (pressed & conker::input::kB))))) {
         close_menu(rdram);
         return kSelectSound;
     }
@@ -1101,8 +1450,14 @@ int32_t menu_frame(uint8_t* rdram, recomp_context* ctx) {
         case Page::Main:
             sound = main_page(rdram, vertical, horizontal, fresh_horizontal, pressed);
             break;
+        case Page::DebugView:
+            sound = debug_view_page(vertical, horizontal, fresh_horizontal, pressed);
+            break;
         case Page::Enhancements:
             sound = enhancements_page(vertical, horizontal, fresh_horizontal, pressed);
+            break;
+        case Page::Controls:
+            sound = controls_page(vertical, horizontal, fresh_horizontal, pressed);
             break;
         case Page::Mods:
             sound = mods_page(vertical, horizontal, fresh_horizontal, pressed);
@@ -1167,10 +1522,46 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
         }
     }
 
-    if (g_active && MEM_BU(0, kseg0(kPauseOpen)) == 0) {
+    if (g_active && !g_controls_only && MEM_BU(0, kseg0(kPauseOpen)) == 0) {
         g_active = false;  // the pause went away by itself (the game quit to the title, say)
         g_holding = false;
         g_pads_held = true;
+    }
+    // On the MULTI door and the skull behind it, Start opens the online lobby (src/net/lobby_ui.hpp)
+    // instead of going on: it is taken out of this frame's presses before the screen's handler reads
+    // them (func_151E51EC copies D_800BE930 after this), and a line at the bottom says so. Not on
+    // the modes or the join screen, where Start is the game's.
+    static uint8_t last_door = 0xFF;  // the door selected before one was opened
+    const bool title = MEM_BU(0, kseg0(kMenuHandler)) == kTitleScreen;
+    const uint8_t door = MEM_BU(0, kseg0(kTitleDoor));
+    if (title && door != kDoorOpened) {
+        last_door = door;
+    }
+    const bool on_multi = title && (door == kMultiDoor ||
+                                    (door == kDoorOpened && last_door == kMultiDoor && MEM_W(0, kseg0(kBarrelTurn)) == 0 &&
+                                     MEM_BU(0, kseg0(kMultiJoin)) == 0));
+    if (!g_active && on_multi && !conker::net::active() && !conker::lobby_ui::is_open()) {
+        const char* start = conker::input::controller_kind() == conker::input::PadKind::PlayStation ? "OPTIONS"
+                            : conker::input::controller_kind() == conker::input::PadKind::None ? "ENTER"
+                                                                                               : "MENU";
+        draw_text(rdram, ctx, kCenterX, kOnlinePromptY, kCentered, kChosenColor, std::string("PRESS ") + start + " TO PLAY ONLINE");
+        const uint16_t pressed = MEM_HU(0, kseg0(kPadPressed));
+        if (pressed & kStartButton) {
+            MEM_H(0, kseg0(kPadPressed)) = static_cast<int16_t>(pressed & ~kStartButton);
+            conker::lobby_ui::open();
+        }
+    }
+    // The OPTIONS page's CONTROLS row: the controls page alone in the OPTIONS page's place, the
+    // world going on behind it as it does behind OPTIONS (no pause).
+    if (g_controls_requested) {
+        g_controls_requested = false;
+        if (!g_active && MEM_BU(0, kseg0(kMenuHandler)) != 0) {
+            open_menu(rdram, true, false);
+            g_page = Page::Controls;
+            g_controls_only = true;
+            g_controls_row = 0;
+            g_controls_top = 0;
+        }
     }
     if (conker::input::take_debug_menu_press() && debug_menu_enabled()) {
         if (g_active) {
@@ -1281,4 +1672,12 @@ nlohmann::json conker::status::debug_menu() {
     return enhancement("debug_menu", "Debug menu", debug_menu_enabled(), "CONKER_DEBUG_MENU",
                        {{"wireframe", g_wireframe}, {"show_fps", g_show_fps}, {"show_position", g_show_position},
                         {"inspect", conker::inspector::active()}});
+}
+
+bool conker::debug_menu::controls_available() { return !conker::net::active(); }
+
+void conker::debug_menu::open_controls() {
+    if (controls_available()) {
+        g_controls_requested = true;
+    }
 }

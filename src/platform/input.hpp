@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace conker::input {
 
@@ -49,7 +50,8 @@ void set_mouse_play(bool playing);
 
 // While a window over the game takes the input (the ONLINE lobby, src/net/lobby_ui_rt64.cpp):
 // the game reads every port as nothing pressed, no mouse motion and no debug menu press, and the
-// mouse is not captured. Safe to call from any thread.
+// mouse is not captured; once it lets go, each port reads nothing until its buttons are let go (the
+// press that closed the window is not the game's). Safe to call from any thread.
 void set_blocked(bool blocked);
 bool mouse_captured();
 void take_mouse(float* dx, float* dy, int* zoom);
@@ -72,6 +74,7 @@ std::string controller_model();
 // any thread.
 enum class PadKind { None, Xbox, PlayStation, Other };
 PadKind controller_kind();
+PadKind controller_kind(int port);  // any port's
 
 // True once for each press of the debug menu button: the pad's Back (Create/Share on a
 // PlayStation pad, View on an Xbox pad) or the ` key. Safe to call from any thread.
@@ -123,6 +126,117 @@ struct TriggerEffect {
 };
 bool has_adaptive_triggers(int port = 0);
 void set_trigger_effect(const TriggerEffect& effect, int port = 0);
+
+// --- the button mapping (the debug menu's CONTROLS page) ---
+// Which of a port's pad's controls press each of the game's buttons, kept per port in
+// conker-recomp-data/input.cfg (src/platform/input_config.hpp). A control is one of the pad's
+// buttons, a trigger or the right stick pushed one way; Controls has a bit for each. The pad's Back
+// (the debug menu's) and its guide button are never mapped, and the keyboard keeps its keys.
+// The mapped buttons go into the frame records, so replays and online play see what was pressed.
+// Safe to call from any thread.
+using Controls = uint32_t;
+
+// The game's buttons the mapping has, in the CONTROLS page's order. C-LEFT and C-RIGHT are what the
+// right stick pushed left and right gives: the view turning left and right (C-right and C-left on
+// the N64, swapped by camera_swapped below). kExtra, Triangle, is only the grenade in a match.
+struct MappedButton {
+    uint16_t n64;
+    const char* label;  // for the game's font
+    const char* key;    // in input.cfg
+};
+constexpr MappedButton kMappedButtons[] = {
+    {kA, "A", "a"},
+    {kB, "B", "b"},
+    {kZ, "Z", "z"},
+    {kStart, "START", "start"},
+    {kL, "L", "l"},
+    {kR, "R", "r"},
+    {kDUp, "D-PAD UP", "dup"},
+    {kDDown, "D-PAD DOWN", "ddown"},
+    {kDLeft, "D-PAD LEFT", "dleft"},
+    {kDRight, "D-PAD RIGHT", "dright"},
+    {kCUp, "C-UP", "cup"},
+    {kCDown, "C-DOWN", "cdown"},
+    {kCRight, "C-LEFT", "cleft"},
+    {kCLeft, "C-RIGHT", "cright"},
+    {kExtra, "GRENADE IN MULTI", "extra"},
+};
+constexpr int kMappedButtonCount = static_cast<int>(sizeof(kMappedButtons) / sizeof(kMappedButtons[0]));
+
+// The controls that press kMappedButtons[button] on a port's pad.
+Controls mapping(int port, int button);
+// Sets them, taking them off the port's other buttons, and keeps the port's mapping.
+void set_mapping(int port, int button, Controls controls);
+// The controls that press it by default (the header of src/platform/input_sdl.cpp).
+Controls default_mapping(int button);
+// Every button back to its default.
+void reset_mapping(int port);
+bool mapping_is_default(int port);
+// The controls' names on the port's kind of pad ("CROSS / SQUARE"), or "NONE".
+std::string control_names(Controls controls, int port);
+
+// A pad's control, as the button pictures name it (src/enhancements/pad_icons): SDL's buttons in
+// SDL's order (by position, Xbox names: South is A and Cross), then the triggers and the right
+// stick's four ways.
+enum class PadControl {
+    None, South, East, West, North, Back, Guide, Start, LeftStick, RightStick, LeftShoulder, RightShoulder,
+    DpadUp, DpadDown, DpadLeft, DpadRight, Misc, Paddle1, Paddle2, Paddle3, Paddle4, Touchpad,
+    LeftTrigger, RightTrigger, RightStickUp, RightStickDown, RightStickLeft, RightStickRight,
+};
+
+// The control a picture of kMappedButtons[button] shows on a `kind` pad: the one the default
+// pictures show (B as Xbox B or PlayStation Square, Z as the right trigger) while it still presses
+// the button, else the first that does; None when none does.
+PadControl shown_control(int port, int button, PadKind kind);
+
+// Listens for the next control pressed on the port's pad (one held as it starts counts once let go
+// and pressed again); take_heard gives it once, as a single bit, or 0 while none has been. A new
+// start, or stop_listening, forgets what was heard.
+void start_listening(int port);
+void stop_listening();
+Controls take_heard();
+
+// The keyboard's rows: the jobs only keys have, after kMappedButtons on the CONTROLS page. The
+// stick is pushed fully by its keys, half way with WALK held; ZOOM IN and OUT move the camera
+// through its distances, as the mouse wheel does.
+struct KeyAction {
+    const char* label;  // for the game's font
+    const char* key;    // in input.cfg
+};
+constexpr KeyAction kKeyActions[] = {
+    {"STICK UP", "stickup"}, {"STICK DOWN", "stickdown"}, {"STICK LEFT", "stickleft"}, {"STICK RIGHT", "stickright"},
+    {"WALK", "walk"}, {"ZOOM IN", "zoomin"}, {"ZOOM OUT", "zoomout"},
+};
+constexpr int kKeyActionCount = static_cast<int>(sizeof(kKeyActions) / sizeof(kKeyActions[0]));
+constexpr int kKeyRows = kMappedButtonCount + kKeyActionCount;
+// A keyboard row's label: kMappedButtons' then kKeyActions'.
+const char* key_row_label(int row);
+
+// The keyboard's keys for each of its rows (controller 1's): kMappedButtons, then kKeyActions,
+// as SDL scancodes, kept in input.cfg too ("keys=<row>:<scancode>,...;..."). ` (the debug menu),
+// Esc (lets the mouse go), Cmd and Alt (the system's shortcuts) are never mapped, nor the mouse's
+// buttons (Z and R).
+std::vector<int> key_mapping(int row);
+std::vector<int> default_key_mapping(int row);
+// Sets a row's keys, taking them off the other rows, and keeps the mapping.
+void set_key_mapping(int row, const std::vector<int>& keys);
+void reset_key_mapping();
+bool key_mapping_is_default();
+// The key a picture of kMappedButtons[button] shows: the one the default pictures show while it
+// still presses the button, else the first that does; 0 when none does.
+int shown_key(int button);
+// A key's name for the game's font ("SPACE", "LCTRL", "F1", "UP"), short enough for a keycap, and
+// keys' names joined ("SPACE / C") or "NONE".
+std::string key_label(int scancode);
+std::string key_names(const std::vector<int>& keys);
+// As start_listening, for the next key pressed (one that can be mapped); take_heard_key gives it
+// once, or 0. stop_listening stops both.
+void start_listening_keys();
+int take_heard_key();
+
+// Controller 1 as the default mapping has its pad, with the keyboard: what the debug menu reads, so
+// it can be steered whatever the mapping is.
+void read_menu(uint16_t* buttons, float* x, float* y);
 
 // Whether C-left and C-right are swapped, on the right stick and on J/L, so that pushing left turns
 // the view left; part of consistent controls (src/enhancements/consistent_controls), which set it.

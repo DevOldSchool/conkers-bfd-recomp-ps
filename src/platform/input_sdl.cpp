@@ -5,9 +5,11 @@
 // its pad and the keyboard: buttons are OR-ed, and the pad's stick wins over the keyboard's
 // whenever it is outside the deadzone.
 //
-// Pad (SDL's Xbox-style names): south A, west and east B, LT Z, LB L, RT and RB R, Start Start,
-// D-pad D-pad, left stick the analog stick, right stick the C buttons. Keyboard and mouse: see
-// kKeys, the mouse below and docs/enhancements.md.
+// Pad (SDL's Xbox-style names), by default: south A, west and east B, both triggers Z, LB L, RB R,
+// Start Start, D-pad D-pad, Y the grenade in a match, left stick the analog stick, right stick the
+// C buttons (kDefaultMapping). The debug menu's CONTROLS page maps the buttons differently per port
+// (input.hpp's mapping; kept in input.cfg as "map<port>=<button>:<control>,...;..."). Keyboard and
+// mouse: see kKeys, the mouse below and docs/enhancements.md.
 // Back (Create/Share on a PlayStation pad, View on an Xbox pad) and the ` key open the debug menu
 // (src/enhancements/debug_menu); they are not N64 buttons.
 //
@@ -58,6 +60,7 @@
 #include <string>
 #include <vector>
 
+#include "platform/input_config.hpp"
 #include "runtime/game.hpp"
 
 #ifdef __APPLE__
@@ -74,24 +77,43 @@ constexpr Sint16 kCButtonThreshold = 16384;    // right stick, half deflection
 constexpr Uint16 kRumbleStrength = 0xFFFF;     // both motors; the pak's motor is on or off
 constexpr Uint32 kRumbleHoldMs = 250;          // renewed every update, so a stalled game stops it
 
-struct PadButton {
-    SDL_GameControllerButton button;
-    uint16_t n64;
+// A pad's controls (input.hpp's Controls): SDL's buttons by their number, then the triggers and the
+// right stick's four ways.
+constexpr int kLeftTrigger = SDL_CONTROLLER_BUTTON_MAX;
+constexpr int kRightTrigger = kLeftTrigger + 1;
+constexpr int kRightStickUp = kLeftTrigger + 2;
+constexpr int kRightStickDown = kLeftTrigger + 3;
+constexpr int kRightStickLeft = kLeftTrigger + 4;
+constexpr int kRightStickRight = kLeftTrigger + 5;
+constexpr int kControlCount = kLeftTrigger + 6;
+static_assert(kControlCount <= 32, "a control per bit of Controls");
+
+constexpr Controls bit(int control) { return Controls{1} << control; }
+
+// Never mapped: Back opens the debug menu, the guide button is the system's.
+constexpr Controls kUnmappable = bit(SDL_CONTROLLER_BUTTON_BACK) | bit(SDL_CONTROLLER_BUTTON_GUIDE);
+
+// The controls for each of kMappedButtons, by default.
+constexpr Controls kDefaultMapping[kMappedButtonCount] = {
+    bit(SDL_CONTROLLER_BUTTON_A),                                  // A
+    bit(SDL_CONTROLLER_BUTTON_X) | bit(SDL_CONTROLLER_BUTTON_B),   // B
+    // Z sits under the right hand on modern pads (R2/RT); the left trigger stays Z as well.
+    bit(kLeftTrigger) | bit(kRightTrigger),                        // Z
+    bit(SDL_CONTROLLER_BUTTON_START),                              // Start
+    bit(SDL_CONTROLLER_BUTTON_LEFTSHOULDER),                       // L
+    bit(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER),                      // R
+    bit(SDL_CONTROLLER_BUTTON_DPAD_UP),                            // D-pad
+    bit(SDL_CONTROLLER_BUTTON_DPAD_DOWN),
+    bit(SDL_CONTROLLER_BUTTON_DPAD_LEFT),
+    bit(SDL_CONTROLLER_BUTTON_DPAD_RIGHT),
+    bit(kRightStickUp),                                            // C-up
+    bit(kRightStickDown),                                          // C-down
+    bit(kRightStickLeft),                                          // C-left: the view turns left
+    bit(kRightStickRight),                                         // C-right
+    bit(SDL_CONTROLLER_BUTTON_Y),  // Triangle: C-down in a match (consistent_controls)
 };
 
-constexpr PadButton kPadButtons[] = {
-    {SDL_CONTROLLER_BUTTON_A, kA},
-    {SDL_CONTROLLER_BUTTON_X, kB},
-    {SDL_CONTROLLER_BUTTON_B, kB},
-    {SDL_CONTROLLER_BUTTON_START, kStart},
-    {SDL_CONTROLLER_BUTTON_LEFTSHOULDER, kL},
-    {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, kR},
-    {SDL_CONTROLLER_BUTTON_DPAD_UP, kDUp},
-    {SDL_CONTROLLER_BUTTON_DPAD_DOWN, kDDown},
-    {SDL_CONTROLLER_BUTTON_DPAD_LEFT, kDLeft},
-    {SDL_CONTROLLER_BUTTON_DPAD_RIGHT, kDRight},
-    {SDL_CONTROLLER_BUTTON_Y, kExtra},  // Triangle: C-down in a match (consistent_controls)
-};
+std::atomic<Controls> g_mapping[kPorts][kMappedButtonCount];  // set by load_mapping()
 
 struct Key {
     SDL_Scancode key;
@@ -99,7 +121,9 @@ struct Key {
 };
 
 // WASD is the stick (Shift held walks, at half tilt), the mouse the camera (see the mouse below),
-// and R and T zoom it in and out as the wheel does (take_mouse), not N64 buttons.
+// and R and T zoom it in and out as the wheel does (take_mouse), not N64 buttons. These are the
+// default keys: the debug menu's CONTROLS page maps them differently (key_mapping), and the menu
+// itself reads these.
 constexpr Key kKeys[] = {
     {SDL_SCANCODE_SPACE, kA},
     {SDL_SCANCODE_E, kB},
@@ -121,6 +145,29 @@ constexpr Key kKeys[] = {
 };
 constexpr float kWalkTilt = 0.5f;  // the stick with Shift held
 
+// The keys for kKeyActions by default: W A S D the stick, Shift walking, R and T the zoom.
+const std::vector<int> kKeyActionDefaults[kKeyActionCount] = {
+    {SDL_SCANCODE_W}, {SDL_SCANCODE_S}, {SDL_SCANCODE_A}, {SDL_SCANCODE_D},
+    {SDL_SCANCODE_LSHIFT, SDL_SCANCODE_RSHIFT}, {SDL_SCANCODE_R}, {SDL_SCANCODE_T},
+};
+enum KeyActionRow { kStickUp = kMappedButtonCount, kStickDown, kStickLeft, kStickRight, kWalk, kZoomIn, kZoomOut };
+
+// Keys never mapped: the debug menu, letting the mouse go, and the system's shortcuts.
+constexpr SDL_Scancode kUnmappableKeys[] = {
+    SDL_SCANCODE_GRAVE, SDL_SCANCODE_ESCAPE, SDL_SCANCODE_LGUI, SDL_SCANCODE_RGUI, SDL_SCANCODE_LALT, SDL_SCANCODE_RALT,
+};
+
+bool key_mappable(int key) {
+    return key > SDL_SCANCODE_UNKNOWN && key < SDL_NUM_SCANCODES &&
+           std::find(std::begin(kUnmappableKeys), std::end(kUnmappableKeys), key) == std::end(kUnmappableKeys);
+}
+
+// Controller 1's keys for each keyboard row (key_mapping), set by load_mapping().
+std::mutex g_key_mutex;
+std::vector<int> g_key_mapping[kKeyRows];  // under g_key_mutex
+
+const char* row_key(int row) { return row < kMappedButtonCount ? kMappedButtons[row].key : kKeyActions[row - kMappedButtonCount].key; }
+
 // The mouse, for controller 1. Clicking in the window during play captures it (relative mode, no
 // cursor; that click is not passed on); the game thread says whether it is playing
 // (set_mouse_play). Capture lets go while the game is paused or in a menu, and comes back by itself
@@ -131,6 +178,9 @@ constexpr float kWalkTilt = 0.5f;  // the stick with Shift held
 bool g_scripted = false;  // CONKER_VIRTUAL_PAD: only the virtual pads count
 std::atomic<bool> g_mouse_play{false};     // set by the game thread
 std::atomic<bool> g_blocked{false};        // a window over the game (the ONLINE lobby) takes the input
+// After it lets the input go, each port reads nothing until its buttons are let go, so the press
+// that closed the window (B, say) does not reach the game as a new one.
+std::atomic<bool> g_wait_release[kPorts] = {};
 bool g_mouse_captured = false;             // main thread only
 bool g_mouse_recapture = false;            // main thread only: captured before the game left play
 bool g_mouse_swallow = false;              // main thread only: the capturing click is still held
@@ -211,7 +261,7 @@ void mouse_event(const SDL_Event& event) {
 }
 
 // Once an update: capture follows play, and the mouse's buttons and R/T join controller 1's.
-void update_mouse(uint16_t& buttons, const Uint8* keys, int key_count) {
+void update_mouse(uint16_t& buttons, bool zoom_in, bool zoom_out) {
     const bool play = g_mouse_play.load(std::memory_order_relaxed) && !g_blocked.load(std::memory_order_relaxed);
     if (g_scripted) {
         g_mouse_captured = play;  // no real capture, which needs the window's focus
@@ -235,17 +285,14 @@ void update_mouse(uint16_t& buttons, const Uint8* keys, int key_count) {
         if (mouse & SDL_BUTTON_LMASK) buttons |= kZ;
         if (mouse & SDL_BUTTON_RMASK) buttons |= kR;
     }
-    if (keys != nullptr) {
-        const bool zoom_in = SDL_SCANCODE_R < key_count && keys[SDL_SCANCODE_R];
-        const bool zoom_out = SDL_SCANCODE_T < key_count && keys[SDL_SCANCODE_T];
-        if (zoom_in && !g_zoom_in_held) add_zoom(1);
-        if (zoom_out && !g_zoom_out_held) add_zoom(-1);
-        g_zoom_in_held = zoom_in;
-        g_zoom_out_held = zoom_out;
-    }
+    if (zoom_in && !g_zoom_in_held) add_zoom(1);
+    if (zoom_out && !g_zoom_out_held) add_zoom(-1);
+    g_zoom_in_held = zoom_in;
+    g_zoom_out_held = zoom_out;
 }
 
 std::atomic<int> g_debug_menu_presses{0};
+std::atomic<uint16_t> g_menu_buttons{0};  // controller 1 as the default mapping has it (read_menu)
 std::mutex g_pad_name_mutex;             // the ports' names
 bool g_debug_menu_held = false;          // main thread only
 
@@ -288,6 +335,7 @@ struct Port {
     std::atomic<float> right_x{0.0f};  // the right stick, for right_stick()
     std::atomic<float> right_y{0.0f};
     std::atomic<bool> has_pad{false};  // a pad is reading the port, not the keyboard alone
+    std::atomic<PadKind> kind{PadKind::None};  // for its controls' names
     std::atomic<bool> has_rumble{false};  // the pad can rumble
     std::atomic<bool> rumble_on{false};   // the game's motor state, applied by update()
     std::string name;                     // under g_pad_name_mutex: the pad's, for controller_name()
@@ -386,6 +434,7 @@ void open_pad_extras(Port& port, int device_index) {
         port.name = SDL_GameControllerName(port.pad) ? SDL_GameControllerName(port.pad) : "controller";
         port.model = pad_model(port.pad);
     }
+    port.kind.store(pad_kind(port.pad));
     if (&port == &g_port1) {
         g_pad_kind.store(pad_kind(port.pad));
     }
@@ -442,6 +491,7 @@ void close_pad_extras(Port& port) {
     port.motor_effects.clear();
     port.has_haptics.store(false);
     port.adaptive_triggers.store(false);
+    port.kind.store(PadKind::None);
     if (&port == &g_port1) {
         g_pad_kind.store(PadKind::None);
     }
@@ -928,31 +978,45 @@ void deadzone(SDL_GameController* pad, SDL_GameControllerAxis axis_x, SDL_GameCo
     }
 }
 
-// Adds a pad's buttons to `buttons`, and its left stick to x and y and its right stick to right_x
-// and right_y when outside the deadzone. A trigger counts as Z once pulled past z_at;
-// left_trigger and right_trigger say which are.
-void read_pad(SDL_GameController* pad, float z_at, uint16_t& buttons, float& x, float& y, float& right_x,
-              float& right_y, bool& left_trigger, bool& right_trigger) {
-    for (const PadButton& b : kPadButtons) {
-        if (SDL_GameControllerGetButton(pad, b.button)) {
-            buttons |= b.n64;
+// The controls a pad holds. A trigger counts once pulled past z_at; left_trigger and right_trigger
+// say which are. The right stick counts pushed half way.
+Controls held_controls(SDL_GameController* pad, float z_at, bool& left_trigger, bool& right_trigger) {
+    Controls held = 0;
+    for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; b++) {
+        if (SDL_GameControllerGetButton(pad, static_cast<SDL_GameControllerButton>(b))) {
+            held |= bit(b);
         }
     }
-    // Z sits under the right hand on modern pads (R2/RT); the left trigger stays Z as well.
     const auto threshold = static_cast<Sint16>(z_at * 32767.0f);
     left_trigger = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > threshold;
     right_trigger = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > threshold;
-    if (left_trigger || right_trigger) buttons |= kZ;
-
+    if (left_trigger) held |= bit(kLeftTrigger);
+    if (right_trigger) held |= bit(kRightTrigger);
     const Sint16 cx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX);
     const Sint16 cy = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTY);
-    // Conker turns the camera the opposite way to the C button pressed (C-left swings it to the
-    // right), so the horizontal axis is swapped: pushing the stick left turns the view left.
-    if (cx > kCButtonThreshold) buttons |= kCLeft;
-    if (cx < -kCButtonThreshold) buttons |= kCRight;
-    if (cy > kCButtonThreshold) buttons |= kCDown;
-    if (cy < -kCButtonThreshold) buttons |= kCUp;
+    if (cx < -kCButtonThreshold) held |= bit(kRightStickLeft);
+    if (cx > kCButtonThreshold) held |= bit(kRightStickRight);
+    if (cy < -kCButtonThreshold) held |= bit(kRightStickUp);  // SDL's +y is down
+    if (cy > kCButtonThreshold) held |= bit(kRightStickDown);
+    return held;
+}
 
+// The game's buttons the held controls press, as a mapping has them.
+uint16_t mapped_buttons(Controls held, const Controls* mapping) {
+    uint16_t buttons = 0;
+    for (int i = 0; i < kMappedButtonCount; i++) {
+        if ((held & mapping[i]) != 0) {
+            buttons |= kMappedButtons[i].n64;
+        }
+    }
+    return buttons;
+}
+
+// Adds a pad's controls to `held`, and its left stick to x and y and its right stick to right_x
+// and right_y when outside the deadzone.
+void read_pad(SDL_GameController* pad, float z_at, Controls& held, float& x, float& y, float& right_x,
+              float& right_y, bool& left_trigger, bool& right_trigger) {
+    held |= held_controls(pad, z_at, left_trigger, right_trigger);
     deadzone(pad, SDL_CONTROLLER_AXIS_LEFTX, SDL_CONTROLLER_AXIS_LEFTY, x, y);
     deadzone(pad, SDL_CONTROLLER_AXIS_RIGHTX, SDL_CONTROLLER_AXIS_RIGHTY, right_x, right_y);
 }
@@ -1129,7 +1193,224 @@ void apply_triggers(Port& port) {
 
 // Reads a port's pad into buttons and the sticks, with Z where its trigger effect puts it, and
 // notes the trigger last pulled for Grip::Trigger.
-void read_port_pad(Port& port, uint16_t& buttons, float& x, float& y, float& right_x, float& right_y) {
+// --- the button mapping ---------------------------------------------------------------------------
+
+// A control's name in input.cfg: SDL's for a button ("a", "leftshoulder"), else these.
+std::string control_key(int control) {
+    switch (control) {
+        case kLeftTrigger: return "lefttrigger";
+        case kRightTrigger: return "righttrigger";
+        case kRightStickUp: return "rightstickup";
+        case kRightStickDown: return "rightstickdown";
+        case kRightStickLeft: return "rightstickleft";
+        case kRightStickRight: return "rightstickright";
+        default: {
+            const char* name = SDL_GameControllerGetStringForButton(static_cast<SDL_GameControllerButton>(control));
+            return name != nullptr ? name : "";
+        }
+    }
+}
+
+int control_from_key(const std::string& key) {
+    for (int control = 0; control < kControlCount; control++) {
+        if (control_key(control) == key) {
+            return control;
+        }
+    }
+    return -1;
+}
+
+std::string mapping_key(int port) { return "map" + std::to_string(port + 1); }
+
+// "a:a;b:x,b;...": each of kMappedButtons and its controls.
+std::string mapping_text(int port) {
+    std::string text;
+    for (int i = 0; i < kMappedButtonCount; i++) {
+        text += std::string(i == 0 ? "" : ";") + kMappedButtons[i].key + ":";
+        const Controls controls = g_mapping[port][i].load();
+        bool first = true;
+        for (int control = 0; control < kControlCount; control++) {
+            if ((controls & bit(control)) != 0) {
+                text += (first ? "" : ",") + control_key(control);
+                first = false;
+            }
+        }
+    }
+    return text;
+}
+
+// The ports' mappings from input.cfg; a button it does not name keeps its default, and a control it
+// does not know (another SDL's) is left out.
+// "a:44;b:8,...": each of kMappedButtons and its keys' scancodes.
+std::string key_mapping_text() {
+    std::string text;
+    std::lock_guard lock(g_key_mutex);
+    for (int i = 0; i < kKeyRows; i++) {
+        text += std::string(i == 0 ? "" : ";") + row_key(i) + ":";
+        for (size_t k = 0; k < g_key_mapping[i].size(); k++) {
+            text += (k == 0 ? "" : ",") + std::to_string(g_key_mapping[i][k]);
+        }
+    }
+    return text;
+}
+
+void load_key_mapping() {
+    {
+        std::lock_guard lock(g_key_mutex);
+        for (int i = 0; i < kKeyRows; i++) {
+            g_key_mapping[i] = default_key_mapping(i);
+        }
+        std::stringstream text(input_config::get("keys"));
+        for (std::string entry; std::getline(text, entry, ';');) {
+            const size_t colon = entry.find(':');
+            for (int i = 0; colon != std::string::npos && i < kKeyRows; i++) {
+                if (entry.substr(0, colon) != row_key(i)) {
+                    continue;
+                }
+                g_key_mapping[i].clear();
+                std::stringstream keys(entry.substr(colon + 1));
+                for (std::string key; std::getline(keys, key, ',');) {
+                    const int scancode = std::atoi(key.c_str());
+                    if (key_mappable(scancode)) g_key_mapping[i].push_back(scancode);
+                }
+            }
+        }
+    }
+    if (!key_mapping_is_default()) {
+        std::printf("[conker] keyboard: keys mapped (%s)\n", key_mapping_text().c_str());
+    }
+}
+
+void load_mapping() {
+    load_key_mapping();
+    for (int port = 0; port < kPorts; port++) {
+        for (int i = 0; i < kMappedButtonCount; i++) {
+            g_mapping[port][i].store(kDefaultMapping[i]);
+        }
+        std::stringstream text(input_config::get(mapping_key(port)));
+        for (std::string entry; std::getline(text, entry, ';');) {
+            const size_t colon = entry.find(':');
+            if (colon == std::string::npos) {
+                continue;
+            }
+            const std::string key = entry.substr(0, colon);
+            for (int i = 0; i < kMappedButtonCount; i++) {
+                if (key != kMappedButtons[i].key) {
+                    continue;
+                }
+                Controls controls = 0;
+                std::stringstream names(entry.substr(colon + 1));
+                for (std::string name; std::getline(names, name, ',');) {
+                    const int control = control_from_key(name);
+                    if (control >= 0) {
+                        controls |= bit(control);
+                    }
+                }
+                g_mapping[port][i].store(controls & ~kUnmappable);
+            }
+        }
+        if (!mapping_is_default(port)) {
+            std::printf("[conker] controller %d: buttons mapped (%s)\n", port + 1, mapping_text(port).c_str());
+        }
+    }
+}
+
+// A control's name on a kind of pad, for the game's font.
+std::string control_name(int control, PadKind kind) {
+    const bool playstation = kind == PadKind::PlayStation;
+    switch (control) {
+        case SDL_CONTROLLER_BUTTON_A: return playstation ? "CROSS" : "A";
+        case SDL_CONTROLLER_BUTTON_B: return playstation ? "CIRCLE" : "B";
+        case SDL_CONTROLLER_BUTTON_X: return playstation ? "SQUARE" : "X";
+        case SDL_CONTROLLER_BUTTON_Y: return playstation ? "TRIANGLE" : "Y";
+        case SDL_CONTROLLER_BUTTON_BACK: return playstation ? "CREATE" : "VIEW";
+        case SDL_CONTROLLER_BUTTON_GUIDE: return playstation ? "PS" : "GUIDE";
+        case SDL_CONTROLLER_BUTTON_START: return playstation ? "OPTIONS" : "START";
+        case SDL_CONTROLLER_BUTTON_LEFTSTICK: return playstation ? "L3" : "LEFT STICK";
+        case SDL_CONTROLLER_BUTTON_RIGHTSTICK: return playstation ? "R3" : "RIGHT STICK";
+        case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return playstation ? "L1" : "LB";
+        case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return playstation ? "R1" : "RB";
+        case SDL_CONTROLLER_BUTTON_DPAD_UP: return "D-PAD UP";
+        case SDL_CONTROLLER_BUTTON_DPAD_DOWN: return "D-PAD DOWN";
+        case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return "D-PAD LEFT";
+        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return "D-PAD RIGHT";
+        case SDL_CONTROLLER_BUTTON_MISC1: return playstation ? "MIC" : "SHARE";
+        case SDL_CONTROLLER_BUTTON_PADDLE1: return "PADDLE 1";
+        case SDL_CONTROLLER_BUTTON_PADDLE2: return "PADDLE 2";
+        case SDL_CONTROLLER_BUTTON_PADDLE3: return "PADDLE 3";
+        case SDL_CONTROLLER_BUTTON_PADDLE4: return "PADDLE 4";
+        case SDL_CONTROLLER_BUTTON_TOUCHPAD: return "TOUCHPAD";
+        case kLeftTrigger: return playstation ? "L2" : "LT";
+        case kRightTrigger: return playstation ? "R2" : "RT";
+        case kRightStickUp: return "RIGHT STICK UP";
+        case kRightStickDown: return "RIGHT STICK DOWN";
+        case kRightStickLeft: return "RIGHT STICK LEFT";
+        case kRightStickRight: return "RIGHT STICK RIGHT";
+        default: return "BUTTON " + std::to_string(control);
+    }
+}
+
+// Listening for a control (start_listening): the port, or -1, and what was heard. The controls held
+// as it started (and still held) are main thread only.
+std::atomic<int> g_listen_port{-1};
+std::atomic<bool> g_listen_fresh{false};
+std::atomic<Controls> g_heard{0};
+Controls g_listen_held = 0;
+
+// Once an update for each port with a pad: what it holds, for a control pressed while listening.
+void listen(int port, Controls held) {
+    if (g_listen_port.load(std::memory_order_relaxed) != port) {
+        return;
+    }
+    held &= ~kUnmappable;
+    if (g_listen_fresh.exchange(false)) {
+        g_listen_held = held;
+        return;
+    }
+    const Controls pressed = held & ~g_listen_held;
+    g_listen_held &= held;
+    if (pressed != 0) {
+        g_heard.store(pressed & (~pressed + 1));  // the lowest, if several came in one update
+        g_listen_port.store(-1);
+    }
+}
+
+// Listening for a key (start_listening_keys); the keys held as it started are main thread only.
+std::atomic<bool> g_listen_keys{false};
+std::atomic<bool> g_listen_keys_fresh{false};
+std::atomic<int> g_heard_key{0};
+std::vector<int> g_listen_keys_held;
+
+// Once an update, with the keyboard's state: a key newly pressed while listening.
+void listen_keys(const Uint8* keys, int key_count) {
+    if (!g_listen_keys.load(std::memory_order_relaxed)) {
+        return;
+    }
+    std::vector<int> held;
+    for (int key = 0; key < key_count; key++) {
+        if (keys[key] && key_mappable(key)) held.push_back(key);
+    }
+    for (SDL_Scancode key : g_script_keys) {
+        if (key_mappable(key)) held.push_back(key);
+    }
+    if (g_listen_keys_fresh.exchange(false)) {
+        g_listen_keys_held = held;
+        return;
+    }
+    std::erase_if(g_listen_keys_held, [&](int key) { return std::find(held.begin(), held.end(), key) == held.end(); });
+    for (int key : held) {
+        if (std::find(g_listen_keys_held.begin(), g_listen_keys_held.end(), key) == g_listen_keys_held.end()) {
+            g_heard_key.store(key);
+            g_listen_keys.store(false);
+            return;
+        }
+    }
+}
+
+// Adds the port's pad's buttons, as the port's mapping has them, to `buttons` (and as the default
+// mapping has them to `menu_buttons`, when given), and its sticks as read_pad does.
+void read_port_pad(Port& port, uint16_t& buttons, float& x, float& y, float& right_x, float& right_y,
+                   uint16_t* menu_buttons = nullptr) {
     // A trigger effect on adaptive triggers can move how far they are pulled for Z.
     float z_at = kTriggerZ;
     if (port.adaptive_triggers.load(std::memory_order_relaxed)) {
@@ -1138,7 +1419,18 @@ void read_port_pad(Port& port, uint16_t& buttons, float& x, float& y, float& rig
     }
     bool left_trigger = false;
     bool right_trigger = false;
-    read_pad(port.pad, z_at, buttons, x, y, right_x, right_y, left_trigger, right_trigger);
+    Controls held = 0;
+    read_pad(port.pad, z_at, held, x, y, right_x, right_y, left_trigger, right_trigger);
+    Controls mapping[kMappedButtonCount];
+    const int index = port.number() - 1;
+    for (int i = 0; i < kMappedButtonCount; i++) {
+        mapping[i] = g_mapping[index][i].load(std::memory_order_relaxed);
+    }
+    buttons |= mapped_buttons(held, mapping);
+    if (menu_buttons != nullptr) {
+        *menu_buttons |= mapped_buttons(held, kDefaultMapping);
+    }
+    listen(index, held);
     if (left_trigger && !port.left_trigger_held) port.trigger_grip = Haptic::Grip::Left;
     if (right_trigger && !port.right_trigger_held) port.trigger_grip = Haptic::Grip::Right;
     port.left_trigger_held = left_trigger;
@@ -1148,6 +1440,7 @@ void read_port_pad(Port& port, uint16_t& buttons, float& x, float& y, float& rig
 } // namespace
 
 void init() {
+    load_mapping();
     // Keep reading the pad while another window (a terminal, a debugger) has focus.
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
 #ifdef __APPLE__
@@ -1201,32 +1494,51 @@ void update() {
     bool debug_menu = false;
 
     // Keys held with Cmd or Alt are shortcuts (Cmd+Enter toggles full screen), not game input.
+    uint16_t menu_keys = 0;  // as the default keys have them, for read_menu
+    bool zoom_in = false;
+    bool zoom_out = false;
     const Uint8* game_keys = nullptr;
     int key_count = 0;
     if ((SDL_GetModState() & (KMOD_GUI | KMOD_ALT)) == 0) {
         const Uint8* keys = SDL_GetKeyboardState(&key_count);
         game_keys = keys;
+        auto held = [&](int key) {
+            return (key < key_count && keys[key]) ||
+                   std::find(g_script_keys.begin(), g_script_keys.end(), key) != g_script_keys.end();
+        };
         for (const Key& k : kKeys) {
-            if ((k.key < key_count && keys[k.key]) ||
-                std::find(g_script_keys.begin(), g_script_keys.end(), k.key) != g_script_keys.end()) {
-                buttons |= k.n64;
+            if (held(k.key)) menu_keys |= k.n64;
+        }
+        bool row_held[kKeyRows] = {};
+        {
+            std::lock_guard lock(g_key_mutex);
+            for (int i = 0; i < kKeyRows; i++) {
+                for (int key : g_key_mapping[i]) {
+                    row_held[i] = row_held[i] || held(key);
+                }
+                if (i < kMappedButtonCount && row_held[i]) buttons |= kMappedButtons[i].n64;
             }
         }
-        x = static_cast<float>(keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A]);
-        y = static_cast<float>(keys[SDL_SCANCODE_W] - keys[SDL_SCANCODE_S]);
-        if (keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT]) {
+        listen_keys(keys, key_count);
+        x = static_cast<float>(int(row_held[kStickRight]) - int(row_held[kStickLeft]));
+        y = static_cast<float>(int(row_held[kStickUp]) - int(row_held[kStickDown]));
+        if (row_held[kWalk]) {
             x *= kWalkTilt;
             y *= kWalkTilt;
         }
+        zoom_in = row_held[kZoomIn];
+        zoom_out = row_held[kZoomOut];
         debug_menu = keys[SDL_SCANCODE_GRAVE] != 0;
     }
-    update_mouse(buttons, game_keys, key_count);
+    uint16_t menu_buttons = menu_keys;
+    update_mouse(buttons, zoom_in, zoom_out);
 
     if (g_port1.pad != nullptr) {
         debug_menu = debug_menu || SDL_GameControllerGetButton(g_port1.pad, SDL_CONTROLLER_BUTTON_BACK);
-        read_port_pad(g_port1, buttons, x, y, right_x, right_y);
+        read_port_pad(g_port1, buttons, x, y, right_x, right_y, &menu_buttons);
     }
     store(g_port1, buttons, x, y, right_x, right_y);
+    g_menu_buttons.store(menu_buttons, std::memory_order_relaxed);
     if (debug_menu && !g_debug_menu_held) {
         g_debug_menu_presses.fetch_add(1, std::memory_order_relaxed);
     }
@@ -1265,6 +1577,15 @@ void read(uint16_t* buttons, float* x, float* y, int port) {
         *y = 0.0f;
         return;
     }
+    if (g_wait_release[port].load(std::memory_order_relaxed)) {
+        if (g_ports[port].buttons.load(std::memory_order_relaxed) != 0) {
+            *buttons = 0;
+            *x = 0.0f;
+            *y = 0.0f;
+            return;
+        }
+        g_wait_release[port].store(false, std::memory_order_relaxed);
+    }
     *buttons = g_ports[port].buttons.load(std::memory_order_relaxed);
     *x = g_ports[port].stick_x.load(std::memory_order_relaxed);
     *y = g_ports[port].stick_y.load(std::memory_order_relaxed);
@@ -1272,7 +1593,11 @@ void read(uint16_t* buttons, float* x, float* y, int port) {
 
 void set_mouse_play(bool playing) { g_mouse_play.store(playing, std::memory_order_relaxed); }
 
-void set_blocked(bool blocked) { g_blocked.store(blocked, std::memory_order_relaxed); }
+void set_blocked(bool blocked) {
+    if (g_blocked.exchange(blocked, std::memory_order_relaxed) && !blocked) {
+        for (std::atomic<bool>& wait : g_wait_release) wait.store(true, std::memory_order_relaxed);
+    }
+}
 
 bool mouse_captured() { return g_mouse_buttons_captured.load(std::memory_order_relaxed); }
 
@@ -1317,6 +1642,253 @@ std::string controller_model() {
 }
 
 PadKind controller_kind() { return g_pad_kind.load(std::memory_order_relaxed); }
+
+PadKind controller_kind(int port) {
+    return port >= 0 && port < kPorts ? g_ports[port].kind.load(std::memory_order_relaxed) : PadKind::None;
+}
+
+Controls mapping(int port, int button) {
+    if (port < 0 || port >= kPorts || button < 0 || button >= kMappedButtonCount) {
+        return 0;
+    }
+    return g_mapping[port][button].load();
+}
+
+void set_mapping(int port, int button, Controls controls) {
+    if (port < 0 || port >= kPorts || button < 0 || button >= kMappedButtonCount) {
+        return;
+    }
+    controls &= ~kUnmappable;
+    for (int i = 0; i < kMappedButtonCount; i++) {
+        g_mapping[port][i].store(i == button ? controls : g_mapping[port][i].load() & ~controls);
+    }
+    const std::string text = mapping_text(port);
+    std::printf("[conker] controller %d: %s is %s (%s)\n", port + 1, kMappedButtons[button].label,
+                control_names(controls, port).c_str(), text.c_str());
+    input_config::set(mapping_key(port), mapping_is_default(port) ? "" : text);
+}
+
+Controls default_mapping(int button) {
+    return button >= 0 && button < kMappedButtonCount ? kDefaultMapping[button] : 0;
+}
+
+void reset_mapping(int port) {
+    if (port < 0 || port >= kPorts) {
+        return;
+    }
+    for (int i = 0; i < kMappedButtonCount; i++) {
+        g_mapping[port][i].store(kDefaultMapping[i]);
+    }
+    std::printf("[conker] controller %d: buttons as they were\n", port + 1);
+    input_config::set(mapping_key(port), "");
+}
+
+bool mapping_is_default(int port) {
+    for (int i = 0; i < kMappedButtonCount; i++) {
+        if (mapping(port, i) != kDefaultMapping[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string control_names(Controls controls, int port) {
+    // A port without a pad names them as controller 1's pad would be, or an Xbox pad's.
+    PadKind kind = controller_kind(port);
+    if (kind == PadKind::None) {
+        kind = controller_kind();
+    }
+    std::string names;
+    for (int control = 0; control < kControlCount; control++) {
+        if ((controls & bit(control)) != 0) {
+            names += (names.empty() ? "" : " / ") + control_name(control, kind);
+        }
+    }
+    return names.empty() ? "NONE" : names;
+}
+
+// PadControl numbers SDL's buttons from 1, then the controls after them.
+static_assert(int(PadControl::South) == SDL_CONTROLLER_BUTTON_A + 1 && int(PadControl::Touchpad) == SDL_CONTROLLER_BUTTON_TOUCHPAD + 1);
+static_assert(int(PadControl::LeftTrigger) == kLeftTrigger + 1 && int(PadControl::RightStickRight) == kRightStickRight + 1);
+
+PadControl shown_control(int port, int button, PadKind kind) {
+    const Controls controls = mapping(port, button);
+    if (controls == 0) {
+        return PadControl::None;
+    }
+    Controls shown = kDefaultMapping[button];
+    if (kMappedButtons[button].n64 == kB) {
+        shown = bit(kind == PadKind::PlayStation ? SDL_CONTROLLER_BUTTON_X : SDL_CONTROLLER_BUTTON_B);
+    } else if (kMappedButtons[button].n64 == kZ) {
+        shown = bit(kRightTrigger);
+    }
+    if ((controls & shown) == 0) {
+        shown = controls;
+    }
+    for (int control = 0; control < kControlCount; control++) {
+        if ((shown & bit(control)) != 0) {
+            return PadControl(control + 1);
+        }
+    }
+    return PadControl::None;
+}
+
+void start_listening(int port) {
+    g_heard.store(0);
+    g_listen_fresh.store(true);
+    g_listen_port.store(port >= 0 && port < kPorts ? port : -1);
+}
+
+void stop_listening() {
+    g_listen_port.store(-1);
+    g_heard.store(0);
+    g_listen_keys.store(false);
+    g_heard_key.store(0);
+}
+
+void start_listening_keys() {
+    g_heard_key.store(0);
+    g_listen_keys_fresh.store(true);
+    g_listen_keys.store(true);
+}
+
+int take_heard_key() { return g_heard_key.exchange(0); }
+
+const char* key_row_label(int row) {
+    if (row < 0 || row >= kKeyRows) return "";
+    return row < kMappedButtonCount ? kMappedButtons[row].label : kKeyActions[row - kMappedButtonCount].label;
+}
+
+std::vector<int> key_mapping(int button) {
+    if (button < 0 || button >= kKeyRows) {
+        return {};
+    }
+    std::lock_guard lock(g_key_mutex);
+    return g_key_mapping[button];
+}
+
+std::vector<int> default_key_mapping(int button) {
+    if (button >= kMappedButtonCount && button < kKeyRows) {
+        return kKeyActionDefaults[button - kMappedButtonCount];
+    }
+    std::vector<int> keys;
+    for (const Key& k : kKeys) {
+        if (button >= 0 && button < kMappedButtonCount && k.n64 == kMappedButtons[button].n64) keys.push_back(k.key);
+    }
+    return keys;
+}
+
+void set_key_mapping(int button, const std::vector<int>& keys) {
+    if (button < 0 || button >= kKeyRows) {
+        return;
+    }
+    std::vector<int> kept;
+    for (int key : keys) {
+        if (key_mappable(key) && std::find(kept.begin(), kept.end(), key) == kept.end()) kept.push_back(key);
+    }
+    {
+        std::lock_guard lock(g_key_mutex);
+        for (int i = 0; i < kKeyRows; i++) {
+            std::erase_if(g_key_mapping[i], [&](int key) { return std::find(kept.begin(), kept.end(), key) != kept.end(); });
+        }
+        g_key_mapping[button] = kept;
+    }
+    const std::string text = key_mapping_text();
+    std::printf("[conker] keyboard: %s is %s (%s)\n", key_row_label(button), key_names(kept).c_str(), text.c_str());
+    input_config::set("keys", key_mapping_is_default() ? "" : text);
+}
+
+void reset_key_mapping() {
+    {
+        std::lock_guard lock(g_key_mutex);
+        for (int i = 0; i < kKeyRows; i++) {
+            g_key_mapping[i] = default_key_mapping(i);
+        }
+    }
+    std::printf("[conker] keyboard: keys as they were\n");
+    input_config::set("keys", "");
+}
+
+bool key_mapping_is_default() {
+    for (int i = 0; i < kKeyRows; i++) {
+        if (key_mapping(i) != default_key_mapping(i)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int shown_key(int button) {
+    const std::vector<int> keys = key_mapping(button);
+    if (keys.empty()) {
+        return 0;
+    }
+    // The default pictures' keys: Space, E, Enter, C (crouch), Q, F, and I, K, J and L.
+    const std::vector<int> defaults = default_key_mapping(button);
+    const int shown = kMappedButtons[button].n64 == kZ ? SDL_SCANCODE_C : defaults.empty() ? 0 : defaults.front();
+    return std::find(keys.begin(), keys.end(), shown) != keys.end() ? shown : keys.front();
+}
+
+std::string key_label(int scancode) {
+    switch (scancode) {
+        case SDL_SCANCODE_RETURN: return "ENTER";
+        case SDL_SCANCODE_KP_ENTER: return "ENTER";
+        case SDL_SCANCODE_SPACE: return "SPACE";
+        case SDL_SCANCODE_BACKSPACE: return "BKSP";
+        case SDL_SCANCODE_CAPSLOCK: return "CAPS";
+        case SDL_SCANCODE_LCTRL: return "LCTRL";
+        case SDL_SCANCODE_LSHIFT: return "LSHFT";
+        case SDL_SCANCODE_RSHIFT: return "RSHFT";
+        case SDL_SCANCODE_RCTRL: return "RCTRL";
+        case SDL_SCANCODE_DELETE: return "DEL";
+        case SDL_SCANCODE_INSERT: return "INS";
+        case SDL_SCANCODE_PAGEUP: return "PGUP";
+        case SDL_SCANCODE_PAGEDOWN: return "PGDN";
+        case SDL_SCANCODE_UP: return "UP";
+        case SDL_SCANCODE_DOWN: return "DOWN";
+        case SDL_SCANCODE_LEFT: return "LEFT";
+        case SDL_SCANCODE_RIGHT: return "RIGHT";
+        case SDL_SCANCODE_NONUSBACKSLASH: return "\\";
+        case SDL_SCANCODE_APPLICATION: return "MENU";
+        case SDL_SCANCODE_PRINTSCREEN: return "PRTSC";
+        case SDL_SCANCODE_SCROLLLOCK: return "SCRLK";
+        case SDL_SCANCODE_NUMLOCKCLEAR: return "NUMLK";
+        default: break;
+    }
+    // The rest by SDL's name, upper case: "Keypad 4" as KP4, others cut to five letters.
+    std::string name = SDL_GetScancodeName(static_cast<SDL_Scancode>(scancode));
+    std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return std::toupper(c); });
+    if (name.rfind("KEYPAD ", 0) == 0) {
+        name = "KP" + name.substr(7);
+    }
+    std::erase(name, ' ');
+    if (name.empty()) {
+        return "KEY" + std::to_string(scancode);
+    }
+    return name.substr(0, 5);
+}
+
+std::string key_names(const std::vector<int>& keys) {
+    std::string names;
+    for (int key : keys) {
+        names += (names.empty() ? "" : " / ") + key_label(key);
+    }
+    return names.empty() ? "NONE" : names;
+}
+
+Controls take_heard() { return g_heard.exchange(0); }
+
+void read_menu(uint16_t* buttons, float* x, float* y) {
+    if (g_blocked.load(std::memory_order_relaxed)) {
+        *buttons = 0;
+        *x = 0.0f;
+        *y = 0.0f;
+        return;
+    }
+    *buttons = g_menu_buttons.load(std::memory_order_relaxed);
+    *x = g_port1.stick_x.load(std::memory_order_relaxed);
+    *y = g_port1.stick_y.load(std::memory_order_relaxed);
+}
 
 bool take_debug_menu_press() {
     return g_debug_menu_presses.exchange(0, std::memory_order_relaxed) > 0 && !g_blocked.load(std::memory_order_relaxed);

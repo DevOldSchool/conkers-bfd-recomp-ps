@@ -26,6 +26,7 @@
 #include "enhancements/my_view/my_view.hpp"
 #include "enhancements/switches.hpp"
 #include "platform/display_mode.hpp"
+#include "platform/input_config.hpp"
 #include "runtime/game.hpp"
 #include "net/net_play.hpp"
 #include "runtime/state_hash.hpp"
@@ -54,15 +55,12 @@ const bool g_fixed_step_variable = [] {
 // A net session is known once main has read the command line, before the game starts.
 bool fixed_on() { return g_fixed_step_variable || conker::net::active(); }
 
-// The mouse aim speed (the OPTIONS page's MOUSE AIM row, a percentage) scales the mouse's motion
+// The mouse aim speed (the CONTROLS page's MOUSE AIM row, a percentage) scales the mouse's motion
 // while it aims (it aimed the frame before, mouse_look::aiming), not while it turns the camera. It
 // is applied as the motion goes into the record, so a replay, or another machine running the same
 // records, aims as this machine's player did whatever its own setting. It is kept in
-// conker-recomp-data/input.cfg ("mouse_aim=<percent>"); CONKER_MOUSE_SENSITIVITY (a scale, 1 =
-// 100%) sets it for one run.
-std::filesystem::path input_config_path() {
-    return std::filesystem::current_path() / "conker-recomp-data" / "input.cfg";
-}
+// conker-recomp-data/input.cfg ("mouse_aim=<percent>", src/platform/input_config.hpp);
+// CONKER_MOUSE_SENSITIVITY (a scale, 1 = 100%) sets it for one run.
 
 int clamp_mouse_speed(int percent) {
     return std::clamp(percent, conker::frame_input::kMinMouseSpeed, conker::frame_input::kMaxMouseSpeed);
@@ -77,15 +75,26 @@ std::atomic<int> g_mouse_speed{[] {
             return clamp_mouse_speed(static_cast<int>(std::lround(scale * 100.0f)));
         }
     }
-    std::ifstream file(input_config_path());
-    for (std::string line; std::getline(file, line);) {
-        const size_t equals = line.find('=');
-        if (equals != std::string::npos && line.substr(0, equals) == "mouse_aim") {
-            return clamp_mouse_speed(std::atoi(line.c_str() + equals + 1));
-        }
-    }
-    return kDefaultMouseAim;
+    const std::string kept = conker::input_config::get("mouse_aim");
+    return kept.empty() ? kDefaultMouseAim : clamp_mouse_speed(std::atoi(kept.c_str()));
 }()};
+
+// The CONTROLS page's INVERT AIM, per port ("invert_aim<port 1 to 4>=1"), goes into the port's
+// record as Port::kInvertAim, which consistent controls reads, so another machine running the same
+// records aims as this machine's player did. INVERT MOUSE AIM ("invert_mouse_aim=1") turns the
+// mouse's aim the other way as its motion goes into the record, as the aim speed does.
+std::string invert_aim_key(int port) { return "invert_aim" + std::to_string(port + 1); }
+
+std::atomic<bool> g_invert_aim[conker::input::kPorts] = {};
+std::atomic<bool> g_invert_mouse_aim{false};
+
+const bool g_invert_loaded = [] {
+    for (int port = 0; port < conker::input::kPorts; port++) {
+        g_invert_aim[port].store(conker::input_config::get(invert_aim_key(port)) == "1");
+    }
+    g_invert_mouse_aim.store(conker::input_config::get("invert_mouse_aim") == "1");
+    return true;
+}();
 
 // The live mouse's motion since it was last taken, scaled by the aim speed while the port's mouse
 // aims.
@@ -96,7 +105,7 @@ void take_live_mouse(int port, float* dx, float* dy, int* zoom) {
     }
     const float scale = static_cast<float>(g_mouse_speed.load(std::memory_order_relaxed)) / 100.0f;
     *dx *= scale;
-    *dy *= scale;
+    *dy *= g_invert_mouse_aim.load(std::memory_order_relaxed) ? -scale : scale;
 }
 
 std::mutex g_mutex;
@@ -220,6 +229,9 @@ Port sample_port(int index) {
     }
     if (conker::input::has_rumble(index)) {
         port.flags |= Port::kRumble;
+    }
+    if (g_invert_aim[index].load(std::memory_order_relaxed)) {
+        port.flags |= Port::kInvertAim;
     }
     return port;
 }
@@ -445,11 +457,27 @@ void set_mouse_speed(int percent) {
         return;
     }
     std::printf("[conker] mouse aim %d%%\n", percent);
-    std::ofstream file(input_config_path());
-    file << "mouse_aim=" << percent << '\n';
-    if (!file) {
-        std::fprintf(stderr, "[conker] could not write %s\n", input_config_path().string().c_str());
+    input_config::set("mouse_aim", std::to_string(percent));
+}
+
+bool invert_aim(int port) { return port >= 0 && port < input::kPorts && g_invert_aim[port].load(); }
+
+void set_invert_aim(int port, bool on) {
+    if (port < 0 || port >= input::kPorts || g_invert_aim[port].exchange(on) == on) {
+        return;
     }
+    std::printf("[conker] controller %d: invert aim %s\n", port + 1, on ? "on" : "off");
+    input_config::set(invert_aim_key(port), on ? "1" : "");
+}
+
+bool invert_mouse_aim() { return g_invert_mouse_aim.load(); }
+
+void set_invert_mouse_aim(bool on) {
+    if (g_invert_mouse_aim.exchange(on) == on) {
+        return;
+    }
+    std::printf("[conker] invert mouse aim %s\n", on ? "on" : "off");
+    input_config::set("invert_mouse_aim", on ? "1" : "");
 }
 
 void read(uint16_t* buttons, float* x, float* y, int index) {
