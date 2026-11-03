@@ -303,6 +303,13 @@ These environment variables are read by both builds:
   makes with the frame and the recompiled functions that called it. The
   hashes, dumps and watch are taken from one copy of RDRAM, so they agree
   even where another thread is writing.
+  `CONKER_ARG_TRACE=<file>:<first frame>:<last frame>` writes every recompiled
+  function the game thread enters in those frames, by name, with `$a0`-`$a3`,
+  `$f12`, `$f14` and `$sp`; each other game thread writes its own to
+  `<file>.<its OSThread address>`. Names and the game's addresses are the same
+  in every build, so two machines' logs of an online session (a Mac's and a
+  Linux PC's) agree up to the first call where their games part. Frame numbers
+  restart when a session starts in place: compare the last run of the frames.
   `CONKER_CALL_HASH_LOG=<file>` hashes the game thread's sequence of
   recompiled function entries (a line each 4096 calls and at the end of each
   frame), and `CONKER_CALL_HASH_REF=<log of another run>` compares as it
