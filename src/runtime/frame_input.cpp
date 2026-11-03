@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "recomp.h"
+#include "librecomp/addresses.hpp"
 #include "librecomp/game.hpp"
 #include "build_version.h"
 #include "enhancements/consistent_controls/mouse_look.hpp"
@@ -549,8 +550,10 @@ void test_snapshot(uint8_t* rdram, recomp_context* ctx) {
 // CONKER_RUNTIME_SELFTEST=<frame>:queue|thread: at that frame, a message queue in scratch RDRAM is given
 // out-of-range indices, or a thread record of this run's is copied elsewhere and put on it, and a message
 // is sent: the runtime must stop the game rather than write through them.
-// CONKER_RUNTIME_SELFTEST=<frame>:guard_high|guard_low: a store just past either end of the 4 GiB, which
-// the guard pages must stop.
+// CONKER_RUNTIME_SELFTEST=<frame>:wrap: stores the way recompiled code makes them, through addresses that
+// would once have landed outside the 4 GiB: each must wrap into game memory (RDRAM_OFFSET in recomp.h).
+// CONKER_RUNTIME_SELFTEST=<frame>:guard_high|guard_low: a native store just past either end of the 4 GiB,
+// which the guard pages must stop.
 // CONKER_RUNTIME_SELFTEST=<frame>:pi|pi_size: a ROM read outside the cartridge: the runtime must stop the
 // game.
 // CONKER_RUNTIME_SELFTEST=<frame>:ai: an audio buffer of a gigabyte: the runtime must stop the game.
@@ -571,20 +574,48 @@ void test_runtime_checks(uint8_t* rdram, recomp_context* ctx, uint32_t frame) {
         return;
     }
     const std::string kind = end + 1;
-    if (kind == "guard_high" || kind == "guard_low") {
-        // A store the way recompiled code makes one, through a pointer the host could have left in
-        // game memory: 0x7FFFFFF0 plus 0x10, or 0x80000000 minus 0x8000, lands just outside the 4 GiB
-        //. The guard must stop it: the crash handler names it and the process exits.
-        const bool high = kind == "guard_high";
-        const gpr pointer = static_cast<gpr>(static_cast<int64_t>(static_cast<int32_t>(high ? 0x7FFFFFF0u : 0x80000000u)));
-        std::printf("[conker] runtime self-test (%s): storing through 0x%08X%+d; the guard must stop it\n", kind.c_str(),
-                    static_cast<uint32_t>(pointer), high ? 0x10 : -0x8000);
-        std::fflush(stdout);
-        if (high) {
-            *reinterpret_cast<volatile int32_t*>(&MEM_W(0x10, pointer)) = 0x51F7E57;
-        } else {
-            *reinterpret_cast<volatile int32_t*>(&MEM_W(-0x8000, pointer)) = 0x51F7E57;
+    if (kind == "wrap") {
+        // Pointers the host could have left in game memory, or a mod's code could make: 0x7FFFFFF0
+        // plus 0x10 once landed just past the 4 GiB, and a register holding a 64-bit value far past
+        // it. Each must land in game memory at the address's low 32 bits: 0x80000000 and 0x80000010,
+        // rdram's first bytes. The words there are put back afterwards.
+        struct Store {
+            uint64_t pointer;
+            int16_t offset;
+            uint32_t lands_at;  // offset in rdram
+        };
+        const Store stores[] = {
+            {0x000000007FFFFFF0ull, 0x10, 0x00},
+            {0x0000000180000000ull, 0x10, 0x10},
+        };
+        bool passed = true;
+        for (const Store& store : stores) {
+            int32_t* const expected = reinterpret_cast<int32_t*>(rdram + store.lands_at);
+            const int32_t kept = *expected;
+            volatile int32_t* const target = &MEM_W(store.offset, static_cast<gpr>(store.pointer));
+            *target = 0x51F7E57;
+            const bool wrapped = const_cast<int32_t*>(target) == expected && *expected == 0x51F7E57;
+            *expected = kept;
+            std::printf("[conker] runtime self-test (wrap): store through 0x%016llX%+d %s rdram + 0x%X\n",
+                        static_cast<unsigned long long>(store.pointer), store.offset,
+                        wrapped ? "landed at" : "did not land at", store.lands_at);
+            passed = passed && wrapped;
         }
+        std::printf("[conker] runtime self-test (wrap): %s\n", passed ? "PASS" : "FAIL");
+        std::fflush(stdout);
+        return;
+    }
+    if (kind == "guard_high" || kind == "guard_low") {
+        // A store as native code (the renderer, the runtime) makes one, from rdram and an offset it
+        // took from game memory: 16 bytes past the 4 GiB, or 16 before it. The guard must stop it:
+        // the crash handler names it and the process exits.
+        const bool high = kind == "guard_high";
+        volatile int32_t* const target =
+            reinterpret_cast<volatile int32_t*>(high ? rdram + recomp::allocation_size + 0x10 : rdram - 0x10);
+        std::printf("[conker] runtime self-test (%s): storing at rdram %s 0x10; the guard must stop it\n", kind.c_str(),
+                    high ? "+ 4 GiB +" : "-");
+        std::fflush(stdout);
+        *target = 0x51F7E57;
         std::printf("[conker] runtime self-test (%s): FAIL, the store went through\n", kind.c_str());
         std::fflush(stdout);
         return;

@@ -278,8 +278,10 @@ These environment variables are read by both builds:
   sends a message to a scratch queue with out-of-range indices (or with a
   copied thread record waiting on it): the runtime must stop the game with
   an `[ultramodern]` message instead.
-  `CONKER_RUNTIME_SELFTEST=<frame>:guard_high` (or `:guard_low`) stores
-  through a pointer just past either end of the 4 GiB, which the guard pages
+  `CONKER_RUNTIME_SELFTEST=<frame>:wrap` stores the way recompiled code
+  does through addresses that once landed outside the 4 GiB; each must wrap
+  into game memory, printing a PASS line. `:guard_high` (or `:guard_low`)
+  stores natively just past either end of the 4 GiB, which the guard pages
   must stop; `:pi` and `:pi_size` make ROM reads outside the cartridge, and
   `:ai` queues a 1 GiB audio buffer, and the runtime must stop the game.
   `CONKER_RENDER_SELFTEST=<task>:<kind>` does the same for the renderer at
