@@ -155,7 +155,7 @@ constexpr uint32_t kEepromAction = 0x80082BB4;   // D_80082BB4: request for func
 constexpr uint32_t kEepromSlot = 0x800BE3EC;     // D_800BE3EC: its argument (a slot to save, a record to load)
 constexpr int8_t kEepromLoad = 1;
 constexpr int8_t kEepromSave = 2;
-constexpr uint32_t kChapterReplay = 0x800BE616;  // D_800BE616: playing from CHAPTERS, saves off
+constexpr uint32_t kMultiplayer = 0x800BE616;    // D_800BE616: nonzero in a multiplayer match (func_15015F40)
 constexpr std::chrono::seconds kReportSaveWait{5};  // a report's save not written by then: none
 constexpr uint32_t kEepromWriting = 0x800E0A20;  // D_800E0A20: paced EEPROM write under way, 0 when none
 constexpr uint32_t kEepromSize = 0x800;          // 16 kbit
@@ -385,6 +385,7 @@ struct PendingReport {
     bool saved = false;      // the game has made the save (conker_resume_saved)
     int slot = 0;
     int32_t counter_before = 0;  // the slot's sequence number in RAM, put back afterwards
+    int8_t record_before = 0;    // and the record noted as holding it (func_15006BEC sets both)
     std::array<char, kEepromSize> image{};
     std::array<Point, kSlots> points{};
 };
@@ -1961,10 +1962,16 @@ std::string request_report(uint8_t* rdram, const std::string& text) {
     g_report.folder = folder;
     g_report.text = text;
     g_report.requested = std::chrono::steady_clock::now();
-    const int slot = MEM_B(0, kseg0(kSaveSlot));
-    if (slot < 0 || slot >= kSlots || MEM_BU(0, kseg0(kChapterReplay)) != 0) {
-        finish_report(no_save("no game slot, or a chapter replayed from CHAPTERS, where the game does not save"));
+    if (MEM_BU(0, kseg0(kMultiplayer)) != 0) {
+        finish_report(no_save("a multiplayer match, which has no save"));
         return folder.filename().string();
+    }
+    // With no game slot (a chapter replayed from CHAPTERS sets D_8008FDA8 to -1, and the game never
+    // saves there) the save is made as slot 0's: it goes only into the report's copy, as any
+    // report's does, and loading the report plays it as slot 0 of that copy.
+    int slot = MEM_B(0, kseg0(kSaveSlot));
+    if (slot < 0 || slot >= kSlots) {
+        slot = 0;
     }
     // The save is made as SAVE in the pause menu makes it, into a copy of the save as it is now.
     save_read(rdram, static_cast<int32_t>(kSnapshotScratch), 0, kEepromSize);
@@ -1975,6 +1982,7 @@ std::string request_report(uint8_t* rdram, const std::string& text) {
     g_report.saved = false;
     g_report.slot = slot;
     g_report.counter_before = MEM_W(0, kseg0(kSaveCounters + static_cast<uint32_t>(slot) * 16));
+    g_report.record_before = MEM_B(kSlotRecord, kseg0(kSaveCounters + static_cast<uint32_t>(slot) * 16));
     remember_position(rdram, slot);
     MEM_B(0, kseg0(kEepromAction)) = kEepromSave;
     MEM_B(0, kseg0(kEepromSlot)) = static_cast<int8_t>(slot);
@@ -2592,7 +2600,10 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
     if (g_report.capturing && (g_report.saved || std::chrono::steady_clock::now() - g_report.requested > kReportSaveWait) &&
         MEM_B(0, kseg0(kEepromAction)) == 0) {
         g_report.capturing = false;
+        // The save was never written, so the slot is still in the record it was in: otherwise the
+        // player's next save of another slot could take that record and overwrite this slot's save.
         MEM_W(0, kseg0(kSaveCounters + static_cast<uint32_t>(g_report.slot) * 16)) = g_report.counter_before;
+        MEM_B(kSlotRecord, kseg0(kSaveCounters + static_cast<uint32_t>(g_report.slot) * 16)) = g_report.record_before;
         if (g_report.saved) {
             write_report_save();
         } else {

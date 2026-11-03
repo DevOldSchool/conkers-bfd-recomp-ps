@@ -42,7 +42,7 @@ namespace {
 
 inline gpr kseg0(uint32_t address) { return static_cast<gpr>(static_cast<int32_t>(address)); }
 
-constexpr uint32_t kChapterReplay = 0x800BE616;   // D_800BE616: playing from CHAPTERS, saves off
+constexpr uint32_t kMultiplayer = 0x800BE616;     // D_800BE616: nonzero in a multiplayer match
 constexpr uint32_t kSaveSlot = 0x8008FDA8;        // D_8008FDA8: the game slot in play, -1 for none
 constexpr uint32_t kEepromAction = 0x80082BB4;    // D_80082BB4: request for func_1501C57C
 constexpr uint32_t kEepromSlot = 0x800BE3EC;      // D_800BE3EC: its slot argument
@@ -100,7 +100,7 @@ bool pause_save_enabled() { return g_enabled.load(std::memory_order_relaxed); }
 // True while func_151DDC20 shows SAVE and LOAD (set up by conker_pause_save_layout).
 bool signs_shown(uint8_t* rdram, recomp_context* ctx) {
     return pause_save_enabled() && MEM_W(kOptionCountSlot, ctx->r29) == 3 &&
-           MEM_BU(0, kseg0(kChapterReplay)) == 0;
+           MEM_BU(0, kseg0(kMultiplayer)) == 0;
 }
 
 bool g_load_selected = false;
@@ -231,7 +231,7 @@ extern "C" int conker_pause_save_skip_input = 0;
 
 // At 0x151DE00C, after the layout (option count and offset) is chosen from D_800BE616.
 extern "C" void conker_pause_save_layout(uint8_t* rdram, recomp_context* ctx) {
-    if (!pause_save_enabled() || MEM_BU(0, kseg0(kChapterReplay)) != 0 || MEM_B(0, kseg0(kSaveSlot)) < 0 ||
+    if (!pause_save_enabled() || MEM_BU(0, kseg0(kMultiplayer)) != 0 || MEM_B(0, kseg0(kSaveSlot)) < 0 ||
         MEM_BU(kSpecialPauseSlot, ctx->r29) != 0) {
         return;
     }
