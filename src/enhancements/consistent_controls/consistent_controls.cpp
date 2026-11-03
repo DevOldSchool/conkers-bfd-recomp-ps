@@ -25,6 +25,10 @@
 // It's War's rocket launcher (item 0x0C, from its B pads) scopes the same way and gets the same.
 // The matches' scoped gun, item 0x24, scopes with R the same way and gets the same, as does
 // anything else aimed through a sight there (the knives, item 0x14: +0x197 is 2 while R is held).
+// Heist's B pads (Enter the Vertex, scene 54), the Uzis out: B jumps sideways in slow motion, and
+// through the jump the stick moves the aimer, not Conker, whose path is set when he takes off. So
+// through it the right stick (and the mouse) is the stick, as the left stick is: the same way up.
+// The left stick and the right stick's C buttons do nothing then.
 // The mounted machine guns (the wasps' hive, scene 39; It's War's, scene 38) aim with the stick,
 // pushed up to aim down, as R's look does, and get the same: up aims up, the mouse aiming too.
 // The tanks (TANK in MULTI, any player): C-left and C-right turn the turret, C-left to the left,
@@ -71,6 +75,9 @@
 // The mounted gun by logging them in scene 38 (debug report scene38-20261027-213708, on the gun):
 // +0x197 is 2 and the held item 0x1B; the stick pushed up turned +0x130 down and the gun's pitch
 // (f32 +0x170, func_150BDB70 aims the gun with it) up to 50, its lowest.
+// The Uzis' jump by logging them in scene 54 (debug report scene54-20261103-185231, on a B pad):
+// the B pad's action is u8 +0x75 0x89, the Uzis item 0x09, and B plays animation 0x20F (0x20E the
+// other way, func_15065A5C); the stick moved nothing but the aimer while it played.
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -97,12 +104,15 @@ constexpr uint32_t kPlayerItemState = 0x11A;  // u8
 // the matches' (TEMPLE), the rest the matches' other guns.
 constexpr uint8_t kGuns[] = {0x09, 0x15, 0x26, 0x37, 0x38, 0x39, 0x3A, 0x3B};
 constexpr uint8_t kItemHeld = 2;
+constexpr uint8_t kUzis = 0x09;
 constexpr uint8_t kRocketLauncher = 0x16;
 constexpr uint8_t kStoryRocketLauncher = 0x0C;  // It's War's, from its B pads; scoped the same way
 constexpr uint8_t kScopedGun = 0x24;  // a match's gun with a scope on R, as the launcher's
 constexpr uint8_t kSlingshot = 0x02;  // out with B on its pad, aimed without R
 constexpr uint32_t kPlayerScoped = 0x197;  // u8: 2 while the launcher's scope is up, or mounted
 constexpr uint8_t kScoped = 2;
+constexpr uint32_t kActorAnimation = 0x84;  // u16: the animation Conker plays
+constexpr uint16_t kUziJumps[] = {0x20E, 0x20F};  // the B pads' jump with the Uzis, to his left and right
 constexpr uint32_t kPlayerLook = 0x198;  // u8: 1 going into R's look, 2 looking, 3 coming out
 
 constexpr uint32_t kActors = 0x800CC2D0;       // D_800CC2D0: the actors; player n is actor n in a match
@@ -328,11 +338,39 @@ bool match_look(uint8_t* rdram, recomp_context* ctx, uint32_t actor, int pad, in
     return true;
 }
 
+bool uzi_jumping(uint8_t* rdram, uint32_t actor) {
+    const uint16_t animation = MEM_HU(kActorAnimation, kseg0(actor));
+    return std::find(std::begin(kUziJumps), std::end(kUziJumps), animation) != std::end(kUziJumps);
+}
+
+// The right stick (and the port's mouse) as the stick, the same way up, the C buttons off. False,
+// leaving the pad alone, when the controller has neither.
+bool right_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16_t& buttons) {
+    float aim_x;
+    float aim_y;
+    float mouse_x;
+    float mouse_y;
+    const bool stick = conker::frame_input::right_stick(&aim_x, &aim_y, pad);
+    if (!mouse_aim(pad, &mouse_x, &mouse_y) && !stick) {
+        return false;
+    }
+    buttons &= static_cast<uint16_t>(~(kCUp | kCDown | kCLeft | kCRight));
+    MEM_B(at + 2, ctx->r29) = stick_axis(aim_x + mouse_x);
+    MEM_B(at + 3, ctx->r29) = stick_axis(aim_y + mouse_y);
+    return true;
+}
+
 // Rewrites the pad of the player whose block this is, read from controller `pad`.
 void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player, int pad) {
     const int at = kPad + pad * kPadSize;
     uint16_t buttons = MEM_HU(at, ctx->r29);
     const bool match = MEM_BU(0, kseg0(kMultiplayer)) != 0;
+    if (!match && holding(rdram, player, kUzis) && uzi_jumping(rdram, actor)) {
+        if (right_stick_aim(rdram, ctx, pad, at, buttons)) {
+            MEM_H(at, ctx->r29) = static_cast<int16_t>(buttons);
+        }
+        return;
+    }
     // In a match whatever aims with a sight (the knives, item 0x14, as much as the launcher) aims
     // as the launcher's scope does, a match's mounted gun (item 0x1B) too; tanks never get here.
     if (launcher_scoped(rdram, player) || (match && sighted(rdram, player))) {
