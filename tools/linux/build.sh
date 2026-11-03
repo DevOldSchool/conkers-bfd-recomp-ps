@@ -23,14 +23,17 @@ docker build --platform "$platform" -t "$image" "$here/tools/linux"
 memory_gb=$(( $(docker info --format '{{.MemTotal}}') / 1024 / 1024 / 1024 ))
 jobs=$(( memory_gb / 2 > 0 ? memory_gb / 2 : 1 ))
 
-echo "==> building in $build ($jobs jobs)"
-docker run --rm --platform "$platform" -v "$here:/src" -w /src "$image" bash -c "
+# git cannot describe the source inside the container, so the binary's version (tools/build_version.cmake),
+# which online play compares, comes from here; the tarball is named with the same text.
+version="$(git -C "$here" describe --always --dirty 2>/dev/null || echo unknown)"
+
+echo "==> building $version in $build ($jobs jobs)"
+docker run --rm --platform "$platform" -v "$here:/src" -w /src -e CONKER_BUILD_VERSION="$version" "$image" bash -c "
     set -e
     cmake -S . -B '$build' -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER=rt64
     cmake --build '$build' --target ConkersBadFurDayRecompiled -j $jobs
 "
 
-version="$(git -C "$here" describe --always --dirty 2>/dev/null || echo unknown)"
 name="Conkers-Bad-Fur-Day-Recompiled-$version-linux-$arch"
 stage="$here/dist/$name"
 echo "==> packaging dist/$name.tar.gz"
