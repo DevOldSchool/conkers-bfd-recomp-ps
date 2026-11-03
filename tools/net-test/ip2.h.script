@@ -1,5 +1,0 @@
-# a session started in place: the host STARTs once its guest is READY (no restart); both leave later
-1500 name Host
-2000 host 37810
-12000 shot @L.h.view1
-12500 start
