@@ -17,7 +17,7 @@ run() {  # role dir pad sim extra-env args...
     CONKER_STATE_HASH_LOG=$L.$role.hash.log CONKER_STATE_HASH_EVERY=${HASH_EVERY:-30} CONKER_FRAME_LOG=$L.$role.frame.log ${=extra} \
     $BIN $ROM "$@" > $L.$role.out 2>&1) &
 }
-run h $W/host ${P1:-f1.pad} "$HSIM" "$HENV" --net-host $PORT --net-players ${PLAYERS:-2} ${DELAY:+--net-delay} ${DELAY} ${=HARGS}
+run h $W/host ${P1:-f1.pad} "$HSIM" "$HENV" --net-host $PORT --net-players ${PLAYERS:-2} ${DELAY:+--net-delay} ${DELAY} --net-open ${=HARGS}
 sleep 1
 run g $W/guest ${P2:-f2.pad} "$GSIM" "$GENV" --net-join 127.0.0.1:$PORT ${=GARGS}
 if [[ ${PLAYERS:-2} == 3 ]]; then sleep 1; run g2 $W/guest2 ${P3:-f3.pad} "$G2SIM" "$G2ENV" --net-join 127.0.0.1:$PORT ${=GARGS}; fi

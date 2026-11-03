@@ -40,7 +40,7 @@ patches_for() {
                 rt64-cross-dxc.patch rt64-present-focus.patch ;;
         lib/N64ModernRuntime/N64Recomp) echo n64modernruntime-n64recomp-jump-tables.patch \
             n64modernruntime-n64recomp-address-window.patch ;;
-        lib/rt64/src/contrib/plume) echo plume-wireframe.patch plume-gpu-errors.patch ;;
+        lib/rt64/src/contrib/plume) echo plume-wireframe.patch plume-gpu-errors.patch plume-moltenvk-robustness.patch ;;
     esac
 }
 

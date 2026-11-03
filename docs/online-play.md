@@ -24,6 +24,35 @@ Internet join code and joins from outside the LAN all work. The lobby still show
 line. `--net-lan-only` turns it off for that run. A session the lobby starts keeps the lobby's choice
 either way.
 
+## Security
+
+**Join only hosts you trust.** The host's game is the match: when you join a session under way, or
+come back to one, the host sends its whole game to your machine, and your game then plays on from
+that. The game checks what it gets so that it cannot reach outside the game's own memory, but a host
+that wants to can make anything happen inside your match. The lobby says so under JOIN.
+
+Everything the lobby and the session send is encrypted and signed (X25519 and XChaCha20-Poly1305,
+from Monocypher), except the LAN list's two small packets, which carry the host's name, build, game
+port and player count. A machine that only sees the traffic, on public Wi-Fi or a shared network,
+learns no player's secret or session token from it, and cannot take a player's seat, send a player
+out or pose as a player. Each machine makes a host key the first time it hosts and keeps it
+(`conker-recomp-data/net/host_key`: keep it private, whoever has it can pose as your lobby), and each
+guest makes a new key for every join.
+
+Three things stop another machine answering in the host's place:
+
+* A **join code** holds 40 bits of the host's key: a guest that joins by code refuses another key
+  ("the machine that answered is not the one the join code names").
+* The **KEY CHECK**: the host's lobby shows its own (`7QX4-M2KD`), and a guest's lobby shows the
+  key check of the host it reached, under the players. They should be the same: compare them over
+  voice or chat, above all the first time you join someone by address or from the LAN list.
+* A guest remembers every host's key by address (`conker-recomp-data/net/known_hosts`). If a host's
+  key has changed since you last joined it, JOIN stops and says so, with both key checks; press JOIN
+  again to take the new key once the host's screen shows it. A new key is normal after the host
+  reinstalls or deletes its `host_key`, or when another machine has that address now.
+
+The session the lobby starts takes only the lobby's host key.
+
 Online, the camera does not pull in for scenery close in front of it as it does offline: the game
 read that from the graphics card's depth, which differs between machines and put them out of sync.
 
@@ -90,8 +119,10 @@ The window lists **join codes** to hand out (COPY puts one on the clipboard):
 * **This network**: your address on the local network, for players at home (or on an overlay
   network, below).
 
-A join code is only your address and port written short; it is not a secret, and whoever joins
-learns your address, as you learn theirs. When everyone is in and has pressed **READY**, press
+A join code is your address and port and part of this lobby's key, written short (24 characters
+with the dashes); it is not a secret. Whoever joins learns your address, as you learn theirs, and a
+guest that joins by code refuses a machine posing as yours (see *Security* above). Your key stays the
+same from one HOST to the next, so your codes do too while your address stays the same. When everyone is in and has pressed **READY**, press
 **START**: every machine starts the game again into the session (a few seconds), and you, as
 player 1, choose MULTI and the game as on a console. The others press Start on the join screen.
 
@@ -109,7 +140,9 @@ Games on your network show up by themselves under **GAMES ON THIS NETWORK**: pre
 to one. Otherwise type the host's join code, or its address (`203.0.113.7`, `203.0.113.7:37800`,
 `[2001:db8::7]:37800`, or a host name), and press **JOIN**. In the host's lobby, press **READY**.
 
-A game shown as **PLAYING** has already started. Joining it starts your game straight into the
+A game shown as **PLAYING** has already started. A match started from a lobby takes only that
+lobby's players, and one started by hand with `--net-host` only guests with its token (below), so
+only a host started with `--net-open` takes new players this way. Joining it starts your game straight into the
 match (from a copy of the host's game, so it takes a few seconds, not a replay of everything so
 far). A player who dropped out gets their port back and plays on at once, from the same machine
 (it remembers a secret for that host; another machine cannot take a dropped player's port for the
@@ -144,6 +177,11 @@ What JOIN can say:
 * **"the host removed this machine from the lobby"**: the host pressed REMOVE.
 * **"the code is not a host's address"**: the code or address is a broadcast, multicast or empty
   one, which the game does not send to.
+* **"the machine that answered is not the one the join code names"**: something other than the
+  host's game answered at that address, with another key: another machine posing as the host, or a
+  code from before the host's key changed. Ask the host for the code again.
+* **"The host at ... has another key than when you last joined it"**: see *Security*. Compare the key
+  check the message gives with the host's screen, and press JOIN again if they match.
 * **"the code names this machine itself"**: a join code is for another machine. Type `127.0.0.1`
   instead to join a game on this one.
 * **"internet play is off"**: the address or code is outside the LAN. Start the game with
@@ -191,9 +229,16 @@ The lobby starts the session with these options, which also work on their own:
 * `--net-host [port]` hosts on that UDP port (37800 by default); `--net-players <n>` waits for n
   players in all (2 by default); `--net-map` also opens the port on the router.
 * `--net-join <address:port>` joins one (`--net-want-port <n>` asks for port n, 2 to 4).
-* `--net-token <hex>`: the session token the lobby's START hands out. A host started with one lets
-  in only guests that bring it; a host started without one (by hand) lets anyone with the same build
-  join.
+* `--net-token <hex>`: the session token. A host lets in only guests that bring it. The lobby's
+  START hands one to every machine, in `CONKER_NET_TOKEN` rather than on the command line, where
+  other users of the machine could read it. A host started by hand makes its own and prints how to
+  join it: `guests join with --net-join <this machine's address>:37800 --net-token <hex>
+  --net-host-key <hex>`, and its key check. The token is the session's own; the key the machine's.
+* `--net-host-key <hex>`: the host's key, as the host prints it: a guest given it refuses a machine
+  that answers with another one (see *Security*). Without it, a guest takes the key the host offers,
+  unless it has joined that address before with another key, which it refuses with both key checks.
+* `--net-open`: a host without a token, which lets anyone with the same build join (the test
+  scripts use it). Anyone who reaches the port can then take a seat and gets a copy of the host's save.
 * `--net-delay <frames>` sets the input delay by hand. Given to a lobby, it is passed on to the
   match the lobby starts. Without it, a lobby's match takes the delay from the pings the host heard
   during the lobby: the slowest player's 90th-percentile ping, plus 45 ms for frame timing and

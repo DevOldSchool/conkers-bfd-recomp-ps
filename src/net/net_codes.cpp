@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdio>
 #include <cstdlib>
 #include <cctype>
 #include <chrono>
@@ -22,8 +23,9 @@ namespace conker::net {
 namespace {
 
 constexpr char kAlphabet[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-constexpr size_t kIpv4Bytes = 4 + 2 + 1;   // address, port, check
-constexpr size_t kIpv6Bytes = 16 + 2 + 1;
+constexpr size_t kFingerprintBytes = 5;  // 40 bits of the host's key (net_seal.hpp)
+constexpr size_t kIpv4Bytes = 4 + 2 + kFingerprintBytes + 1;   // address, port, key, check
+constexpr size_t kIpv6Bytes = 16 + 2 + kFingerprintBytes + 1;
 constexpr size_t chars_for(size_t bytes) { return (bytes * 8 + 4) / 5; }
 
 // CRC-8 (polynomial 0x07) of the address and port, turned so that all zeros is not a valid code.
@@ -91,7 +93,7 @@ std::string code_characters(const std::string& code) {
 
 }  // namespace
 
-std::string make_join_code(const sockaddr_storage& addr, uint16_t port) {
+std::string make_join_code(const sockaddr_storage& addr, uint16_t port, uint64_t fingerprint) {
     std::vector<uint8_t> bytes;
     if (addr.ss_family == AF_INET) {
         const auto& v4 = reinterpret_cast<const sockaddr_in&>(addr);
@@ -109,6 +111,9 @@ std::string make_join_code(const sockaddr_storage& addr, uint16_t port) {
     }
     bytes.push_back(static_cast<uint8_t>(port >> 8));
     bytes.push_back(static_cast<uint8_t>(port));
+    for (int i = static_cast<int>(kFingerprintBytes) - 1; i >= 0; i--) {
+        bytes.push_back(static_cast<uint8_t>(fingerprint >> (8 * i)));
+    }
     bytes.push_back(check_byte(bytes.data(), bytes.size()));
     return encode(bytes);
 }
@@ -127,7 +132,8 @@ bool host_address(const sockaddr_storage& addr) {
     return false;
 }
 
-bool read_join_code(const std::string& code, sockaddr_storage* addr, socklen_t* len, std::string* why) {
+bool read_join_code(const std::string& code, sockaddr_storage* addr, socklen_t* len, std::string* why,
+                    uint64_t* fingerprint) {
     const std::string chars = code_characters(code);
     if (chars.empty()) {
         *why = "it has a character that is not in join codes";
@@ -139,7 +145,8 @@ bool read_join_code(const std::string& code, sockaddr_storage* addr, socklen_t* 
     } else if (chars.size() == chars_for(kIpv6Bytes)) {
         size = kIpv6Bytes;
     } else {
-        *why = "a join code has 12 characters (or 31), this has " + std::to_string(chars.size());
+        *why = "a join code has " + std::to_string(chars_for(kIpv4Bytes)) + " characters (or " +
+               std::to_string(chars_for(kIpv6Bytes)) + "), this has " + std::to_string(chars.size());
         return false;
     }
     std::vector<uint8_t> bytes;
@@ -159,7 +166,14 @@ bool read_join_code(const std::string& code, sockaddr_storage* addr, socklen_t* 
         *why = "the code does not check out (a character mistyped?)";
         return false;
     }
-    const uint16_t port = static_cast<uint16_t>((bytes[size - 3] << 8) | bytes[size - 2]);
+    const size_t port_at = size - 1 - kFingerprintBytes - 2;
+    const uint16_t port = static_cast<uint16_t>((bytes[port_at] << 8) | bytes[port_at + 1]);
+    if (fingerprint != nullptr) {
+        *fingerprint = 0;
+        for (size_t i = 0; i < kFingerprintBytes; i++) {
+            *fingerprint = *fingerprint << 8 | bytes[port_at + 2 + i];
+        }
+    }
     std::memset(addr, 0, sizeof(*addr));
     if (size == kIpv4Bytes) {
         auto& v4 = reinterpret_cast<sockaddr_in&>(*addr);
@@ -195,7 +209,10 @@ bool read_join_code(const std::string& code, sockaddr_storage* addr, socklen_t* 
 }
 
 bool read_join_target(const std::string& text_in, uint16_t default_port, sockaddr_storage* addr, socklen_t* len,
-                      std::string* why) {
+                      std::string* why, uint64_t* fingerprint) {
+    if (fingerprint != nullptr) {
+        *fingerprint = kNoFingerprint;
+    }
     std::string text = text_in;
     text.erase(0, text.find_first_not_of(" \t"));
     text.erase(text.find_last_not_of(" \t") + 1);
@@ -207,7 +224,7 @@ bool read_join_target(const std::string& text_in, uint16_t default_port, sockadd
     const std::string chars = code_characters(text);
     if (!address_like && (chars.size() == chars_for(kIpv4Bytes) || chars.size() == chars_for(kIpv6Bytes) ||
                           text.find('-') != std::string::npos)) {
-        return read_join_code(text, addr, len, why);
+        return read_join_code(text, addr, len, why, fingerprint);
     }
     std::string host = text;
     std::string port = std::to_string(default_port);
@@ -529,6 +546,32 @@ std::string printable(const std::string& text, size_t max, bool newlines) {
         }
     }
     return out;
+}
+
+bool log_refusal() {
+    constexpr int64_t kWindowMs = 60000;
+    constexpr int kPerWindow = 8;
+    static std::mutex mutex;
+    static int64_t window_start = 0;
+    static int logged = 0;
+    static int left_out = 0;
+    std::lock_guard<std::mutex> lock(mutex);
+    const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (window_start == 0 || now - window_start >= kWindowMs) {
+        if (left_out > 0) {
+            std::printf("[conker] net: %d more machines turned away in the last minute (not logged)\n", left_out);
+        }
+        window_start = now;
+        logged = 0;
+        left_out = 0;
+    }
+    if (logged >= kPerWindow) {
+        left_out++;
+        return false;
+    }
+    logged++;
+    return true;
 }
 
 }  // namespace conker::net

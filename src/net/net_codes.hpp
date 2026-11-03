@@ -1,10 +1,11 @@
 // Join codes and the addresses behind them (docs/online-multiplayer-plan.md, M5).
 //
-// A join code is a host's address and UDP port written in Crockford's base 32 (digits and capitals
+// A join code is a host's address, UDP port and 40 bits of its key (net_seal.hpp: a guest that joins
+// by code refuses a machine posing as the host) written in Crockford's base 32 (digits and capitals
 // without I, L, O and U), with a check byte so that a mistyped code is refused rather than sent
-// somewhere else: 12 characters for IPv4 ("K3F9-2QXA-7M0C"), 31 for IPv6. Lower case, spaces and
-// dashes are ignored when reading one, and O, I and L read as 0, 1 and 1. A code is no secret: it
-// is the host's address, which every guest learns anyway when it connects.
+// somewhere else: 20 characters for IPv4 ("K3F9-2QXA-7M0C-4D8R-WZ1N"), 39 for IPv6. Lower case,
+// spaces and dashes are ignored when reading one, and O, I and L read as 0, 1 and 1. A code is no
+// secret: the address every guest learns anyway when it connects, and a public key's fingerprint.
 #pragma once
 
 #include <cstdint>
@@ -15,17 +16,21 @@
 
 namespace conker::net {
 
-// The code for an address (AF_INET or AF_INET6 in addr) and port; "" for another family.
-std::string make_join_code(const sockaddr_storage& addr, uint16_t port);
+// The code for an address (AF_INET or AF_INET6 in addr), port and key fingerprint
+// (seal::fingerprint); "" for another family.
+std::string make_join_code(const sockaddr_storage& addr, uint16_t port, uint64_t fingerprint);
 
-// Reads a code back. False, with why ("a character that is not in codes", "the code does not
-// check out (a character mistyped?)", "the wrong length"), if it is not one.
-bool read_join_code(const std::string& code, sockaddr_storage* addr, socklen_t* len, std::string* why);
+// Reads a code back, with its key fingerprint. False, with why ("a character that is not in codes",
+// "the code does not check out (a character mistyped?)", "the wrong length"), if it is not one.
+bool read_join_code(const std::string& code, sockaddr_storage* addr, socklen_t* len, std::string* why,
+                    uint64_t* fingerprint = nullptr);
 
 // What JOIN's text field holds: a join code, or an address with or without a port ("10.0.0.2",
-// "10.0.0.2:37800", "[2001:db8::1]:37800", "host.example"). False, with why, if it is neither.
+// "10.0.0.2:37800", "[2001:db8::1]:37800", "host.example"). False, with why, if it is neither. A
+// code's key fingerprint goes in *fingerprint, kNoFingerprint for an address.
+constexpr uint64_t kNoFingerprint = ~uint64_t{0};
 bool read_join_target(const std::string& text, uint16_t default_port, sockaddr_storage* addr, socklen_t* len,
-                      std::string* why);
+                      std::string* why, uint64_t* fingerprint = nullptr);
 
 // "10.0.0.2:37800" or "[2001:db8::1]:37800", for messages and the --net-join command line.
 std::string address_with_port(const sockaddr_storage& addr, socklen_t len);
@@ -98,5 +103,10 @@ inline bool same_secret(uint64_t a, uint64_t b) {
 // Text from another machine as it may be shown or logged: printable ASCII only (newlines too where
 // `newlines`), at most `max` characters.
 std::string printable(const std::string& text, size_t max, bool newlines = false);
+
+// Whether to log one more machine turned away: at most a few a minute, so that a machine that keeps
+// asking (past the cookie, which any machine on the LAN gets) cannot grow last-run.log without end.
+// The first one logged after a quiet spell says how many were left out.
+bool log_refusal();
 
 }  // namespace conker::net

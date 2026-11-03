@@ -273,7 +273,12 @@ void apply_header_line(const char* line, const char* source, bool from_another_m
                 return;
             }
         }
-        std::printf("[conker] %s: switch %s is not in this build\n", source, label);
+        // The label can come from the host: printable characters only, not a terminal's escapes.
+        std::string shown;
+        for (const char* c = label; *c != '\0' && shown.size() < 64; c++) {
+            shown += (*c >= 32 && *c < 127) ? *c : '?';
+        }
+        std::printf("[conker] %s: switch %s is not in this build\n", source, shown.c_str());
         return;
     }
     char build[128];

@@ -210,6 +210,17 @@ These environment variables are read by both builds:
   as another ROM (its hash) the same way. `CONKER_NET_TEST_DEAF=1` makes a
   hosting lobby ignore its game port while the LAN list still finds it, as a
   firewall dropping a joining game's replies looks, for JOIN's message then.
+  `CONKER_NET_TEST_HOST_KEY=<64 hex>` gives a host that secret key instead of
+  its kept one (`conker-recomp-data/net/host_key`), so that its join codes are
+  known beforehand (tools/net-test/lobbystart.sh).
+* Sealed packets (src/net/net_seal.hpp): every lobby and session packet but the
+  LAN list's PROBE and OFFER is encrypted on a link of its own between a guest
+  and the host. A packet that does not open is dropped without a word, as a
+  forged one is. A host's lobby and session use the machine's kept host key; a
+  guest's lobby hands the host's public key to its session in
+  `CONKER_NET_HOST_PUBLIC` (or a join code's 10-hex-digit fingerprint of it).
+  `conker-recomp-data/net/known_hosts` holds the key last seen at each address
+  joined: delete a line to forget a host's key.
 * LAN only (src/net/net_codes.hpp `sender_allowed`): without
   `--net-unsafe-internet`, every session, lobby and LAN-list socket drops a
   datagram from outside the LAN before looking at it. A build configured with

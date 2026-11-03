@@ -99,6 +99,8 @@ add_executable(ConkersBadFurDayRecompiled
     src/net/net_codes.cpp
     src/net/net_lobby.cpp
     src/net/net_portmap.cpp
+    src/net/net_seal.cpp
+    src/net/net_keys.cpp
     src/net/net_socket.cpp
     "${CONKER_RSP_DIR}/aspMain.cpp"
     src/platform/audio.cpp
@@ -275,6 +277,22 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------------------------
+# Sealing the lobby's and the session's packets (src/net/net_seal.cpp): Monocypher's X25519,
+# BLAKE2b and XChaCha20-Poly1305, BSD-2-Clause or CC0, fetched at configure time at a pinned version.
+# ---------------------------------------------------------------------------------------------
+include(FetchContent)
+FetchContent_Declare(monocypher
+    URL https://github.com/LoupVaillant/Monocypher/archive/refs/tags/4.0.2.tar.gz
+    URL_HASH SHA256=bc1ca30b1b2654e4e7daf2492c0d204200e55137f23fda6b7142fd7d523bd6b4
+    SOURCE_SUBDIR no-cmake-build
+    EXCLUDE_FROM_ALL)
+FetchContent_MakeAvailable(monocypher)
+add_library(conker_monocypher STATIC "${monocypher_SOURCE_DIR}/src/monocypher.c")
+target_include_directories(conker_monocypher PUBLIC "${monocypher_SOURCE_DIR}/src")
+target_compile_options(conker_monocypher PRIVATE -w)
+target_link_libraries(ConkersBadFurDayRecompiled PRIVATE conker_monocypher)
+
+# ---------------------------------------------------------------------------------------------
 # Opening an online host's port on the router (src/net/net_portmap.cpp): miniupnpc for UPnP IGD
 # and libnatpmp for NAT-PMP, both BSD-3-Clause, fetched at configure time at pinned versions.
 # ---------------------------------------------------------------------------------------------
@@ -333,8 +351,9 @@ if(WIN32)
     # M_PI and friends from <cmath>; and, as RT64 does for itself, SDL's prefetch intrinsic left to
     # SDL, which clang-cl's own header would define a second time.
     target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE _USE_MATH_DEFINES __PRFCHWINTRIN_H)
-    # Sockets and the network adapter list (src/net/net_*.cpp), crash backtraces (src/main.cpp).
-    target_link_libraries(ConkersBadFurDayRecompiled PRIVATE ws2_32 iphlpapi dbghelp)
+    # Sockets and the network adapter list (src/net/net_*.cpp), random numbers for keys (net_seal.cpp),
+    # crash backtraces (src/main.cpp).
+    target_link_libraries(ConkersBadFurDayRecompiled PRIVATE ws2_32 iphlpapi bcrypt dbghelp)
 elseif(APPLE)
     target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_PLATFORM_POSIX=1)
 elseif(UNIX)
