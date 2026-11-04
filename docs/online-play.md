@@ -108,12 +108,12 @@ no game of yours to go back to: quit to leave it.
 
 ## The lobby
 
-On the title, go through the **MULTI** door to the barrel with the skull and press Start (Options
+On the title, go through the **MULTI** door to the barrels and, on any of them, press Start (Options
 on a PlayStation pad, Menu on an Xbox pad, Enter on the keyboard), as the line under the barrel says,
 or start the game with `--net-lobby`. The barrel turns its face up and the lobby is on it, in the
 game's own lettering, as the MULTI modes are. Controller 1 steers it (the d-pad or stick moves, A
 presses, B goes back), and so does the keyboard (the arrows, Enter, Esc). **CLOSE** turns the barrel
-back to the skull.
+back.
 
 Set your **NAME** first: it is what the others see. Type it on the keyboard (Cmd+V or Ctrl+V pastes),
 or pick the letters from the keyboard on the barrel with the pad. If you leave it, you are "Player"; the game never

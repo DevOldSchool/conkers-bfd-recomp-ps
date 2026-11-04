@@ -83,4 +83,5 @@ void close() {}
 bool is_open() { return false; }
 void frame(uint8_t* /*rdram*/, recomp_context* /*ctx*/) {}
 bool hides_sprite(uint32_t /*resource*/) { return false; }
+bool on_barrels(uint8_t* /*rdram*/) { return false; }
 }  // namespace conker::lobby_ui

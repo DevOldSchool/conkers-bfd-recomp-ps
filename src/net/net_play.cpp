@@ -3924,15 +3924,17 @@ void draw_session_menu(ListWriter& list, const SessionMenu& menu, int kWidth, in
         list.command(0xFA000000u, color);
         draw_text(list, text, x, y, scale);
     };
-    const int height = 2 * 8 * kBig + static_cast<int>(menu.lines.size()) * 10 +
-                       static_cast<int>(menu.rows.size()) * 9 * kBig + (menu.hint.empty() ? 0 : 12) + 16;
-    int y = std::max(4, (kHeight - height) / 2);
+    const int height = 8 * kBig + 6 + static_cast<int>(menu.lines.size()) * 10 + 6 +
+                       static_cast<int>(menu.rows.size()) * 9 * kBig + (menu.hint.empty() ? 0 : 12);
+    int y = std::max(4, (kHeight - height) / 2) - 8;
+    // As the game's pause: the picture dimmed behind (the colour blended over what is there by the
+    // primitive alpha), the title gold, the chosen row white and the others grey, with no box.
     list.command(0xE7000000u, 0);
-    list.command(0xFA000000u, 0xCEC461FFu);  // a gold edge
-    list.rect(30, y - 2, kWidth - 60, height + 4);
+    list.command(0xE200001Cu, 0x00504000u);   // G_SETOTHERMODE_L: FORCE_BL, in * alpha + memory * (1 - alpha)
+    list.command(0xFA000000u, 0x000000A0u);   // black, about 60%
+    list.rect(0, 0, kWidth, kHeight);
     list.command(0xE7000000u, 0);
-    list.command(0xFA000000u, 0x2A1C10FFu);  // dark wood
-    list.rect(32, y, kWidth - 64, height);
+    list.command(0xE200001Cu, 0);             // opaque again for the text
     y += 8;
     centered(menu.title, y, kBig, 0xCEC461FFu);
     y += 8 * kBig + 6;

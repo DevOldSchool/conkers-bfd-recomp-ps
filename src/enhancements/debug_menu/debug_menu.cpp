@@ -149,17 +149,8 @@ constexpr int kListRows = 9;
 constexpr int kInfoY = 176;                     // the position and camera lines under the rows
 constexpr int kOverlayX = 16;                   // FPS and position in play, top left
 constexpr int kOverlayY = 12;
-// The title's doors (screen 3, func_151DE8F0), found by watching memory while scripted presses
-// turned the doors and went into MULTI: the selected door, u8 at D_800E0B1C, is 5 GAME1, 0 MULTI,
-// 1 OPTIONS, 2 CHAPTERS, and 4 once GAME1's or MULTI's door is opened. Behind MULTI's door (the
-// barrel with the skull) f32 D_800E0AF8 goes from 0 to 1 as the barrel turns to the modes, and
-// back as it turns away; u8 D_800E0B30 is 4 on the join screen and 0 before it.
-constexpr uint32_t kTitleDoor = 0x800E0B1C;
-constexpr uint32_t kBarrelTurn = 0x800E0AF8;
-constexpr uint32_t kMultiJoin = 0x800E0B30;
+// The title's doors (screen 3) and the barrels behind MULTI's: see src/net/lobby_ui.cpp.
 constexpr int kTitleScreen = 3;
-constexpr uint8_t kMultiDoor = 0;
-constexpr uint8_t kDoorOpened = 4;
 constexpr int kOnlinePromptY = 196;  // under the door
 constexpr int kSteps[] = {1, 10, 100, 1000};
 
@@ -1532,15 +1523,7 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
     // them (func_151E51EC copies D_800BE930 after this), and a line under the barrel says so. Not on
     // the modes or the join screen, where Start is the game's. The lobby's page then runs from here
     // (it presses A for the barrel's face to come up, in the same frame).
-    static uint8_t last_door = 0xFF;  // the door selected before one was opened
-    const bool title = MEM_BU(0, kseg0(kMenuHandler)) == kTitleScreen;
-    const uint8_t door = MEM_BU(0, kseg0(kTitleDoor));
-    if (title && door != kDoorOpened) {
-        last_door = door;
-    }
-    // Only once through the door, on the skull: the door itself keeps the title's own look.
-    const bool on_multi = title && door == kDoorOpened && last_door == kMultiDoor && MEM_W(0, kseg0(kBarrelTurn)) == 0 &&
-                          MEM_BU(0, kseg0(kMultiJoin)) == 0;
+    const bool on_multi = conker::lobby_ui::on_barrels(rdram);
     if (!g_active && on_multi && !conker::net::active() && !conker::lobby_ui::is_open()) {
         const char* start = conker::input::controller_kind() == conker::input::PadKind::PlayStation ? "OPTIONS"
                             : conker::input::controller_kind() == conker::input::PadKind::None ? "ENTER"

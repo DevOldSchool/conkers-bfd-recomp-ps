@@ -1,12 +1,11 @@
 // The ONLINE lobby's page (docs/online-multiplayer-plan.md, M5), drawn by the game itself on the
 // title's MULTI barrel; net/net_lobby does the network side.
 //
-// On the barrel with the skull, Start (Enter on the keyboard) opens it (src/enhancements/debug_menu,
+// On any barrel behind the MULTI door, Start (Enter on the keyboard) opens it (src/enhancements/debug_menu,
 // which says so under the barrel), and so does --net-lobby at boot. Opening it presses A for the
-// game, which brings the barrel's face up as it does for the modes; the skull and everything the
-// game draws on the face are hidden (hides_sprite) and the lobby's rows are drawn there in the game's
-// own font, as the debug menu draws its rows. Closing it presses B, which turns the barrel back to the
-// skull. While it is open the game reads no input (input::set_blocked): controller 1's pad steers the
+// game, which brings the barrel's face up as it does for the modes; the barrel's picture (the skull,
+// WAR...) and everything the game draws on the face are hidden (hides_sprite) and the lobby's rows are drawn there in the game's
+// own font, as the debug menu draws its rows. Closing it presses B, which turns the barrel back. While it is open the game reads no input (input::set_blocked): controller 1's pad steers the
 // page (up and down choose, A presses, B goes back) and the keyboard does too (the arrows, Enter,
 // Esc). The name and the address or code to join are typed on the keyboard, or picked a letter at a
 // time from a keyboard on the barrel with the pad.
@@ -53,5 +52,9 @@ void frame(uint8_t* rdram, recomp_context* ctx);
 // Whether a menu sprite (func_1510D0EC's resource) is kept from being drawn: the barrel's own while
 // the page is on it. Game thread.
 bool hides_sprite(uint32_t resource);
+
+// Whether the title is on one of the barrels behind the MULTI door, still: where Start opens the page.
+// Game thread.
+bool on_barrels(uint8_t* rdram);
 
 }  // namespace conker::lobby_ui
