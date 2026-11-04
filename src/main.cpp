@@ -304,8 +304,22 @@ uint16_t conker::scripted_buttons() {
     return buttons;
 }
 
+// Set as main returns from a normal quit (the window closed, Cmd-Q).
+std::atomic<bool> g_quitting_normally{false};
+
 int main(int argc, char** argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);  // keep log order intact if the game thread crashes
+    // Registered first, so it runs last of the exit handlers (the online LEAVE, the router's port, the
+    // triggers let go) and before the destructors of the statics made before main. The game's own
+    // threads (the scheduler, audio, the idle thread) are still running when main returns; ended here,
+    // none of them meets a destroyed object (a crash on quit now and then). Other exits keep their
+    // status and ordinary teardown.
+    std::atexit([] {
+        if (g_quitting_normally.load()) {
+            std::fflush(nullptr);
+            std::_Exit(0);
+        }
+    });
     install_crash_handler();
     parse_scripted_input();
     if (!conker::net::parse_args(&argc, argv)) {
@@ -394,5 +408,6 @@ int main(int argc, char** argv) {
 
     recomp::start_game(conker::kGameId, "");
     recomp::start(cfg);
+    g_quitting_normally.store(true);
     return 0;
 }

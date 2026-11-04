@@ -80,6 +80,9 @@ float g_turn[kPorts] = {};  // degrees right the camera turns this frame, lock o
 bool g_playing = false;
 bool g_aiming[kPorts] = {};  // take_aim was asked this pad hook (this machine's own, see aiming())
 int g_zoom[kPorts] = {};  // steps waiting, + in
+// A sight's zoom (take_sight_zoom): frames C-up (+) or C-down (-) is still held for the last wheel step.
+int g_sight_hold[kPorts] = {};
+constexpr int kSightZoomFrames = 6;
 // Native state the game's memory depends on, carried by a snapshot (runtime/snapshot.hpp).
 const bool g_snapshot_fields = [] {
     // Checked on load, as another machine's word.
@@ -100,6 +103,14 @@ const bool g_snapshot_fields = [] {
             int v;
             std::memcpy(&v, bytes + i * sizeof(int), sizeof(v));
             if (v < -2 || v > 2) return false;
+        }
+        return true;
+    });
+    conker::snapshot::add("mouse_look.sight_hold", g_sight_hold, sizeof(g_sight_hold), [](const uint8_t* bytes) {
+        for (int i = 0; i < kPorts; i++) {
+            int v;
+            std::memcpy(&v, bytes + i * sizeof(int), sizeof(v));
+            if (v < -kSightZoomFrames || v > kSightZoomFrames) return false;
         }
         return true;
     });
@@ -170,6 +181,23 @@ void frame(uint8_t* rdram) {
         }
         g_zoom[port] = std::clamp(g_zoom[port] + zoom, -2, 2);
     }
+}
+
+int take_sight_zoom(int port) {
+    if (port < 0 || port >= kPorts) {
+        return 0;
+    }
+    int& hold = g_sight_hold[port];
+    if (hold == 0 && g_zoom[port] != 0) {
+        hold = g_zoom[port] > 0 ? kSightZoomFrames : -kSightZoomFrames;
+        g_zoom[port] += g_zoom[port] > 0 ? -1 : 1;
+    }
+    if (hold == 0) {
+        return 0;
+    }
+    const int direction = hold > 0 ? 1 : -1;
+    hold -= direction;
+    return direction;
 }
 
 bool take_aim(int port, float* x, float* y) {

@@ -1467,6 +1467,8 @@ void on_merged(Peer& host, Reader& r) {
             }
         } else if (from == g_rejoin_from) {
             // This machine's own earlier drop, which it is rejoining from.
+        } else if (g_leave_requested.load()) {
+            // The host taking this machine's LEAVE: it is leaving anyway, not dropped.
         } else {
             // Dropped as out of sync, or as gone (not heard from, or its game stuck, which it may get
             // over): the host plays this port with nothing pressed, so the game here stops.

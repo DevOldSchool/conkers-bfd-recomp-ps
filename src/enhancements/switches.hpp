@@ -12,8 +12,9 @@ struct Switch {
     const char* label;  // as the page shows it
     bool (*on)();
     void (*set)(bool on);
-    // This machine's own: it writes files, so another machine's settings (an online host's) do not set
-    // it. A replay's header, a file of this machine's, still does.
+    // This machine's own: another machine's settings (an online host's) do not set it, because it
+    // writes files or only changes what this machine shows or does with its pad, never game memory. A
+    // replay's header, a file of this machine's, still does.
     bool local = false;
 };
 

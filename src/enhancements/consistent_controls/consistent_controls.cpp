@@ -236,7 +236,7 @@ bool mouse_aim(int pad, float* x, float* y) {
 // alone, when its controller has neither (the keyboard alone, the mouse not captured).
 // `walk_with_c`: C-up and C-down step forward and back here (a gun, the launcher's scope). Through a
 // match's knife sight they zoom instead, so the stick's up and down (W and S) leave them alone there and
-// D-pad up and down (the arrow keys) zoom.
+// D-pad up and down (the arrow keys) and the mouse wheel (or R and T) zoom.
 bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16_t& buttons, bool walk_with_c = true) {
     float aim_x;
     float aim_y;
@@ -255,8 +255,9 @@ bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16
         if (walk_y > kStepAt) buttons |= kCUp;
         if (walk_y < -kStepAt) buttons |= kCDown;
     } else {
-        if (buttons & kDUp) buttons |= kCUp;
-        if (buttons & kDDown) buttons |= kCDown;
+        const int zoom = conker::mouse_look::take_sight_zoom(pad);
+        if ((buttons & kDUp) || zoom > 0) buttons |= kCUp;
+        if ((buttons & kDDown) || zoom < 0) buttons |= kCDown;
     }
     if (walk_x < -kStepAt) buttons |= kCLeft;
     if (walk_x > kStepAt) buttons |= kCRight;

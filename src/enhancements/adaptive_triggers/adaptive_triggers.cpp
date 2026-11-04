@@ -197,7 +197,13 @@ void multiplayer_guns(uint8_t* rdram) {
         } else {
             g_was_mounted[i] = false;
         }
-        conker::input::set_trigger_effect(effect, i);
+        // Online, player n's controller is this machine's controller 1 on their machine alone (a guest
+        // is player 2 or later, and its pad is still controller 1): the effect went to a controller 2
+        // that is not there.
+        const int controller = conker::net::local_controller(i);
+        if (controller >= 0) {
+            conker::input::set_trigger_effect(effect, controller);
+        }
     }
 }
 
@@ -241,5 +247,6 @@ nlohmann::json conker::status::adaptive_triggers() {
 }
 
 conker::switches::Switch conker::switches::adaptive_triggers() {
-    return {"ADAPTIVE TRIGGERS", adaptive_triggers_enabled, [](bool on) { g_enabled.store(on); }};
+    // Each player's own online: it only sets this machine's pad, from game memory it never writes.
+    return {"ADAPTIVE TRIGGERS", adaptive_triggers_enabled, [](bool on) { g_enabled.store(on); }, true};
 }

@@ -29,6 +29,7 @@
 #include <iterator>
 #include <string>
 
+#include "net/net_play.hpp"
 #include "recomp.h"
 #include "enhancements/status.hpp"
 #include "enhancements/switches.hpp"
@@ -129,9 +130,18 @@ uint16_t animation_of(uint8_t* rdram, uint32_t actor) { return actor != 0 ? MEM_
 
 uint16_t conker_animation(uint8_t* rdram) { return animation_of(rdram, player_actor(rdram, 0)); }
 
+// Player `port`'s haptic on the controller they play with here: online that is this machine's
+// controller 1 for its own player alone (a guest is player 2 or later), and nothing for the others.
+void play_for(const Haptic& haptic, int port) {
+    const int controller = conker::net::local_controller(port);
+    if (controller >= 0) {
+        conker::input::play_haptic(haptic, controller);
+    }
+}
+
 void play_all(const Haptic* haptics, size_t count, int port) {
     for (size_t i = 0; i < count; i++) {
-        conker::input::play_haptic(haptics[i], port);
+        play_for(haptics[i], port);
     }
 }
 
@@ -193,7 +203,7 @@ extern "C" void conker_haptics_frame(uint8_t* rdram, recomp_context* /*ctx*/) {
             continue;
         }
         if (animation == kLandingAnimation) {
-            conker::input::play_haptic(kLanding, port);
+            play_for(kLanding, port);
         } else if (animation == kSplatAnimation || animation == kSquashAnimation) {
             play_all(kSplat, std::size(kSplat), port);
         }
@@ -206,5 +216,6 @@ nlohmann::json conker::status::haptics() {
 }
 
 conker::switches::Switch conker::switches::haptics() {
-    return {"HAPTICS", haptics_enabled, [](bool on) { g_enabled.store(on); }};
+    // Each player's own online: it only shakes this machine's pad, from game memory it never writes.
+    return {"HAPTICS", haptics_enabled, [](bool on) { g_enabled.store(on); }, true};
 }
