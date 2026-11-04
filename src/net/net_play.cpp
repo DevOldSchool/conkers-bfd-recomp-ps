@@ -3103,6 +3103,11 @@ void relaunch(const std::vector<std::string>& net_args) {
 }
 
 void say_goodbye();
+// Once: say_goodbye at exit (registered after the threads it stops exist, so it runs before they go).
+void register_goodbye() {
+    static const bool goodbye = (std::atexit(say_goodbye), true);
+    (void)goodbye;
+}
 void say_goodbye_now();
 
 namespace {
@@ -3117,8 +3122,7 @@ void finish_connect() {
     g_session_start.store(now_ms());
     g_net_stop.store(false);
     g_thread = std::thread(network_thread);
-    static const bool goodbye = (std::atexit(say_goodbye), true);
-    (void)goodbye;
+    register_goodbye();
 }
 
 // The host of a session started in place: each guest's game becomes the host's from a snapshot, so
@@ -3288,10 +3292,15 @@ bool connect() {
 // learns the host is gone at once. Sent directly, past the simulated link. A crash or a kill sends
 // nothing; the grace covers those.
 void say_goodbye() {
-    if (!g_active.load() || g_socket < 0 || g_stopped.load() == kHostLeft) {
-        return;
+    if (g_active.load() && g_socket >= 0 && g_stopped.load() != kHostLeft) {
+        say_goodbye_now();
     }
-    say_goodbye_now();
+    // A session started in place keeps its network (and connect) thread joinable; a std::thread still
+    // joinable when exit() destroys it ends the program with std::terminate (an abort at every quit
+    // from a session). Stopped and joined here, before the statics go.
+    if (g_thread.joinable() || g_connect_thread.joinable()) {
+        stop_network();
+    }
 }
 
 void say_goodbye_now() {
@@ -3953,6 +3962,7 @@ bool start_in_place(const std::vector<std::string>& net_args) {
     g_rejoin_count = 0;
     g_place.store(kConnecting);
     std::printf("[conker] net: connecting the session in place (%s)\n", g_options.host ? "hosting" : "joining");
+    register_goodbye();
     g_connect_thread = std::thread(connect_in_place);
     return true;
 }
@@ -4044,6 +4054,7 @@ void rejoin_in_place() {
     g_net_stop.store(false);
     g_place.store(kConnecting);
     std::printf("[conker] net: connecting again to rejoin the session as player %d\n", port);
+    register_goodbye();
     g_connect_thread = std::thread(connect_in_place);
 }
 

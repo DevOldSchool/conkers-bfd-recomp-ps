@@ -329,7 +329,10 @@ struct Found {
     int64_t heard = 0;
 };
 
-std::mutex g_mutex;
+// Never destroyed: the lobby's thread is detached and may still run while exit() destroys statics.
+std::mutex& g_mutex = *new std::mutex;
+// Set at exit (under g_mutex): the thread then stops before it touches anything else.
+bool g_quitting = false;
 Mode g_mode = Mode::Idle;
 int g_socket = -1;             // hosting: the game port; joining: any port
 int g_probe_socket = -1;       // browsing: broadcasts out, OFFERs in
@@ -1181,6 +1184,9 @@ void thread_main() {
         int count = 0;
         {
             std::lock_guard lock(g_mutex);
+            if (g_quitting) {
+                return;
+            }
             for (int s : {g_socket, g_probe_socket, g_discovery_socket}) {
                 if (s >= 0) {
                     fds[count++] = socket_poll_in(s);
@@ -1193,6 +1199,9 @@ void thread_main() {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
         std::lock_guard lock(g_mutex);
+        if (g_quitting) {
+            return;
+        }
         for (int s : {g_socket, g_probe_socket, g_discovery_socket}) {
             for (int n = 0; s >= 0 && n < 64; n++) {
                 sockaddr_storage from{};
@@ -1214,6 +1223,12 @@ void thread_main() {
 void ensure_thread() {
     if (!g_thread_running) {
         g_thread_running = true;
+        // Registered after the lobby's statics exist, so it runs before they are destroyed: the
+        // thread sees g_quitting at its next lock and touches none of them again.
+        std::atexit([] {
+            std::lock_guard lock(g_mutex);
+            g_quitting = true;
+        });
         g_thread = std::thread(thread_main);
         g_thread.detach();
     }

@@ -239,6 +239,7 @@ These environment variables are read by both builds:
   `host [port]`, `join <address or code>`, `joinlan [host name]` (the LAN
   list's JOIN for that game, waiting until the list shows it), `ready`,
   `start`, `kick <n>` (the host's REMOVE for its n-th guest), `leave`,
+  `leavesession` (LEAVE THE SESSION), `quit` (as the window's close button),
   `close`, `open`, `setenv NAME=value` (for the session the lobby starts
   again into, such as a test's `CONKER_VIRTUAL_PAD`) and `shot <file>`, which
   writes what the window shows as text (players, LAN games, join codes, the

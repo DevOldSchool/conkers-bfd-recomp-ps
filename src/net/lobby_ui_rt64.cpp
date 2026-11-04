@@ -171,6 +171,11 @@ void run_script() {
         } else if (step.action == "leave") {
             lobby::leave();
             lobby::browse();
+        } else if (step.action == "quit") {
+            // As the window's close button: the game quits the normal way (for tests of quitting).
+            SDL_Event event{};
+            event.type = SDL_QUIT;
+            SDL_PushEvent(&event);
         } else if (step.action == "close") {
             close();
         } else if (step.action == "open") {
