@@ -864,9 +864,11 @@ void place_queued_texts(uint8_t* rdram, const std::vector<Rect>& split, int loca
 // func_1501A8C0 lays the view out again with no change, so a zoom is put back after it.
 constexpr uint32_t kViewAngleOffset = 0x800C3648;  // D_800C3648 (f32)
 constexpr uint32_t kAngleToRadians = 0x800A2C24;   // D_800A2C24 (f32): +0x74 to the angle func_1510B128 takes
+constexpr uint32_t kAngleToRadiansY = 0x800A2C28;  // D_800A2C28 (f32): the same for +0x78
 struct Zoom {
     bool zoomed = false;
     float x = 0.0f, y = 0.0f, scale = 1.0f;
+    float narrowing = 1.0f;  // tan of the zoomed horizontal half-angle over the unzoomed one
 };
 
 Zoom zoom_of(uint8_t* rdram, int view) {
@@ -882,7 +884,30 @@ Zoom zoom_of(uint8_t* rdram, int view) {
         const float scale = read_float(rdram, record + 0x1C) / unscaled;
         zoom.scale = std::isfinite(scale) && scale > 0.0f ? scale : 1.0f;
     }
+    const float to_radians = read_float(rdram, kAngleToRadians);
+    const float base = (read_float(rdram, record + 0x6C) + offset) * to_radians;
+    const float narrowing = std::tan(angle) / std::tan(base);
+    if (std::isfinite(narrowing) && narrowing > 0.0f) {
+        zoom.narrowing = narrowing;
+    }
     zoom.zoomed = std::fabs(zoom.x) > 1e-3f || std::fabs(zoom.y) > 1e-3f || std::fabs(zoom.scale - 1.0f) > 1e-3f;
+    return zoom;
+}
+
+// The zoom as the full-screen view needs it. The game zooms by adding angles to a view's own (func_1510B128),
+// chosen for the split screen's views; added to the full-screen view's taller one they narrowed it less up
+// and down than across, and the picture came out stretched. The same narrowing on both axes instead.
+Zoom full_screen_zoom(uint8_t* rdram, int view, Zoom zoom) {
+    const uint32_t record = static_cast<uint32_t>(MEM_W(0, kseg0(kViews))) + static_cast<uint32_t>(view) * kViewSize;
+    const float offset = read_float(rdram, kViewAngleOffset);
+    auto narrowed = [&](uint32_t base_field, uint32_t radians_at) {
+        const float to_radians = read_float(rdram, radians_at);
+        const float base = read_float(rdram, record + base_field) + offset;
+        const float angle = std::atan(zoom.narrowing * std::tan(base * to_radians)) / to_radians;
+        return std::isfinite(angle) ? angle - base : 0.0f;
+    };
+    zoom.x = narrowed(0x6C, kAngleToRadians);
+    zoom.y = narrowed(0x70, kAngleToRadiansY);
     return zoom;
 }
 
@@ -917,7 +942,7 @@ void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
     const Zoom zoom = zoom_of(rdram, local);
     call(rdram, ctx, func_1501A8C0, view, 0, 0x3FF, 0);  // the local view's record over the whole screen
     if (zoom.zoomed) {
-        apply_zoom(rdram, ctx, local, zoom);
+        apply_zoom(rdram, ctx, local, full_screen_zoom(rdram, local, zoom));
     }
     call(rdram, ctx, func_1501B22C, view);  // its view planes, from its new field of view (props at the sides)
     const uint32_t views = static_cast<uint32_t>(MEM_W(0, kseg0(kViews)));

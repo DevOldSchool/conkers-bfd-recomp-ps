@@ -234,7 +234,10 @@ bool mouse_aim(int pad, float* x, float* y) {
 // Aims with the right stick (and the port's mouse), up aiming up, and walks with the left
 // stick (or WASD) as the C buttons, on the pad at `at` in the frame. False, leaving the pad
 // alone, when its controller has neither (the keyboard alone, the mouse not captured).
-bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16_t& buttons) {
+// `walk_with_c`: C-up and C-down step forward and back here (a gun, the launcher's scope). Through a
+// match's knife sight they zoom instead, so the stick's up and down (W and S) leave them alone there and
+// D-pad up and down (the arrow keys) zoom.
+bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16_t& buttons, bool walk_with_c = true) {
     float aim_x;
     float aim_y;
     float mouse_x;
@@ -248,8 +251,13 @@ bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16
     const int walk_x = MEM_B(at + 2, ctx->r29);
     const int walk_y = MEM_B(at + 3, ctx->r29);
     buttons &= static_cast<uint16_t>(~(kCUp | kCDown | kCLeft | kCRight));
-    if (walk_y > kStepAt) buttons |= kCUp;
-    if (walk_y < -kStepAt) buttons |= kCDown;
+    if (walk_with_c) {
+        if (walk_y > kStepAt) buttons |= kCUp;
+        if (walk_y < -kStepAt) buttons |= kCDown;
+    } else {
+        if (buttons & kDUp) buttons |= kCUp;
+        if (buttons & kDDown) buttons |= kCDown;
+    }
     if (walk_x < -kStepAt) buttons |= kCLeft;
     if (walk_x > kStepAt) buttons |= kCRight;
     MEM_B(at + 2, ctx->r29) = stick_axis(aim_x);
@@ -397,7 +405,7 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player,
     // In a match whatever aims with a sight (the knives, item 0x14, as much as the launcher) aims
     // as the launcher's scope does, a match's mounted gun (item 0x1B) too; tanks never get here.
     if (launcher_scoped(rdram, player) || (match && sighted(rdram, player))) {
-        if (twin_stick_aim(rdram, ctx, pad, at, buttons)) {
+        if (twin_stick_aim(rdram, ctx, pad, at, buttons, launcher_scoped(rdram, player))) {
             MEM_H(at, ctx->r29) = static_cast<int16_t>(step_with_dpad(buttons));
         }
         return;
