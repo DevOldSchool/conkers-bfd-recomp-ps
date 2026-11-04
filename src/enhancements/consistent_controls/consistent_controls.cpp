@@ -90,6 +90,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "enhancements/consistent_controls/consistent_controls.hpp"
+#include "net/net_play.hpp"
 #include "recomp.h"
 #include "enhancements/consistent_controls/mouse_look.hpp"
 #include "enhancements/status.hpp"
@@ -154,6 +156,21 @@ std::atomic<bool> g_enabled{[] {
 }();
 
 bool consistent_controls_enabled() { return g_enabled.load(std::memory_order_relaxed); }
+
+// Online every player's own CONSISTENT CONTROLS and camera swap, from their port's record, so that
+// every machine rewrites each pad alike; otherwise this machine's.
+bool port_flag(int pad, uint8_t flag) {
+    return (conker::frame_input::port(pad).flags & flag) != 0;
+}
+
+bool controls_on(int pad) {
+    return conker::net::active() ? pad >= 0 && port_flag(pad, conker::frame_input::Port::kConsistentControls)
+                                 : consistent_controls_enabled();
+}
+
+bool swapped(int pad) {
+    return conker::net::active() ? pad >= 0 && port_flag(pad, conker::frame_input::Port::kCameraSwap) : camera_swapped();
+}
 
 void set_consistent_controls(bool on) {
     g_enabled.store(on);
@@ -235,9 +252,12 @@ bool mouse_aim(int pad, float* x, float* y) {
 // stick (or WASD) as the C buttons, on the pad at `at` in the frame. False, leaving the pad
 // alone, when its controller has neither (the keyboard alone, the mouse not captured).
 // `walk_with_c`: C-up and C-down step forward and back here (a gun, the launcher's scope). Through a
-// match's knife sight they zoom instead, so the stick's up and down (W and S) leave them alone there and
-// D-pad up and down (the arrow keys) and the mouse wheel (or R and T) zoom.
-bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16_t& buttons, bool walk_with_c = true) {
+// match's knife sight they only zoom, so the stick's up and down (W and S) leave them alone there and
+// D-pad up and down (the arrow keys) zoom. Through any sight C-up and C-down step its zoom
+// (func_15126378, all but the story's launcher, 0x0C), and the mouse wheel (or R and T) zooms with
+// them there.
+bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16_t& buttons, bool walk_with_c = true,
+                    bool sight = false) {
     float aim_x;
     float aim_y;
     float mouse_x;
@@ -251,11 +271,11 @@ bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16
     const int walk_x = MEM_B(at + 2, ctx->r29);
     const int walk_y = MEM_B(at + 3, ctx->r29);
     buttons &= static_cast<uint16_t>(~(kCUp | kCDown | kCLeft | kCRight));
+    const int zoom = sight ? conker::mouse_look::take_sight_zoom(pad) : 0;
     if (walk_with_c) {
-        if (walk_y > kStepAt) buttons |= kCUp;
-        if (walk_y < -kStepAt) buttons |= kCDown;
+        if (walk_y > kStepAt || zoom > 0) buttons |= kCUp;
+        if (walk_y < -kStepAt || zoom < 0) buttons |= kCDown;
     } else {
-        const int zoom = conker::mouse_look::take_sight_zoom(pad);
         if ((buttons & kDUp) || zoom > 0) buttons |= kCUp;
         if ((buttons & kDDown) || zoom < 0) buttons |= kCDown;
     }
@@ -406,7 +426,7 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player,
     // In a match whatever aims with a sight (the knives, item 0x14, as much as the launcher) aims
     // as the launcher's scope does, a match's mounted gun (item 0x1B) too; tanks never get here.
     if (launcher_scoped(rdram, player) || (match && sighted(rdram, player))) {
-        if (twin_stick_aim(rdram, ctx, pad, at, buttons, launcher_scoped(rdram, player))) {
+        if (twin_stick_aim(rdram, ctx, pad, at, buttons, launcher_scoped(rdram, player), true)) {
             MEM_H(at, ctx->r29) = static_cast<int16_t>(step_with_dpad(buttons));
         }
         return;
@@ -434,7 +454,7 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player,
         MEM_H(at, ctx->r29) = static_cast<int16_t>(step_with_dpad(buttons));
         return;
     }
-    if (!aimed && camera_swapped()) {
+    if (!aimed && swapped(pad)) {
         buttons = swap_c_left_right(buttons);
     }
     MEM_H(at, ctx->r29) = static_cast<int16_t>(step_with_dpad(buttons));
@@ -446,11 +466,14 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player,
 // them while it is open.
 extern "C" void conker_consistent_controls(uint8_t* rdram, recomp_context* ctx) {
     conker::mouse_look::frame(rdram);
-    if (!consistent_controls_enabled()) {
+    if (!conker::net::active() && !consistent_controls_enabled()) {
         return;
     }
     for (int player = 0; player < players(rdram); player++) {
         const int pad = player_pad(rdram, player);
+        if (!controls_on(pad)) {
+            continue;
+        }
         if (pad >= 0 && in_tank(rdram, player)) {
             const int at = kPad + pad * kPadSize;
             const uint32_t block = player_block(rdram, player);
@@ -464,7 +487,7 @@ extern "C" void conker_consistent_controls(uint8_t* rdram, recomp_context* ctx) 
                 }
                 continue;
             }
-            if (camera_swapped()) {
+            if (swapped(pad)) {
                 MEM_H(at, ctx->r29) = static_cast<int16_t>(swap_c_left_right(MEM_HU(at, ctx->r29)));
             }
             continue;
@@ -481,6 +504,9 @@ nlohmann::json conker::status::consistent_controls() {
                        "CONKER_CONSISTENT_CONTROLS");
 }
 
+bool conker::consistent_controls::enabled() { return consistent_controls_enabled(); }
+
 conker::switches::Switch conker::switches::consistent_controls() {
-    return {"CONSISTENT CONTROLS", consistent_controls_enabled, set_consistent_controls};
+    // Each player's own online: it goes with their port (frame_input::Port::kConsistentControls).
+    return {"CONSISTENT CONTROLS", consistent_controls_enabled, set_consistent_controls, true};
 }

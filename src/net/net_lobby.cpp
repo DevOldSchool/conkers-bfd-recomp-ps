@@ -1,4 +1,5 @@
 // The online lobby's network side; see net_lobby.hpp.
+#include "enhancements/switches.hpp"
 #include "net/net_lobby.hpp"
 
 #include <algorithm>
@@ -241,6 +242,20 @@ std::string known_pad(const std::string& text) {
 }
 
 // The host's settings ("# switch LABEL=0|1" lines) as "LABEL on/off" lines.
+// Each player keeps their own online (a switch marked local, and the camera swap): not the host's to
+// show as everyone's.
+bool own_setting(const char* label) {
+    if (std::strcmp(label, "CAMERA SWAP") == 0) {
+        return true;
+    }
+    for (const conker::switches::Switch& item : conker::switches::all()) {
+        if (std::strcmp(item.label, label) == 0) {
+            return item.local;
+        }
+    }
+    return false;
+}
+
 std::string settings_summary(const std::string& header) {
     std::string out;
     size_t at = 0;
@@ -253,7 +268,7 @@ std::string settings_summary(const std::string& header) {
         at = end + 1;
         char label[64];
         int on = 0;
-        if (std::sscanf(line.c_str(), "# switch %63[^=]=%d", label, &on) == 2) {
+        if (std::sscanf(line.c_str(), "# switch %63[^=]=%d", label, &on) == 2 && !own_setting(label)) {
             out += std::string(label) + (on != 0 ? "  on\n" : "  off\n");
         }
     }

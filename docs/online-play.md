@@ -66,9 +66,11 @@ join. Every machine runs the whole game and only the controllers' input travels,
 Macs, Linux and Windows PCs play together: the game gives the same results on all of them, Apple
 silicon and Intel or AMD alike.
 
-The host's settings (widescreen, draw distance, full detail, consistent controls and the like) are
-used by everyone for the session, since they change how the game plays; the lobby shows them and
-which differ from yours. The session plays on a copy of the host's save, so nobody's own save
+The host's settings (widescreen, draw distance, full detail, 60 fps and the like) are used by
+everyone for the session, since they change how the game plays; the lobby shows them and which differ
+from yours. Each player keeps their own controls (CONSISTENT CONTROLS, the camera swap, INVERT AIM),
+MY VIEW, HAPTICS and ADAPTIVE TRIGGERS: every machine applies each player's controls to that player
+alike, and the rest only change your own screen and pad. The session plays on a copy of the host's save, so nobody's own save
 changes.
 
 Nothing starts again. When the host presses START, every game goes on from the host's: the host

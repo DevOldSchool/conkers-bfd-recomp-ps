@@ -27,6 +27,10 @@ struct Port {
     static constexpr uint8_t kRightStick = 0x02;  // a pad holds the port, so it has a right stick
     static constexpr uint8_t kRumble = 0x04;
     static constexpr uint8_t kInvertAim = 0x08;  // the player's INVERT AIM (invert_aim below)
+    // The player's CONSISTENT CONTROLS and camera swap: online each player's own, applied to their port
+    // on every machine alike (src/enhancements/consistent_controls).
+    static constexpr uint8_t kConsistentControls = 0x10;
+    static constexpr uint8_t kCameraSwap = 0x20;
 
     uint16_t buttons = 0;  // N64 bits (conker::input::kA...), scripted presses included
     int8_t stick_x = 0;    // as the PIF answers it: about +-80, +y up

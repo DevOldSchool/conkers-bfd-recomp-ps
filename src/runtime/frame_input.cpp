@@ -1,6 +1,7 @@
 // One input record per game frame and the fixed step; see frame_input.hpp. Native helpers called
 // from the [[patches.hook]] snippets in config/us.toml.
 #include "runtime/frame_input.hpp"
+#include "enhancements/consistent_controls/consistent_controls.hpp"
 
 #include <fstream>
 #include <algorithm>
@@ -235,6 +236,12 @@ Port sample_port(int index) {
     if (g_invert_aim[index].load(std::memory_order_relaxed)) {
         port.flags |= Port::kInvertAim;
     }
+    if (conker::consistent_controls::enabled()) {
+        port.flags |= Port::kConsistentControls;
+    }
+    if (conker::input::camera_swapped()) {
+        port.flags |= Port::kCameraSwap;
+    }
     return port;
 }
 
@@ -257,6 +264,9 @@ void apply_header_line(const char* line, const char* source, bool from_another_m
     int on = 0;
     if (std::sscanf(line, "# switch %63[^=]=%d", label, &on) == 2) {
         if (std::strcmp(label, kCameraSwap) == 0) {
+            if (from_another_machine) {
+                return;  // each player's own online (Port::kCameraSwap)
+            }
             if (conker::input::camera_swapped() != (on != 0)) {
                 conker::input::set_camera_swapped(on != 0);
                 std::printf("[conker] %s: %s %s\n", source, label, on ? "on" : "off");
