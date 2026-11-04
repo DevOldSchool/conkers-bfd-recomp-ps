@@ -1061,7 +1061,12 @@ void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
     MEM_W(0, kseg0(kCurrentView)) = local;
     draw(rdram, ctx, func_1515D6D0, word(local));
     draw(rdram, ctx, func_15019CC8, word(local));
+    // func_15019E60 puts what the views share (a Heist match's row of the teams' $$$, as the timer)
+    // at their seam in the middle unless there is one view: drawn as for one, it goes to the bottom,
+    // as it is for player 1.
+    MEM_W(0, kseg0(kLastView)) = 0;
     draw(rdram, ctx, func_15019E60);
+    MEM_W(0, kseg0(kLastView)) = local;
     if (MEM_BU(0, kseg0(kPaused)) == 0) {
         MEM_W(0, kseg0(kCurrentView)) = local;
         draw(rdram, ctx, func_15019BB8, word(local));

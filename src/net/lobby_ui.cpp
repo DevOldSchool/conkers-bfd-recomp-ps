@@ -36,11 +36,14 @@ inline gpr kseg0(uint32_t address) { return static_cast<gpr>(static_cast<int32_t
 
 // The title (screen 3, func_151DE8F0), found by watching memory while scripted presses turned the
 // doors and went into MULTI. u8 D_800E0B1C is the door (5 GAME1, 0 MULTI, 1 OPTIONS, 2 CHAPTERS) and,
-// behind MULTI's door, the barrel (4 the skull, 6, 2...). u8 D_800E0B2E is 1 in the barrel room
+// behind MULTI's door, the barrel (4 the skull, then 6 WAR, 2 TANK, 7 RACE, 0 BACK, 5 BEACH, 3 RAPTOR,
+// 1 HEIST); A on BACK leaves the room, so the page is not opened there. u8 D_800E0B2E is 1 in the barrel room
 // (from going in until back out), u8 D_800E0B1A is nonzero while the camera moves in or out, f32
 // D_800E0AF8 goes from 0 to 1 as a barrel turns its face up for the modes, and u8 D_800E0B30 is 4
 // on the join screen and 0 before it.
 constexpr uint32_t kMenuHandler = 0x800E0B94;
+constexpr uint32_t kBarrel = 0x800E0B1C;
+constexpr uint8_t kBackBarrel = 0;
 constexpr uint32_t kBarrelRoom = 0x800E0B2E;
 constexpr uint32_t kCameraMoving = 0x800E0B1A;
 constexpr uint32_t kBarrelTurn = 0x800E0AF8;
@@ -361,6 +364,7 @@ bool on_title(uint8_t* rdram) { return MEM_BU(0, kseg0(kMenuHandler)) == kTitleS
 
 bool on_a_barrel(uint8_t* rdram) {
     return on_title(rdram) && MEM_BU(0, kseg0(kBarrelRoom)) == 1 && MEM_BU(0, kseg0(kCameraMoving)) == 0 &&
+           MEM_BU(0, kseg0(kBarrel)) != kBackBarrel &&
            MEM_W(0, kseg0(kBarrelTurn)) == 0 && MEM_BU(0, kseg0(kMultiJoin)) == 0;
 }
 
