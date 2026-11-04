@@ -2846,7 +2846,8 @@ const Glyph* glyph(char c) {
 
 // The display list the renderer runs in place of the game's (two of them, used in turn, so that the
 // one RT64 may still be reading is not rewritten), room for the lobby's session page too: a
-// rectangle for each run of lit pixels in a glyph's row.
+// rectangle for each run of lit pixels in a glyph's row. The renderer's "my view" copy of RDRAM
+// takes the scratch memory from here up (renderer_rt64.cpp's draw_from): keep them above it.
 constexpr uint32_t kOverlayLists[] = {0x807D0000, 0x807D8000};
 constexpr uint32_t kOverlaySize = 0x8000;
 constexpr int kTextX = 12;

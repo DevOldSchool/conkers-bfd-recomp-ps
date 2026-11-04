@@ -544,7 +544,7 @@ public:
     // the game reads back) goes to RDRAM after, as it would have been written there.
     void draw_from(std::vector<uint8_t>& memory, uint32_t list) {
         constexpr size_t kGame = 0x400000;          // the game's 4 MiB
-        constexpr size_t kScratch = 0x7F0000;       // RDRAM's own lists up to 8 MiB (net_play's overlay)
+        constexpr size_t kScratch = 0x7D0000;       // RDRAM's own lists up to 8 MiB (net_play's overlay from 0x7D0000)
         std::memcpy(memory.data() + kScratch, app_->core.RDRAM + kScratch, 0x800000 - kScratch);
         drawn_before_.assign(memory.begin(), memory.begin() + kGame);
         uint8_t* const rdram = app_->state->RDRAM;

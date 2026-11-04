@@ -851,6 +851,33 @@ bool handle_event(const SDL_Event& event) {
     }
     const SDL_Keymod mods = SDL_GetModState();
     const bool shortcut = (mods & (KMOD_GUI | KMOD_CTRL)) != 0;
+    // The keys the game's controls give the stick (W A S D) and A, B and Start steer the page too,
+    // except while a field is being typed, where they are letters.
+    if (!g_typing.load() && !shortcut) {
+        const int scancode = event.key.keysym.scancode;
+        const auto mapped = [&](int row) {
+            const std::vector<int> keys = conker::input::key_mapping(row);
+            return std::find(keys.begin(), keys.end(), scancode) != keys.end();
+        };
+        namespace input = conker::input;
+        constexpr int kStick = input::kMappedButtonCount;  // STICK UP, DOWN, LEFT, RIGHT
+        const Key stick_keys[] = {Key::Up, Key::Down, Key::Left, Key::Right};
+        for (int i = 0; i < 4; i++) {
+            if (mapped(kStick + i)) {
+                push_key(stick_keys[i]);
+                return true;
+            }
+        }
+        for (int i = 0; i < input::kMappedButtonCount; i++) {
+            const uint16_t n64 = input::kMappedButtons[i].n64;
+            if ((n64 == input::kA || n64 == input::kStart || n64 == input::kB) && mapped(i)) {
+                if (event.key.repeat == 0) {
+                    push_key(n64 == input::kB ? Key::Escape : Key::Enter);
+                }
+                return true;
+            }
+        }
+    }
     switch (event.key.keysym.scancode) {
         case SDL_SCANCODE_UP: push_key(Key::Up); break;
         case SDL_SCANCODE_DOWN: push_key(Key::Down); break;
