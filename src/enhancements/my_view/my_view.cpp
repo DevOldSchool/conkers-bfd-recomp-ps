@@ -51,6 +51,7 @@
 #include <cstdlib>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -975,7 +976,20 @@ void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
     MEM_H(0, kseg0(kFarClip)) = read_float(rdram, camera + 0x388) < 0.0f ? -0x3E8 : 0x1388;
     call(rdram, ctx, func_15172D80, view);
     MEM_W(0, kseg0(kViewSetUp)) = 0;
+    const uint32_t local_world = list_pointer(rdram);
     draw(rdram, ctx, func_15019464, view);
+    // The scissor the local view's world drew with: the views before it are drawn again next, their
+    // records off the screen (an empty scissor), and with one view func_150195A0 does not set its
+    // view's scissor again, so the local view's items (weapons in hand, pickups) and HUD came out
+    // clipped away.
+    uint32_t scissor_w0 = 0;
+    uint32_t scissor_w1 = 0;
+    for (uint32_t at = local_world; at < list_pointer(rdram); at += 8) {
+        if ((static_cast<uint32_t>(MEM_W(0, kseg0(at))) >> 24) == 0xED) {
+            scissor_w0 = static_cast<uint32_t>(MEM_W(0, kseg0(at)));
+            scissor_w1 = static_cast<uint32_t>(MEM_W(4, kseg0(at)));
+        }
+    }
 
     if (MEM_BU(0, kseg0(kNoWorld)) == 0) {
         const uint32_t matrices = kWorldMatrices + (static_cast<uint32_t>(MEM_BU(0, kseg0(kListIndex))) << 5);
@@ -1003,6 +1017,9 @@ void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
             emit(rdram, static_cast<uint32_t>(MEM_W(0, kseg0(depth_image))), static_cast<uint32_t>(MEM_W(4, kseg0(depth_image))));
         }
     });
+    if (local > 0 && scissor_w0 != 0) {
+        emit(rdram, scissor_w0, scissor_w1);
+    }
     MEM_W(0, kseg0(kCurrentView)) = local;
     draw(rdram, ctx, func_1515D6D0, word(local));
     draw(rdram, ctx, func_150195A0, view);
@@ -1247,6 +1264,53 @@ extern "C" void conker_my_view_post(uint8_t* rdram, recomp_context* ctx) {
     record_sent(source, locals, type == 8, type == 4, game_pan);
 }
 
+// CONKER_MY_VIEW_DUMP=<folder>: every 150 frames, the game's memory with its own split-screen list
+// (f<frame>.game) and with the pass's list (f<frame>.mine), big-endian as the RSP reads it; the last
+// 8 of each are kept. Walking both lists from the list start the log gives shows what the pass draws
+// differently (docs/diagnostics.md).
+void dump_pass(const uint8_t* game, const uint8_t* mine) {
+    static const char* const folder = std::getenv("CONKER_MY_VIEW_DUMP");
+    if (folder == nullptr) {
+        return;
+    }
+    const uint32_t frame = conker::frame_input::current().frame;
+    static uint32_t last = 0;
+    if (last != 0 && frame < last + 150) {
+        return;
+    }
+    last = frame;
+    auto write = [&](const uint8_t* image, uint32_t at, const char* suffix) {
+        const std::string path = std::string(folder) + "/f" + std::to_string(at) + suffix;
+        if (frame == at) {
+            if (FILE* f = std::fopen(path.c_str(), "wb")) {
+                std::vector<uint8_t> out(kGameMemory);
+                for (uint32_t a = 0; a < kGameMemory; a += 4) {
+                    uint32_t word;
+                    std::memcpy(&word, image + a, 4);
+                    out[a] = uint8_t(word >> 24);
+                    out[a + 1] = uint8_t(word >> 16);
+                    out[a + 2] = uint8_t(word >> 8);
+                    out[a + 3] = uint8_t(word);
+                }
+                std::fwrite(out.data(), 1, out.size(), f);
+                std::fclose(f);
+            }
+        } else {
+            std::remove(path.c_str());
+        }
+    };
+    static std::deque<uint32_t> kept;
+    kept.push_back(frame);
+    write(game, frame, ".game");
+    write(mine, frame, ".mine");
+    while (kept.size() > 8) {
+        write(nullptr, kept.front(), ".game");
+        write(nullptr, kept.front(), ".mine");
+        kept.pop_front();
+    }
+    std::printf("[conker] my view: dumped frame %u (list start 0x%08X, view %d)\n", frame, g_list_start, g_view);
+}
+
 // func_1501878C at 0x15018938, where it starts drawing the views: the display list pointer's
 // address ($s1), where the views' commands start, and the game's memory as it is then.
 extern "C" void conker_my_view_draw_start(uint8_t* rdram, recomp_context* ctx) {
@@ -1312,6 +1376,7 @@ extern "C" void conker_my_view_draw_end(uint8_t* rdram, recomp_context* ctx) {
     ultramodern_isolated = false;
     recomp_dma_done_now = false;
     g_drawing = false;
+    dump_pass(after.data(), rdram);
     conker::renderer::draw_next_frame_from(std::vector<uint8_t>(rdram, rdram + kImageSize));
     std::memcpy(rdram, after.data(), kGameMemory);
     conker::frame_input::set_count_reads(count_reads);

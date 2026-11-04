@@ -313,6 +313,12 @@ These environment variables are read by both builds:
   restart when a session starts in place: compare the last run of the frames.
   A guest that is dropped starts itself again and the restart truncates its
   logs: `CONKER_NET_REJOIN_COUNT=99` keeps it stopped so they survive.
+  `CONKER_MY_VIEW_DUMP=<folder>` (a guest in a match with MY VIEW on) writes,
+  every 150 frames, game memory with the game's own split-screen list
+  (`f<frame>.game`) and with the "my view" pass's list (`f<frame>.mine`),
+  big-endian, keeping the last 8; the log gives each list's start. Walking
+  both lists shows what the pass draws differently: it found the empty
+  scissor that clipped away a guest's weapons and HUD.
   `CONKER_AUDIO_COUNT_LOG=<file>` writes, after each audio frame, how many of
   the synth's update params, its free, allocated and stopping voices and the
   sound player's free events there are. Online the machines may hear sounds at
