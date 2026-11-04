@@ -41,6 +41,10 @@
 // The story's tank (Saving Private Rodent, scene 14) is actor 1, model 0x28, and Conker stays
 // actor 0 inside it: the tank's u8 +0x13C is 100 + its rider's index (as func_150BDB70 reads a
 // mounted gun's), 100 for Conker, so a player riding a tank gets the tank's controls too.
+// The mouse turns a tank's turret too: only C-left and C-right turn it, 3 degrees a step (TANK's
+// turret is f32 +0x1BC of the player block, logged in a match), so the mouse's sideways motion is
+// owed to the turret and paid off a C press a frame (mouse_look::take_turret_turn), moved right
+// pressing C-right as the stick pushed right does. Online that is the pad every machine reads.
 // Aiming its gun with R (+0x197 2 as on a mounted gun, item 0x1F), the stick aims, X turning the
 // turret and, pushed up, aiming down, and the C buttons do nothing; there the right stick aims,
 // up aiming up, as the shotgun's does.
@@ -136,6 +140,10 @@ constexpr uint32_t kActorFacing = 0x40;        // f32: degrees from +Z towards +
 constexpr uint32_t kActorFacingAngle = 0x76;   // s16: the facing it is made from, and the one it
 constexpr uint32_t kActorFacingTarget = 0x7A;  // turns towards (0x10000 a turn, 90 degrees behind)
 constexpr float kMatchTurn = 6.0f;             // degrees a 1/30 s step, the right stick pushed fully
+// A tank's turret (TANK's: f32 +0x1BC of the player block, 0 to 360, which func_150ED748 copies to
+// the actor's s16 +0x2E4) turns this many degrees a 1/30 s step while C-left or C-right is held
+// (logged in a match).
+constexpr float kTurretStep = 3.0f;
 
 constexpr int kPad = 0x38;  // func_1501BBB8's frame: controller 1's OSContPad
 constexpr int kPadSize = 6;  // OSContPad, four of them
@@ -413,6 +421,20 @@ bool right_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint1
     return true;
 }
 
+// A tank's turret turned by the port's mouse, as the right stick turns it, through the C buttons:
+// C-right turns it right (the N64's way round, as the stick has it here), so moved right the mouse
+// presses C-right, a frame at a time, until the turret has turned as far as the mouse moved (take_turret_turn).
+// The stick or the keys turning it already are left alone.
+uint16_t turret_with_mouse(uint8_t* rdram, int pad, uint16_t buttons) {
+    if (!conker::mouse_look::playing() || (buttons & (kCLeft | kCRight)) != 0) {
+        return buttons;
+    }
+    const int turn = conker::mouse_look::take_turret_turn(pad, kTurretStep * read_float(rdram, kFrameDelta));
+    if (turn > 0) buttons |= kCRight;
+    if (turn < 0) buttons |= kCLeft;
+    return buttons;
+}
+
 // Rewrites the pad of the player whose block this is, read from controller `pad`.
 void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player, int pad) {
     const int at = kPad + pad * kPadSize;
@@ -461,6 +483,7 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player,
     MEM_H(at, ctx->r29) = static_cast<int16_t>(step_with_dpad(buttons));
 }
 
+
 }  // namespace
 
 // In func_1501BBB8 just after the pads are read ($sp is its frame), before the debug menu empties
@@ -488,9 +511,11 @@ extern "C" void conker_consistent_controls(uint8_t* rdram, recomp_context* ctx) 
                 }
                 continue;
             }
+            uint16_t buttons = MEM_HU(at, ctx->r29);
             if (swapped(pad)) {
-                MEM_H(at, ctx->r29) = static_cast<int16_t>(swap_c_left_right(MEM_HU(at, ctx->r29)));
+                buttons = swap_c_left_right(buttons);
             }
+            MEM_H(at, ctx->r29) = static_cast<int16_t>(turret_with_mouse(rdram, pad, buttons));
             continue;
         }
         const uint32_t block = pad >= 0 ? player_block(rdram, player) : 0;

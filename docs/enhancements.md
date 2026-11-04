@@ -445,6 +445,10 @@ place to the next, and aims like a plane, pushing up to look down.
   way. C-down (a grenade, the right stick pushed down on an N64 pad's C
   buttons) is D-pad down or Triangle (Y), or K on the keyboard. Holding R,
   scoped or in a tank keeps the controls above.
+* In a tank (TANK in MULTI, or the story's), the right stick turns the
+  turret, pushed right to turn it right, and so does the captured mouse,
+  moved right to turn it right: the turret only turns at its own speed, so
+  a quick move turns it on over the next frames until it has caught up.
 * Wherever C-left and C-right step sideways (a gun held or aimed, on foot in
   a multiplayer match), D-pad left and right step left and right too, as the
   right stick turns or aims there.
