@@ -60,6 +60,8 @@ const char* name(Style style) {
 } // namespace conker::pad_icons
 
 conker::switches::Switch conker::switches::pad_buttons() {
+    // Each player's own online: which button pictures the renderer (and the lobby) draws, nothing the
+    // game's memory holds.
     return {"PAD BUTTONS", [] { return conker::pad_icons::g_on.load(std::memory_order_relaxed); },
-            [](bool on) { conker::pad_icons::g_on.store(on, std::memory_order_relaxed); }};
+            [](bool on) { conker::pad_icons::g_on.store(on, std::memory_order_relaxed); }, true};
 }

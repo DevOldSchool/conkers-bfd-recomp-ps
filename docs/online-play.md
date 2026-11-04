@@ -68,9 +68,12 @@ silicon and Intel or AMD alike.
 
 The host's settings (widescreen, draw distance, full detail, 60 fps and the like) are used by
 everyone for the session, since they change how the game plays; the lobby shows them and which differ
-from yours. Each player keeps their own controls (CONSISTENT CONTROLS, the camera swap, INVERT AIM),
-MY VIEW, HAPTICS and ADAPTIVE TRIGGERS: every machine applies each player's controls to that player
-alike, and the rest only change your own screen and pad. The session plays on a copy of the host's save, so nobody's own save
+from yours. Each player keeps their own controls (CONSISTENT CONTROLS, the camera swap, INVERT AIM), MY VIEW,
+SHARP TEXT, PAD BUTTONS, HAPTICS and ADAPTIVE TRIGGERS, and of course their own window, volume and
+key mapping: every machine applies each player's controls to that player alike, and the rest only
+change your own screen and pad. WIDESCREEN, WIDESCREEN CULLING, DRAW DISTANCE, FULL DETAIL, 60 FPS,
+MP CHARACTERS, the cutscene and intro skips and SURROUND DEFAULT stay the host's: each changes what
+the game itself works out, so every machine must have the same. The session plays on a copy of the host's save, so nobody's own save
 changes.
 
 Nothing starts again. When the host presses START, every game goes on from the host's: the host
