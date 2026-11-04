@@ -116,7 +116,8 @@ presses, B goes back), and so does the keyboard (the arrows, Enter, Esc). **CLOS
 back.
 
 Set your **NAME** first: it is what the others see. Type it on the keyboard (Cmd+V or Ctrl+V pastes),
-or pick the letters from the keyboard on the barrel with the pad. If you leave it, you are "Player"; the game never
+or pick the letters from the keyboard on the barrel with the pad: A adds one, Z (R2 or RT) deletes one,
+Start is done and B goes back without keeping what was typed. If you leave it, you are "Player"; the game never
 takes a name from the computer.
 
 Each player's pad shows as its make and model only ("DualSense", "Xbox", "Switch Pro", "Controller",

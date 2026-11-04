@@ -346,13 +346,14 @@ struct PadNames {
     const char* a;
     const char* b;
     const char* start;
+    const char* z;
 };
 
 PadNames pad_names() {
     switch (conker::input::controller_kind()) {
-        case conker::input::PadKind::PlayStation: return {"CROSS", "CIRCLE", "OPTIONS"};
-        case conker::input::PadKind::None: return {"ENTER", "ESC", "ENTER"};
-        default: return {"A", "B", "MENU"};
+        case conker::input::PadKind::PlayStation: return {"CROSS", "CIRCLE", "OPTIONS", "R2"};
+        case conker::input::PadKind::None: return {"ENTER", "ESC", "ENTER", "BACKSPACE"};
+        default: return {"A", "B", "MENU", "RT"};
     }
 }
 
@@ -635,6 +636,7 @@ struct Input {
     bool a = false;
     bool b = false;
     bool start = false;
+    bool z = false;
     std::vector<KeyPress> keys;
 };
 
@@ -653,6 +655,7 @@ Input read_input() {
     in.a = (pressed & input::kA) != 0;
     in.b = (pressed & input::kB) != 0;
     in.start = (pressed & input::kStart) != 0;
+    in.z = (pressed & input::kZ) != 0;
     std::lock_guard lock(g_mutex);
     in.keys.assign(g_keys.begin(), g_keys.end());
     g_keys.clear();
@@ -694,14 +697,14 @@ int edit_frame(uint8_t* rdram, recomp_context* ctx, const Input& in) {
         finish_editing(true);
         return 2;
     }
+    // B goes back (what was typed is not kept), as everywhere on the page; Z deletes a letter.
     if (in.b) {
-        if (!g.edit.empty()) {
-            g.edit.pop_back();
-            sound = 1;
-        } else {
-            finish_editing(false);
-            return 2;
-        }
+        finish_editing(false);
+        return 2;
+    }
+    if (in.z && !g.edit.empty()) {
+        g.edit.pop_back();
+        sound = 1;
     }
     if (in.a) {
         if (g.key_row < kKeyRowCount) {
@@ -742,11 +745,16 @@ int edit_frame(uint8_t* rdram, recomp_context* ctx, const Input& in) {
                       kKeySpecials[c], chosen ? 1.0f : kRowScale);
     }
     const PadNames names = pad_names();
-    dm::draw_text(rdram, ctx, kX, kInfoY + 8, true, kGrey, "TYPE ON THE KEYBOARD  ENTER IS DONE  ESC CANCELS", kSmall);
+    // Short lines: the page is the 4:3 picture's middle.
+    int hint_y = kInfoY + 4;
     if (conker::input::controller_kind() != conker::input::PadKind::None) {
-        dm::draw_text(rdram, ctx, kX, kInfoY + 8 + kLineHeight, true, kGrey,
-                      std::string("OR ") + names.a + " ADDS A LETTER  " + names.b + " DELETES  " + names.start + " IS DONE", kSmall);
+        dm::draw_text(rdram, ctx, kX, hint_y, true, kGrey,
+                      std::string(names.a) + " ADDS  " + names.z + " DELETES  " + names.start + " IS DONE", kSmall);
+        hint_y += kLineHeight;
+        dm::draw_text(rdram, ctx, kX, hint_y, true, kGrey, std::string(names.b) + " GOES BACK", kSmall);
+        hint_y += kLineHeight;
     }
+    dm::draw_text(rdram, ctx, kX, hint_y, true, kGrey, "OR TYPE  ENTER IS DONE  ESC GOES BACK", kSmall);
     return sound;
 }
 
