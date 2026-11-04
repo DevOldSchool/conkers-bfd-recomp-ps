@@ -271,13 +271,14 @@ bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16
     const int walk_x = MEM_B(at + 2, ctx->r29);
     const int walk_y = MEM_B(at + 3, ctx->r29);
     buttons &= static_cast<uint16_t>(~(kCUp | kCDown | kCLeft | kCRight));
+    // C-down narrows a sight (zooms in), C-up widens it: the wheel turned away from you zooms in.
     const int zoom = sight ? conker::mouse_look::take_sight_zoom(pad) : 0;
     if (walk_with_c) {
-        if (walk_y > kStepAt || zoom > 0) buttons |= kCUp;
-        if (walk_y < -kStepAt || zoom < 0) buttons |= kCDown;
+        if (walk_y > kStepAt || zoom < 0) buttons |= kCUp;
+        if (walk_y < -kStepAt || zoom > 0) buttons |= kCDown;
     } else {
-        if ((buttons & kDUp) || zoom > 0) buttons |= kCUp;
-        if ((buttons & kDDown) || zoom < 0) buttons |= kCDown;
+        if ((buttons & kDUp) || zoom < 0) buttons |= kCUp;
+        if ((buttons & kDDown) || zoom > 0) buttons |= kCDown;
     }
     if (walk_x < -kStepAt) buttons |= kCLeft;
     if (walk_x > kStepAt) buttons |= kCRight;

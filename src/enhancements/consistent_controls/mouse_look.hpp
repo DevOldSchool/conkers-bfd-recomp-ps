@@ -14,8 +14,8 @@ void frame(uint8_t* rdram);
 // from the camera. False when the mouse is not captured.
 bool take_aim(int port, float* x, float* y);
 
-// Through a sight that zooms with C-up and C-down (a match's knives): +1 to hold C-up (in), -1 C-down
-// (out), 0 neither, this frame. Each wheel step (or R/T) holds one for a few frames.
+// Through a sight, which zooms with C-up and C-down: +1 to zoom in, -1 out, 0 neither, this frame.
+// Each wheel step (or R/T) holds one for a few frames.
 int take_sight_zoom(int port);
 
 // Whether the port's mouse aimed (take_aim) in the last pad hook: the CONTROLS page's MOUSE AIM speed
