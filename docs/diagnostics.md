@@ -234,15 +234,18 @@ These environment variables are read by both builds:
   answer at all. Port-mapping
   tests (below) need `--net-unsafe-internet`, since nothing is mapped without it.
 * The online lobby (src/net/lobby_ui.hpp, src/net/net_lobby.hpp):
-  `--net-lobby` opens its window at boot. `CONKER_LOBBY_SCRIPT=<file>` drives
-  it, a line each, `<ms> <action> [text]` from the window opening: `name`,
+  `--net-lobby` opens its page at boot. `CONKER_LOBBY_SCRIPT=<file>` drives
+  it, a line each, `<ms> <action> [text]` from the page opening: `name`,
   `host [port]`, `join <address or code>`, `joinlan [host name]` (the LAN
-  list's JOIN for that game, waiting until the list shows it), `ready`,
+  list's JOIN for that game, waiting until the list shows it), `ready` (sent,
+  no longer needed to start),
   `start`, `kick <n>` (the host's REMOVE for its n-th guest), `leave`,
   `leavesession` (LEAVE THE SESSION), `quit` (as the window's close button),
+  `key <key>` (a key pressed on the page: `up`, `down`, `left`, `right`, `enter`,
+  `esc`, `back` for Backspace, or `text:<characters>` as typed),
   `close`, `open`, `setenv NAME=value` (for the session the lobby starts
   again into, such as a test's `CONKER_VIRTUAL_PAD`) and `shot <file>`, which
-  writes what the window shows as text (players, LAN games, join codes, the
+  writes what the page shows as text (players, LAN games, join codes, the
   port's state, errors). Opening the host's port on the router
   (src/net/net_portmap.hpp) is never wanted in a test:
   `CONKER_NET_PORTMAP=0` turns it off, and `CONKER_NET_UPNP_URL=<root

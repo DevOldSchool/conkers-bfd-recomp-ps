@@ -148,6 +148,18 @@ std::string title_status();
 // draw.
 uint32_t overlay_display_list(uint8_t* rdram, uint32_t game_list);
 
+// The ONLINE lobby's page during a session (src/net/lobby_ui.cpp), which overlay_display_list draws
+// over the picture: in a session the game's own text would change the memory every machine keeps the
+// same. No rows: none. Any thread.
+struct SessionMenu {
+    std::string title;
+    std::vector<std::string> lines;  // under the title
+    std::vector<std::string> rows;   // to choose from
+    int chosen = 0;
+    std::string hint;                // under the rows
+};
+void set_session_menu(const SessionMenu& menu);
+
 // Online, the end of the game memory every machine must keep the same (physical; the frame buffers
 // lie above it): the renderer writes nothing it drew below it. 0 when not online.
 uint32_t game_memory_end();

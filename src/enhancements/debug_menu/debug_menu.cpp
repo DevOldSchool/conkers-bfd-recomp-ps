@@ -1527,19 +1527,20 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
         g_holding = false;
         g_pads_held = true;
     }
-    // On the MULTI door and the skull behind it, Start opens the online lobby (src/net/lobby_ui.hpp)
+    // On the skull behind the MULTI door, Start opens the online lobby (src/net/lobby_ui.hpp)
     // instead of going on: it is taken out of this frame's presses before the screen's handler reads
-    // them (func_151E51EC copies D_800BE930 after this), and a line at the bottom says so. Not on
-    // the modes or the join screen, where Start is the game's.
+    // them (func_151E51EC copies D_800BE930 after this), and a line under the barrel says so. Not on
+    // the modes or the join screen, where Start is the game's. The lobby's page then runs from here
+    // (it presses A for the barrel's face to come up, in the same frame).
     static uint8_t last_door = 0xFF;  // the door selected before one was opened
     const bool title = MEM_BU(0, kseg0(kMenuHandler)) == kTitleScreen;
     const uint8_t door = MEM_BU(0, kseg0(kTitleDoor));
     if (title && door != kDoorOpened) {
         last_door = door;
     }
-    const bool on_multi = title && (door == kMultiDoor ||
-                                    (door == kDoorOpened && last_door == kMultiDoor && MEM_W(0, kseg0(kBarrelTurn)) == 0 &&
-                                     MEM_BU(0, kseg0(kMultiJoin)) == 0));
+    // Only once through the door, on the skull: the door itself keeps the title's own look.
+    const bool on_multi = title && door == kDoorOpened && last_door == kMultiDoor && MEM_W(0, kseg0(kBarrelTurn)) == 0 &&
+                          MEM_BU(0, kseg0(kMultiJoin)) == 0;
     if (!g_active && on_multi && !conker::net::active() && !conker::lobby_ui::is_open()) {
         const char* start = conker::input::controller_kind() == conker::input::PadKind::PlayStation ? "OPTIONS"
                             : conker::input::controller_kind() == conker::input::PadKind::None ? "ENTER"
@@ -1551,6 +1552,12 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
             conker::lobby_ui::open();
         }
     }
+    static bool lobby_was_open = false;
+    if (conker::lobby_ui::is_open() && !lobby_was_open) {
+        g_shadows = true;  // until the frame's display list is found full again
+    }
+    lobby_was_open = conker::lobby_ui::is_open();
+    conker::lobby_ui::frame(rdram, ctx);
     // The OPTIONS page's CONTROLS row: the controls page alone in the OPTIONS page's place, the
     // world going on behind it as it does behind OPTIONS (no pause).
     if (g_controls_requested) {
@@ -1600,7 +1607,7 @@ extern "C" int conker_debug_menu_holding_game() { return g_active && g_holding ?
 
 // At 0x1504286C, where func_150417AC stops drawing a text because the frame's display list is full.
 extern "C" void conker_debug_menu_text_full(uint8_t* /*rdram*/, recomp_context* /*ctx*/) {
-    if (g_active) {
+    if (g_active || conker::lobby_ui::is_open()) {
         g_shadows = false;
     }
 }
@@ -1678,6 +1685,15 @@ nlohmann::json conker::status::debug_menu() {
     return enhancement("debug_menu", "Debug menu", debug_menu_enabled(), "CONKER_DEBUG_MENU",
                        {{"wireframe", g_wireframe}, {"show_fps", g_show_fps}, {"show_position", g_show_position},
                         {"inspect", conker::inspector::active()}});
+}
+
+void conker::debug_menu::draw_text(uint8_t* rdram, recomp_context* ctx, int x, int y, bool centered, uint32_t color,
+                                   const std::string& text, float scale) {
+    ::draw_text(rdram, ctx, x, y, centered ? kCentered : kLeft, color, text, scale);
+}
+
+void conker::debug_menu::play_menu_sound(uint8_t* rdram, recomp_context* ctx, bool select) {
+    play_sound(rdram, ctx, select ? kSelectSound : kMoveSound);
 }
 
 bool conker::debug_menu::controls_available() { return !conker::net::active(); }

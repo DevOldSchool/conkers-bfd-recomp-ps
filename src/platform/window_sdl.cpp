@@ -440,7 +440,7 @@ void follow_mouse(const SDL_Event& event) {
 
 void show_cursor_for_inspector() {
     static bool shown = false;
-    const bool wanted = conker::inspector::active() || conker::lobby_ui::is_open();
+    const bool wanted = conker::inspector::active();
     if (wanted != shown) {
         shown = wanted;
         SDL_ShowCursor(wanted || conker::display::current() == Mode::Windowed ? SDL_ENABLE : SDL_DISABLE);

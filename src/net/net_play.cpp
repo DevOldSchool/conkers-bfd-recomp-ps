@@ -2845,9 +2845,10 @@ const Glyph* glyph(char c) {
 }
 
 // The display list the renderer runs in place of the game's (two of them, used in turn, so that the
-// one RT64 may still be reading is not rewritten).
-constexpr uint32_t kOverlayLists[] = {0x807FD000, 0x807FE000};
-constexpr uint32_t kOverlaySize = 0x1000;
+// one RT64 may still be reading is not rewritten), room for the lobby's session page too: a
+// rectangle for each run of lit pixels in a glyph's row.
+constexpr uint32_t kOverlayLists[] = {0x807D0000, 0x807D8000};
+constexpr uint32_t kOverlaySize = 0x8000;
 constexpr int kTextX = 12;
 constexpr int kTextY = 214;  // the bottom left, clear of the HUD
 
@@ -2933,7 +2934,7 @@ ColorImage last_color_image(const uint8_t* rdram, uint32_t list) {
     return {};
 }
 
-void draw_text(ListWriter& list, const std::string& text, int x0, int y0) {
+void draw_text(ListWriter& list, const std::string& text, int x0, int y0, int scale = 1) {
     int x = x0;
     for (const char c : text) {
         const Glyph* g = glyph(c);
@@ -2950,12 +2951,12 @@ void draw_text(ListWriter& list, const std::string& text, int x0, int y0) {
                     while (col + run < 5 && (g->rows[row] & (0x10 >> (col + run))) != 0) {
                         run++;
                     }
-                    list.rect(x + col, y0 + row, run, 1);
+                    list.rect(x + col * scale, y0 + row * scale, run * scale, scale);
                     col += run;
                 }
             }
         }
-        x += 6;
+        x += 6 * scale;
     }
 }
 
@@ -3898,17 +3899,78 @@ std::string title_status() {
     return "online: " + status_line();
 }
 
+std::mutex g_session_menu_mutex;
+SessionMenu g_session_menu;  // under g_session_menu_mutex
+
+void set_session_menu(const SessionMenu& menu) {
+    std::lock_guard lock(g_session_menu_mutex);
+    g_session_menu = menu;
+}
+
+namespace {
+
+// The lobby's session page: a dark panel in the middle of the picture, the title and rows twice the
+// corner text's size, the chosen row white and the others grey, as the game's own menus colour them.
+void draw_session_menu(ListWriter& list, const SessionMenu& menu, int kWidth, int kHeight) {
+    constexpr int kBig = 2;
+    const auto centered = [&](const std::string& text, int y, int scale, uint32_t color) {
+        const int width = static_cast<int>(text.size()) * 6 * scale - scale;
+        const int x = std::max(0, (kWidth - width) / 2);
+        list.command(0xE7000000u, 0);
+        list.command(0xFA000000u, 0x000000FFu);
+        draw_text(list, text, x + scale, y + scale, scale);  // the shadow
+        list.command(0xE7000000u, 0);
+        list.command(0xFA000000u, color);
+        draw_text(list, text, x, y, scale);
+    };
+    const int height = 2 * 8 * kBig + static_cast<int>(menu.lines.size()) * 10 +
+                       static_cast<int>(menu.rows.size()) * 9 * kBig + (menu.hint.empty() ? 0 : 12) + 16;
+    int y = std::max(4, (kHeight - height) / 2);
+    list.command(0xE7000000u, 0);
+    list.command(0xFA000000u, 0xCEC461FFu);  // a gold edge
+    list.rect(30, y - 2, kWidth - 60, height + 4);
+    list.command(0xE7000000u, 0);
+    list.command(0xFA000000u, 0x2A1C10FFu);  // dark wood
+    list.rect(32, y, kWidth - 64, height);
+    y += 8;
+    centered(menu.title, y, kBig, 0xCEC461FFu);
+    y += 8 * kBig + 6;
+    for (const std::string& line : menu.lines) {
+        centered(line, y, 1, 0x9A9A9AFFu);
+        y += 10;
+    }
+    y += 6;
+    for (size_t i = 0; i < menu.rows.size(); i++) {
+        centered(menu.rows[i], y, kBig, static_cast<int>(i) == menu.chosen ? 0xFFFFFFFFu : 0x9A9A9AFFu);
+        y += 9 * kBig;
+    }
+    if (!menu.hint.empty()) {
+        centered(menu.hint, y + 4, 1, 0x9A9A9AFFu);
+    }
+}
+
+}  // namespace
+
 uint32_t overlay_display_list(uint8_t* rdram, uint32_t game_list) {
-    if (!g_active) {
+    SessionMenu menu;
+    {
+        std::lock_guard lock(g_session_menu_mutex);
+        menu = g_session_menu;
+    }
+    if (!g_active && menu.rows.empty()) {
         return game_list;
     }
-    const std::string text = status_line();
-    if (text.empty()) {
+    const std::string text = g_active ? status_line() : std::string();
+    if (text.empty() && menu.rows.empty()) {
         return game_list;
     }
-    // Only into a 16-bit, 320-wide frame buffer at the top of RDRAM, where the game keeps them.
+    // Only into a 16-bit frame buffer at the top of RDRAM, where the game keeps them: 320 wide in
+    // play, 292 (by 216 lines) on the title and its menus.
     const ColorImage image = last_color_image(rdram, game_list);
-    if (image.size != 2 || image.width != 320 || image.address < kHashEnd || image.address + 320 * 240 * 2 > 0x400000) {
+    const int width = static_cast<int>(image.width);
+    const int height = width == 292 ? 216 : 240;
+    if (image.size != 2 || (width != 320 && width != 292) || image.address < kHashEnd ||
+        image.address + static_cast<uint32_t>(width * height * 2) > 0x400000) {
         return game_list;
     }
     static int which = 0;
@@ -3920,13 +3982,17 @@ uint32_t overlay_display_list(uint8_t* rdram, uint32_t game_list) {
     list.command(0xE3000A01u, 0);                       // G_SETOTHERMODE_H: one-cycle
     list.command(0xE200001Cu, 0);                       // G_SETOTHERMODE_L: no blending, no depth
     list.command(0xFCFFFFFFu, 0xFFFDF6FBu);             // G_SETCOMBINE: the primitive colour
-    list.command(0xED000000u, (320u << 14) | (240u << 2));  // G_SETSCISSOR: the whole picture
+    list.command(0xED000000u, (static_cast<uint32_t>(width) << 14) | (static_cast<uint32_t>(height) << 2));  // G_SETSCISSOR: the whole picture
     const bool alert = text.rfind("P", 0) != 0;         // anything but the usual line
     list.command(0xFA000000u, 0x000000FFu);             // G_SETPRIMCOLOR: the shadow
-    draw_text(list, text, kTextX + 1, kTextY + 1);
+    const int text_y = height - (240 - kTextY);
+    draw_text(list, text, kTextX + 1, text_y + 1);
     list.command(0xE7000000u, 0);
     list.command(0xFA000000u, alert ? 0xFF6040FFu : 0xFFFFFFFFu);
-    draw_text(list, text, kTextX, kTextY);
+    draw_text(list, text, kTextX, text_y);
+    if (!menu.rows.empty()) {
+        draw_session_menu(list, menu, width, height);
+    }
     list.command(0xE9000000u, 0);                       // G_RDPFULLSYNC
     MEM_W(0, kseg0(list.at)) = static_cast<int32_t>(0xDF000000u);  // G_ENDDL
     MEM_W(4, kseg0(list.at)) = 0;

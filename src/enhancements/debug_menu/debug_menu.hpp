@@ -4,11 +4,25 @@
 // reading the pad and drawing OPTIONS, setting it apart from the others.
 #pragma once
 
+#include <cstdint>
+#include <string>
+
+#include "recomp.h"
+
 namespace conker::debug_menu {
 
 bool controls_available();
 
 // Opens the page at the next frame, on a menu screen; game thread.
 void open_controls();
+
+// The game's own HUD text, as this menu draws it (func_15042D94 with a shadow, the 292x216 picture's
+// pixels, x the left end or the middle): for the ONLINE lobby (src/net/lobby_ui.cpp). Game thread,
+// inside conker_debug_menu_tick. Colours are RGBA.
+constexpr int kPictureCenterX = 0x92;
+void draw_text(uint8_t* rdram, recomp_context* ctx, int x, int y, bool centered, uint32_t color, const std::string& text,
+               float scale);
+// The pause page's lever sound (moving between rows) or its select sound.
+void play_menu_sound(uint8_t* rdram, recomp_context* ctx, bool select);
 
 }  // namespace conker::debug_menu

@@ -1009,7 +1009,7 @@ void handle_packet(int socket, const uint8_t* data_in, size_t size_in, const soc
             g_joined_lobby = true;
             keys::remember_host(address_with_port(g_host_addr, g_host_len), g_host_pub);
             std::printf("[conker] net: lobby: in the host's lobby; host key check %s\n", keys::key_check(g_host_pub).c_str());
-            g_notice = "In " + (players.empty() ? std::string("the host") : players[0].name) + "'s lobby. Press READY.";
+            g_notice = "In " + (players.empty() ? std::string("the host") : players[0].name) + "'s lobby. The host starts the session.";
             write_setting("last", g_target_text);
         }
         return;
@@ -1365,12 +1365,6 @@ void start() {
     if (g_mode != Mode::Hosting || g_members.empty() || g_start_at != 0) {
         return;
     }
-    for (const Member& m : g_members) {
-        if (!m.ready) {
-            g_error = m.name + " is not ready.";
-            return;
-        }
-    }
     g_start_players = 1 + static_cast<int>(g_members.size());
     g_session_token = random64();
     g_start_at = now_ms();
@@ -1440,8 +1434,8 @@ View view() {
         v.players = host_players();
         v.settings = settings_summary(conker::frame_input::settings_header());
         v.port = portmap::status();
-        v.can_start = !g_members.empty() && g_start_at == 0 &&
-                      std::all_of(g_members.begin(), g_members.end(), [](const Member& m) { return m.ready; });
+        // The host starts when it wants, once a guest is in: no READY to wait for.
+        v.can_start = !g_members.empty() && g_start_at == 0;
         static int64_t codes_at = 0;
         static std::vector<std::pair<std::string, std::string>> codes;
         static std::string codes_external;

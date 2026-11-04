@@ -20,6 +20,7 @@
 // attachment's parent actor and node, or the drawing function. Actor model numbers are bank 1 model
 // entries, named from the decomp's model registry (model_names.inc, tools/gen_model_names.py).
 #include "enhancements/object_inspector/object_inspector.hpp"
+#include "net/lobby_ui.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -606,5 +607,10 @@ extern "C" void conker_inspect_sprite_loaded(uint8_t* /*rdram*/, recomp_context*
     if (tile != 0x80000000 && tile != 0) {
         std::lock_guard lock(g_sprites_mutex);
         g_sprite_tiles[tile & 0x1FFFFFFF] = static_cast<int>(resource);
+    }
+    // The ONLINE lobby's page on the MULTI barrel hides the barrel's own pictures: "not loaded yet",
+    // which every caller skips.
+    if (conker::lobby_ui::hides_sprite(resource)) {
+        ctx->r2 = static_cast<gpr>(static_cast<int32_t>(0x80000000u));
     }
 }

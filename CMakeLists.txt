@@ -102,8 +102,8 @@ endif()
 # src/runtime: boot, memory layout, overlays and the libultra pieces the recompiled code needs.
 # src/platform: host backends (audio, input, window, renderer); the renderer-specific ones are
 # added below. src/fixes: hooks that make the recompiled game behave as it does on hardware.
-# src/net: online play (lockstep session, lobby, join codes, port mapping); the lobby window is
-# added with the RT64 renderer below.
+# src/net: online play (lockstep session, lobby, join codes, port mapping); the lobby's page (SDL's
+# keyboard) is added with the RT64 renderer below.
 # src/credits: the port's own name in the ending credits.
 # src/enhancements: one folder per feature the console does not have, each with its own switch.
 add_executable(ConkersBadFurDayRecompiled
@@ -242,7 +242,7 @@ if(CONKER_RENDERER STREQUAL "rt64")
         target_compile_definitions(plume PRIVATE PLUME_APPLE_RETINA_ENABLED)
     endif()
     target_sources(ConkersBadFurDayRecompiled PRIVATE
-        src/platform/renderer_rt64.cpp src/platform/object_picker_rt64.cpp src/net/lobby_ui_rt64.cpp src/net/lobby_style_rt64.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/enhancements/sharp_menus/sharp_menus.cpp src/platform/window_sdl.cpp src/platform/hang_watch.cpp src/platform/input_sdl.cpp
+        src/platform/renderer_rt64.cpp src/platform/object_picker_rt64.cpp src/net/lobby_ui.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/enhancements/sharp_menus/sharp_menus.cpp src/platform/window_sdl.cpp src/platform/hang_watch.cpp src/platform/input_sdl.cpp
         src/enhancements/pad_icons/pad_icons.cpp src/enhancements/pad_icons/b_pad.cpp src/enhancements/pad_icons/stone_pad.cpp src/enhancements/pad_icons/hex_pad.cpp src/enhancements/pad_icons/square_pad.cpp src/enhancements/pad_icons/oval_pad.cpp src/enhancements/pad_icons/rock_pad.cpp src/enhancements/pad_icons/rug_pad.cpp src/enhancements/pad_icons/plate_pad.cpp src/enhancements/pad_icons/crate_pad.cpp src/enhancements/pad_icons/block_pad.cpp src/enhancements/pad_icons/disc_pad.cpp src/enhancements/pad_icons/rust_pad.cpp src/enhancements/pad_icons/riveted_pad.cpp src/enhancements/pad_icons/panel_pad.cpp src/enhancements/pad_icons/tile_pad.cpp
         src/enhancements/pad_icons/button_art.cpp)
     if(WIN32)

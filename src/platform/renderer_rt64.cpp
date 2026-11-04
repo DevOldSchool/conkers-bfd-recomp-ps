@@ -71,7 +71,6 @@
 #include "platform/font_rects.hpp"
 #include "platform/gpu_faults.hpp"
 #include "platform/input.hpp"
-#include "net/lobby_ui.hpp"
 #include "platform/object_picker_rt64.hpp"
 #include "render/rt64_texture_cache.h"
 #include "rhi/rt64_render_hooks.h"
@@ -413,7 +412,6 @@ public:
             return;
         }
         start_texture_dump(*app_);
-        conker::lobby_ui::attach(app_.get());
         install_object_picker();
         conker::frame_effects::use_gpu(true);
         {

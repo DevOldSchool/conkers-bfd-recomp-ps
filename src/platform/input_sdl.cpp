@@ -293,6 +293,10 @@ void update_mouse(uint16_t& buttons, bool zoom_in, bool zoom_out) {
 
 std::atomic<int> g_debug_menu_presses{0};
 std::atomic<uint16_t> g_menu_buttons{0};  // controller 1 as the default mapping has it (read_menu)
+// Controller 1's pad alone, as the default mapping has it, and its stick (read_menu_pad).
+std::atomic<uint16_t> g_menu_pad_buttons{0};
+std::atomic<float> g_menu_pad_x{0.0f};
+std::atomic<float> g_menu_pad_y{0.0f};
 std::mutex g_pad_name_mutex;             // the ports' names
 bool g_debug_menu_held = false;          // main thread only
 
@@ -1537,7 +1541,14 @@ void update() {
         debug_menu = debug_menu || SDL_GameControllerGetButton(g_port1.pad, SDL_CONTROLLER_BUTTON_BACK);
         const float key_x = x;
         const float key_y = y;
-        read_port_pad(g_port1, buttons, x, y, right_x, right_y, &menu_buttons);
+        uint16_t pad_menu = 0;
+        read_port_pad(g_port1, buttons, x, y, right_x, right_y, &pad_menu);
+        menu_buttons |= pad_menu;
+        g_menu_pad_buttons.store(pad_menu, std::memory_order_relaxed);
+        // The stick unless the keys that move it are held (typing a name with W A S D in the lobby).
+        const bool keys_move = key_x != 0.0f || key_y != 0.0f;
+        g_menu_pad_x.store(keys_move ? 0.0f : x, std::memory_order_relaxed);
+        g_menu_pad_y.store(keys_move ? 0.0f : y, std::memory_order_relaxed);
         // A pad's stick moved: the player is on the pad, so the mouse is let go (a click takes it
         // again). While it is held, a match reads the stick's left and right as A and D, stepping
         // sideways as in a shooter, which turned the pad's stick into a strafe after a click on the
@@ -1549,6 +1560,11 @@ void update() {
             capture_mouse(false);
             g_mouse_recapture = false;
         }
+    }
+    if (g_port1.pad == nullptr) {
+        g_menu_pad_buttons.store(0, std::memory_order_relaxed);
+        g_menu_pad_x.store(0.0f, std::memory_order_relaxed);
+        g_menu_pad_y.store(0.0f, std::memory_order_relaxed);
     }
     store(g_port1, buttons, x, y, right_x, right_y);
     g_menu_buttons.store(menu_buttons, std::memory_order_relaxed);
@@ -1901,6 +1917,12 @@ void read_menu(uint16_t* buttons, float* x, float* y) {
     *buttons = g_menu_buttons.load(std::memory_order_relaxed);
     *x = g_port1.stick_x.load(std::memory_order_relaxed);
     *y = g_port1.stick_y.load(std::memory_order_relaxed);
+}
+
+void read_menu_pad(uint16_t* buttons, float* x, float* y) {
+    *buttons = g_menu_pad_buttons.load(std::memory_order_relaxed);
+    *x = g_menu_pad_x.load(std::memory_order_relaxed);
+    *y = g_menu_pad_y.load(std::memory_order_relaxed);
 }
 
 bool take_debug_menu_press() {

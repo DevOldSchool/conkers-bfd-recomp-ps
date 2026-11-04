@@ -97,7 +97,7 @@ them out of sync: everyone needs the same mods on (the same versions), or none. 
 
 ### Leaving a session
 
-Press the debug menu's key (Back on a pad, `` ` `` on the keyboard) during a session: a window
+Press the debug menu's key (Back on a pad, `` ` `` on the keyboard) during a session: a panel
 shows the session and **LEAVE THE SESSION** (or **BACK TO THE GAME**). Leaving brings your own
 game back as it was before the session. When the host leaves, or a player cannot carry on (dropped
 too often, or the host's game never reached them), their game shows why for a few seconds and then
@@ -108,13 +108,15 @@ no game of yours to go back to: quit to leave it.
 
 ## The lobby
 
-On the title, turn to the **MULTI** door and press Start (Options on a PlayStation pad, Menu on an
-Xbox pad, Enter on the keyboard), as the line under the door says, or start the game with
-`--net-lobby`. The lobby's window sits over the game, which keeps running
-underneath. It works with the mouse and keyboard, or with controller 1: the d-pad or stick moves,
-A presses, B goes back.
+On the title, go through the **MULTI** door to the barrel with the skull and press Start (Options
+on a PlayStation pad, Menu on an Xbox pad, Enter on the keyboard), as the line under the barrel says,
+or start the game with `--net-lobby`. The barrel turns its face up and the lobby is on it, in the
+game's own lettering, as the MULTI modes are. Controller 1 steers it (the d-pad or stick moves, A
+presses, B goes back), and so does the keyboard (the arrows, Enter, Esc). **CLOSE** turns the barrel
+back to the skull.
 
-Type your name first: it is what the others see. If you leave it, you are "Player"; the game never
+Set your **NAME** first: it is what the others see. Type it on the keyboard (Cmd+V or Ctrl+V pastes),
+or pick the letters from the keyboard on the barrel with the pad. If you leave it, you are "Player"; the game never
 takes a name from the computer.
 
 Each player's pad shows as its make and model only ("DualSense", "Xbox", "Switch Pro", "Controller",
@@ -126,7 +128,7 @@ only.
 
 Press **HOST A GAME**. The game listens on UDP port 37800 and, with `--net-unsafe-internet`, asks
 your router to open that port (UPnP or NAT-PMP). Without the switch it says "Nothing is opened on the
-router: internet play is off". With it, the window then says one of:
+router: internet play is off". With it, the lobby then says one of:
 
 * **"UDP port 37800 is open on the router"**: players on other networks can join with your
   Internet join code.
@@ -136,7 +138,7 @@ router: internet play is off". With it, the window then says one of:
   NAT)"**: the router did open the port but sits behind another router or your provider's own NAT,
   so the port opening does not reach the internet. See below.
 
-The window lists **join codes** to hand out (COPY puts one on the clipboard):
+The lobby lists **join codes** to hand out (**COPY JOIN CODE** puts the first on the clipboard):
 
 * **Internet**: your router's outside address, once the port is open.
 * **IPv6**: this machine's own IPv6 address, if it has one. IPv6 needs no port forwarding, but many
@@ -147,7 +149,7 @@ The window lists **join codes** to hand out (COPY puts one on the clipboard):
 A join code is your address and port and part of this lobby's key, written short (24 characters
 with the dashes); it is not a secret. Whoever joins learns your address, as you learn theirs, and a
 guest that joins by code refuses a machine posing as yours (see *Security* above). Your key stays the
-same from one HOST to the next, so your codes do too while your address stays the same. When everyone is in and has pressed **READY**, press
+same from one HOST to the next, so your codes do too while your address stays the same. When everyone is in, press
 **START**: the session starts in a moment, without starting any game again, and you, as player 1,
 choose MULTI and the game as on a console. The others press Start on the join screen.
 
@@ -155,15 +157,15 @@ Leaving the lobby or quitting the game closes the router's port again. A port le
 crash closes itself within ten minutes (the game asks the router for a ten-minute lease and renews
 it while it runs; a router that only takes permanent mappings is not given one).
 
-Anyone with your address or code can join your lobby. **REMOVE** next to a player sends them out of
+Anyone with your address or code can join your lobby. **REMOVE P2** (and so on) sends them out of
 the lobby, and their machine cannot join it again until you host anew. Only the players in the lobby
 when you press START can join the session it starts.
 
 ### Joining
 
-Games on your network show up by themselves under **GAMES ON THIS NETWORK**: press **JOIN** next
-to one. Otherwise type the host's join code, or its address (`203.0.113.7`, `203.0.113.7:37800`,
-`[2001:db8::7]:37800`, or a host name), and press **JOIN**. In the host's lobby, press **READY**.
+Games on your network show up by themselves as **JOIN** rows with the host's name: press one.
+Otherwise choose the **JOIN** row and type the host's join code, or its address (`203.0.113.7`, `203.0.113.7:37800`,
+`[2001:db8::7]:37800`, or a host name), then Enter (or DONE). In the host's lobby, wait for the host to press **START**.
 
 A game shown as **PLAYING** has already started. A match started from a lobby takes only that
 lobby's players, and one started by hand with `--net-host` only guests with its token (below), so
