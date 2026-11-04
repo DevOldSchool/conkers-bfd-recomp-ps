@@ -619,7 +619,8 @@ uint16_t handle_of(uint8_t* rdram, uint32_t state) {
     return 0;
 }
 
-bool sounds_active() { return g_sound_views > 0 && !g_drawing; }
+// (Asked again of the session: leaving one mid-frame ends the sounds' following at once.)
+bool sounds_active() { return g_sound_views > 0 && !g_drawing && (conker::net::active() || g_test_port >= 0); }
 
 // Whether an actor's own sound is a player's (it has a camera record), heard positionally in every
 // other player's view.
@@ -1253,6 +1254,9 @@ extern "C" void conker_my_view_draw_start(uint8_t* rdram, recomp_context* ctx) {
     g_list_start = list_pointer(rdram);
     g_before_views.clear();
     let_go_of_memory();
+    // Asked again here: leaving a session puts this machine's own game back after the frame's start,
+    // and the match's view must not be drawn again over that game.
+    g_view = local_view(rdram);
     // Paused, the game draws no views, only the copy of the last frame it made (the local view, drawn
     // whole) and the menu over the whole screen: that frame is shown as the game draws it.
     if (g_full && g_view >= 0 && MEM_BU(0, kseg0(kScreenHandler)) == 0 && MEM_BU(0, kseg0(kPaused)) == 0) {

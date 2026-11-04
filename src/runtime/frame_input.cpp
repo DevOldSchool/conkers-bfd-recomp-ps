@@ -472,7 +472,9 @@ void gfx_task_done() {
         std::lock_guard lock(g_gfx_mutex);
         g_gfx_done++;
     }
-    if (g_gfx_queue_made.load()) {
+    // Only while something waits on it: after a session the queue has no reader, and a message that
+    // finds it full is sent again, so the idle thread would go round them for ever.
+    if (g_gfx_queue_made.load() && fixed_on()) {
         ultramodern::enqueue_external_message(static_cast<int32_t>(kGfxDoneQueue), 0, false, true);
     }
 }

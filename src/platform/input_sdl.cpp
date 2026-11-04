@@ -1535,7 +1535,20 @@ void update() {
 
     if (g_port1.pad != nullptr) {
         debug_menu = debug_menu || SDL_GameControllerGetButton(g_port1.pad, SDL_CONTROLLER_BUTTON_BACK);
+        const float key_x = x;
+        const float key_y = y;
         read_port_pad(g_port1, buttons, x, y, right_x, right_y, &menu_buttons);
+        // A pad's stick moved: the player is on the pad, so the mouse is let go (a click takes it
+        // again). While it is held, a match reads the stick's left and right as A and D, stepping
+        // sideways as in a shooter, which turned the pad's stick into a strafe after a click on the
+        // window.
+        constexpr float kPadInUse = 0.3f;
+        if (g_mouse_captured && !g_scripted &&
+            (std::fabs(x - key_x) > kPadInUse || std::fabs(y - key_y) > kPadInUse ||
+             std::fabs(right_x) > kPadInUse || std::fabs(right_y) > kPadInUse)) {
+            capture_mouse(false);
+            g_mouse_recapture = false;
+        }
     }
     store(g_port1, buttons, x, y, right_x, right_y);
     g_menu_buttons.store(menu_buttons, std::memory_order_relaxed);
