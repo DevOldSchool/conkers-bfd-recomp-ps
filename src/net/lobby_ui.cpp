@@ -1005,11 +1005,18 @@ void frame(uint8_t* rdram, recomp_context* ctx) {
     int vertical = in.vertical;
     bool select = in.a || in.start;
     bool back = in.b;
-    for (const KeyPress& k : in.keys) {
+    for (size_t i = 0; i < in.keys.size(); i++) {
+        const KeyPress& k = in.keys[i];
         if (k.key == Key::Up) vertical = -1;
         if (k.key == Key::Down) vertical = 1;
         if (k.key == Key::Enter) select = true;
         if (k.key == Key::Escape || k.key == Key::Backspace) back = true;
+        if (select || back) {
+            // The keys after a press are for what it opens (JOIN's field, say): the next frame's.
+            std::lock_guard lock(g_mutex);
+            g_keys.insert(g_keys.begin(), in.keys.begin() + static_cast<std::ptrdiff_t>(i) + 1, in.keys.end());
+            break;
+        }
     }
     if (count > 0) {
         g.chosen = std::clamp(g.chosen, 0, count - 1);

@@ -3961,7 +3961,13 @@ uint32_t overlay_display_list(uint8_t* rdram, uint32_t game_list) {
     if (!g_active && menu.rows.empty()) {
         return game_list;
     }
-    const std::string text = g_active ? status_line() : std::string();
+    // The corner shows only what is wrong (a player left or catching up, a stall, out of sync), not
+    // the usual "P1  PING 0  DELAY 2", which the window's title still gives.
+    std::string text = g_active ? status_line() : std::string();
+    if (const size_t delay = text.find("  DELAY "); text.rfind("P", 0) == 0 && delay != std::string::npos) {
+        const size_t rest = text.find("  P", delay);  // the players dropped, after the delay
+        text = rest == std::string::npos ? std::string() : text.substr(rest + 2);
+    }
     if (text.empty() && menu.rows.empty()) {
         return game_list;
     }
@@ -3984,7 +3990,7 @@ uint32_t overlay_display_list(uint8_t* rdram, uint32_t game_list) {
     list.command(0xE200001Cu, 0);                       // G_SETOTHERMODE_L: no blending, no depth
     list.command(0xFCFFFFFFu, 0xFFFDF6FBu);             // G_SETCOMBINE: the primitive colour
     list.command(0xED000000u, (static_cast<uint32_t>(width) << 14) | (static_cast<uint32_t>(height) << 2));  // G_SETSCISSOR: the whole picture
-    const bool alert = text.rfind("P", 0) != 0;         // anything but the usual line
+    const bool alert = true;                            // the corner only says what is wrong
     list.command(0xFA000000u, 0x000000FFu);             // G_SETPRIMCOLOR: the shadow
     const int text_y = height - (240 - kTextY);
     draw_text(list, text, kTextX + 1, text_y + 1);
