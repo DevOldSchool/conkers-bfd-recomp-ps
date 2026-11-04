@@ -66,6 +66,7 @@
 #include "net/net_socket.hpp"
 #include "runtime/snapshot.hpp"
 #include "ultramodern/ultramodern.hpp"
+#include "librecomp/game.hpp"
 #include "librecomp/mods.hpp"
 
 namespace {
@@ -2935,6 +2936,112 @@ ColorImage last_color_image(const uint8_t* rdram, uint32_t list) {
     return {};
 }
 
+// --- the game's own font, drawn from this list ----------------------------------------------------------
+//
+// As func_150417AC draws a glyph (its commands were read off a frame's list): the glyphs' pictures are
+// the game's own, made at boot into 224-byte I8 buffers (*D_80085990, one a glyph, in the order of the
+// character table D_80085930; src/enhancements/sharp_font), which every machine holds the same and this
+// only reads. Each is loaded through tile 1 as 16-bit words and drawn from tile 3 as I8, the primitive
+// colour times its intensity. The sizes and spacing come from the ROM's font records, as the game
+// lays text out (func_150428D4): the advance is width + extra - 1 texels, a space 4.
+constexpr uint32_t kCharacterTable = 0x085930;  // D_80085930
+constexpr uint32_t kGlyphBuffers = 0x085990;    // D_80085990
+constexpr uint32_t kGlyphBytes = 224;
+constexpr int kGlyphCount = 95;
+constexpr uint32_t kFontRecords = 0x40F10;      // ROM, as sharp_font.cpp
+constexpr uint32_t kFontRecordsEnd = 0x42450;
+
+struct FontGlyph {
+    int width = 0;   // record byte 0 + 1
+    int stride = 0;  // the buffer's row, a multiple of 8
+    int rows = 0;    // height + 1: a zero row above
+    int extra = 0;
+    int top = 0;
+};
+
+const std::vector<FontGlyph>& font_glyphs() {
+    static const std::vector<FontGlyph> glyphs = [] {
+        std::vector<FontGlyph> out;
+        const std::span<const uint8_t> rom = recomp::get_rom();
+        uint32_t cursor = kFontRecords;
+        while (rom.size() >= kFontRecordsEnd && cursor + 0xF < kFontRecordsEnd && out.size() < kGlyphCount) {
+            const uint8_t* r = rom.data() + cursor;
+            const uint32_t size = (uint32_t(r[4]) << 24) | (uint32_t(r[5]) << 16) | (uint32_t(r[6]) << 8) | r[7];
+            if (size == 0) {
+                return std::vector<FontGlyph>{};
+            }
+            FontGlyph g;
+            g.width = r[0] + 1;
+            g.stride = (g.width + 7) & ~7;
+            g.rows = r[1] + 2;
+            g.extra = r[2];
+            g.top = r[3];
+            out.push_back(g);
+            cursor += size;
+        }
+        return out.size() == kGlyphCount ? out : std::vector<FontGlyph>{};
+    }();
+    return glyphs;
+}
+
+// The glyph for a character (lower case as upper case), or -1.
+int glyph_index(const uint8_t* rdram, char c) {
+    if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 0x20);
+    for (int i = 0; i < kGlyphCount; i++) {
+        if (rdram[(kCharacterTable + i) ^ 3] == static_cast<uint8_t>(c)) return i;
+    }
+    return -1;
+}
+
+uint32_t glyph_buffers(const uint8_t* rdram) {
+    uint32_t value;
+    std::memcpy(&value, rdram + kGlyphBuffers, 4);
+    value &= 0x00FFFFFF;
+    return value != 0 && value + kGlyphCount * kGlyphBytes <= 0x400000 && !font_glyphs().empty() ? value : 0;
+}
+
+// Pixels wide at `scale` (a pixel a texel at 1).
+float game_text_width(const uint8_t* rdram, const std::string& text, float scale) {
+    float width = 0.0f;
+    for (const char c : text) {
+        const int i = c == ' ' ? -1 : glyph_index(rdram, c);
+        width += (i < 0 ? 4.0f : static_cast<float>(font_glyphs()[i].width + font_glyphs()[i].extra - 1)) * scale;
+    }
+    return width;
+}
+
+void draw_game_text(ListWriter& list, const uint8_t* rdram, uint32_t buffers, const std::string& text, float x, float y,
+                    float scale, uint32_t color) {
+    list.command(0xE7000000u, 0);
+    list.command(0xEF002C3Fu, 0x00504240u);  // the other modes the game's text has
+    list.command(0xF5900000u, 0x01080200u);  // tile 1: the load, 16-bit
+    list.command(0xFCFFB3FFu, 0xFF65FEFFu);  // the primitive colour, the texture's intensity its alpha
+    list.command(0xFA000000u, color);
+    const uint32_t step = static_cast<uint32_t>(std::lround(1024.0f / scale)) & 0xFFFF;  // s5.10
+    for (const char c : text) {
+        const int i = c == ' ' ? -1 : glyph_index(rdram, c);
+        if (i < 0) {
+            x += 4.0f * scale;
+            continue;
+        }
+        const FontGlyph& g = font_glyphs()[i];
+        const uint32_t ulx = static_cast<uint32_t>(std::lround(x * 4.0f));
+        const uint32_t uly = static_cast<uint32_t>(std::lround((y + g.top * scale) * 4.0f));
+        const uint32_t lrx = ulx + static_cast<uint32_t>(std::lround(g.stride * scale * 4.0f));
+        const uint32_t lry = uly + static_cast<uint32_t>(std::lround(g.rows * scale * 4.0f));
+        x += static_cast<float>(g.width + g.extra - 1) * scale;
+        if (lrx >= 0x1000 || lry >= 0x1000) continue;
+        list.command(0xE7000000u, 0);
+        list.command(0xF5880000u | (static_cast<uint32_t>(g.stride / 8) << 9), 0x03080200u);  // tile 3: I8, clamped
+        list.command(0xF2000000u, (3u << 24) | (static_cast<uint32_t>(g.stride - 1) * 4 << 12) | (static_cast<uint32_t>(g.rows - 1) * 4));
+        list.command(0xFD900000u, 0x80000000u | (buffers + static_cast<uint32_t>(i) * kGlyphBytes));
+        list.command(0xF3000000u, (1u << 24) | (static_cast<uint32_t>(g.stride * g.rows / 2 - 1) << 12));
+        list.command(0xE4000000u | (lrx << 12) | lry, (3u << 24) | (ulx << 12) | uly);
+        list.command(0xE1000000u, 0);  // s, t: from the picture's corner
+        list.command(0xF1000000u, (step << 16) | step);
+    }
+}
+
 void draw_text(ListWriter& list, const std::string& text, int x0, int y0, int scale = 1) {
     int x = x0;
     for (const char c : text) {
@@ -3912,43 +4019,55 @@ namespace {
 
 // The lobby's session page: a dark panel in the middle of the picture, the title and rows twice the
 // corner text's size, the chosen row white and the others grey, as the game's own menus colour them.
-void draw_session_menu(ListWriter& list, const SessionMenu& menu, int kWidth, int kHeight) {
-    constexpr int kBig = 2;
-    const auto centered = [&](const std::string& text, int y, int scale, uint32_t color) {
-        const int width = static_cast<int>(text.size()) * 6 * scale - scale;
-        const int x = std::max(0, (kWidth - width) / 2);
-        list.command(0xE7000000u, 0);
-        list.command(0xFA000000u, 0x000000FFu);
-        draw_text(list, text, x + scale, y + scale, scale);  // the shadow
-        list.command(0xE7000000u, 0);
-        list.command(0xFA000000u, color);
-        draw_text(list, text, x, y, scale);
-    };
-    const int height = 8 * kBig + 6 + static_cast<int>(menu.lines.size()) * 10 + 6 +
-                       static_cast<int>(menu.rows.size()) * 9 * kBig + (menu.hint.empty() ? 0 : 12);
-    int y = std::max(4, (kHeight - height) / 2) - 8;
+void draw_session_menu(ListWriter& list, const uint8_t* rdram, const SessionMenu& menu, int kWidth, int kHeight) {
+    const uint32_t buffers = glyph_buffers(rdram);
     // As the game's pause: the picture dimmed behind (the colour blended over what is there by the
-    // primitive alpha), the title gold, the chosen row white and the others grey, with no box.
+    // primitive alpha), the title gold, the chosen row white and the others grey, a black copy under
+    // each as the game's text has, in the game's font (net_play's own corner font until it is loaded).
     list.command(0xE7000000u, 0);
+    list.command(0xE3000A01u, 0);             // one-cycle
     list.command(0xE200001Cu, 0x00504000u);   // G_SETOTHERMODE_L: FORCE_BL, in * alpha + memory * (1 - alpha)
+    list.command(0xFCFFFFFFu, 0xFFFDF6FBu);   // the primitive colour
     list.command(0xFA000000u, 0x000000A0u);   // black, about 60%
     list.rect(0, 0, kWidth, kHeight);
     list.command(0xE7000000u, 0);
-    list.command(0xE200001Cu, 0);             // opaque again for the text
-    y += 8;
-    centered(menu.title, y, kBig, 0xCEC461FFu);
-    y += 8 * kBig + 6;
-    for (const std::string& line : menu.lines) {
-        centered(line, y, 1, 0x9A9A9AFFu);
-        y += 10;
+    list.command(0xE200001Cu, 0);
+    const float unit = kWidth / 292.0f;       // the game's picture is 292 wide; play's 320
+    const auto centered = [&](const std::string& text, float y, float scale, uint32_t color) {
+        if (buffers != 0) {
+            const float x = (kWidth - game_text_width(rdram, text, scale * unit)) / 2.0f;
+            draw_game_text(list, rdram, buffers, text, x + unit, y + unit, scale * unit, 0x000000FFu);
+            draw_game_text(list, rdram, buffers, text, x, y, scale * unit, color);
+            return;
+        }
+        const int big = scale > 0.9f ? 2 : 1;
+        const int width = static_cast<int>(text.size()) * 6 * big - big;
+        const int x = std::max(0, (kWidth - width) / 2);
+        list.command(0xE7000000u, 0);
+        list.command(0xFA000000u, 0x000000FFu);
+        draw_text(list, text, x + big, static_cast<int>(y) + big, big);
+        list.command(0xE7000000u, 0);
+        list.command(0xFA000000u, color);
+        draw_text(list, text, x, static_cast<int>(y), big);
+    };
+    const float title = 15.0f * unit, line = 10.0f * unit, row = 12.5f * unit;
+    const float height = title + 6 * unit + menu.lines.size() * line + 6 * unit + menu.rows.size() * row +
+                         (menu.hint.empty() ? 0.0f : line + 4 * unit);
+    float y = std::max(4.0f, (kHeight - height) / 2.0f);
+    centered(menu.title, y, 1.0f, 0xCEC461FFu);
+    y += title + 6 * unit;
+    for (const std::string& text : menu.lines) {
+        centered(text, y, 0.8f, 0x9A9A9AFFu);
+        y += line;
     }
-    y += 6;
+    y += 6 * unit;
     for (size_t i = 0; i < menu.rows.size(); i++) {
-        centered(menu.rows[i], y, kBig, static_cast<int>(i) == menu.chosen ? 0xFFFFFFFFu : 0x9A9A9AFFu);
-        y += 9 * kBig;
+        const bool chosen = static_cast<int>(i) == menu.chosen;
+        centered(menu.rows[i], y, chosen ? 1.0f : 0.9f, chosen ? 0xFFFFFFFFu : 0x9A9A9AFFu);
+        y += row;
     }
     if (!menu.hint.empty()) {
-        centered(menu.hint, y + 4, 1, 0x9A9A9AFFu);
+        centered(menu.hint, y + 4 * unit, 0.8f, 0x9A9A9AFFu);
     }
 }
 
@@ -3995,12 +4114,20 @@ uint32_t overlay_display_list(uint8_t* rdram, uint32_t game_list) {
     const bool alert = true;                            // the corner only says what is wrong
     list.command(0xFA000000u, 0x000000FFu);             // G_SETPRIMCOLOR: the shadow
     const int text_y = height - (240 - kTextY);
-    draw_text(list, text, kTextX + 1, text_y + 1);
-    list.command(0xE7000000u, 0);
-    list.command(0xFA000000u, alert ? 0xFF6040FFu : 0xFFFFFFFFu);
-    draw_text(list, text, kTextX, text_y);
+    if (const uint32_t buffers = glyph_buffers(rdram); buffers != 0 && !text.empty()) {
+        // In the game's font, as the session's page (draw_session_menu).
+        const float scale = 0.8f * width / 292.0f;
+        const float y = static_cast<float>(text_y) - 6.0f * scale;
+        draw_game_text(list, rdram, buffers, text, kTextX + scale, y + scale, scale, 0x000000FFu);
+        draw_game_text(list, rdram, buffers, text, kTextX, y, scale, alert ? 0xFF6040FFu : 0xFFFFFFFFu);
+    } else {
+        draw_text(list, text, kTextX + 1, text_y + 1);
+        list.command(0xE7000000u, 0);
+        list.command(0xFA000000u, alert ? 0xFF6040FFu : 0xFFFFFFFFu);
+        draw_text(list, text, kTextX, text_y);
+    }
     if (!menu.rows.empty()) {
-        draw_session_menu(list, menu, width, height);
+        draw_session_menu(list, rdram, menu, width, height);
     }
     list.command(0xE9000000u, 0);                       // G_RDPFULLSYNC
     MEM_W(0, kseg0(list.at)) = static_cast<int32_t>(0xDF000000u);  // G_ENDDL
