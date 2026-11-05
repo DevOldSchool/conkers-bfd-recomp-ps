@@ -624,6 +624,13 @@ func = "func_1501B22C"
 before_vram = 0x1501B264
 text = "{ void conker_widescreen_culling(uint8_t*, recomp_context*); conker_widescreen_culling(rdram, ctx); }"
 
+# The level's visibility table for the cell the view's player stands in as well as the camera's: a node is
+# hidden only when both rows hide it (Beach's doorway showed sky). See src/fixes/level_visibility.cpp.
+[[patches.hook]]
+func = "func_1510FC34"
+before_vram = 0x1510FCF0
+text = "{ void conker_level_visibility(uint8_t*, recomp_context*); conker_level_visibility(rdram, ctx); }"
+
 [[patches.hook]]
 func = "func_1510B958"
 before_vram = 0x1510B9A0
