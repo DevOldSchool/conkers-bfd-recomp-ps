@@ -980,6 +980,10 @@ void drop(Peer& peer, Drop reason, const char* why) {
     update_offer();
 }
 
+// A hash as it goes on the wire: 32 bits of it. A desync stays in memory, so the next frame's hash
+// catches what a 1-in-4-billion match missed.
+uint64_t wire_hash(uint64_t hash) { return static_cast<uint32_t>(hash ^ (hash >> 32)); }
+
 // The host, under g_mutex: compares frame's hashes where both are in. A guest that differs from
 // the host is out of sync.
 void compare_hashes(uint32_t frame) {
@@ -990,7 +994,7 @@ void compare_hashes(uint32_t frame) {
     const uint64_t own = *own_value;
     for (Peer& peer : g_peers) {
         const Hash& theirs = g_peer_hashes[peer.port][frame % kRing];
-        if ((!peer.dropped || peer.rejoining) && theirs.frame == frame && theirs.value != own) {
+        if ((!peer.dropped || peer.rejoining) && theirs.frame == frame && theirs.value != wire_hash(own)) {
             std::fprintf(stderr, "[conker] net: player %d is OUT OF SYNC at frame %u: their game memory hashes to "
                                  "%016llx, the host's to %016llx\n",
                          peer.port + 1, frame, static_cast<unsigned long long>(theirs.value),
@@ -1002,14 +1006,15 @@ void compare_hashes(uint32_t frame) {
 
 // Each frame's hash goes in the packets of the next kHashRepeats frames played, not in every packet
 // for 8 frames: a lost packet loses no hash, and most packets carry one or two.
-constexpr uint32_t kHashRepeats = 3;
+constexpr uint32_t kHashRepeats = 2;
 uint32_t g_hashes_sent_upto = 0;  // under g_mutex: the newest frame whose hash went out
 
-void write_hashes(Writer& w) {
+// anchor: the INPUT's first record's frame, which the first hash's frame goes as a difference from.
+void write_hashes(Writer& w, uint32_t anchor) {
     // A guest whose game becomes the host's from a snapshot has nothing to compare until then (in place
     // its frames so far were its own game's).
     if (g_snap_coming && !g_snap_tried) {
-        w.u32(1);
+        w.svar(0);
         w.u8(0);
         return;
     }
@@ -1025,10 +1030,10 @@ void write_hashes(Writer& w) {
         first++;
         count--;
     }
-    w.u32(first);
+    w.svar(static_cast<int32_t>(first - anchor));
     w.u8(static_cast<uint8_t>(count));
     for (uint32_t frame = first; frame < first + count; frame++) {
-        w.u64(g_own_hashes[frame % kRing].value);
+        w.u32(static_cast<uint32_t>(wire_hash(g_own_hashes[frame % kRing].value)));
     }
 }
 
@@ -1160,11 +1165,14 @@ void write_hash_log(const char* role, int port, uint32_t frame) {
 }
 
 // The host: a guest's hashes.
-void read_hashes(Reader& r, int port) {
-    const uint32_t first = r.u32();
+void read_hashes(Reader& r, int port, uint32_t anchor) {
+    const uint32_t first = anchor + static_cast<uint32_t>(r.svar());
     const uint32_t count = std::min<uint32_t>(r.u8(), kHashesPerPacket);
+    if (!r.ok || first > kMaxFrame) {
+        return;
+    }
     for (uint32_t frame = first; frame < first + count && r.ok; frame++) {
-        const uint64_t value = r.u64();
+        const uint64_t value = r.u32();
         if (r.ok && frame != 0) {
             g_peer_hashes[port][frame % kRing] = {frame, value};
             g_peer_played[port] = std::max(g_peer_played[port], frame);
@@ -1412,7 +1420,7 @@ void send_updates(bool whole = false) {
         before_mouse = input.mouse;
     }
     const size_t records_end = w.size;
-    write_hashes(w);
+    write_hashes(w, first);
     if (stats::enabled()) {
         stats::part(false, stats::kPartIp, stats::wire_bytes(0, wire_ipv6(host.addr)));
         stats::part(false, stats::kPartSeal, seal::kOverhead);
@@ -1530,7 +1538,7 @@ void on_input(Peer& peer, Reader& r) {
     if (g_input_upto[port] != had) {
         peer.moved_on = now_ms();
     }
-    read_hashes(r, port);
+    read_hashes(r, port, first);
     if (merge()) {
         send_updates();
         wake_game_thread();
