@@ -989,6 +989,9 @@ nlohmann::json match_players(uint8_t* rdram) {
             c.eye[i] = actor_float(rdram, camera + 0x13C + 4 * i);
             c.at[i] = actor_float(rdram, camera + 0x148 + 4 * i);
         }
+        if (c.eye[0] == 0 && c.eye[1] == 0 && c.eye[2] == 0 && c.at[0] == 0 && c.at[1] == 0 && c.at[2] == 0) {
+            continue;  // a computer player: its camera block is never filled in
+        }
         float facing = std::fmod(actor_float(rdram, actor + 0x40), 360.0f);
         if (facing < 0) {
             facing += 360.0f;
