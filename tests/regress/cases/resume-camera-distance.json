@@ -1,0 +1,11 @@
+{
+  "description": "A pause save brings back the camera distance it was saved at (scene 6: 909 from Conker, 901 along the ground) instead of the entrance zone's 530",
+  "covers": ["src/enhancements/pause_save/resume_point.cpp (keep_distance, commit e6348c1)"],
+  "start": {"report": "scene6-20261024-231154"},
+  "frames": 300,
+  "expect": [
+    {"log": "resumed camera: yaw 66.34, distance 909.25"},
+    {"at": 300, "value": "f32:[[0x80088720]+0x318]+0x374", "min": 895, "max": 907}
+  ],
+  "without_fix": {"env": {"CONKER_TEST_OFF": "resume_camera_distance"}}
+}

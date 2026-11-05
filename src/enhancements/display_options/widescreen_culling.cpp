@@ -22,6 +22,7 @@
 // CONKER_WIDESCREEN_CULLING=0 keeps the 4:3 culling.
 #include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -30,6 +31,7 @@
 #include "recomp.h"
 #include "enhancements/display_options/widescreen_culling.hpp"
 #include "enhancements/switches.hpp"
+#include "runtime/test_off.hpp"
 #include "platform/display_mode.hpp"
 #include "runtime/exact_math.hpp"
 #include "runtime/snapshot.hpp"
@@ -108,7 +110,7 @@ extern "C" void conker_sky_vertices_reset(uint8_t* /*rdram*/, recomp_context* /*
 // view are allocated (one block of $a0 * 32 bytes).
 extern "C" void conker_sky_vertices(uint8_t* /*rdram*/, recomp_context* ctx) {
     int32_t vertices = static_cast<int32_t>(ctx->r4);
-    if (culling_enabled() && vertices < kSkyVertices) {
+    if (culling_enabled() && vertices < kSkyVertices && !conker::test_off("sky_vertices")) {
         vertices = kSkyVertices;
         ctx->r4 = vertices;
     }
@@ -116,13 +118,22 @@ extern "C" void conker_sky_vertices(uint8_t* /*rdram*/, recomp_context* ctx) {
 }
 
 // At 0x15111128 in func_15110CFC, after func_150A6210 ($v0, nonzero when the tile is in view). The
-// buffer holds the vertices flushed so far (sp+0xD8) and the ones not yet flushed ($t4).
+// buffer holds the vertices flushed so far (sp+0xD8) and the ones not yet flushed ($t4). With the fix
+// off for a test (CONKER_TEST_OFF=sky_vertices) the tile is kept and the overrun only reported.
 extern "C" void conker_sky_tile_fits(uint8_t* rdram, recomp_context* ctx) {
     if (ctx->r2 == 0 || g_sky_capacity == 0) {
         return;
     }
     const int32_t used = MEM_W(0xD8, ctx->r29) + static_cast<int32_t>(ctx->r12);
     if (used + 4 > g_sky_capacity) {
+        if (conker::test_off("sky_vertices")) {
+            static bool reported = false;
+            if (!reported) {
+                reported = true;
+                std::printf("[conker] sky buffer overrun: %d vertices in a buffer of %d\n", used + 4, g_sky_capacity);
+            }
+            return;
+        }
         ctx->r2 = 0;
     }
 }

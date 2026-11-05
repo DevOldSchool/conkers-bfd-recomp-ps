@@ -509,3 +509,10 @@ the shadow shows only as a thin crescent along the top-right edge, darkening
 what is under it to 0.75. The soft fade around the rest of a bubble is
 its own edge under bilinear filtering (the texture is stretched about 3x
 across), not the shadow.
+
+## Regression cases
+
+`tools/regress.py` runs the null build through the cases in `tests/regress/cases/`: scripted runs
+from boot or from a debug report that check our fixes still hold, and with `--without-fix` that each
+case fails without its fix. It adds `CONKER_TEST_EXIT_AT`, `CONKER_TEST_SPEED`, `CONKER_TEST_ASPECT`,
+`CONKER_TEST_OFF` and `CONKER_SAVE_CHECK_PLAY`; see [tests/regress/README.md](../tests/regress/README.md).

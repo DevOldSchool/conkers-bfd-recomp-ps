@@ -1,0 +1,276 @@
+{
+  "description": "Every scene with a report: the scene loads from the pause save and plays 30 s in 16:9 (walking, turning the camera) without a crash, a hang, heap damage or a sky buffer overrun",
+  "covers": [
+    "src/enhancements/pause_save (load and restore)",
+    "src/enhancements/display_options/widescreen_culling.cpp",
+    "src/enhancements/draw_distance",
+    "src/runtime/heap_check.cpp",
+    "src/fixes/*",
+    "every recompiled hook (tools/regenerate.sh)"
+  ],
+  "frames": 900,
+  "env": {
+    "CONKER_TEST_ASPECT": "16:9",
+    "CONKER_HEAP_CHECK": "1"
+  },
+  "switches": {
+    "WIDESCREEN": 1
+  },
+  "input": [
+    {
+      "at": 60,
+      "hold": 90,
+      "stick": [
+        0,
+        80
+      ]
+    },
+    {
+      "at": 200,
+      "hold": 240,
+      "buttons": "CLEFT"
+    },
+    {
+      "at": 480,
+      "hold": 60,
+      "stick": [
+        0,
+        -80
+      ]
+    },
+    {
+      "at": 560,
+      "hold": 240,
+      "buttons": "CRIGHT"
+    }
+  ],
+  "expect": [
+    {
+      "log": "resumed scene state"
+    },
+    {
+      "no_log": "heap damaged"
+    },
+    {
+      "no_log": "sky buffer overrun"
+    }
+  ],
+  "matrix": [
+    {
+      "name": "scene0",
+      "start": {
+        "report": "scene0-20261022-203744"
+      }
+    },
+    {
+      "name": "scene2",
+      "start": {
+        "report": "scene2-20261024-121732"
+      }
+    },
+    {
+      "name": "scene4",
+      "start": {
+        "report": "scene4-20261027-225449"
+      }
+    },
+    {
+      "name": "scene6",
+      "start": {
+        "report": "scene6-20261024-231154"
+      }
+    },
+    {
+      "name": "scene7",
+      "start": {
+        "report": "scene7-20261023-220805"
+      }
+    },
+    {
+      "name": "scene10",
+      "start": {
+        "report": "scene10-20261023-231956"
+      }
+    },
+    {
+      "name": "scene11",
+      "start": {
+        "report": "scene11-20261023-220206"
+      }
+    },
+    {
+      "name": "scene12",
+      "start": {
+        "report": "scene12-20261103-180040"
+      }
+    },
+    {
+      "name": "scene14",
+      "start": {
+        "report": "scene14-20261027-220620"
+      }
+    },
+    {
+      "name": "scene18",
+      "start": {
+        "report": "scene18-20261023-224323"
+      }
+    },
+    {
+      "name": "scene19",
+      "start": {
+        "report": "scene19-20261024-235915"
+      }
+    },
+    {
+      "name": "scene20",
+      "start": {
+        "report": "scene20-20261024-125308"
+      }
+    },
+    {
+      "name": "scene24",
+      "start": {
+        "report": "scene24-20261031-171137"
+      }
+    },
+    {
+      "name": "scene25",
+      "start": {
+        "report": "scene25-20261024-111018"
+      }
+    },
+    {
+      "name": "scene27",
+      "start": {
+        "report": "scene27-20261027-224638"
+      }
+    },
+    {
+      "name": "scene28",
+      "start": {
+        "report": "scene28-20261027-215310"
+      }
+    },
+    {
+      "name": "scene30",
+      "start": {
+        "report": "scene30-20261027-212533"
+      }
+    },
+    {
+      "name": "scene35",
+      "start": {
+        "report": "scene35-20261027-223025"
+      }
+    },
+    {
+      "name": "scene38",
+      "start": {
+        "report": "scene38-20261027-214256"
+      }
+    },
+    {
+      "name": "scene39",
+      "start": {
+        "report": "scene39-20261024-144343"
+      }
+    },
+    {
+      "name": "scene41",
+      "start": {
+        "report": "scene41-20261022-101041"
+      }
+    },
+    {
+      "name": "scene44",
+      "start": {
+        "report": "scene44-20261023-172645"
+      }
+    },
+    {
+      "name": "scene46",
+      "start": {
+        "report": "scene46-20261022-111256"
+      }
+    },
+    {
+      "name": "scene49",
+      "start": {
+        "report": "scene49-20261024-165920"
+      }
+    },
+    {
+      "name": "scene50",
+      "start": {
+        "report": "scene50-20261024-122315"
+      }
+    },
+    {
+      "name": "scene53",
+      "start": {
+        "report": "scene53-20261023-172041"
+      }
+    },
+    {
+      "name": "scene54",
+      "start": {
+        "report": "scene54-20261103-185231"
+      }
+    },
+    {
+      "name": "scene55",
+      "start": {
+        "report": "scene55-20261024-130630"
+      }
+    },
+    {
+      "name": "scene57",
+      "start": {
+        "report": "scene57-20261027-230403"
+      }
+    },
+    {
+      "name": "scene58",
+      "start": {
+        "report": "scene58-20261028-212344"
+      }
+    },
+    {
+      "name": "scene59",
+      "start": {
+        "report": "scene59-20261027-225804"
+      }
+    },
+    {
+      "name": "scene60",
+      "start": {
+        "report": "scene60-20261025-081607"
+      }
+    },
+    {
+      "name": "scene61",
+      "start": {
+        "report": "scene61-20261024-134148"
+      }
+    },
+    {
+      "name": "scene64",
+      "start": {
+        "report": "scene64-20261031-170225"
+      }
+    },
+    {
+      "name": "scene65",
+      "start": {
+        "report": "scene65-20261024-230633"
+      }
+    },
+    {
+      "name": "scene67",
+      "start": {
+        "report": "scene67-20261024-122107"
+      }
+    }
+  ]
+}

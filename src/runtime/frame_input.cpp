@@ -637,6 +637,48 @@ void test_snapshot(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
+// CONKER_TEST_EXIT_AT=<frame> (tools/regress.py): the game quits with status 0 once that frame has
+// started, after its state dump (CONKER_STATE_DUMP_FRAMES) is written, so a regression case knows the
+// run got that far without a crash or a hang.
+// Test runs (tools/regress.py), offline only, set up once at the first frame:
+// CONKER_TEST_SPEED=<n> (with CONKER_FIXED_STEP=1): the game's time runs n times faster than real
+// time, as an online catch-up runs it. The fixed step keeps the logic the same at any speed.
+// CONKER_TEST_ASPECT=<w>:<h>: the game's logic (culling, views) works for a picture of that shape, as
+// with a window of it, which the null build does not have.
+void test_setup() {
+    static bool done = false;
+    if (done || conker::net::active()) {
+        return;
+    }
+    done = true;
+    const char* speed_spec = std::getenv("CONKER_TEST_SPEED");
+    const unsigned long speed = speed_spec != nullptr ? std::strtoul(speed_spec, nullptr, 0) : 0;
+    if (speed > 1 && speed <= 16 && fixed_on()) {
+        ultramodern::set_speed_multiplier(static_cast<uint32_t>(speed));
+        std::printf("[conker] test speed x%lu\n", speed);
+    }
+    const char* aspect_spec = std::getenv("CONKER_TEST_ASPECT");
+    float width = 0.0f;
+    float height = 0.0f;
+    if (aspect_spec != nullptr && std::sscanf(aspect_spec, "%f:%f", &width, &height) == 2 && width > 0.0f &&
+        height > 0.0f) {
+        conker::display::set_logic_aspect(width / height);
+        std::printf("[conker] test aspect %g:%g\n", width, height);
+    }
+}
+
+void test_exit_at(uint32_t frame) {
+    test_setup();
+    static const char* spec = std::getenv("CONKER_TEST_EXIT_AT");
+    if (spec == nullptr || frame < std::strtoul(spec, nullptr, 0)) {
+        return;
+    }
+    std::printf("[conker] test exit at frame %u\n", frame);
+    std::fflush(stdout);
+    std::fflush(stderr);
+    std::_Exit(0);
+}
+
 // CONKER_SNAPSHOT_SELFTEST=<frame>: snapshot::self_test at that frame (tampered snapshots refused).
 // CONKER_RUNTIME_SELFTEST=<frame>:queue|thread: at that frame, a message queue in scratch RDRAM is given
 // out-of-range indices, or a thread record of this run's is copied elsewhere and put on it, and a message
@@ -830,6 +872,7 @@ extern "C" void conker_frame_input_begin(uint8_t* rdram, recomp_context* ctx) {
     log_record(record);
     conker::state_hash::frame(rdram, record.frame);
     conker::trace::game_frame(record.frame);
+    test_exit_at(record.frame);
 }
 
 // At the start of func_15019F20, the frame's time step, which reads the retraces the frame took

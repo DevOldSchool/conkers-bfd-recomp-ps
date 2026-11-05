@@ -29,6 +29,7 @@
 // starts one (load_snapshot). Rare writes the EEPROM 8 bytes per 12 ms timer tick (func_151DCEF0, drained by
 // func_151DCFD8 at the start of func_1501C57C), so the copy is taken once that write is done.
 // CONKER_SAVE_SNAPSHOTS=0 turns the snapshots off.
+#include "runtime/test_off.hpp"
 #include "enhancements/pause_save/resume_point.hpp"
 
 #include <algorithm>
@@ -1248,6 +1249,9 @@ std::vector<int> match_objects(uint8_t* rdram, const TableSpec& spec, uint32_t r
 // (which also mends those saves), and otherwise the saved one follows its character to its slot
 // now (a child made during play, say), or is cleared when that character was not restored.
 int restored_link(int saved, int now, const std::vector<int>& now_of) {
+    if (conker::test_off("resume_actor_link")) {
+        return saved;  // as it was before the fix: the saved slot number, verbatim
+    }
     if (now != 0 || saved == 0) {
         return now;
     }
@@ -1476,6 +1480,9 @@ void place_view(uint8_t* rdram, uint32_t object, const Position& view, bool turn
 
 // Makes the view's distance the one the game's camera keeps (see kTargetDistance).
 void keep_distance(uint8_t* rdram, uint32_t object) {
+    if (conker::test_off("resume_camera_distance")) {
+        return;
+    }
     const uint32_t control = static_cast<uint32_t>(MEM_W(0, kseg0(object + kObjectCameraControl)));
     if ((control & 0xFF800000) != 0x80000000) {
         return;
@@ -2655,7 +2662,7 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     if (g_resume_frames == kSettleFrames + 1) {
-        if (g_checkpoint[0] >= 0) {
+        if (g_checkpoint[0] >= 0 && !conker::test_off("resume_checkpoint")) {
             MEM_B(0, kseg0(kCheckpointScene)) = static_cast<int8_t>(g_checkpoint[0]);
             MEM_B(0, kseg0(kCheckpointEntrance)) = static_cast<int8_t>(g_checkpoint[1]);
             g_checkpoint[0] = g_checkpoint[1] = -1;

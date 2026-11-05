@@ -10,6 +10,8 @@
 // writes from the restored scene can be compared with the one it was loaded from. result.json says
 // how it ended, and the game quits. CONKER_SAVE_CHECK_CHECKPOINT=1 starts the save at its checkpoint
 // instead (as the game itself would), for a baseline of what the scene is like without the restore.
+// CONKER_SAVE_CHECK_PLAY=1 makes no captures and does not quit: once the scene is restored it prints
+// the game frame it happened at and the game plays on, the start of a regression case (tools/regress.py).
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -23,6 +25,7 @@
 #include "json/json.hpp"
 #include "recomp.h"
 #include "enhancements/pause_save/resume_point.hpp"
+#include "runtime/state_hash.hpp"
 
 namespace conker::resume::check {
 
@@ -47,6 +50,7 @@ std::vector<int> g_at;      // seconds after the restore to capture at, in order
 size_t g_next = 0;          // the next of g_at
 bool g_make_report = false;
 bool g_at_checkpoint = false;
+bool g_play = false;
 std::string g_report_name;  // the debug report being made
 std::chrono::steady_clock::time_point g_started;
 
@@ -127,6 +131,12 @@ void start() {
     g_make_report = make != nullptr && make[0] == '1';
     const char* checkpoint = std::getenv("CONKER_SAVE_CHECK_CHECKPOINT");
     g_at_checkpoint = checkpoint != nullptr && checkpoint[0] == '1';
+    const char* play = std::getenv("CONKER_SAVE_CHECK_PLAY");
+    g_play = play != nullptr && play[0] == '1';
+    if (g_play) {
+        g_at.clear();
+        g_make_report = false;
+    }
     g_state = State::Waiting;
     std::printf("[conker] save check: %s, captures at %zu times, output %s\n", g_report.string().c_str(), g_at.size(),
                 g_out.string().c_str());
@@ -144,6 +154,12 @@ void restoring_hook(uint8_t* rdram) {
 
 void restored_hook(uint8_t* rdram) {
     if (g_state != State::Loading) {
+        return;
+    }
+    if (g_play) {
+        g_state = State::Done;
+        std::printf("[conker] save check: restored at frame %u, playing on\n", conker::state_hash::current_frame());
+        std::fflush(stdout);
         return;
     }
     g_state = State::Restored;
