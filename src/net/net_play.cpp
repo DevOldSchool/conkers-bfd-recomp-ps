@@ -280,27 +280,49 @@ bool chunk_fits(uint32_t total, uint32_t max, uint32_t offset, uint32_t length, 
            length == std::min<uint64_t>(chunk, uint64_t{total} - offset);
 }
 
-void write_port(Writer& w, const Port& p, const Mouse& m) {
-    w.u16(p.buttons);
-    w.u8(static_cast<uint8_t>(p.stick_x));
-    w.u8(static_cast<uint8_t>(p.stick_y));
-    w.u8(static_cast<uint8_t>(p.right_x));
-    w.u8(static_cast<uint8_t>(p.right_y));
-    w.u8(p.flags);
-    w.u8(m.captured ? 1 : 0);
-    w.u8(static_cast<uint8_t>(m.zoom));
-    w.f32(m.dx);
-    w.f32(m.dy);
+// A port on the wire: only the fields that changed from the port before it (the one the receiver
+// has: the frame before, or nothing pressed), a bit each in a mask first. A person's thumb moves a
+// stick a step nearly every frame, and the whole port (17 bytes) went each time.
+constexpr uint8_t kFieldButtons = 0x01;
+constexpr uint8_t kFieldStickX = 0x02;
+constexpr uint8_t kFieldStickY = 0x04;
+constexpr uint8_t kFieldRightX = 0x08;
+constexpr uint8_t kFieldRightY = 0x10;
+constexpr uint8_t kFieldMisc = 0x20;  // flags, mouse captured, zoom
+constexpr uint8_t kFieldMouseX = 0x40;
+constexpr uint8_t kFieldMouseY = 0x80;
+
+bool same_float(float a, float b) { return std::memcmp(&a, &b, sizeof(float)) == 0; }
+
+// The fields of (p, m) that differ from (bp, bm).
+uint8_t changed_fields(const Port& bp, const Mouse& bm, const Port& p, const Mouse& m) {
+    uint8_t mask = 0;
+    mask |= p.buttons != bp.buttons ? kFieldButtons : 0;
+    mask |= p.stick_x != bp.stick_x ? kFieldStickX : 0;
+    mask |= p.stick_y != bp.stick_y ? kFieldStickY : 0;
+    mask |= p.right_x != bp.right_x ? kFieldRightX : 0;
+    mask |= p.right_y != bp.right_y ? kFieldRightY : 0;
+    mask |= p.flags != bp.flags || m.captured != bm.captured || m.zoom != bm.zoom ? kFieldMisc : 0;
+    mask |= !same_float(m.dx, bm.dx) ? kFieldMouseX : 0;
+    mask |= !same_float(m.dy, bm.dy) ? kFieldMouseY : 0;
+    return mask;
 }
 
-// A port's bytes as write_port writes them, to tell whether it changed from one frame to the next.
-constexpr size_t kPortBytes = 17;
-std::array<uint8_t, kPortBytes> port_bytes(const Port& p, const Mouse& m) {
-    Writer w;
-    write_port(w, p, m);
-    std::array<uint8_t, kPortBytes> bytes{};
-    std::memcpy(bytes.data(), w.data, kPortBytes);
-    return bytes;
+// The mask, then the fields it names.
+void write_port(Writer& w, uint8_t mask, const Port& p, const Mouse& m) {
+    w.u8(mask);
+    if (mask & kFieldButtons) w.u16(p.buttons);
+    if (mask & kFieldStickX) w.u8(static_cast<uint8_t>(p.stick_x));
+    if (mask & kFieldStickY) w.u8(static_cast<uint8_t>(p.stick_y));
+    if (mask & kFieldRightX) w.u8(static_cast<uint8_t>(p.right_x));
+    if (mask & kFieldRightY) w.u8(static_cast<uint8_t>(p.right_y));
+    if (mask & kFieldMisc) {
+        w.u8(p.flags);
+        w.u8(m.captured ? 1 : 0);
+        w.u8(static_cast<uint8_t>(m.zoom));
+    }
+    if (mask & kFieldMouseX) w.f32(m.dx);
+    if (mask & kFieldMouseY) w.f32(m.dy);
 }
 
 // A frame's mouse as every machine plays it: a real mouse moves at most a few hundred pixels a frame,
@@ -313,18 +335,23 @@ Mouse limited(Mouse m) {
     return m;
 }
 
-void read_port(Reader& r, Port* p, Mouse* m) {
-    p->buttons = r.u16();
-    p->stick_x = static_cast<int8_t>(r.u8());
-    p->stick_y = static_cast<int8_t>(r.u8());
-    p->right_x = static_cast<int8_t>(r.u8());
-    p->right_y = static_cast<int8_t>(r.u8());
-    p->flags = r.u8();
-    m->captured = r.u8() != 0;
-    m->zoom = static_cast<int8_t>(r.u8());
-    m->dx = r.f32();
-    m->dy = r.f32();
+// A port as write_port wrote it, over (*p, *m) as they were: the port before it. Its mask.
+uint8_t read_port(Reader& r, Port* p, Mouse* m) {
+    const uint8_t mask = r.u8();
+    if (mask & kFieldButtons) p->buttons = r.u16();
+    if (mask & kFieldStickX) p->stick_x = static_cast<int8_t>(r.u8());
+    if (mask & kFieldStickY) p->stick_y = static_cast<int8_t>(r.u8());
+    if (mask & kFieldRightX) p->right_x = static_cast<int8_t>(r.u8());
+    if (mask & kFieldRightY) p->right_y = static_cast<int8_t>(r.u8());
+    if (mask & kFieldMisc) {
+        p->flags = r.u8();
+        m->captured = r.u8() != 0;
+        m->zoom = static_cast<int8_t>(r.u8());
+    }
+    if (mask & kFieldMouseX) m->dx = r.f32();
+    if (mask & kFieldMouseY) m->dy = r.f32();
     *m = limited(*m);
+    return mask;
 }
 
 // --- session state (under g_mutex unless noted) -----------------------------------------------------
@@ -1195,13 +1222,17 @@ void send_updates(bool whole = false) {
             // held/dropped/snapshot bytes) then what it names; the first in the packet whole. A record
             // was 71 bytes and up to 16 went 100 times a second, repeated until acknowledged, ~1-2
             // Mbit/s once the round trip grew, which filled a phone hotspot's buffer (650 ms round trips).
-            std::array<uint8_t, kPortBytes> before[kPorts];
+            // Each port's fields as changes from the record before (the first's from frame first - 1,
+            // which the guest has acknowledged, or from nothing pressed when whole).
+            Port before[kPorts] = {};
+            Mouse before_mice[kPorts] = {};
             uint8_t before_tail[3] = {};
             const bool after_base = !whole && first > static_cast<uint32_t>(g_delay) + 1;
             if (after_base) {
                 const Merged& base = g_history[first - static_cast<uint32_t>(g_delay) - 2];
                 for (int port = 0; port < kPorts; port++) {
-                    before[port] = port_bytes(base.ports[port], base.mice[port]);
+                    before[port] = base.ports[port];
+                    before_mice[port] = base.mice[port];
                 }
                 before_tail[0] = base.held;
                 before_tail[1] = base.dropped;
@@ -1211,11 +1242,11 @@ void send_updates(bool whole = false) {
                 const Merged& record = g_history[frame - static_cast<uint32_t>(g_delay) - 1];
                 const uint8_t tail[3] = {record.held, record.dropped, record.snapshot};
                 const bool all = frame == first && !after_base;
-                std::array<uint8_t, kPortBytes> now[kPorts];
+                uint8_t fields[kPorts];
                 uint8_t mask = frame == first && after_base ? kAfterBase : 0;
                 for (int port = 0; port < kPorts; port++) {
-                    now[port] = port_bytes(record.ports[port], record.mice[port]);
-                    if (all || now[port] != before[port]) {
+                    fields[port] = changed_fields(before[port], before_mice[port], record.ports[port], record.mice[port]);
+                    if (fields[port] != 0) {
                         mask |= static_cast<uint8_t>(1 << port);
                     }
                 }
@@ -1225,9 +1256,10 @@ void send_updates(bool whole = false) {
                 w.u8(mask);
                 for (int port = 0; port < kPorts; port++) {
                     if ((mask & (1 << port)) != 0) {
-                        w.bytes(now[port].data(), kPortBytes);
+                        write_port(w, fields[port], record.ports[port], record.mice[port]);
                     }
-                    before[port] = now[port];
+                    before[port] = record.ports[port];
+                    before_mice[port] = record.mice[port];
                 }
                 if ((mask & kTailChanged) != 0) {
                     w.bytes(tail, 3);
@@ -1282,25 +1314,23 @@ void send_updates(bool whole = false) {
     w.u32(first);
     w.u8(static_cast<uint8_t>(count));
     const size_t frames_end = w.size;
-    // As MERGED's records: a 1 then the port when it changed from the frame before (always the first),
-    // else a 0.
-    // The first: a 2 when it is the same as frame first - 1's (which the host has acknowledged), unless
-    // whole.
-    std::array<uint8_t, kPortBytes> before{};
+    // A byte of flags (1: the first record is as changes from frame first - 1, which the host has
+    // acknowledged; else from nothing pressed), then each record as MERGED's ports: its changed fields
+    // (a mask of 0 when none).
+    Port before{};
+    Mouse before_mouse{};
     const Input& base = g_inputs[g_local_port][(first - 1) % kRing];
     const bool after_base = !whole && first > static_cast<uint32_t>(g_delay) + 1 && base.frame == first - 1;
     if (after_base) {
-        before = port_bytes(base.port, base.mouse);
+        before = base.port;
+        before_mouse = base.mouse;
     }
+    w.u8(after_base ? 1 : 0);
     for (uint32_t frame = first; frame < first + count; frame++) {
         const Input& input = g_inputs[g_local_port][frame % kRing];
-        const std::array<uint8_t, kPortBytes> now = port_bytes(input.port, input.mouse);
-        const bool changed = (frame == first && !after_base) || now != before;
-        w.u8(changed ? 1 : frame == first ? 2 : 0);
-        if (changed) {
-            w.bytes(now.data(), kPortBytes);
-        }
-        before = now;
+        write_port(w, changed_fields(before, before_mouse, input.port, input.mouse), input.port, input.mouse);
+        before = input.port;
+        before_mouse = input.mouse;
     }
     const size_t records_end = w.size;
     write_hashes(w);
@@ -1391,25 +1421,23 @@ void on_input(Peer& peer, Reader& r) {
     }
     peer.acked = std::max(peer.acked, std::min(acked, g_merged_upto));
     const uint32_t had = g_input_upto[port];
-    Port p;
-    Mouse m;
+    const uint8_t flags = r.u8();
+    if (!r.ok || flags > 1) {
+        return;  // not this build's packet
+    }
+    Port p{};
+    Mouse m{};
+    if (flags == 1 && count != 0) {
+        // As changes from frame first - 1, which this machine has unless a resend of it is still to come.
+        const Input& base = g_inputs[port][(first - 1) % kRing];
+        if (base.frame != first - 1 || first - 1 > g_input_upto[port]) {
+            return;
+        }
+        p = base.port;
+        m = base.mouse;
+    }
     for (uint32_t frame = first; frame < first + count; frame++) {
-        const uint8_t changed = r.u8();
-        if (changed > 2 || (frame == first && changed == 0) || (frame != first && changed == 2)) {
-            return;  // not this build's packet
-        }
-        if (changed == 2) {
-            // The same as frame first - 1, which this machine has unless a resend of it is still to come.
-            const Input& base = g_inputs[port][(first - 1) % kRing];
-            if (base.frame != first - 1 || first - 1 > g_input_upto[port]) {
-                return;
-            }
-            p = base.port;
-            m = base.mouse;
-        }
-        if (changed == 1) {
-            read_port(r, &p, &m);
-        }
+        read_port(r, &p, &m);
         if (!r.ok) {
             return;
         }
@@ -1461,8 +1489,11 @@ void on_merged(Peer& host, Reader& r) {
             record = base;
             record.frame = frame;
             mask &= static_cast<uint8_t>(~kAfterBase);
-        } else if ((mask & ~kAll) != 0 || (frame == first && mask != kAll)) {
+        } else if ((mask & ~kAll) != 0 || (frame == first && (mask & kTailChanged) == 0)) {
             return;  // not this build's packet
+        } else if (frame == first) {
+            record = Merged{};  // whole: as changes from nothing pressed
+            record.frame = frame;
         }
         for (int port = 0; port < kPorts; port++) {
             if ((mask & (1 << port)) != 0) {
