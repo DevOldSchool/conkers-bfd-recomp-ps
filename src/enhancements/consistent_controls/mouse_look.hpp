@@ -29,6 +29,11 @@ bool playing();
 // 0 when the mouse is not captured.
 float take_turn(int port);
 
+// A tank's turret, which only the C buttons turn, `step` degrees a frame either way: the mouse's
+// sideways motion is owed to it, and this says which way to turn it this frame to pay that off, +1
+// right, -1 left, 0 neither. The camera then does not take the motion. 0 when not captured.
+int take_turret_turn(int port, float step);
+
 // Turns the camera of the player on this port this many degrees to the right this frame, even
 // where the game locks its swing (a multiplayer match; consistent_controls.cpp turns the player
 // with it).
