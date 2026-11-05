@@ -4,8 +4,9 @@
 // keeping Rare's pixels and soft edges, and hands the tiles to RT64 as a texture pack in memory,
 // keyed by the hash RT64 computes for each tile as the game loads it (TMEMHasher). Tiles drawn
 // side by side are enlarged together, so no seams show between them. The button prompts and the
-// multiplayer heads, player pieces and skulls are enlarged too; other pictures (the small statistics icons)
-// are left as they are: they lose their detail when enlarged.
+// multiplayer heads, player pieces and skulls are enlarged too, with the multiplayer menus' other icons
+// and three of the small statistics icons; the rest are left as they are: they lose their detail when
+// enlarged.
 //
 // The speech and thought bubbles are not menu art but come from the same resources, and are
 // enlarged the same way (kBubbles below).
@@ -95,7 +96,29 @@ constexpr Title kTitles[] = {
     {2215, 1, "Tediz head"}, {2211, 1, "SHC head"}, {2220, 1, "Uga Buga head"}, {2203, 1, "Raptor head"},
     // The multiplayer player pieces: one purple figure and a group of blue ones
     {2171, 1, "purple figure"}, {2187, 1, "blue figures"},
+    // The multiplayer menus' other icons (selectors 52, 56, 57 and 61 to 64; the scales and
+    // C buttons enlarge poorly and are left out)
+    {2172, 1, "rodent head"}, {2218, 1, "tank turret"}, {2202, 1, "radar"}, {2222, 1, "stopwatch"},
+    {2205, 1, "red arrows"}, {2116, 1, "mountains"}, {2114, 1, "money bag"},
 };
+
+// The small statistics icons are the 16x16 corners of two tiles, top left, top right, bottom left,
+// bottom right: 2183 the stopwatch, money bag, gravestone and roll; 2184 the skull, crosshair,
+// projectile and purple head. Each chosen corner is enlarged on its own, so its neighbours do not
+// bleed in; the others are enlarged by repeating pixels, which draws as it did.
+struct SmallIcons {
+    int resource;
+    bool sharp[4];
+    const char* name;
+};
+constexpr SmallIcons kSmallIcons[] = {
+    {2183, {false, true, false, false}, "small_stats_1"},
+    {2184, {true, true, false, false}, "small_stats_2"},
+};
+
+// The Rare logo, a 16x16 RGBA32 tile of its own.
+constexpr int kRareLogo = 2204;
+constexpr int kRareLogoSize = 16;
 
 // The small P1 to P4 badges (as on the multiplayer STATS screen) are the four 16x16 corners of one
 // tile, drawn one corner at a time. At 16 pixels Super-xBR has too little to go on, so each corner
@@ -125,17 +148,17 @@ constexpr int kBubbleSize = 64;
 
 // RT64's hash for a tile loaded as the game loads them: LoadBlock to TMEM 0, which puts each
 // texel's red and green in the lower half and its blue and alpha in the upper half.
-uint64_t hash(const menu_art::StoredTile& tile) {
+uint64_t hash(const menu_art::StoredTile& tile, int size = kTile) {
     std::vector<uint8_t> tmem(4096, 0);
-    for (int i = 0; i < kTile * kTile; i++) {
+    for (int i = 0; i < size * size; i++) {
         tmem[i * 2] = tile[i * 4], tmem[i * 2 + 1] = tile[i * 4 + 1];
         tmem[2048 + i * 2] = tile[i * 4 + 2], tmem[2048 + i * 2 + 1] = tile[i * 4 + 3];
     }
     RT64::LoadTile load{};
     load.fmt = 0;  // G_IM_FMT_RGBA
     load.siz = 3;  // G_IM_SIZ_32b
-    load.line = 8;
-    return RT64::TMEMHasher::hash(tmem.data(), load, kTile, kTile, 0, RT64::TMEMHasher::CurrentHashVersion);
+    load.line = size * 2 / 8;
+    return RT64::TMEMHasher::hash(tmem.data(), load, size, size, 0, RT64::TMEMHasher::CurrentHashVersion);
 }
 
 // The small badges' tile, four times larger.
@@ -159,6 +182,33 @@ std::optional<menu_art::Image> small_badges() {
             (to.x1 - to.x0) * kScale, (to.y1 - to.y0) * kScale);
         for (int y = 0; y < fitted.height; y++) {
             std::copy_n(fitted.at(0, y), fitted.width * 4, out.at((cx + to.x0) * kScale, (cy + to.y0) * kScale + y));
+        }
+    }
+    return out;
+}
+
+// `image` enlarged `kScale` times by repeating each pixel.
+menu_art::Image blocky(const menu_art::Image& image) {
+    menu_art::Image out(image.width * kScale, image.height * kScale);
+    for (int y = 0; y < out.height; y++) {
+        for (int x = 0; x < out.width; x++) std::copy_n(image.at(x / kScale, y / kScale), 4, out.at(x, y));
+    }
+    return out;
+}
+
+// A statistics icon tile four times larger, the chosen corners with Super-xBR.
+std::optional<menu_art::Image> small_icons(const SmallIcons& icons) {
+    const std::optional<menu_art::Image> tile = menu_art::load_row(icons.resource, 1);
+    if (!tile) return std::nullopt;
+    menu_art::Image out(kTile * kScale, kTile * kScale);
+    constexpr int kCorner = kTile / 2;
+    for (int i = 0; i < 4; i++) {
+        const int cx = (i % 2) * kCorner, cy = (i / 2) * kCorner;
+        menu_art::Image corner(kCorner, kCorner);
+        for (int y = 0; y < kCorner; y++) std::copy_n(tile->at(cx, y + cy), kCorner * 4, corner.at(0, y));
+        const menu_art::Image big = icons.sharp[i] ? menu_art::super_xbr(corner, kScale) : blocky(corner);
+        for (int y = 0; y < big.height; y++) {
+            std::copy_n(big.at(0, y), big.width * 4, out.at(cx * kScale, cy * kScale + y));
         }
     }
     return out;
@@ -196,6 +246,27 @@ std::optional<Replacement> bubble(const Bubble& bubble) {
     const uint64_t hash = RT64::TMEMHasher::hash(stored.data(), load, kBubbleSize, kBubbleSize, 0,
                                                  RT64::TMEMHasher::CurrentHashVersion);
     return Replacement{std::string("menus/") + bubble.name + ".png", hash,
+                       memory_pack::Pack::encode_png(big.width, big.height, rgba.data())};
+}
+
+// The Rare logo four times larger, keyed by its 16x16 tile's hash. Stored as the 32x32 tiles are,
+// odd rows with the two 8-byte halves of each 16 bytes exchanged.
+std::optional<Replacement> rare_logo() {
+    const std::vector<uint8_t> stored = menu_art::load_resource(kRareLogo);
+    constexpr int kSize = kRareLogoSize;
+    if (stored.size() != size_t(kSize * kSize * 4)) return std::nullopt;
+    menu_art::Image image(kSize, kSize);
+    for (int y = 0; y < kSize; y++) {
+        for (int x = 0; x < kSize; x++) {
+            const uint8_t* p = &stored[size_t(y * kSize + ((y & 1) ? x ^ 2 : x)) * 4];
+            float* q = image.at(x, y);
+            const float a = p[3] / 255.0f;
+            q[0] = p[0] * a, q[1] = p[1] * a, q[2] = p[2] * a, q[3] = p[3];
+        }
+    }
+    const menu_art::Image big = menu_art::super_xbr(image, kScale);
+    const std::vector<uint8_t> rgba = menu_art::to_rgba8(big);
+    return Replacement{"menus/rare_logo.png", hash(stored, kSize),
                        memory_pack::Pack::encode_png(big.width, big.height, rgba.data())};
 }
 
@@ -347,6 +418,14 @@ std::shared_ptr<RT64::FileSystem> make_pack() {
             pack->add(r.path, r.hash, std::move(r.png));
         }
     }
+    for (const SmallIcons& icons : kSmallIcons) {
+        if (const std::optional<menu_art::Image> tile = small_icons(icons)) {
+            for (Replacement& r : split(icons.name, *tile, {hash(*menu_art::load_tile(icons.resource))})) {
+                pack->add(r.path, r.hash, std::move(r.png));
+            }
+        }
+    }
+    if (std::optional<Replacement> r = rare_logo()) pack->add(r->path, r->hash, std::move(r->png));
     for (Replacement& r : skull()) pack->add(r.path, r.hash, std::move(r.png));
     if (const std::optional<menu_art::Image> death = death_skull()) {
         for (Replacement& r : split("death_skull", *death, {hash(*menu_art::load_tile(kDeathSkull))})) {
