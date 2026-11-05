@@ -17,6 +17,8 @@
 // length by is a model instead of the real queue: what the frames made, less 1/30 s at the
 // output rate a frame. It averages out to the real rate, as Rare's choice does.
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <deque>
 
 #include <cstring>
@@ -25,6 +27,7 @@
 #include "recomp.h"
 #include "enhancements/frame_rate/frame_rate.hpp"
 #include "runtime/frame_input.hpp"
+#include "runtime/game.hpp"
 #include "runtime/snapshot.hpp"
 
 extern "C" void func_800095A0(uint8_t* rdram, recomp_context* ctx);
@@ -40,6 +43,7 @@ constexpr uint32_t kShuttingDown = 0x8002AC5C;     // D_8002AC5C (u8)
 constexpr uint32_t kAudioFrameCount = 0x8002AE44;  // D_8002AE44: audio frames made
 constexpr uint32_t kTaskRecords = 0x8003E390;      // D_8003E390: three AudioTaskRecord pointers
 constexpr uint32_t kCompletionQueue = 0x8003E608;  // D_8003E608: the RSP's "audio task done" messages
+constexpr uint32_t kAudioQueue = 0x8003E5D0;       // D_8003E5D0: the audio thread's own (the scheduler's messages)
 constexpr uint32_t kShortFrame = 0x80040F88;       // D_80040F88: samples in a short audio frame
 constexpr uint32_t kLongFrame = 0x80040F8C;        // D_80040F8C: in a long one
 constexpr uint32_t kShortCooldown = 0x80040F84;    // D_80040F84: frames before another short one
@@ -120,6 +124,35 @@ void receive_done(uint8_t* rdram, recomp_context& ctx, const recomp_context* hoo
 
 }  // namespace
 
+// Online sessions the lobby starts turn the fixed step on while the game runs (frame_input.hpp's
+// enter_fixed_step). The audio thread then has a frame's task out whose "done" it would take after
+// making the next frame (unless it has made none yet), and keeps the frame before's record in $s5
+// ($s4 is still 1 before its first frame): the model carries on from there, as the thread would.
+// Only with the thread waiting at the top of its loop (on D_8003E5D0): waiting for a "done" itself, it
+// would take the one the model waits for.
+bool conker::frame_input::take_audio_frames(uint8_t* rdram) {
+    g_in_flight = 0;
+    g_finished.clear();
+    g_calls = 0;
+    if (MEM_BU(0, kseg0(kAudioStarted)) == 0) {
+        g_previous = 0;
+        g_first = true;
+        return true;
+    }
+    if (conker::snapshot::thread_waiting_on(rdram, kCompletionQueue) != nullptr) {
+        return false;
+    }
+    const recomp_context* audio = conker::snapshot::thread_waiting_on(rdram, kAudioQueue);
+    if (audio == nullptr) {
+        return false;
+    }
+    g_first = audio->r20 != 0;
+    const uint32_t previous = static_cast<uint32_t>(audio->r21);
+    g_previous = g_first || !in_rdram(previous) ? 0 : previous;
+    g_in_flight = g_first ? 0 : 1;
+    return true;
+}
+
 // func_80009400, with the message type it just received in $v0: under the fixed step a retrace
 // message does nothing, as the game thread makes the audio frames.
 extern "C" void conker_audio_thread_message(uint8_t* /*rdram*/, recomp_context* ctx) {
@@ -140,6 +173,44 @@ extern "C" void conker_audio_queued(uint8_t* rdram, recomp_context* ctx) {
     g_queued += MEM_W(0, kseg0(short_frame ? kShortFrame : kLongFrame));
 }
 
+namespace {
+
+// CONKER_AUDIO_COUNT_LOG=<file>: after each audio frame, the frame's number and how many of the
+// synth's update params, free/allocated/stopping voices and the sound player's events are free or
+// in use. Machines of a session may hear sounds at different volumes (the online "my view") but
+// must agree on these counts on every frame: a list one machine ran out of drops work only there
+// (an unfreed voice, a lost event), which changes when its sounds end (docs/diagnostics.md).
+constexpr uint32_t kSynth = 0x8002BA44;        // n_syn
+constexpr uint32_t kSoundPlayer = 0x8002BA2C;  // D_8002BA2C
+void log_audio_counts(uint8_t* rdram) {
+    static FILE* const out = [] {
+        const char* path = std::getenv("CONKER_AUDIO_COUNT_LOG");
+        return path != nullptr ? std::fopen(path, "w") : nullptr;
+    }();
+    if (out == nullptr) {
+        return;
+    }
+    const uint32_t synth = static_cast<uint32_t>(MEM_W(0, kseg0(kSynth)));
+    const uint32_t player = static_cast<uint32_t>(MEM_W(0, kseg0(kSoundPlayer)));
+    if (!in_rdram(synth) || !in_rdram(player)) {
+        return;
+    }
+    auto length = [&](uint32_t link) {  // of a list linked through its first word
+        int count = 0;
+        for (; in_rdram(link) && count < 10000; count++) {
+            link = static_cast<uint32_t>(MEM_W(0, kseg0(link)));
+        }
+        return count;
+    };
+    auto list = [&](uint32_t base, uint32_t offset) { return length(static_cast<uint32_t>(MEM_W(offset, kseg0(base)))); };
+    std::fprintf(out, "%u params %d free %d alloc %d lame %d events %d\n",
+                 static_cast<unsigned>(MEM_W(0, kseg0(kAudioFrameCount))), list(synth, 0x40), list(synth, 0x4),
+                 list(synth, 0xC), list(synth, 0x14), list(player, 0x14));
+    std::fflush(out);
+}
+
+}  // namespace
+
 // At the start of each game frame, on the game thread: the audio frame, as func_80009400 makes it.
 void conker::frame_input::make_audio_frame(uint8_t* rdram, recomp_context* hook_ctx) {
     if (!fixed_step() || MEM_BU(0, kseg0(kAudioStarted)) == 0 || MEM_BU(0, kseg0(kShuttingDown)) != 0) {
@@ -157,7 +228,13 @@ void conker::frame_input::make_audio_frame(uint8_t* rdram, recomp_context* hook_
     const uint32_t slot = static_cast<uint32_t>(MEM_W(0, kseg0(kAudioFrameCount))) % 3;
     ctx.r4 = kseg0(static_cast<uint32_t>(MEM_W(4 * slot, kseg0(kTaskRecords))));
     ctx.r5 = kseg0(g_previous);
+    // The registers the recompiled code runs on are the copy's while it runs (the call tracer and
+    // anything else that asks for the thread's context, runtime/game.hpp).
+    recomp_context* const thread_ctx = conker::current_context();
+    conker::set_current_context(&ctx);
     func_800095A0(rdram, &ctx);
+    conker::set_current_context(thread_ctx);
+    log_audio_counts(rdram);
     if (static_cast<int32_t>(ctx.r2) == 0) {
         return;
     }
@@ -171,6 +248,13 @@ void conker::frame_input::make_audio_frame(uint8_t* rdram, recomp_context* hook_
     // not wait here, and the "done" is taken on a later frame.
     g_in_flight++;
     const bool room = MEM_W(0, kseg0(kGameQueueCount)) + 4 < MEM_W(0, kseg0(kGameQueueSize));
+    if (!room && g_in_flight > 0) {
+        static uint32_t full_logged = 0;
+        if (full_logged++ < 20) {
+            std::printf("[conker] audio frame: the game's queue is full (%d of %d); its task's \"done\" is taken later\n",
+                        static_cast<int>(MEM_W(0, kseg0(kGameQueueCount))), static_cast<int>(MEM_W(0, kseg0(kGameQueueSize))));
+        }
+    }
     while (room && g_in_flight > 0) {
         receive_done(rdram, ctx, hook_ctx, message);
     }

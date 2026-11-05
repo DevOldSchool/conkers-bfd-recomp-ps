@@ -41,6 +41,10 @@
 // The story's tank (Saving Private Rodent, scene 14) is actor 1, model 0x28, and Conker stays
 // actor 0 inside it: the tank's u8 +0x13C is 100 + its rider's index (as func_150BDB70 reads a
 // mounted gun's), 100 for Conker, so a player riding a tank gets the tank's controls too.
+// The mouse turns a tank's turret too: only C-left and C-right turn it, 3 degrees a step (TANK's
+// turret is f32 +0x1BC of the player block, logged in a match), so the mouse's sideways motion is
+// owed to the turret and paid off a C press a frame (mouse_look::take_turret_turn), moved right
+// pressing C-right as the stick pushed right does. Online that is the pad every machine reads.
 // Aiming its gun with R (+0x197 2 as on a mounted gun, item 0x1F), the stick aims, X turning the
 // turret and, pushed up, aiming down, and the C buttons do nothing; there the right stick aims,
 // up aiming up, as the shotgun's does.
@@ -90,6 +94,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "enhancements/consistent_controls/consistent_controls.hpp"
+#include "net/net_play.hpp"
 #include "recomp.h"
 #include "enhancements/consistent_controls/mouse_look.hpp"
 #include "enhancements/status.hpp"
@@ -134,6 +140,10 @@ constexpr uint32_t kActorFacing = 0x40;        // f32: degrees from +Z towards +
 constexpr uint32_t kActorFacingAngle = 0x76;   // s16: the facing it is made from, and the one it
 constexpr uint32_t kActorFacingTarget = 0x7A;  // turns towards (0x10000 a turn, 90 degrees behind)
 constexpr float kMatchTurn = 6.0f;             // degrees a 1/30 s step, the right stick pushed fully
+// A tank's turret (TANK's: f32 +0x1BC of the player block, 0 to 360, which func_150ED748 copies to
+// the actor's s16 +0x2E4) turns this many degrees a 1/30 s step while C-left or C-right is held
+// (logged in a match).
+constexpr float kTurretStep = 3.0f;
 
 constexpr int kPad = 0x38;  // func_1501BBB8's frame: controller 1's OSContPad
 constexpr int kPadSize = 6;  // OSContPad, four of them
@@ -154,6 +164,21 @@ std::atomic<bool> g_enabled{[] {
 }();
 
 bool consistent_controls_enabled() { return g_enabled.load(std::memory_order_relaxed); }
+
+// Online every player's own CONSISTENT CONTROLS and camera swap, from their port's record, so that
+// every machine rewrites each pad alike; otherwise this machine's.
+bool port_flag(int pad, uint8_t flag) {
+    return (conker::frame_input::port(pad).flags & flag) != 0;
+}
+
+bool controls_on(int pad) {
+    return conker::net::active() ? pad >= 0 && port_flag(pad, conker::frame_input::Port::kConsistentControls)
+                                 : consistent_controls_enabled();
+}
+
+bool swapped(int pad) {
+    return conker::net::active() ? pad >= 0 && port_flag(pad, conker::frame_input::Port::kCameraSwap) : camera_swapped();
+}
 
 void set_consistent_controls(bool on) {
     g_enabled.store(on);
@@ -234,7 +259,13 @@ bool mouse_aim(int pad, float* x, float* y) {
 // Aims with the right stick (and the port's mouse), up aiming up, and walks with the left
 // stick (or WASD) as the C buttons, on the pad at `at` in the frame. False, leaving the pad
 // alone, when its controller has neither (the keyboard alone, the mouse not captured).
-bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16_t& buttons) {
+// `walk_with_c`: C-up and C-down step forward and back here (a gun, the launcher's scope). Through a
+// match's knife sight they only zoom, so the stick's up and down (W and S) leave them alone there and
+// D-pad up and down (the arrow keys) zoom. Through any sight C-up and C-down step its zoom
+// (func_15126378, all but the story's launcher, 0x0C), and the mouse wheel (or R and T) zooms with
+// them there.
+bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16_t& buttons, bool walk_with_c = true,
+                    bool sight = false) {
     float aim_x;
     float aim_y;
     float mouse_x;
@@ -248,8 +279,15 @@ bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16
     const int walk_x = MEM_B(at + 2, ctx->r29);
     const int walk_y = MEM_B(at + 3, ctx->r29);
     buttons &= static_cast<uint16_t>(~(kCUp | kCDown | kCLeft | kCRight));
-    if (walk_y > kStepAt) buttons |= kCUp;
-    if (walk_y < -kStepAt) buttons |= kCDown;
+    // C-down narrows a sight (zooms in), C-up widens it: the wheel turned away from you zooms in.
+    const int zoom = sight ? conker::mouse_look::take_sight_zoom(pad) : 0;
+    if (walk_with_c) {
+        if (walk_y > kStepAt || zoom < 0) buttons |= kCUp;
+        if (walk_y < -kStepAt || zoom > 0) buttons |= kCDown;
+    } else {
+        if ((buttons & kDUp) || zoom < 0) buttons |= kCUp;
+        if ((buttons & kDDown) || zoom > 0) buttons |= kCDown;
+    }
     if (walk_x < -kStepAt) buttons |= kCLeft;
     if (walk_x > kStepAt) buttons |= kCRight;
     MEM_B(at + 2, ctx->r29) = stick_axis(aim_x);
@@ -383,6 +421,20 @@ bool right_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint1
     return true;
 }
 
+// A tank's turret turned by the port's mouse, as the right stick turns it, through the C buttons:
+// C-right turns it right (the N64's way round, as the stick has it here), so moved right the mouse
+// presses C-right, a frame at a time, until the turret has turned as far as the mouse moved (take_turret_turn).
+// The stick or the keys turning it already are left alone.
+uint16_t turret_with_mouse(uint8_t* rdram, int pad, uint16_t buttons) {
+    if (!conker::mouse_look::playing() || (buttons & (kCLeft | kCRight)) != 0) {
+        return buttons;
+    }
+    const int turn = conker::mouse_look::take_turret_turn(pad, kTurretStep * read_float(rdram, kFrameDelta));
+    if (turn > 0) buttons |= kCRight;
+    if (turn < 0) buttons |= kCLeft;
+    return buttons;
+}
+
 // Rewrites the pad of the player whose block this is, read from controller `pad`.
 void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player, int pad) {
     const int at = kPad + pad * kPadSize;
@@ -397,7 +449,7 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player,
     // In a match whatever aims with a sight (the knives, item 0x14, as much as the launcher) aims
     // as the launcher's scope does, a match's mounted gun (item 0x1B) too; tanks never get here.
     if (launcher_scoped(rdram, player) || (match && sighted(rdram, player))) {
-        if (twin_stick_aim(rdram, ctx, pad, at, buttons)) {
+        if (twin_stick_aim(rdram, ctx, pad, at, buttons, launcher_scoped(rdram, player), true)) {
             MEM_H(at, ctx->r29) = static_cast<int16_t>(step_with_dpad(buttons));
         }
         return;
@@ -425,11 +477,12 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player,
         MEM_H(at, ctx->r29) = static_cast<int16_t>(step_with_dpad(buttons));
         return;
     }
-    if (!aimed && camera_swapped()) {
+    if (!aimed && swapped(pad)) {
         buttons = swap_c_left_right(buttons);
     }
     MEM_H(at, ctx->r29) = static_cast<int16_t>(step_with_dpad(buttons));
 }
+
 
 }  // namespace
 
@@ -437,11 +490,14 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player,
 // them while it is open.
 extern "C" void conker_consistent_controls(uint8_t* rdram, recomp_context* ctx) {
     conker::mouse_look::frame(rdram);
-    if (!consistent_controls_enabled()) {
+    if (!conker::net::active() && !consistent_controls_enabled()) {
         return;
     }
     for (int player = 0; player < players(rdram); player++) {
         const int pad = player_pad(rdram, player);
+        if (!controls_on(pad)) {
+            continue;
+        }
         if (pad >= 0 && in_tank(rdram, player)) {
             const int at = kPad + pad * kPadSize;
             const uint32_t block = player_block(rdram, player);
@@ -455,9 +511,11 @@ extern "C" void conker_consistent_controls(uint8_t* rdram, recomp_context* ctx) 
                 }
                 continue;
             }
-            if (camera_swapped()) {
-                MEM_H(at, ctx->r29) = static_cast<int16_t>(swap_c_left_right(MEM_HU(at, ctx->r29)));
+            uint16_t buttons = MEM_HU(at, ctx->r29);
+            if (swapped(pad)) {
+                buttons = swap_c_left_right(buttons);
             }
+            MEM_H(at, ctx->r29) = static_cast<int16_t>(turret_with_mouse(rdram, pad, buttons));
             continue;
         }
         const uint32_t block = pad >= 0 ? player_block(rdram, player) : 0;
@@ -472,6 +530,9 @@ nlohmann::json conker::status::consistent_controls() {
                        "CONKER_CONSISTENT_CONTROLS");
 }
 
+bool conker::consistent_controls::enabled() { return consistent_controls_enabled(); }
+
 conker::switches::Switch conker::switches::consistent_controls() {
-    return {"CONSISTENT CONTROLS", consistent_controls_enabled, set_consistent_controls};
+    // Each player's own online: it goes with their port (frame_input::Port::kConsistentControls).
+    return {"CONSISTENT CONTROLS", consistent_controls_enabled, set_consistent_controls, true};
 }

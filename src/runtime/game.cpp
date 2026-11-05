@@ -4,6 +4,10 @@
 #include <algorithm>
 #include <cstring>
 #include <stdexcept>
+#include <cfenv>
+#if defined(__x86_64__) || defined(_M_X64)
+#include <xmmintrin.h>
+#endif
 
 #include "funcs.h"
 #include "ultramodern/ultramodern.hpp"
@@ -55,6 +59,7 @@ recomp::GameEntry make_game_entry() {
     entry.thread_create_callback = [](uint8_t*, recomp_context* ctx) {
         set_current_context(ctx);
         use_fr1_float_mode(ctx);
+        use_ieee_float_environment();
         snapshot::note_thread(ctx);
     };
     return entry;
@@ -74,6 +79,27 @@ void use_fr1_float_mode(recomp_context* ctx) {
     ctx->mips3_float_mode = 1;
 }
 
+// Every game thread's float arithmetic as IEEE has it, the same on every machine (online play runs one
+// game on Macs, Linux and Windows PCs together): rounding to nearest (the game sets its own mode
+// through CTC1, set_cop1_cs) and denormals kept, not flushed to zero, whatever a library the process
+// loaded left the thread with (x86-64's MXCSR FTZ/DAZ, arm64's FPCR FZ and default-NaN bits).
+void use_ieee_float_environment() {
+    std::fesetround(FE_TONEAREST);
+#if defined(__x86_64__) || defined(_M_X64)
+    constexpr unsigned kFlushToZero = 0x8000;
+    constexpr unsigned kDenormalsAreZero = 0x0040;
+    _mm_setcsr(_mm_getcsr() & ~(kFlushToZero | kDenormalsAreZero));
+#elif defined(__aarch64__)
+    constexpr uint64_t kFlushToZero16 = uint64_t{1} << 19;
+    constexpr uint64_t kFlushToZero = uint64_t{1} << 24;
+    constexpr uint64_t kDefaultNan = uint64_t{1} << 25;
+    uint64_t fpcr;
+    __asm__ volatile("mrs %0, fpcr" : "=r"(fpcr));
+    fpcr &= ~(kFlushToZero16 | kFlushToZero | kDefaultNan);
+    __asm__ volatile("msr fpcr, %0" : : "r"(fpcr));
+#endif
+}
+
 static thread_local recomp_context* t_current_context = nullptr;
 
 void set_current_context(recomp_context* ctx) { t_current_context = ctx; }
@@ -82,6 +108,7 @@ recomp_context* current_context() { return t_current_context; }
 void entrypoint(uint8_t* rdram, recomp_context* ctx) {
     set_current_context(ctx);
     use_fr1_float_mode(ctx);
+    use_ieee_float_environment();
     snapshot::note_thread(ctx);
     // ROM 0x1000: clear bss and set the stack pointer.
     std::memset(rdram + memory::rdram_offset(memory::kBssStart), 0, memory::kBssSize);

@@ -46,6 +46,7 @@ void stop_listening() {}
 Controls take_heard() { return 0; }
 
 void read_menu(uint16_t* buttons, float* x, float* y) { read(buttons, x, y, 0); }
+void read_menu_pad(uint16_t* buttons, float* x, float* y) { read(buttons, x, y, 0); }
 
 const char* key_row_label(int /*row*/) { return ""; }
 std::vector<int> key_mapping(int /*button*/) { return {}; }
@@ -80,4 +81,7 @@ namespace conker::lobby_ui {
 void open() {}
 void close() {}
 bool is_open() { return false; }
+void frame(uint8_t* /*rdram*/, recomp_context* /*ctx*/) {}
+bool hides_sprite(uint32_t /*resource*/) { return false; }
+bool on_barrels(uint8_t* /*rdram*/) { return false; }
 }  // namespace conker::lobby_ui

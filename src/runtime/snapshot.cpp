@@ -31,9 +31,19 @@ struct Field {
     std::function<bool(const std::vector<uint8_t>&)> load;
     std::function<bool(const std::vector<uint8_t>&)> check;  // before anything is put in place (or none)
 };
-std::vector<Field>& fields() {
+std::vector<Field>& registered_fields() {
     static std::vector<Field> list;
     return list;
+}
+// In name order: modules register their fields from static initialisers, whose order between files
+// is the linker's, and a snapshot goes between machines built by different ones (Macs, Linux, Windows).
+const std::vector<Field>& fields() {
+    static std::vector<Field> sorted;
+    if (sorted.size() != registered_fields().size()) {
+        sorted = registered_fields();
+        std::stable_sort(sorted.begin(), sorted.end(), [](const Field& a, const Field& b) { return a.name < b.name; });
+    }
+    return sorted;
 }
 std::vector<std::function<const char*()>>& checks() {
     static std::vector<std::function<const char*()>> list;
@@ -232,7 +242,7 @@ bool runtime_structures_ok(const Image& image, const std::vector<uint32_t>& thre
 }  // namespace
 
 void add(const char* name, void* data, size_t size, std::function<bool(const uint8_t*)> valid) {
-    fields().push_back({name,
+    registered_fields().push_back({name,
                         [data, size] { return std::vector<uint8_t>(static_cast<uint8_t*>(data), static_cast<uint8_t*>(data) + size); },
                         [data, size](const std::vector<uint8_t>& v) {
                             if (v.size() != size) return false;
@@ -254,7 +264,7 @@ void add_bools(const char* name, bool* data, size_t count) {
 }
 
 void add(const char* name, std::function<std::vector<uint8_t>()> save, std::function<bool(const std::vector<uint8_t>&)> load) {
-    fields().push_back({name, std::move(save), std::move(load), nullptr});
+    registered_fields().push_back({name, std::move(save), std::move(load), nullptr});
 }
 
 void add_check(std::function<const char*()> check) { checks().push_back(std::move(check)); }
@@ -266,6 +276,16 @@ void note_thread(recomp_context* ctx) {
     }
     std::lock_guard lock(g_threads_mutex);
     g_threads.push_back({thread, ctx});
+}
+
+recomp_context* thread_waiting_on(uint8_t* rdram, uint32_t queue) {
+    std::lock_guard lock(g_threads_mutex);
+    for (const Thread& t : g_threads) {
+        if (place_of(rdram, t).queue == queue) {
+            return t.ctx;
+        }
+    }
+    return nullptr;
 }
 
 std::vector<uint8_t> save(uint8_t* rdram, recomp_context* ctx, uint32_t frame, std::string* why) {

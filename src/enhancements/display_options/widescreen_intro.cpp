@@ -34,7 +34,7 @@ float read_float(uint8_t* rdram, uint32_t address) {
 
 // Whether Conker is waiting off the 4:3 view in the intro and the picture is widened.
 bool conker_waiting(uint8_t* rdram) {
-    if (!conker::display::rendered_widescreen() || MEM_W(0, kseg0(kScene)) != kIntroScene ||
+    if (!conker::display::logic_widescreen() || MEM_W(0, kseg0(kScene)) != kIntroScene ||
         MEM_BU(0, kseg0(kConker + kActorModel)) != 0) {
         return false;
     }

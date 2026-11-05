@@ -66,6 +66,8 @@
 #include "net/net_socket.hpp"
 #include "runtime/snapshot.hpp"
 #include "ultramodern/ultramodern.hpp"
+#include "librecomp/game.hpp"
+#include "librecomp/mods.hpp"
 
 namespace {
 
@@ -149,6 +151,9 @@ constexpr int kMaxDrops = 4;            // nor one dropped this often for any re
 constexpr size_t kEepromSize = 0x800;     // 16 kbit
 constexpr size_t kChunkSize = 1024;
 constexpr size_t kMaxPacket = 1500;
+// In place (the lobby's START), connecting gives up after this long: the players were all in the
+// lobby a moment before.
+constexpr int64_t kInPlaceConnectMs = 30000;
 
 #ifdef __APPLE__
 constexpr const char* kOs = "macos";
@@ -216,7 +221,7 @@ struct Options {
     bool internet = CONKER_NET_INTERNET_DEFAULT != 0;
 } g_options;
 
-bool g_active = false;
+std::atomic<bool> g_active{false};  // a session is on (the game thread reads it every frame)
 uint64_t g_secret = 0;  // a guest: its secret (see the wire, above)
 namespace seal = conker::net::seal;
 seal::KeyPair g_host_key;   // the host's: this machine's host key (net_keys.hpp), the same as its lobby's
@@ -406,6 +411,10 @@ struct Peer {
     size_t snap_next = 0;
     int64_t snap_since = 0;
     bool used_snapshot = false;  // rejoined from one, not yet playing again
+    // The host: a guest of a session started in place (the lobby's START), or one rejoining in place,
+    // whose game becomes the host's only from a snapshot: it plays its port once it has played past
+    // the snapshot's frame (until then its hashes are of its own game, and it sends none).
+    bool needs_snapshot = false;
 };
 std::vector<Peer> g_peers;     // the host: its guests; a guest: the host
 
@@ -451,8 +460,60 @@ std::atomic<bool> g_snap_waiting{false};      // a guest's game waits for it
 int64_t g_join_start = 0;                     // a guest: when it began joining
 bool g_live_announced = false;                // a rejoining guest: said when it plays again
 std::atomic<bool> g_catching_up{false};
+// A guest catching up (frame(), game thread): when it began, from which frame, the current check of
+// whether it is catching up at all, whether it has caught up (once only: a guest catches up after
+// joining, then keeps level) and the catch-ups that were not.
+struct CatchUp {
+    int64_t start = 0;
+    uint32_t first = 0;
+    int64_t check_start = 0;
+    int64_t check_waited = 0;
+    bool caught_up = false;
+    int stalled = 0;
+} g_catch_up;
+// How long frames waited for input, printed every 900 frames (30 s) for testing links: the waits of
+// 50 ms or more (stalls a player sees as a hitch), their total and the longest, the round trip.
+struct WaitStats {
+    uint32_t stalls = 0;
+    int64_t stalled_ms = 0;
+    int64_t longest = 0;
+    int64_t waited_ms = 0;
+    uint32_t frames = 0;
+    int64_t started = 0;
+} g_wait_stats;  // game thread
 std::vector<std::string> g_argv;     // the command line, for relaunching to rejoin
 std::vector<std::string> g_plain_argv;  // the command line without the --net options, for the lobby
+
+// Sessions started in place: the lobby's START no longer starts every game again. The session is
+// connected on a thread of its own while the game runs (kConnecting); then, at the start of a frame,
+// the game thread turns the fixed step on (kConnected to kEntering: frame_input's enter_fixed_step,
+// which takes the audio frames from Rare's audio thread), keeps a snapshot of this machine's own
+// game, moves to the session's save copy and the host's settings and counts frames from 0 (kInSession).
+// The host's game goes on from where it is (the title, on the MULTI door); each guest's port is held
+// with nothing pressed until its game has become the host's from a snapshot (the rejoin path: its
+// own game until then is never compared). Leaving puts the snapshot of this machine's own game back,
+// with its save and settings, and turns the fixed step off: the player is where they were before the
+// session. A guest dropped from the session connects again the same way (no restart).
+enum Place : int { kNoPlace = 0, kConnecting, kConnected, kEntering, kInSession, kLeaving };
+std::atomic<int> g_place{kNoPlace};
+bool g_in_place = false;              // this session was started in place
+std::thread g_connect_thread;
+std::atomic<bool> g_net_stop{false};  // the network and connect threads stop
+std::vector<uint8_t> g_return;        // game thread: this machine's own game, put back on leaving
+std::string g_own_settings;           // game thread: this machine's settings before the session
+bool g_own_kept = false;              // game thread: g_return and g_own_settings are this machine's
+std::atomic<bool> g_leave_requested{false};
+std::atomic<bool> g_rejoin_requested{false};
+int64_t g_stop_seen = 0;              // game thread: when it saw the session here stop
+int g_rejoin_port = 0;                // an in-place rejoin: the port asked for (1 to 4)
+uint64_t g_rejoin_secret_kept = 0;    // and this machine's secret, as before
+int g_rejoin_count = 0;               // in-place rejoins in a row
+std::mutex g_place_mutex;
+std::string g_place_message;          // under g_place_mutex: why connecting failed or the session ended
+void set_place_message(const std::string& text) {
+    std::lock_guard lock(g_place_mutex);
+    g_place_message = text;
+}
 
 // Whether a port plays with nothing pressed at frame.
 bool dropped_at(int port, uint32_t frame) {
@@ -499,9 +560,11 @@ Port neutral_port() {
 }
 
 // What a held port reads: connected, with a rumble pak (always, so that the game, which looks at
-// the paks at boot, sees the same as later), the right stick and INVERT AIM as the sender has them.
+// the paks at boot, sees the same as later), the right stick, INVERT AIM, CONSISTENT CONTROLS and the
+// camera swap as the sender has them.
 Port normalized(Port port) {
-    port.flags = Port::kConnected | Port::kRumble | (port.flags & (Port::kRightStick | Port::kInvertAim));
+    port.flags = Port::kConnected | Port::kRumble |
+                 (port.flags & (Port::kRightStick | Port::kInvertAim | Port::kConsistentControls | Port::kCameraSwap));
     return port;
 }
 
@@ -866,6 +929,13 @@ constexpr uint32_t kHashRepeats = 3;
 uint32_t g_hashes_sent_upto = 0;  // under g_mutex: the newest frame whose hash went out
 
 void write_hashes(Writer& w) {
+    // A guest whose game becomes the host's from a snapshot has nothing to compare until then (in place
+    // its frames so far were its own game's).
+    if (g_snap_coming && !g_snap_tried) {
+        w.u32(1);
+        w.u8(0);
+        return;
+    }
     const uint32_t from = g_hashes_sent_upto > kHashRepeats ? g_hashes_sent_upto - kHashRepeats + 1 : 1;
     uint32_t count = std::min({g_own_hash_upto, kHashesPerPacket, g_own_hash_upto >= from ? g_own_hash_upto - from + 1 : 0u});
     if (g_own_hash_upto > g_hashes_sent_upto + kHashesPerPacket || g_own_hash_upto < g_hashes_sent_upto) {
@@ -1400,6 +1470,8 @@ void on_merged(Peer& host, Reader& r) {
             }
         } else if (from == g_rejoin_from) {
             // This machine's own earlier drop, which it is rejoining from.
+        } else if (g_leave_requested.load()) {
+            // The host taking this machine's LEAVE: it is leaving anyway, not dropped.
         } else {
             // Dropped as out of sync, or as gone (not heard from, or its game stuck, which it may get
             // over): the host plays this port with nothing pressed, so the game here stops.
@@ -1441,7 +1513,7 @@ std::filesystem::path data_dir();
 // takes the port in as on a console.
 void on_rejoin_hello(const sockaddr_storage& from, socklen_t from_len, Reader& r, uint64_t secret) {
     const std::string build = r.text(200);
-    const std::string os = r.text(64);
+    r.text(64);  // its OS and CPU: any (net_lobby.cpp's mismatch says why)
     const uint64_t rom = r.u64();
     const int wanted = r.u8();
     const bool no_snapshot = r.u8() != 0;
@@ -1474,8 +1546,6 @@ void on_rejoin_hello(const sockaddr_storage& from, socklen_t from_len, Reader& r
         problem = "a bad HELLO";
     } else if (build != build_text()) {
         problem = "the host runs build " + build_text() + ", this is " + conker::net::printable(build, 40);
-    } else if (os != os_text()) {
-        problem = "the host runs on " + os_text() + ", this on " + conker::net::printable(os, 40);
     } else if (rom != conker::net::rom_hash()) {
         problem = "the host plays another ROM";
     } else if (g_options.token != 0 && !conker::net::same_secret(token, g_options.token)) {
@@ -1562,6 +1632,9 @@ void on_rejoin_hello(const sockaddr_storage& from, socklen_t from_len, Reader& r
     }
     const bool snapshot = !no_snapshot && !g_snap_failed[peer.port] && std::getenv("CONKER_NET_NO_SNAPSHOT") == nullptr;
     peer.blob = session_blob(peer.port, g_drop_frame[peer.port], snapshot);
+    // Its game is the host's only once the snapshot is in place (a machine rejoining in place has not
+    // played the session's frames at all).
+    peer.needs_snapshot = snapshot;
     peer.snap_wanted = 0;
     peer.snap = nullptr;
     peer.used_snapshot = false;
@@ -1579,11 +1652,12 @@ void on_rejoin_hello(const sockaddr_storage& from, socklen_t from_len, Reader& r
 
 // The host, under g_mutex, every tick: a rejoining guest's session and START, and its live frame
 // once it has nearly caught up.
+int64_t g_rejoin_tick_chunks = 0;  // under g_mutex: when rejoin_tick last sent a session's chunks
+
 void rejoin_tick(int64_t now) {
-    static int64_t last_chunks = 0;
-    const bool chunks_due = now - last_chunks >= 100;
+    const bool chunks_due = now - g_rejoin_tick_chunks >= 100;
     if (chunks_due) {
-        last_chunks = now;
+        g_rejoin_tick_chunks = now;
     }
     for (Peer& peer : g_peers) {
         if (!peer.rejoining) {
@@ -1606,13 +1680,15 @@ void rejoin_tick(int64_t now) {
             begin(w, kStart, peer.secret);
             w.u8(static_cast<uint8_t>(g_delay));
             send_to(peer, w);
-        } else if (peer.started && g_peer_played[peer.port] + kLiveWithin >= g_merged_upto) {
+        } else if (peer.started && g_peer_played[peer.port] + kLiveWithin >= g_merged_upto &&
+                   (!peer.needs_snapshot || (peer.snap != nullptr && g_peer_played[peer.port] >= peer.snap_frame))) {
             const uint32_t live = g_merged_upto + kLiveLead;
             g_live_frame[peer.port] = live;
             g_input_upto[peer.port] = live - 1;
             peer.dropped = false;
             peer.rejoining = false;
             peer.used_snapshot = false;
+            peer.needs_snapshot = false;
             peer.snap = nullptr;
             peer.moved_on = now;
             std::printf("[conker] net: player %d has caught up (frame %u of %u) and plays again from frame %u\n",
@@ -1724,13 +1800,14 @@ void snapshot_tick() {
 
 // A guest, under g_mutex, every tick while its game waits for the host's snapshot: asks for it, and
 // says which chunks it has.
+int64_t g_guest_last_want = 0;  // under g_mutex: when the guest last asked for the host's snapshot
+
 void snapshot_guest_tick(int64_t now) {
-    static int64_t last_want = 0;
     if (!g_snap_waiting.load() || g_peers.empty()) {
         return;
     }
-    if (g_snap_have.empty() && now - last_want >= 200) {
-        last_want = now;
+    if (g_snap_have.empty() && now - g_guest_last_want >= 200) {
+        g_guest_last_want = now;
         Writer w;
         begin(w, kSnapWant, g_secret);
         send_to(g_peers[0], w);
@@ -1758,16 +1835,26 @@ void snapshot_guest_tick(int64_t now) {
 // host refuses a player dropped kMaxDrops times sooner.
 constexpr int kMaxRelaunches = kMaxDrops;
 
+bool g_relaunch_started = false;  // under g_mutex: relaunch_to_rejoin has acted for this drop
+
 void relaunch_to_rejoin() {
-    static bool started = false;
-    if (started || is_host() || g_argv.empty() || std::getenv("CONKER_NET_NO_REJOIN") != nullptr) {
+    if (g_relaunch_started || is_host() || (g_argv.empty() && !g_in_place) || std::getenv("CONKER_NET_NO_REJOIN") != nullptr) {
         return;
     }
     const int stop = g_stopped.load();
     if (stop != kStoppedOutOfSync && stop != kStoppedDropped) {
         return;
     }
-    started = true;
+    g_relaunch_started = true;
+    if (g_in_place) {
+        // The game thread connects again (rejoin_in_place), the game going on meanwhile.
+        if (g_rejoin_count >= kMaxRelaunches) {
+            std::printf("[conker] net: dropped by the host %d times in a row: not rejoining\n", g_rejoin_count + 1);
+            return;
+        }
+        g_rejoin_requested.store(true);
+        return;
+    }
     const char* count_text = std::getenv("CONKER_NET_REJOIN_COUNT");
     const int count = count_text != nullptr ? std::atoi(count_text) : 0;
     if (count >= kMaxRelaunches) {
@@ -1867,7 +1954,7 @@ void network_thread() {
     int64_t last_send = 0;
     int64_t last_update = 0;
     uint8_t buffer[kMaxPacket + 64];
-    for (;;) {
+    while (!g_net_stop.load()) {
         for (int wait = static_cast<int>(kSendEveryMs);; wait = 0) {
             sockaddr_storage from{};
             socklen_t from_len = sizeof(from);
@@ -2089,10 +2176,43 @@ ssize_t receive(uint8_t* buffer, size_t size, sockaddr_storage* from, socklen_t*
     }
 }
 
+// The mods this run loaded, as "+mods-<hash>" ("" for none). A session started in place keeps the mods
+// the game started with (only one from the command line starts without any), and a mod on one machine
+// and not the others puts them out of sync: so they are part of the build the handshake compares. The
+// mods on when the lobby first asks (switching one on the MODS page applies only after a restart, so
+// this can be wrong only until then).
+std::string mods_text() {
+    static const std::string text = [] {
+        if (g_active.load()) {
+            return std::string();  // from the command line: no mods loaded (game.cpp)
+        }
+        std::vector<std::string> on;
+        for (const recomp::mods::ModDetails& details : recomp::mods::get_all_mod_details("conker")) {
+            if (recomp::mods::is_mod_enabled(details.mod_id) || recomp::mods::is_mod_auto_enabled(details.mod_id)) {
+                on.push_back(details.mod_id + "@" + details.version.to_string());
+            }
+        }
+        if (on.empty()) {
+            return std::string();
+        }
+        std::sort(on.begin(), on.end());
+        uint64_t hash = 0xCBF29CE484222325ull;
+        for (const std::string& mod : on) {
+            for (const char c : mod + ";") {
+                hash = (hash ^ static_cast<uint8_t>(c)) * 0x100000001B3ull;
+            }
+        }
+        char suffix[32];
+        std::snprintf(suffix, sizeof(suffix), "+mods-%08x", static_cast<uint32_t>(hash ^ (hash >> 32)));
+        return std::string(suffix);
+    }();
+    return text;
+}
+
 // CONKER_NET_TEST_BUILD=<text> poses as another build, to see the handshake and the lobby refuse it.
 std::string build_text() {
     const char* test = std::getenv("CONKER_NET_TEST_BUILD");
-    return test != nullptr ? std::string(test) : std::string(CONKER_BUILD_VERSION);
+    return test != nullptr ? std::string(test) : std::string(CONKER_BUILD_VERSION) + mods_text();
 }
 std::string os_text() { return std::string(kOs) + "-" + kCpu; }
 // CONKER_NET_TEST_ROM=<hex> poses as another ROM, the same way.
@@ -2151,9 +2271,15 @@ bool host_connect() {
     g_session = random() | 1;
     g_local_port = 0;
     g_eeprom = read_own_eeprom();
-    // The window does not exist yet, so the widescreen switch is read for the mode it will open in.
-    g_wide = conker::display::widescreen(conker::display::startup_mode());
+    // From the command line the window does not exist yet, so the widescreen switch is read for the
+    // mode it will open in; in place, the window's.
+    g_wide = conker::display::widescreen(g_in_place ? conker::display::current() : conker::display::startup_mode());
     g_settings = conker::frame_input::settings_header();
+    // In place, the fixed step comes on as the session starts, after this header is made.
+    const std::string fixed_text = "fixed_step=0";
+    if (const size_t at = g_settings.find(fixed_text); g_in_place && at != std::string::npos) {
+        g_settings[at + fixed_text.size() - 1] = '1';
+    }
     const std::string wide_line = "# switch WIDESCREEN=";
     if (const size_t at = g_settings.find(wide_line); at != std::string::npos) {
         g_settings[at + wide_line.size()] = g_wide ? '1' : '0';
@@ -2178,8 +2304,20 @@ bool host_connect() {
     std::vector<std::vector<uint8_t>> blobs;
     int64_t last_send = 0;
     int64_t last_note = now_ms();
+    const int64_t host_started = last_note;
     uint8_t buffer[kMaxPacket + 64];
     for (;;) {
+        if (g_net_stop.load()) {
+            return false;
+        }
+        // In place, the lobby's players come within seconds of its START, or not at all.
+        if (g_in_place && now_ms() - host_started >= kInPlaceConnectMs) {
+            std::fprintf(stderr, "[conker] net: not every player came within %lld s of the start\n",
+                         static_cast<long long>(kInPlaceConnectMs / 1000));
+            set_place_message("Not every player came within " + std::to_string(kInPlaceConnectMs / 1000) +
+                              " s of the start: their game may have been closed, or the network lost.");
+            return false;
+        }
         sockaddr_storage from{};
         socklen_t from_len = 0;
         const ssize_t got = receive(buffer, sizeof(buffer), &from, &from_len, 20);
@@ -2222,9 +2360,6 @@ bool host_connect() {
                 std::string problem;
                 if (build != build_text()) {
                     problem = "the host runs build " + build_text() + ", this is " + conker::net::printable(build, 40);
-                } else if (os != os_text()) {
-                    problem = "the host runs on " + os_text() + ", this on " + conker::net::printable(os, 40) +
-                              " (the same OS and CPU are needed for now)";
                 } else if (rom != conker::net::rom_hash()) {
                     problem = "the host plays another ROM";
                 } else if (g_options.token != 0 && !conker::net::same_secret(token, g_options.token)) {
@@ -2258,9 +2393,11 @@ bool host_connect() {
                 joined.channel = g_contact;
                 joined.last_heard = now;
                 g_peers.push_back(joined);
-                blobs.push_back(session_blob(joined.port, 0, false));
-                std::printf("[conker] net: player %d joined from %s\n", joined.port + 1,
-                            address_text(from, from_len).c_str());
+                // In place, the guest's game becomes the host's from a snapshot, so its port is held with
+                // nothing pressed from frame 1 until it has (host_in_place_start).
+                blobs.push_back(g_in_place ? session_blob(joined.port, 1, true) : session_blob(joined.port, 0, false));
+                std::printf("[conker] net: player %d joined from %s (%s)\n", joined.port + 1,
+                            address_text(from, from_len).c_str(), conker::net::printable(os, 40).c_str());
                 g_offer_players.store(static_cast<int>(g_peers.size()) + 1);
                 g_offer_joinable.store(static_cast<int>(g_peers.size()) + 1 < g_options.players);
                 last_send = 0;
@@ -2386,6 +2523,9 @@ uint64_t rejoin_secret(const std::string& host_address) {
         std::snprintf(token, sizeof(token), "#%016llx", static_cast<unsigned long long>(g_options.token));
         address += token;
     }
+    if (g_rejoin_secret_kept != 0) {
+        return g_rejoin_secret_kept;
+    }
     if (const char* env = std::getenv("CONKER_NET_REJOIN_SECRET")) {
         if (const uint64_t value = std::strtoull(env, nullptr, 16); value != 0) {
             return value;
@@ -2456,6 +2596,16 @@ bool guest_connect() {
     uint8_t buffer[kMaxPacket + 64];
     for (;;) {
         const int64_t now = now_ms();
+        if (g_net_stop.load()) {
+            return false;
+        }
+        if (g_in_place && now - started >= kInPlaceConnectMs) {
+            std::fprintf(stderr, "[conker] net: the host's session did not start within %lld s\n",
+                         static_cast<long long>(kInPlaceConnectMs / 1000));
+            set_place_message("The host's session did not start within " + std::to_string(kInPlaceConnectMs / 1000) +
+                              " s. Its game may have been closed, or a firewall blocks the game.");
+            return false;
+        }
         if (blob.empty() && now - last_hello >= 250 && !keyed) {
             // The host's key first (net_seal.hpp).
             last_hello = now;
@@ -2469,8 +2619,10 @@ bool guest_connect() {
             w.text(os_text(), 64);
             w.u64(conker::net::rom_hash());
             const char* rejoin = std::getenv("CONKER_NET_REJOIN_PORT");
-            w.u8(static_cast<uint8_t>(rejoin != nullptr ? std::atoi(rejoin) : g_options.want_port));
-            w.u8(std::getenv("CONKER_NET_NO_SNAPSHOT") != nullptr ? 1 : 0);  // replay, not a snapshot
+            w.u8(static_cast<uint8_t>(g_rejoin_port != 0 ? g_rejoin_port
+                                      : rejoin != nullptr ? std::atoi(rejoin) : g_options.want_port));
+            // Replay, not a snapshot (in place there is no replay: the game here is not the session's).
+            w.u8(!g_in_place && std::getenv("CONKER_NET_NO_SNAPSHOT") != nullptr ? 1 : 0);
             w.u64(cookie);
             w.u64(g_options.token);
             uint8_t out[sizeof(w.data) + seal::kFirstOverhead];
@@ -2512,6 +2664,8 @@ bool guest_connect() {
             uint8_t known[32];
             if (!keyed && !g_expected.has_key && !g_expected.has_fingerprint &&
                 conker::net::keys::known_host(g_options.address, known) && std::memcmp(known, offered_key, 32) != 0) {
+                set_place_message("The host's key has changed since this machine last joined it: another machine "
+                                  "posing as the host?");
                 std::fprintf(stderr, "[conker] net: %s's key has changed since this machine last joined it (key check "
                              "%s, was %s): another machine posing as the host? Not joining it. If the host shows key "
                              "check %s, join with --net-host-key %s\n", g_options.address.c_str(),
@@ -2547,8 +2701,9 @@ bool guest_connect() {
             continue;
         }
         if (type == kReject) {
-            std::fprintf(stderr, "[conker] net: the host turned this machine away: %s\n",
-                         conker::net::printable(r.text(200), 200).c_str());
+            const std::string why = conker::net::printable(r.text(200), 200);
+            std::fprintf(stderr, "[conker] net: the host turned this machine away: %s\n", why.c_str());
+            set_place_message("The host turned this machine away: " + why);
             return false;
         }
         if (type == kCookie) {
@@ -2599,9 +2754,20 @@ bool guest_connect() {
                     }
                     if (!b.ok || g_local_port < 1 || g_local_port >= kPorts || (g_ports & (1 << g_local_port)) == 0) {
                         std::fprintf(stderr, "[conker] net: the host's session could not be read\n");
+                        set_place_message("The host's session could not be read.");
                         return false;
                     }
-                    if (g_rejoin_from != 0 && newcomer) {
+                    // In place the game here is not the session's (nor a fresh boot to replay it from):
+                    // only the host's snapshot makes it so.
+                    if (g_in_place && (!g_snap_coming || g_rejoin_from == 0)) {
+                        std::fprintf(stderr, "[conker] net: the host sends no snapshot of its game; cannot join in place\n");
+                        set_place_message("The host could not send its game to this machine.");
+                        return false;
+                    }
+                    if (g_in_place && g_rejoin_from == 1 && g_rejoin_port == 0) {
+                        std::printf("[conker] net: in the session as player %d; the host's game comes as a snapshot\n",
+                                    g_local_port + 1);
+                    } else if (g_rejoin_from != 0 && newcomer) {
                         std::printf("[conker] net: joining the running session as player %d (its port held from "
                                     "frame %u; plugged in outside a match); catching up\n", g_local_port + 1,
                                     g_rejoin_from);
@@ -2680,9 +2846,11 @@ const Glyph* glyph(char c) {
 }
 
 // The display list the renderer runs in place of the game's (two of them, used in turn, so that the
-// one RT64 may still be reading is not rewritten).
-constexpr uint32_t kOverlayLists[] = {0x807FD000, 0x807FE000};
-constexpr uint32_t kOverlaySize = 0x1000;
+// one RT64 may still be reading is not rewritten), room for the lobby's session page too: a
+// rectangle for each run of lit pixels in a glyph's row. The renderer's "my view" copy of RDRAM
+// takes the scratch memory from here up (renderer_rt64.cpp's draw_from): keep them above it.
+constexpr uint32_t kOverlayLists[] = {0x807D0000, 0x807D8000};
+constexpr uint32_t kOverlaySize = 0x8000;
 constexpr int kTextX = 12;
 constexpr int kTextY = 214;  // the bottom left, clear of the HUD
 
@@ -2768,7 +2936,113 @@ ColorImage last_color_image(const uint8_t* rdram, uint32_t list) {
     return {};
 }
 
-void draw_text(ListWriter& list, const std::string& text, int x0, int y0) {
+// --- the game's own font, drawn from this list ----------------------------------------------------------
+//
+// As func_150417AC draws a glyph (its commands were read off a frame's list): the glyphs' pictures are
+// the game's own, made at boot into 224-byte I8 buffers (*D_80085990, one a glyph, in the order of the
+// character table D_80085930; src/enhancements/sharp_font), which every machine holds the same and this
+// only reads. Each is loaded through tile 1 as 16-bit words and drawn from tile 3 as I8, the primitive
+// colour times its intensity. The sizes and spacing come from the ROM's font records, as the game
+// lays text out (func_150428D4): the advance is width + extra - 1 texels, a space 4.
+constexpr uint32_t kCharacterTable = 0x085930;  // D_80085930
+constexpr uint32_t kGlyphBuffers = 0x085990;    // D_80085990
+constexpr uint32_t kGlyphBytes = 224;
+constexpr int kGlyphCount = 95;
+constexpr uint32_t kFontRecords = 0x40F10;      // ROM, as sharp_font.cpp
+constexpr uint32_t kFontRecordsEnd = 0x42450;
+
+struct FontGlyph {
+    int width = 0;   // record byte 0 + 1
+    int stride = 0;  // the buffer's row, a multiple of 8
+    int rows = 0;    // height + 1: a zero row above
+    int extra = 0;
+    int top = 0;
+};
+
+const std::vector<FontGlyph>& font_glyphs() {
+    static const std::vector<FontGlyph> glyphs = [] {
+        std::vector<FontGlyph> out;
+        const std::span<const uint8_t> rom = recomp::get_rom();
+        uint32_t cursor = kFontRecords;
+        while (rom.size() >= kFontRecordsEnd && cursor + 0xF < kFontRecordsEnd && out.size() < kGlyphCount) {
+            const uint8_t* r = rom.data() + cursor;
+            const uint32_t size = (uint32_t(r[4]) << 24) | (uint32_t(r[5]) << 16) | (uint32_t(r[6]) << 8) | r[7];
+            if (size == 0) {
+                return std::vector<FontGlyph>{};
+            }
+            FontGlyph g;
+            g.width = r[0] + 1;
+            g.stride = (g.width + 7) & ~7;
+            g.rows = r[1] + 2;
+            g.extra = r[2];
+            g.top = r[3];
+            out.push_back(g);
+            cursor += size;
+        }
+        return out.size() == kGlyphCount ? out : std::vector<FontGlyph>{};
+    }();
+    return glyphs;
+}
+
+// The glyph for a character (lower case as upper case), or -1.
+int glyph_index(const uint8_t* rdram, char c) {
+    if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 0x20);
+    for (int i = 0; i < kGlyphCount; i++) {
+        if (rdram[(kCharacterTable + i) ^ 3] == static_cast<uint8_t>(c)) return i;
+    }
+    return -1;
+}
+
+uint32_t glyph_buffers(const uint8_t* rdram) {
+    uint32_t value;
+    std::memcpy(&value, rdram + kGlyphBuffers, 4);
+    value &= 0x00FFFFFF;
+    return value != 0 && value + kGlyphCount * kGlyphBytes <= 0x400000 && !font_glyphs().empty() ? value : 0;
+}
+
+// Pixels wide at `scale` (a pixel a texel at 1).
+float game_text_width(const uint8_t* rdram, const std::string& text, float scale) {
+    float width = 0.0f;
+    for (const char c : text) {
+        const int i = c == ' ' ? -1 : glyph_index(rdram, c);
+        width += (i < 0 ? 4.0f : static_cast<float>(font_glyphs()[i].width + font_glyphs()[i].extra - 1)) * scale;
+    }
+    return width;
+}
+
+void draw_game_text(ListWriter& list, const uint8_t* rdram, uint32_t buffers, const std::string& text, float x, float y,
+                    float scale, uint32_t color) {
+    list.command(0xE7000000u, 0);
+    list.command(0xEF002C3Fu, 0x00504240u);  // the other modes the game's text has
+    list.command(0xF5900000u, 0x01080200u);  // tile 1: the load, 16-bit
+    list.command(0xFCFFB3FFu, 0xFF65FEFFu);  // the primitive colour, the texture's intensity its alpha
+    list.command(0xFA000000u, color);
+    const uint32_t step = static_cast<uint32_t>(std::lround(1024.0f / scale)) & 0xFFFF;  // s5.10
+    for (const char c : text) {
+        const int i = c == ' ' ? -1 : glyph_index(rdram, c);
+        if (i < 0) {
+            x += 4.0f * scale;
+            continue;
+        }
+        const FontGlyph& g = font_glyphs()[i];
+        const uint32_t ulx = static_cast<uint32_t>(std::lround(x * 4.0f));
+        const uint32_t uly = static_cast<uint32_t>(std::lround((y + g.top * scale) * 4.0f));
+        const uint32_t lrx = ulx + static_cast<uint32_t>(std::lround(g.stride * scale * 4.0f));
+        const uint32_t lry = uly + static_cast<uint32_t>(std::lround(g.rows * scale * 4.0f));
+        x += static_cast<float>(g.width + g.extra - 1) * scale;
+        if (lrx >= 0x1000 || lry >= 0x1000) continue;
+        list.command(0xE7000000u, 0);
+        list.command(0xF5880000u | (static_cast<uint32_t>(g.stride / 8) << 9), 0x03080200u);  // tile 3: I8, clamped
+        list.command(0xF2000000u, (3u << 24) | (static_cast<uint32_t>(g.stride - 1) * 4 << 12) | (static_cast<uint32_t>(g.rows - 1) * 4));
+        list.command(0xFD900000u, 0x80000000u | (buffers + static_cast<uint32_t>(i) * kGlyphBytes));
+        list.command(0xF3000000u, (1u << 24) | (static_cast<uint32_t>(g.stride * g.rows / 2 - 1) << 12));
+        list.command(0xE4000000u | (lrx << 12) | lry, (3u << 24) | (ulx << 12) | uly);
+        list.command(0xE1000000u, 0);  // s, t: from the picture's corner
+        list.command(0xF1000000u, (step << 16) | step);
+    }
+}
+
+void draw_text(ListWriter& list, const std::string& text, int x0, int y0, int scale = 1) {
     int x = x0;
     for (const char c : text) {
         const Glyph* g = glyph(c);
@@ -2785,12 +3059,12 @@ void draw_text(ListWriter& list, const std::string& text, int x0, int y0) {
                     while (col + run < 5 && (g->rows[row] & (0x10 >> (col + run))) != 0) {
                         run++;
                     }
-                    list.rect(x + col, y0 + row, run, 1);
+                    list.rect(x + col * scale, y0 + row * scale, run * scale, scale);
                     col += run;
                 }
             }
         }
-        x += 6;
+        x += 6 * scale;
     }
 }
 
@@ -2798,15 +3072,14 @@ void draw_text(ListWriter& list, const std::string& text, int x0, int y0) {
 
 namespace conker::net {
 
-bool parse_args(int* argc, char** argv) {
-    if (!sockets_init()) {
-        std::fprintf(stderr, "[conker] net: sockets cannot be used: %s\n", socket_error_text().c_str());
-    }
-    g_argv.assign(argv, argv + *argc);
-    std::vector<char*> kept;
-    for (int i = 0; i < *argc; i++) {
+namespace {
+
+// The --net options in argv into g_options (the others into kept). False, with a message, on a bad one.
+bool parse_net_options(int argc, char** argv, std::vector<char*>* kept_out) {
+    std::vector<char*>& kept = *kept_out;
+    for (int i = 0; i < argc; i++) {
         const std::string arg = argv[i];
-        const bool has_value = i + 1 < *argc && argv[i + 1][0] != '-';
+        const bool has_value = i + 1 < argc && argv[i + 1][0] != '-';
         if (arg == "--net-host") {
             g_options.host = true;
             if (has_value && std::strchr(argv[i + 1], '.') == nullptr && std::atoi(argv[i + 1]) > 0) {
@@ -2838,7 +3111,7 @@ bool parse_args(int* argc, char** argv) {
             }
             g_options.want_port = std::atoi(argv[++i]);
         } else if (arg == "--net-name") {
-            if (i + 1 >= *argc) {
+            if (i + 1 >= argc) {
                 std::fprintf(stderr, "[conker] --net-name needs a name\n");
                 return false;
             }
@@ -2891,6 +3164,20 @@ bool parse_args(int* argc, char** argv) {
             return false;
         }
     }
+    return true;
+}
+
+}  // namespace
+
+bool parse_args(int* argc, char** argv) {
+    if (!sockets_init()) {
+        std::fprintf(stderr, "[conker] net: sockets cannot be used: %s\n", socket_error_text().c_str());
+    }
+    g_argv.assign(argv, argv + *argc);
+    std::vector<char*> kept;
+    if (!parse_net_options(*argc, argv, &kept)) {
+        return false;
+    }
     g_plain_argv.assign(kept.begin(), kept.end());
     for (size_t i = 0; i < kept.size(); i++) {
         argv[i] = kept[i];
@@ -2929,6 +3216,161 @@ void relaunch(const std::vector<std::string>& net_args) {
 }
 
 void say_goodbye();
+// Once: say_goodbye at exit (registered after the threads it stops exist, so it runs before they go).
+void register_goodbye() {
+    static const bool goodbye = (std::atexit(say_goodbye), true);
+    (void)goodbye;
+}
+void say_goodbye_now();
+
+namespace {
+
+// Connected (either way): the session's first frames, and the network thread.
+void finish_connect() {
+    for (int port = 0; port < kPorts; port++) {
+        g_input_upto[port] = static_cast<uint32_t>(g_delay);
+        g_unplugged[port] = (g_start_ports & (1 << port)) == 0;  // nobody's: a newcomer's comes in later
+    }
+    g_merged_upto = static_cast<uint32_t>(g_delay);
+    g_session_start.store(now_ms());
+    g_net_stop.store(false);
+    g_thread = std::thread(network_thread);
+    register_goodbye();
+}
+
+// The host of a session started in place: each guest's game becomes the host's from a snapshot, so
+// its port is held with nothing pressed from frame 1 (as a newcomer's) until it has played past it.
+void host_in_place_start() {
+    std::lock_guard lock(g_mutex);
+    const int64_t now = now_ms();
+    for (Peer& peer : g_peers) {
+        peer.dropped = true;
+        peer.rejoining = true;
+        peer.needs_snapshot = true;
+        peer.dropped_at = now;
+        peer.last_heard = now;
+        g_drop_frame[peer.port] = 1;
+        g_drop_reason[peer.port] = kNew;
+        g_live_frame[peer.port] = 0;
+    }
+}
+
+// Every session's state back to how a run starts, for the next session in place.
+void reset_session() {
+    std::lock_guard lock(g_mutex);
+    g_socket = -1;
+    g_session = 0;
+    g_local_port = 0;
+    g_ports = 0;
+    g_start_ports = 0;
+    g_delay = 2;
+    g_settings.clear();
+    g_wide = false;
+    g_eeprom.clear();
+    for (auto& ring : g_inputs) {
+        std::fill(std::begin(ring), std::end(ring), Input{});
+    }
+    std::fill(std::begin(g_input_upto), std::end(g_input_upto), 0u);
+    std::fill(std::begin(g_merged), std::end(g_merged), Merged{});
+    g_history.clear();
+    g_host_upto = 0;
+    g_merged_upto = 0;
+    std::fill(std::begin(g_own_hashes), std::end(g_own_hashes), Hash{});
+    g_own_hash_upto = 0;
+    g_own_hash_history.clear();
+    g_own_hash_base = 0;
+    for (auto& ring : g_peer_hashes) {
+        std::fill(std::begin(ring), std::end(ring), Hash{});
+    }
+    std::fill(std::begin(g_peer_played), std::end(g_peer_played), 0u);
+    g_peers.clear();
+    std::fill(std::begin(g_drop_frame), std::end(g_drop_frame), 0u);
+    std::fill(std::begin(g_drop_reason), std::end(g_drop_reason), uint8_t{0});
+    std::fill(std::begin(g_live_frame), std::end(g_live_frame), 0u);
+    std::fill(std::begin(g_desyncs), std::end(g_desyncs), 0);
+    std::fill(std::begin(g_drops), std::end(g_drops), 0);
+    g_rejoin_from = 0;
+    std::fill(std::begin(g_snap_failed), std::end(g_snap_failed), false);
+    g_snap_requested.store(false);
+    g_snap_blob = nullptr;
+    g_snap_frame = 0;
+    g_snap_serial = 0;
+    g_snap_coming = false;
+    g_snap_tried = false;
+    g_snap_data.clear();
+    g_snap_have.clear();
+    g_snap_have_count = 0;
+    g_snap_of = 0;
+    g_snap_waiting.store(false);
+    g_join_start = 0;
+    g_live_announced = false;
+    g_catching_up.store(false);
+    g_stopped.store(kPlaying);
+    std::fill(std::begin(g_unplugged), std::end(g_unplugged), false);
+    g_stopped_frame = 0;
+    g_host_waiting_for = 0;
+    g_waiting.store(false);
+    g_stall_seen.store(0);
+    g_stall_port.store(-1);
+    g_hashes_sent_upto = 0;
+    for (Detail& detail : g_details) {
+        detail = Detail{};
+    }
+    g_relaunch_started = false;
+    g_secret = 0;
+    g_session_start.store(0);
+    g_catch_up = CatchUp{};
+    g_wait_stats = WaitStats{};
+    g_rejoin_tick_chunks = 0;
+    g_guest_last_want = 0;
+}
+
+// Stops the network thread and closes the session's socket (in place: leaving, or connecting again).
+void stop_network() {
+    g_net_stop.store(true);
+    wake_game_thread();
+    if (g_connect_thread.joinable()) {
+        g_connect_thread.join();
+    }
+    if (g_thread.joinable()) {
+        g_thread.join();
+    }
+    if (g_socket >= 0) {
+        conker::net::socket_close(g_socket);
+        g_socket = -1;
+    }
+    conker::net::lobby::stop_discovery();
+    if (is_host() && g_options.map) {
+        conker::net::portmap::close();
+    }
+}
+
+// The connect thread of a session started in place.
+void connect_in_place() {
+    const bool connected = g_options.host ? host_connect() : guest_connect();
+    if (!connected) {
+        if (g_socket >= 0) {
+            conker::net::socket_close(g_socket);
+            g_socket = -1;
+        }
+        conker::net::lobby::stop_discovery();
+        if (!g_net_stop.load()) {
+            std::lock_guard lock(g_place_mutex);
+            if (g_place_message.empty()) {
+                g_place_message = "Could not connect the session (the log says why).";
+            }
+        }
+        g_place.store(kNoPlace);
+        return;
+    }
+    if (is_host()) {
+        host_in_place_start();
+    }
+    finish_connect();
+    g_place.store(kConnected);
+}
+
+}  // namespace
 
 bool connect() {
     if (!g_active) {
@@ -2952,16 +3394,9 @@ bool connect() {
     if (!connected) {
         return false;
     }
-    for (int port = 0; port < kPorts; port++) {
-        g_input_upto[port] = static_cast<uint32_t>(g_delay);
-        g_unplugged[port] = (g_start_ports & (1 << port)) == 0;  // nobody's: a newcomer's comes in later
-    }
-    g_merged_upto = static_cast<uint32_t>(g_delay);
-    g_session_start.store(now_ms());
+    finish_connect();
     conker::display::set_logic_aspect(g_wide ? 16.0f / 9.0f : float(conker::display::kPictureWidth) / conker::display::kPictureHeight);
-    g_thread = std::thread(network_thread);
     g_thread.detach();
-    std::atexit(say_goodbye);
     return true;
 }
 
@@ -2970,7 +3405,19 @@ bool connect() {
 // learns the host is gone at once. Sent directly, past the simulated link. A crash or a kill sends
 // nothing; the grace covers those.
 void say_goodbye() {
-    if (!g_active || g_socket < 0 || g_stopped.load() == kHostLeft) {
+    if (g_active.load() && g_socket >= 0 && g_stopped.load() != kHostLeft) {
+        say_goodbye_now();
+    }
+    // A session started in place keeps its network (and connect) thread joinable; a std::thread still
+    // joinable when exit() destroys it ends the program with std::terminate (an abort at every quit
+    // from a session). Stopped and joined here, before the statics go.
+    if (g_thread.joinable() || g_connect_thread.joinable()) {
+        stop_network();
+    }
+}
+
+void say_goodbye_now() {
+    if (g_socket < 0 || g_stopped.load() == kHostLeft) {
         return;
     }
     std::unique_lock lock(g_mutex, std::defer_lock);
@@ -3033,16 +3480,6 @@ const std::string& host_settings() { return g_settings; }
 
 namespace {
 
-// How long frames waited for input, printed every 900 frames (30 s) for testing links: the waits of
-// 50 ms or more (stalls a player sees as a hitch), their total and the longest, the round trip.
-struct WaitStats {
-    uint32_t stalls = 0;
-    int64_t stalled_ms = 0;
-    int64_t longest = 0;
-    int64_t waited_ms = 0;
-    uint32_t frames = 0;
-    int64_t started = 0;
-} g_wait_stats;  // game thread
 
 void note_wait(uint32_t frame, int64_t waited) {
     WaitStats& stats = g_wait_stats;
@@ -3181,6 +3618,17 @@ uint32_t load_snapshot(uint8_t* rdram, uint32_t frame) {
     }
     std::lock_guard lock(g_mutex);
     g_snap_tried = true;
+    if (raw.empty() && g_in_place) {
+        // Nothing to replay from: the game here never was the session's.
+        std::fprintf(stderr, "[conker] net: no snapshot (%s): cannot play in this session\n", why.c_str());
+        set_place_message("The host's game did not reach this machine (" + why + ").");
+        g_relaunch_started = true;  // nothing to rejoin with
+        int playing = kPlaying;
+        if (g_stopped.compare_exchange_strong(playing, kStoppedDropped)) {
+            g_stopped_frame = frame;
+        }
+        return frame;
+    }
     if (raw.empty()) {
         std::printf("[conker] net: no snapshot (%s): replaying from frame 1 instead\n", why.c_str());
         return frame;
@@ -3191,9 +3639,14 @@ uint32_t load_snapshot(uint8_t* rdram, uint32_t frame) {
     }
     g_merged_upto = snap_frame - 1;
     g_host_upto = std::max(g_host_upto, snap_frame);
-    // The history goes on from the snapshot's frame: the frames between were never played here.
+    // The history goes on from the snapshot's frame: the frames between were never played here (in
+    // place, the frames before were this machine's own game: none of them is sent).
     g_own_hash_history.clear();
     g_own_hash_base = snap_frame;
+    for (Hash& hash : g_own_hashes) {
+        hash = Hash{};
+    }
+    g_hashes_sent_upto = 0;
     std::printf("[conker] net: snapshot of frame %u (%zu KiB) in place at frame %u, %.1f s after joining (%lld ms "
                 "waiting for it); on from frame %u\n", snap_frame, packed.size() / 1024, frame,
                 (received - g_join_start) / 1000.0, static_cast<long long>(received - wait_start), snap_frame);
@@ -3434,12 +3887,12 @@ void frame(uint8_t* rdram, Record* record) {
     // A guest far behind the host (rejoining) runs the game's time fast, without sound, until it is
     // nearly level.
     if (!is_host()) {
-        static int64_t catch_up_start = 0;
-        static uint32_t catch_up_first = 0;
-        static int64_t check_start = 0;
-        static int64_t check_waited = 0;
-        static bool caught_up = false;  // once only: a guest catches up after joining, then keeps level
-        static int stalled_catch_ups = 0;
+        int64_t& catch_up_start = g_catch_up.start;
+        uint32_t& catch_up_first = g_catch_up.first;
+        int64_t& check_start = g_catch_up.check_start;
+        int64_t& check_waited = g_catch_up.check_waited;
+        bool& caught_up = g_catch_up.caught_up;
+        int& stalled_catch_ups = g_catch_up.stalled;
         uint32_t host_upto;
         {
             std::lock_guard lock(g_mutex);
@@ -3554,17 +4007,98 @@ std::string title_status() {
     return "online: " + status_line();
 }
 
+std::mutex g_session_menu_mutex;
+SessionMenu g_session_menu;  // under g_session_menu_mutex
+
+void set_session_menu(const SessionMenu& menu) {
+    std::lock_guard lock(g_session_menu_mutex);
+    g_session_menu = menu;
+}
+
+namespace {
+
+// The lobby's session page: a dark panel in the middle of the picture, the title and rows twice the
+// corner text's size, the chosen row white and the others grey, as the game's own menus colour them.
+void draw_session_menu(ListWriter& list, const uint8_t* rdram, const SessionMenu& menu, int kWidth, int kHeight) {
+    const uint32_t buffers = glyph_buffers(rdram);
+    // As the game's pause: the picture dimmed behind (the colour blended over what is there by the
+    // primitive alpha), the title gold, the chosen row white and the others grey, a black copy under
+    // each as the game's text has, in the game's font (net_play's own corner font until it is loaded).
+    list.command(0xE7000000u, 0);
+    list.command(0xE3000A01u, 0);             // one-cycle
+    list.command(0xE200001Cu, 0x00504000u);   // G_SETOTHERMODE_L: FORCE_BL, in * alpha + memory * (1 - alpha)
+    list.command(0xFCFFFFFFu, 0xFFFDF6FBu);   // the primitive colour
+    list.command(0xFA000000u, 0x000000A0u);   // black, about 60%
+    list.rect(0, 0, kWidth, kHeight);
+    list.command(0xE7000000u, 0);
+    list.command(0xE200001Cu, 0);
+    const float unit = kWidth / 292.0f;       // the game's picture is 292 wide; play's 320
+    const auto centered = [&](const std::string& text, float y, float scale, uint32_t color) {
+        if (buffers != 0) {
+            const float x = (kWidth - game_text_width(rdram, text, scale * unit)) / 2.0f;
+            draw_game_text(list, rdram, buffers, text, x + unit, y + unit, scale * unit, 0x000000FFu);
+            draw_game_text(list, rdram, buffers, text, x, y, scale * unit, color);
+            return;
+        }
+        const int big = scale > 0.9f ? 2 : 1;
+        const int width = static_cast<int>(text.size()) * 6 * big - big;
+        const int x = std::max(0, (kWidth - width) / 2);
+        list.command(0xE7000000u, 0);
+        list.command(0xFA000000u, 0x000000FFu);
+        draw_text(list, text, x + big, static_cast<int>(y) + big, big);
+        list.command(0xE7000000u, 0);
+        list.command(0xFA000000u, color);
+        draw_text(list, text, x, static_cast<int>(y), big);
+    };
+    const float title = 15.0f * unit, line = 10.0f * unit, row = 12.5f * unit;
+    const float height = title + 6 * unit + menu.lines.size() * line + 6 * unit + menu.rows.size() * row +
+                         (menu.hint.empty() ? 0.0f : line + 4 * unit);
+    float y = std::max(4.0f, (kHeight - height) / 2.0f);
+    centered(menu.title, y, 1.0f, 0xCEC461FFu);
+    y += title + 6 * unit;
+    for (const std::string& text : menu.lines) {
+        centered(text, y, 0.8f, 0x9A9A9AFFu);
+        y += line;
+    }
+    y += 6 * unit;
+    for (size_t i = 0; i < menu.rows.size(); i++) {
+        const bool chosen = static_cast<int>(i) == menu.chosen;
+        centered(menu.rows[i], y, chosen ? 1.0f : 0.9f, chosen ? 0xFFFFFFFFu : 0x9A9A9AFFu);
+        y += row;
+    }
+    if (!menu.hint.empty()) {
+        centered(menu.hint, y + 4 * unit, 0.8f, 0x9A9A9AFFu);
+    }
+}
+
+}  // namespace
+
 uint32_t overlay_display_list(uint8_t* rdram, uint32_t game_list) {
-    if (!g_active) {
+    SessionMenu menu;
+    {
+        std::lock_guard lock(g_session_menu_mutex);
+        menu = g_session_menu;
+    }
+    if (!g_active && menu.rows.empty()) {
         return game_list;
     }
-    const std::string text = status_line();
-    if (text.empty()) {
+    // The corner shows only what is wrong (a player left or catching up, a stall, out of sync), not
+    // the usual "P1  PING 0  DELAY 2", which the window's title still gives.
+    std::string text = g_active ? status_line() : std::string();
+    if (const size_t delay = text.find("  DELAY "); text.rfind("P", 0) == 0 && delay != std::string::npos) {
+        const size_t rest = text.find("  P", delay);  // the players dropped, after the delay
+        text = rest == std::string::npos ? std::string() : text.substr(rest + 2);
+    }
+    if (text.empty() && menu.rows.empty()) {
         return game_list;
     }
-    // Only into a 16-bit, 320-wide frame buffer at the top of RDRAM, where the game keeps them.
+    // Only into a 16-bit frame buffer at the top of RDRAM, where the game keeps them: 320 wide in
+    // play, 292 (by 216 lines) on the title and its menus.
     const ColorImage image = last_color_image(rdram, game_list);
-    if (image.size != 2 || image.width != 320 || image.address < kHashEnd || image.address + 320 * 240 * 2 > 0x400000) {
+    const int width = static_cast<int>(image.width);
+    const int height = width == 292 ? 216 : 240;
+    if (image.size != 2 || (width != 320 && width != 292) || image.address < kHashEnd ||
+        image.address + static_cast<uint32_t>(width * height * 2) > 0x400000) {
         return game_list;
     }
     static int which = 0;
@@ -3576,17 +4110,249 @@ uint32_t overlay_display_list(uint8_t* rdram, uint32_t game_list) {
     list.command(0xE3000A01u, 0);                       // G_SETOTHERMODE_H: one-cycle
     list.command(0xE200001Cu, 0);                       // G_SETOTHERMODE_L: no blending, no depth
     list.command(0xFCFFFFFFu, 0xFFFDF6FBu);             // G_SETCOMBINE: the primitive colour
-    list.command(0xED000000u, (320u << 14) | (240u << 2));  // G_SETSCISSOR: the whole picture
-    const bool alert = text.rfind("P", 0) != 0;         // anything but the usual line
+    list.command(0xED000000u, (static_cast<uint32_t>(width) << 14) | (static_cast<uint32_t>(height) << 2));  // G_SETSCISSOR: the whole picture
+    const bool alert = true;                            // the corner only says what is wrong
     list.command(0xFA000000u, 0x000000FFu);             // G_SETPRIMCOLOR: the shadow
-    draw_text(list, text, kTextX + 1, kTextY + 1);
-    list.command(0xE7000000u, 0);
-    list.command(0xFA000000u, alert ? 0xFF6040FFu : 0xFFFFFFFFu);
-    draw_text(list, text, kTextX, kTextY);
+    const int text_y = height - (240 - kTextY);
+    if (const uint32_t buffers = glyph_buffers(rdram); buffers != 0 && !text.empty()) {
+        // In the game's font, as the session's page (draw_session_menu).
+        const float scale = 0.8f * width / 292.0f;
+        const float y = static_cast<float>(text_y) - 6.0f * scale;
+        draw_game_text(list, rdram, buffers, text, kTextX + scale, y + scale, scale, 0x000000FFu);
+        draw_game_text(list, rdram, buffers, text, kTextX, y, scale, alert ? 0xFF6040FFu : 0xFFFFFFFFu);
+    } else {
+        draw_text(list, text, kTextX + 1, text_y + 1);
+        list.command(0xE7000000u, 0);
+        list.command(0xFA000000u, alert ? 0xFF6040FFu : 0xFFFFFFFFu);
+        draw_text(list, text, kTextX, text_y);
+    }
+    if (!menu.rows.empty()) {
+        draw_session_menu(list, rdram, menu, width, height);
+    }
     list.command(0xE9000000u, 0);                       // G_RDPFULLSYNC
     MEM_W(0, kseg0(list.at)) = static_cast<int32_t>(0xDF000000u);  // G_ENDDL
     MEM_W(4, kseg0(list.at)) = 0;
     return start & 0x3FFFFFF;
+}
+
+
+// --- sessions started in place ----------------------------------------------------------------------
+
+bool start_in_place(const std::vector<std::string>& net_args) {
+    if (g_active.load() || g_place.load() != kNoPlace) {
+        return false;
+    }
+    if (g_connect_thread.joinable()) {
+        g_connect_thread.join();  // a connect that failed before
+    }
+    const bool internet = g_options.internet;
+    g_options = Options{};
+    g_options.internet = internet;
+    g_expected = seal::Expected{};
+    std::vector<std::string> args = net_args;
+    std::vector<char*> argv;
+    for (std::string& arg : args) {
+        argv.push_back(arg.data());
+    }
+    std::vector<char*> kept;
+    if (!parse_net_options(static_cast<int>(argv.size()), argv.data(), &kept) || (!g_options.host && !g_options.join)) {
+        set_place_message("The session's options were not right (the log says why).");
+        return false;
+    }
+    reset_session();
+    set_place_message("");
+    g_in_place = true;
+    g_net_stop.store(false);
+    g_rejoin_port = 0;
+    g_rejoin_secret_kept = 0;
+    g_rejoin_count = 0;
+    g_place.store(kConnecting);
+    std::printf("[conker] net: connecting the session in place (%s)\n", g_options.host ? "hosting" : "joining");
+    register_goodbye();
+    g_connect_thread = std::thread(connect_in_place);
+    return true;
+}
+
+InPlace in_place_state(std::string* message) {
+    if (message != nullptr) {
+        std::lock_guard lock(g_place_mutex);
+        *message = g_place_message;
+    }
+    switch (g_place.load()) {
+        case kConnecting:
+        case kConnected:
+        case kEntering: return InPlace::kStarting;
+        case kInSession:
+        case kLeaving: return InPlace::kPlaying;
+        default: return InPlace::kNone;
+    }
+}
+
+bool in_place() { return g_in_place && g_place.load() != kNoPlace; }
+
+void cancel_in_place() {
+    if (g_place.load() == kConnecting) {
+        g_net_stop.store(true);
+        if (g_connect_thread.joinable()) {
+            g_connect_thread.join();
+        }
+        g_place.store(kNoPlace);
+        g_in_place = false;
+        return;
+    }
+    request_leave();
+}
+
+void request_leave() {
+    if (g_in_place && g_place.load() == kInSession) {
+        g_leave_requested.store(true);
+        wake_game_thread();  // a game waiting for input notices
+    }
+}
+
+namespace {
+
+// The game thread, kEntering, once this machine's own game is kept: into the session.
+void enter_session() {
+    const bool first = !g_own_kept;
+    if (first) {
+        g_own_settings = conker::frame_input::settings_header();
+        g_own_kept = true;
+        conker::display::keep_saved_picture();  // the session's widescreen and sharp are not saved
+    }
+    // The session's copy of the host's save (a guest's then becomes the host's with the snapshot).
+    const std::filesystem::path folder = data_dir() / "saves" / "net";
+    std::error_code error;
+    std::filesystem::create_directories(folder, error);
+    {
+        std::ofstream file(folder / save_name(), std::ios::binary | std::ios::trunc);
+        file.write(reinterpret_cast<const char*>(g_eeprom.data()), static_cast<std::streamsize>(g_eeprom.size()));
+    }
+    ultramodern::change_save_file(u8"net", kGameId);
+    if (!is_host()) {
+        conker::frame_input::apply_settings(g_settings, "net: the host's setting");
+    }
+    conker::display::set_logic_aspect(g_wide ? 16.0f / 9.0f : float(conker::display::kPictureWidth) / conker::display::kPictureHeight);
+    conker::frame_input::set_frame(0);  // the session's frames count from 1, as on every peer
+    g_stop_seen = 0;
+    g_leave_requested.store(false);
+    g_rejoin_requested.store(false);
+    g_active.store(true);
+    g_place.store(kInSession);
+    std::printf("[conker] net: in the session as player %d (started in place, on a copy of the host's save)\n",
+                g_local_port + 1);
+}
+
+// The game thread: connecting again after the host dropped this machine (its own game is still kept).
+void rejoin_in_place() {
+    g_rejoin_requested.store(false);
+    const int port = g_local_port + 1;
+    const uint64_t secret = g_secret;
+    const int count = g_rejoin_count + 1;
+    g_active.store(false);
+    stop_network();
+    conker::audio::set_discard(false);
+    ultramodern::set_speed_multiplier(1);
+    reset_session();
+    g_rejoin_port = port;
+    g_rejoin_secret_kept = secret;
+    g_rejoin_count = count;
+    g_net_stop.store(false);
+    g_place.store(kConnecting);
+    std::printf("[conker] net: connecting again to rejoin the session as player %d\n", port);
+    register_goodbye();
+    g_connect_thread = std::thread(connect_in_place);
+}
+
+// The game thread: out of the session, and this machine's own game back as it was before it. False
+// while the game cannot take its snapshot back yet (the next frame tries again).
+bool leave_session(uint8_t* rdram, recomp_context* ctx) {
+    if (g_place.load() != kLeaving) {
+        g_active.store(false);
+        say_goodbye_now();
+        stop_network();
+        conker::audio::set_discard(false);
+        ultramodern::set_speed_multiplier(1);
+        g_place.store(kLeaving);
+    }
+    ultramodern::change_save_file(u8"", kGameId);
+    std::string why;
+    if (!g_return.empty() && !conker::snapshot::load(rdram, ctx, g_return, &why)) {
+        std::printf("[conker] net: this machine's own game cannot come back yet (%s); trying the next frame\n", why.c_str());
+        ultramodern::change_save_file(u8"net", kGameId);
+        return false;
+    }
+    conker::frame_input::leave_fixed_step();
+    conker::frame_input::restore_settings(g_own_settings);
+    conker::display::release_saved_picture();
+    conker::display::set_logic_aspect(0.0f);
+    reset_session();
+    g_return.clear();
+    g_return.shrink_to_fit();
+    g_own_settings.clear();
+    g_own_kept = false;
+    g_in_place = false;
+    g_leave_requested.store(false);
+    g_rejoin_requested.store(false);
+    g_place.store(kNoPlace);
+    std::printf("[conker] net: left the session; this machine's own game is back\n");
+    return true;
+}
+
+}  // namespace
+
+void frame_start(uint8_t* rdram) {
+    if (g_place.load() == kConnected && conker::frame_input::enter_fixed_step(rdram)) {
+        g_place.store(kEntering);
+    }
+}
+
+void before_input(uint8_t* rdram, recomp_context* ctx) {
+    const int place = g_place.load();
+    if (place == kEntering) {
+        if (!g_own_kept) {
+            std::string why;
+            g_return = conker::snapshot::save(rdram, ctx, 0, &why);
+            if (g_return.empty()) {
+                std::printf("[conker] net: cannot keep this machine's own game yet (%s); trying the next frame\n", why.c_str());
+                return;
+            }
+        }
+        enter_session();
+        return;
+    }
+    if (place == kLeaving) {
+        leave_session(rdram, ctx);
+        return;
+    }
+    // Connecting again to rejoin, the game goes on as it is (its port gives nothing); connecting failed:
+    // this machine's own game back.
+    if (place == kNoPlace && g_own_kept) {
+        g_place.store(kLeaving);
+        leave_session(rdram, ctx);
+        return;
+    }
+    if (place != kInSession || !g_in_place) {
+        return;
+    }
+    if (g_rejoin_requested.load()) {
+        rejoin_in_place();
+        return;
+    }
+    // The session over here (the host left, this machine dropped for good, the host's game never came):
+    // the reason stays in the corner for a moment, then this machine's own game comes back.
+    if (g_stopped.load() != kPlaying && g_stop_seen == 0) {
+        g_stop_seen = now_ms();
+        std::lock_guard lock(g_place_mutex);
+        if (g_place_message.empty()) {
+            g_place_message = status_line();
+        }
+    }
+    // (A drop this machine can rejoin from asks for it within a few milliseconds: relaunch_to_rejoin.)
+    constexpr int64_t kStoppedShownMs = 4000;
+    if (g_leave_requested.load() || (g_stop_seen != 0 && now_ms() - g_stop_seen >= kStoppedShownMs)) {
+        leave_session(rdram, ctx);
+    }
 }
 
 }  // namespace conker::net

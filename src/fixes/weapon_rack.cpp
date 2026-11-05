@@ -12,12 +12,15 @@
 //
 // The rack's vertices are loaded into the heap with its model, at an address that depends on what was
 // loaded before, so they are found by their positions (vertices are 16 bytes: s16 x, y, z, flag, s16 s,
-// t, colour). Every rack section in the room draws the same vertices.
-#include <cstddef>
+// t, colour). Every rack section in the room draws the same vertices. The heap can hold more than one
+// copy of a model's or level's vertices (the Heist multiplayer map, scene 26, keeps a stale copy of its
+// level below the drawn one), so every rack found is moved, and the heap is searched again every
+// kSearchFrames frames for one loaded since.
 #include <cstdint>
 #include <cstring>
 
 #include "recomp.h"
+#include "enhancements/my_view/my_view.hpp"
 #include "runtime/snapshot.hpp"
 
 namespace {
@@ -50,22 +53,15 @@ constexpr int16_t kMove = -1;       // toward the flat side
 constexpr Position kFirst = {kRailRight, 101, -33};
 constexpr Position kSecond = {kRailRight, 105, kFlatBack};
 
-// The white room is loaded partway through the scene, so until the rack is found it is searched for
-// every kSearchFrames frames.
+// The white room is loaded partway through the scene, so the rack is searched for every
+// kSearchFrames frames. A search reads one word every 8 bytes of RDRAM (vertex buffers are loaded by
+// DMA, so 8-byte aligned).
 constexpr int32_t kSearchFrames = 30;
 
-uint32_t g_address = 0;  // the first rail's first vertex, 0 when not found
-int32_t g_wait = 0;      // frames until the next search
+int32_t g_wait = 0;  // frames until the next search
 int32_t g_scene = -1;
 // Native state the game's memory depends on, carried by a snapshot (runtime/snapshot.hpp).
 const bool g_snapshot_fields = [] {
-    // The address is read (and written) through: one inside RDRAM where find_rack can find one, or 0.
-    conker::snapshot::add("weapon_rack.address", &g_address, sizeof(g_address), [](const uint8_t* bytes) {
-        uint32_t address;
-        std::memcpy(&address, bytes, sizeof(address));
-        return address == 0 ||
-               (address % 4 == 0 && address >= kRdramStart && address + kRails[kRailCount - 1] + 6 * kVertexSize <= kRdramEnd);
-    });
     conker::snapshot::add("weapon_rack.wait", &g_wait, sizeof(g_wait), [](const uint8_t* bytes) {
         int32_t wait;
         std::memcpy(&wait, bytes, sizeof(wait));
@@ -101,52 +97,50 @@ bool rack_at(uint8_t* rdram, uint32_t address) {
     return true;
 }
 
-uint32_t find_rack(uint8_t* rdram) {
-    for (uint32_t address = kRdramStart; address + kRails[kRailCount - 1] + 6 * kVertexSize <= kRdramEnd; address += 4) {
-        if (vertex_at(rdram, address, kFirst) && (vertex_at(rdram, address + kVertexSize, kSecond) ||
-                                                  vertex_at(rdram, address + kVertexSize, {kRailRight, 105, kFlatBack + kMove})) &&
-            rack_at(rdram, address)) {
-            return address;
+void move_rack(uint8_t* rdram, uint32_t first) {
+    for (uint32_t rail : kRails) {
+        for (uint32_t corner : kCornerOffsets) {
+            const uint32_t address = first + rail + corner;
+            const int16_t z = MEM_H(4, kseg0(address));
+            if (z == kFlatFront || z == kFlatBack) {
+                MEM_H(4, kseg0(address)) = static_cast<int16_t>(z + kMove);
+            }
         }
     }
-    return 0;
 }
 
 }  // namespace
 
-// func_1510B958 runs once a frame before the level geometry is drawn. Moved corners are left alone, so a
-// rack already fixed is checked with a few reads each frame.
+// func_1510B958 runs once a frame before the level geometry is drawn. Moved corners are left alone, so
+// moving a rack again does nothing.
 extern "C" void conker_weapon_rack(uint8_t* rdram, recomp_context* /*ctx*/) {
+    // The online "my view" pass draws again from memory that is put back after; the frames counted
+    // here have to be the game's own.
+    if (conker::my_view::drawing_again()) {
+        return;
+    }
     const int32_t scene = MEM_W(0, kseg0(kScene));
     if (scene != g_scene) {
         g_scene = scene;
-        g_address = 0;
         g_wait = 0;
     }
     if (scene != kHeistScene) {
         return;
     }
-    if (g_address != 0 && !rack_at(rdram, g_address)) {
-        g_address = 0;
+    if (g_wait > 0) {
+        g_wait--;
+        return;
     }
-    if (g_address == 0) {
-        if (g_wait > 0) {
-            g_wait--;
-            return;
-        }
-        g_wait = kSearchFrames;
-        g_address = find_rack(rdram);
-        if (g_address == 0) {
-            return;
-        }
-    }
-    for (uint32_t rail : kRails) {
-        for (uint32_t corner : kCornerOffsets) {
-            const uint32_t address = g_address + rail + corner;
-            const int16_t z = MEM_H(4, kseg0(address));
-            if (z == kFlatFront || z == kFlatBack) {
-                MEM_H(4, kseg0(address)) = static_cast<int16_t>(z + kMove);
-            }
+    g_wait = kSearchFrames;
+    // The first vertex's x and y as one word, so most of the search is one read.
+    const uint32_t first = (static_cast<uint32_t>(static_cast<uint16_t>(kFirst.x)) << 16) |
+                           static_cast<uint16_t>(kFirst.y);
+    for (uint32_t address = kRdramStart; address + kRails[kRailCount - 1] + 6 * kVertexSize <= kRdramEnd; address += 8) {
+        if (static_cast<uint32_t>(MEM_W(0, kseg0(address))) == first && vertex_at(rdram, address, kFirst) &&
+            (vertex_at(rdram, address + kVertexSize, kSecond) ||
+             vertex_at(rdram, address + kVertexSize, {kRailRight, 105, kFlatBack + kMove})) &&
+            rack_at(rdram, address)) {
+            move_rack(rdram, address);
         }
     }
 }

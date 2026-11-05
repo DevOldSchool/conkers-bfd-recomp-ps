@@ -49,7 +49,7 @@ gpr g_start = 0;  // where func_15180580 started writing
 
 // At func_15180580's entry: $a0 is the display list pointer it writes from.
 extern "C" void conker_widescreen_out_begin(uint8_t* /*rdram*/, recomp_context* ctx) {
-    g_rewriting = conker::display::rendered_widescreen();
+    g_rewriting = conker::display::logic_widescreen();
     g_start = ctx->r4;
 }
 

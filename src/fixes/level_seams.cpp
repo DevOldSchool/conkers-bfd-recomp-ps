@@ -9,12 +9,14 @@
 //
 // The level's vertices are loaded into the heap, at an address that depends on what was loaded
 // before, so each fix finds its vertex by the positions of its neighbours (vertices are 16 bytes:
-// s16 x, y, z, flag, s16 s, t, colour).
-#include <cstddef>
+// s16 x, y, z, flag, s16 s, t, colour). The heap can hold more than one copy of a level's vertices
+// (the Heist multiplayer map, scene 26, keeps a stale one below the drawn one), so every copy found is
+// moved, and the heap is searched again every kSearchFrames frames for a copy loaded since.
 #include <cstdint>
 #include <cstring>
 
 #include "recomp.h"
+#include "enhancements/my_view/my_view.hpp"
 #include "runtime/snapshot.hpp"
 
 namespace {
@@ -45,30 +47,19 @@ struct Seam {
 constexpr Seam kSeams[] = {
     {48, {1352, 737, -3675}, {1368, 1475, -3662}, {378, 993, -4224}, {1369, 1475, -3665}},
 };
-constexpr int kSeamCount = sizeof(kSeams) / sizeof(kSeams[0]);
 
-struct Found {
-    uint32_t address = 0;  // the vertex's address, 0 when not found
-    bool searched = false;  // searched since the scene changed
-};
+// Frames until the next search. A search reads one word every 8 bytes of RDRAM (vertex buffers are
+// loaded by DMA, so 8-byte aligned).
+constexpr int32_t kSearchFrames = 30;
 
-Found g_found[kSeamCount];
+int32_t g_wait = 0;
 int32_t g_scene = -1;
 // Native state the game's memory depends on, carried by a snapshot (runtime/snapshot.hpp).
 const bool g_snapshot_fields = [] {
-    // A vertex address is read (and written) through: one inside RDRAM where find_seam can find one, or
-    // 0.
-    conker::snapshot::add("level_seams.found", g_found, sizeof(g_found), [](const uint8_t* bytes) {
-        for (int i = 0; i < kSeamCount; i++) {
-            uint32_t address;
-            std::memcpy(&address, bytes + i * sizeof(Found) + offsetof(Found, address), sizeof(address));
-            const uint8_t searched = bytes[i * sizeof(Found) + offsetof(Found, searched)];
-            if (searched > 1 || (address != 0 && (address % 4 != 0 || address < kRdramStart + kVertexSize ||
-                                                  address + 2 * kVertexSize > kRdramEnd))) {
-                return false;
-            }
-        }
-        return true;
+    conker::snapshot::add("level_seams.wait", &g_wait, sizeof(g_wait), [](const uint8_t* bytes) {
+        int32_t wait;
+        std::memcpy(&wait, bytes, sizeof(wait));
+        return wait >= 0 && wait <= kSearchFrames;
     });
     conker::snapshot::add("level_seams.scene", &g_scene, sizeof(g_scene));
     return true;
@@ -82,51 +73,49 @@ bool seam_at(uint8_t* rdram, uint32_t address, const Seam& seam) {
     return vertex_at(rdram, address - kVertexSize, seam.before) && vertex_at(rdram, address + kVertexSize, seam.after);
 }
 
-uint32_t find_seam(uint8_t* rdram, const Seam& seam) {
-    for (uint32_t address = kRdramStart + kVertexSize; address + 2 * kVertexSize <= kRdramEnd; address += 4) {
-        if ((vertex_at(rdram, address, seam.from) || vertex_at(rdram, address, seam.to)) && seam_at(rdram, address, seam)) {
-            return address;
-        }
-    }
-    return 0;
+// The first word of a position: its x and y.
+uint32_t first_word(const Position& p) {
+    return (static_cast<uint32_t>(static_cast<uint16_t>(p.x)) << 16) | static_cast<uint16_t>(p.y);
 }
 
 }  // namespace
 
-// func_1510B958 runs once a frame before the level geometry is drawn, so the level is loaded. A
-// vertex already moved is checked with three reads; a scene reloaded at the same address (RESTART)
-// is moved again, and one loaded elsewhere is searched for once.
+// func_1510B958 runs once a frame before the level geometry is drawn, so the level is loaded.
 extern "C" void conker_level_seams(uint8_t* rdram, recomp_context* /*ctx*/) {
+    // The online "my view" pass draws again from memory that is put back after; the frames counted
+    // here have to be the game's own.
+    if (conker::my_view::drawing_again()) {
+        return;
+    }
     const int32_t scene = MEM_W(0, kseg0(kScene));
     if (scene != g_scene) {
         g_scene = scene;
-        for (Found& found : g_found) {
-            found = Found{};
-        }
+        g_wait = 0;
     }
-    for (int i = 0; i < kSeamCount; i++) {
-        const Seam& seam = kSeams[i];
-        Found& found = g_found[i];
+    bool here = false;
+    for (const Seam& seam : kSeams) {
+        here = here || seam.scene == scene;
+    }
+    if (!here) {
+        return;
+    }
+    if (g_wait > 0) {
+        g_wait--;
+        return;
+    }
+    g_wait = kSearchFrames;
+    for (const Seam& seam : kSeams) {
         if (seam.scene != scene) {
             continue;
         }
-        if (found.address != 0 && !seam_at(rdram, found.address, seam)) {
-            found = Found{};
-        }
-        if (found.address == 0) {
-            if (found.searched) {
-                continue;
+        const uint32_t first = first_word(seam.from);
+        for (uint32_t address = kRdramStart + kVertexSize; address + 2 * kVertexSize <= kRdramEnd; address += 8) {
+            if (static_cast<uint32_t>(MEM_W(0, kseg0(address))) == first && vertex_at(rdram, address, seam.from) &&
+                seam_at(rdram, address, seam)) {
+                MEM_H(0, kseg0(address)) = seam.to.x;
+                MEM_H(2, kseg0(address)) = seam.to.y;
+                MEM_H(4, kseg0(address)) = seam.to.z;
             }
-            found.searched = true;
-            found.address = find_seam(rdram, seam);
-            if (found.address == 0) {
-                continue;
-            }
-        }
-        if (vertex_at(rdram, found.address, seam.from)) {
-            MEM_H(0, kseg0(found.address)) = seam.to.x;
-            MEM_H(2, kseg0(found.address)) = seam.to.y;
-            MEM_H(4, kseg0(found.address)) = seam.to.z;
         }
     }
 }

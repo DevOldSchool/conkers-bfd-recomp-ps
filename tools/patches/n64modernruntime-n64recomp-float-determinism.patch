@@ -1,0 +1,97 @@
+--- a/include/recomp.h
++++ b/include/recomp.h
+@@ -353,52 +353,82 @@
+ #define CVT_S_D(val) \
+     ((float)(val))
+ 
++// Float to integer conversions, the same on every host. A C cast of a float that does not fit the
++// integer (or is NaN) is undefined, and the hosts differ: arm64 saturates and gives 0 for NaN, x86-64
++// gives the "integer indefinite" (INT_MIN), and lrintf returns a long, 32 bits on Windows. Online play
++// runs the same game on each player's machine, so every host here does as arm64 does (the MIPS FPU
++// would trap; a Mac always played this way).
++static inline int32_t recomp_to_w(double val) {
++    if (val != val) return 0;
++    if (val >= 2147483648.0) return INT32_MAX;
++    if (val < -2147483648.0) return INT32_MIN;
++    return (int32_t)val;
++}
++static inline int64_t recomp_to_l(double val) {
++    if (val != val) return 0;
++    if (val >= 9223372036854775808.0) return INT64_MAX;
++    if (val < -9223372036854775808.0) return INT64_MIN;
++    return (int64_t)val;
++}
++
++static inline int32_t do_trunc_w_s(float val) { return recomp_to_w(val); }
++static inline int32_t do_trunc_w_d(double val) { return recomp_to_w(val); }
++static inline int64_t do_trunc_l_s(float val) { return recomp_to_l(val); }
++static inline int64_t do_trunc_l_d(double val) { return recomp_to_l(val); }
++
+ #define TRUNC_W_S(val) \
+-    ((int32_t)(val))
++    do_trunc_w_s(val)
+ 
+ #define TRUNC_W_D(val) \
+-    ((int32_t)(val))
++    do_trunc_w_d(val)
+ 
+ #define TRUNC_L_S(val) \
+-    ((int64_t)(val))
++    do_trunc_l_s(val)
+ 
+ #define TRUNC_L_D(val) \
+-    ((int64_t)(val))
++    do_trunc_l_d(val)
+ 
+ #define DEFAULT_ROUNDING_MODE 0
+ 
++// Rounding mode aware: nearbyint rounds by the current mode, then the value is a whole number.
+ static inline int32_t do_cvt_w_s(float val) {
+-    // Rounding mode aware float to 32-bit int conversion.
+-    return (int32_t)lrintf(val);
++    return recomp_to_w(nearbyintf(val));
+ }
+ 
+ #define CVT_W_S(val) \
+     do_cvt_w_s(val)
+ 
+ static inline int64_t do_cvt_l_s(float val) {
+-    // Rounding mode aware float to 64-bit int conversion.
+-    return (int64_t)llrintf(val);
++    return recomp_to_l(nearbyintf(val));
+ }
+ 
+ #define CVT_L_S(val) \
+     do_cvt_l_s(val);
+ 
+ static inline int32_t do_cvt_w_d(double val) {
+-    // Rounding mode aware double to 32-bit int conversion.
+-    return (int32_t)lrint(val);
++    return recomp_to_w(nearbyint(val));
+ }
+ 
+ #define CVT_W_D(val) \
+     do_cvt_w_d(val)
+ 
+ static inline int64_t do_cvt_l_d(double val) {
+-    // Rounding mode aware double to 64-bit int conversion.
+-    return (int64_t)llrint(val);
++    return recomp_to_l(nearbyint(val));
+ }
+ 
+ #define CVT_L_D(val) \
+     do_cvt_l_d(val)
+ 
++// The square root of a negative number is NaN, but which NaN differs: x86-64 makes 0xFFC00000 and
++// arm64 0x7FC00000. The game can keep it in memory, which online play compares, so every host makes
++// arm64's. (A NaN given in comes back as itself on both.)
++#ifndef __cplusplus
++static inline float recomp_sqrtf(float val) { return val < 0.0f ? __builtin_nanf("") : (sqrtf)(val); }
++static inline double recomp_sqrt(double val) { return val < 0.0 ? __builtin_nan("") : (sqrt)(val); }
++#define sqrtf(val) recomp_sqrtf(val)
++#define sqrt(val) recomp_sqrt(val)
++#endif
++
+ #define NAN_CHECK(val) \
+     assert(val == val)
+ 

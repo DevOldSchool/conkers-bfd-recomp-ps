@@ -26,6 +26,22 @@ endif()
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|x86_64)$")
     add_compile_options(-msse4.1)
 endif()
+# Online play runs the same game on every player's machine, Macs, Linux and Windows PCs together, and
+# their games must stay the same to the bit. A compiler may fuse a multiply and an add into one
+# instruction with a single rounding (arm64 clang does within an expression, GCC anywhere), which
+# x86-64 without FMA never does: so never, here and in every library built with the game.
+#
+# The recompiled code (and the native code that reads game memory) reaches the same RDRAM through
+# 32-, 16- and 8-bit pointers (recomp.h's MEM_W, MEM_H, MEM_B). Under C's strict aliasing a compiler
+# may take a 16-bit load and a 32-bit store as different memory and swap them: a Linux clang read
+# the stack word __n_vsVol had just stored before the store, so the title music's notes came out
+# louder there than on a Mac, and online the two machines' games parted at once. So no
+# type-based aliasing anywhere either.
+if(CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    add_compile_options(/clang:-ffp-contract=off /clang:-fno-strict-aliasing)
+else()
+    add_compile_options(-ffp-contract=off -fno-strict-aliasing)
+endif()
 # N64ModernRuntime brings ultramodern (libultra reimplementation), librecomp (glue for N64Recomp
 # output, ROM/PI, saves), the N64Recomp library used for live recompilation, and miniz.
 add_subdirectory(lib/N64ModernRuntime)
@@ -50,6 +66,16 @@ target_include_directories(ConkerRecompiled PUBLIC
 # so everything that includes funcs.h needs it.
 target_include_directories(ConkerRecompiled PUBLIC "${CMAKE_SOURCE_DIR}/src/runtime")
 target_compile_options(ConkerRecompiled PRIVATE ${CONKER_RECOMPILED_OPT} -w)
+# The game switches the FPU's rounding mode (CTC1, set_cop1_cs) hundreds of times, to truncate for a
+# conversion and back. Without this a compiler may fold or move float arithmetic across the switch as
+# if it always rounded to nearest, and two compilers (Apple's clang, a Linux clang, clang-cl) do so
+# differently: online, a Mac and a Linux machine placed a vertex on and off the screen from the same
+# memory. With it every machine does each operation in the mode the game set.
+if(CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    target_compile_options(ConkerRecompiled PRIVATE /clang:-frounding-math)
+else()
+    target_compile_options(ConkerRecompiled PRIVATE -frounding-math)
+endif()
 if(CONKER_TRACE)
     target_compile_definitions(ConkerRecompiled PRIVATE CONKER_TRACE=1)
 endif()
@@ -76,8 +102,8 @@ endif()
 # src/runtime: boot, memory layout, overlays and the libultra pieces the recompiled code needs.
 # src/platform: host backends (audio, input, window, renderer); the renderer-specific ones are
 # added below. src/fixes: hooks that make the recompiled game behave as it does on hardware.
-# src/net: online play (lockstep session, lobby, join codes, port mapping); the lobby window is
-# added with the RT64 renderer below.
+# src/net: online play (lockstep session, lobby, join codes, port mapping); the lobby's page (SDL's
+# keyboard) is added with the RT64 renderer below.
 # src/credits: the port's own name in the ending credits.
 # src/enhancements: one folder per feature the console does not have, each with its own switch.
 add_executable(ConkersBadFurDayRecompiled
@@ -111,8 +137,10 @@ add_executable(ConkersBadFurDayRecompiled
     src/credits/credits.cpp
     src/fixes/alien_shadow.cpp
     src/fixes/geometry_escape.cpp
+    src/fixes/heist_alcove.cpp
     src/fixes/frame_effects.cpp
     src/fixes/level_seams.cpp
+    src/fixes/level_visibility.cpp
     src/fixes/music_start.cpp
     src/fixes/projected_shadow.cpp
     src/fixes/rumble_banner.cpp
@@ -216,7 +244,7 @@ if(CONKER_RENDERER STREQUAL "rt64")
         target_compile_definitions(plume PRIVATE PLUME_APPLE_RETINA_ENABLED)
     endif()
     target_sources(ConkersBadFurDayRecompiled PRIVATE
-        src/platform/renderer_rt64.cpp src/platform/object_picker_rt64.cpp src/net/lobby_ui_rt64.cpp src/net/lobby_style_rt64.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/enhancements/sharp_menus/sharp_menus.cpp src/platform/window_sdl.cpp src/platform/hang_watch.cpp src/platform/input_sdl.cpp
+        src/platform/renderer_rt64.cpp src/platform/object_picker_rt64.cpp src/net/lobby_ui.cpp src/platform/font_rects.cpp src/enhancements/sharp_font/sharp_font.cpp src/enhancements/sharp_menus/sharp_menus.cpp src/platform/window_sdl.cpp src/platform/hang_watch.cpp src/platform/input_sdl.cpp
         src/enhancements/pad_icons/pad_icons.cpp src/enhancements/pad_icons/b_pad.cpp src/enhancements/pad_icons/stone_pad.cpp src/enhancements/pad_icons/hex_pad.cpp src/enhancements/pad_icons/square_pad.cpp src/enhancements/pad_icons/oval_pad.cpp src/enhancements/pad_icons/rock_pad.cpp src/enhancements/pad_icons/rug_pad.cpp src/enhancements/pad_icons/plate_pad.cpp src/enhancements/pad_icons/crate_pad.cpp src/enhancements/pad_icons/block_pad.cpp src/enhancements/pad_icons/disc_pad.cpp src/enhancements/pad_icons/rust_pad.cpp src/enhancements/pad_icons/riveted_pad.cpp src/enhancements/pad_icons/panel_pad.cpp src/enhancements/pad_icons/tile_pad.cpp
         src/enhancements/pad_icons/button_art.cpp)
     if(WIN32)

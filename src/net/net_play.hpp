@@ -61,6 +61,7 @@
 #include <string>
 #include <vector>
 
+#include "recomp.h"
 #include "runtime/frame_input.hpp"
 
 namespace conker::net {
@@ -85,9 +86,29 @@ std::string build_text();
 std::string os_text();
 uint64_t rom_hash();  // the US ROM's, or CONKER_NET_TEST_ROM's
 
-// Starts this game again (execv) with its command line, minus every --net option, plus net_args:
-// how the lobby's START puts every machine into the session. Returns only if it could not.
+// Starts this game again (execv) with its command line, minus every --net option, plus net_args (the
+// debug menu's MODS page uses it). Returns only if it could not.
 void relaunch(const std::vector<std::string>& net_args);
+
+// The lobby's START: connects the session on a thread of its own while the game runs, with the same
+// --net options a session started from the command line takes, then puts the game into it at the
+// start of a frame without starting the game again (see net_play.cpp's "Sessions started in place").
+// Leaving puts this machine's own game, save and settings back. False if one is already on or the
+// options are bad.
+bool start_in_place(const std::vector<std::string>& net_args);
+enum class InPlace { kNone, kStarting, kPlaying };
+// Where a session started in place is; message: why the last one could not start or ended ("" for none).
+InPlace in_place_state(std::string* message);
+// Whether a session started in place is starting or on.
+bool in_place();
+// Stops connecting, or leaves the session (this machine's own game comes back at the next frame).
+void cancel_in_place();
+void request_leave();
+// The frame hook (frame_input.cpp), game thread: at its very start, before the frame waits for its
+// graphics (the fixed step goes on there); and before the frame's input is sampled (into or out of
+// the session there, where the snapshots are taken and put back).
+void frame_start(uint8_t* rdram);
+void before_input(uint8_t* rdram, recomp_context* ctx);
 
 // Connects the session before the game starts: the host waits for its guests, a guest for the host's
 // session. Blocks; false if it could not (the message says why).
@@ -126,6 +147,18 @@ std::string title_status();
 // Returns the address of the list to run in its place, or the game's own when there is nothing to
 // draw.
 uint32_t overlay_display_list(uint8_t* rdram, uint32_t game_list);
+
+// The ONLINE lobby's page during a session (src/net/lobby_ui.cpp), which overlay_display_list draws
+// over the picture: in a session the game's own text would change the memory every machine keeps the
+// same. No rows: none. Any thread.
+struct SessionMenu {
+    std::string title;
+    std::vector<std::string> lines;  // under the title
+    std::vector<std::string> rows;   // to choose from
+    int chosen = 0;
+    std::string hint;                // under the rows
+};
+void set_session_menu(const SessionMenu& menu);
 
 // Online, the end of the game memory every machine must keep the same (physical; the frame buffers
 // lie above it): the renderer writes nothing it drew below it. 0 when not online.

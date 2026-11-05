@@ -123,6 +123,8 @@ void request_sharp(bool sharp);
 // player's own as they are now. Online, a guest plays with the host's (net_play.hpp), for that
 // session only.
 void keep_saved_picture();
+// After a session started in place: the player's own widescreen and sharp settings back, saved again.
+void release_saved_picture();
 
 // The shape (width / height) of the picture RT64 is rendering, set by the renderer every screen
 // refresh: the picture's own 292:216 in 4:3, the window's or screen's shape widened.
@@ -134,6 +136,9 @@ float rendered_aspect();
 // differs between machines and changes at a moment that is not a game frame.
 void set_logic_aspect(float aspect);
 float logic_aspect();
+// Whether the game draws for a widened picture: rendered_widescreen(), or online the session's choice
+// (the host's), so that every machine writes the same display lists whatever its own window's shape.
+bool logic_widescreen();
 
 // For the window: whether the mode, the window's multiple or the picture's shape changed since the
 // last call, and the mode to be in.

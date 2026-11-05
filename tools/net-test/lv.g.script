@@ -1,0 +1,7 @@
+# leaving after a match: see lv.h.script
+1500 name Guest
+3000 shot @L.g.view1
+3500 joinlan Host
+8000 shot @L.g.view2
+8500 ready
+120000 leavesession

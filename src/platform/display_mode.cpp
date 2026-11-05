@@ -252,6 +252,22 @@ void keep_saved_picture() {
     g_saved_sharp = g_sharp.load();
 }
 
+void release_saved_picture() {
+    bool window_wide, screen_wide, sharp_on;
+    {
+        std::lock_guard lock(g_save_mutex);
+        if (!g_keep_saved.exchange(false)) {
+            return;
+        }
+        window_wide = g_saved_window_wide;
+        screen_wide = g_saved_screen_wide;
+        sharp_on = g_saved_sharp;
+    }
+    request_widescreen(Mode::Windowed, window_wide);
+    request_widescreen(Mode::Fullscreen, screen_wide);
+    request_sharp(sharp_on);
+}
+
 void note_frame_copy() { g_frame_copies.fetch_add(1); }
 
 uint32_t frame_copy_count() { return g_frame_copies.load(); }
@@ -273,6 +289,11 @@ void set_logic_aspect(float aspect) { g_logic_aspect.store(aspect); }
 float logic_aspect() {
     const float aspect = g_logic_aspect.load();
     return aspect > 0.0f ? aspect : rendered_aspect();
+}
+
+bool logic_widescreen() {
+    const float aspect = g_logic_aspect.load();
+    return aspect > 0.0f ? aspect > float(kPictureWidth) / kPictureHeight * 1.001f : rendered_widescreen();
 }
 
 bool take_request(Mode* mode) {

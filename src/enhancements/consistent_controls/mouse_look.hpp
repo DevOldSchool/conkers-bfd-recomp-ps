@@ -14,6 +14,10 @@ void frame(uint8_t* rdram);
 // from the camera. False when the mouse is not captured.
 bool take_aim(int port, float* x, float* y);
 
+// Through a sight, which zooms with C-up and C-down: +1 to zoom in, -1 out, 0 neither, this frame.
+// Each wheel step (or R/T) holds one for a few frames.
+int take_sight_zoom(int port);
+
 // Whether the port's mouse aimed (take_aim) in the last pad hook: the CONTROLS page's MOUSE AIM speed
 // then scales its motion as it goes into the next frame's record (src/runtime/frame_input.cpp).
 bool aiming(int port);
@@ -24,6 +28,11 @@ bool playing();
 // This frame's sideways motion as degrees to turn right, which the camera then does not take.
 // 0 when the mouse is not captured.
 float take_turn(int port);
+
+// A tank's turret, which only the C buttons turn, `step` degrees a frame either way: the mouse's
+// sideways motion is owed to it, and this says which way to turn it this frame to pay that off, +1
+// right, -1 left, 0 neither. The camera then does not take the motion. 0 when not captured.
+int take_turret_turn(int port, float step);
 
 // Turns the camera of the player on this port this many degrees to the right this frame, even
 // where the game locks its swing (a multiplayer match; consistent_controls.cpp turns the player

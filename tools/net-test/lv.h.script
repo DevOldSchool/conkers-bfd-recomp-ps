@@ -1,0 +1,7 @@
+# leaving after a match (xlobby.sh lv h|g, pads ip1.pad / ip2.pad): the guest leaves mid-match, then the host;
+# both must play on in their own games (the "my view" pass once redrew the match over the game put back)
+1500 name Host
+2000 host 37810
+12000 shot @L.h.view1
+12500 start
+150000 leavesession

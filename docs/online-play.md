@@ -61,12 +61,25 @@ join. Every machine runs the whole game and only the controllers' input travels,
 
 * the same build of the game (the lobby says when one differs);
 * their own copy of the same ROM, Conker's Bad Fur Day (US);
-* for now, the same system (macOS on Apple silicon with macOS on Apple silicon, say).
+* the same mods on, or none.
 
-The host's settings (widescreen, draw distance, full detail, consistent controls and the like) are
-used by everyone for the session, since they change how the game plays; the lobby shows them and
-which differ from yours. Your own settings are back when you play alone again. The session plays
-on a copy of the host's save, so nobody's own save changes.
+Macs, Linux and Windows PCs play together: the game gives the same results on all of them, Apple
+silicon and Intel or AMD alike.
+
+The host's settings (widescreen, draw distance, full detail, 60 fps and the like) are used by
+everyone for the session, since they change how the game plays; the lobby shows them and which differ
+from yours. Each player keeps their own controls (CONSISTENT CONTROLS, the camera swap, INVERT AIM), MY VIEW,
+SHARP TEXT, PAD BUTTONS, HAPTICS and ADAPTIVE TRIGGERS, and of course their own window, volume and
+key mapping: every machine applies each player's controls to that player alike, and the rest only
+change your own screen and pad. WIDESCREEN, WIDESCREEN CULLING, DRAW DISTANCE, FULL DETAIL, 60 FPS,
+MP CHARACTERS, the cutscene and intro skips and SURROUND DEFAULT stay the host's: each changes what
+the game itself works out, so every machine must have the same. The session plays on a copy of the host's save, so nobody's own save
+changes.
+
+Nothing starts again. When the host presses START, every game goes on from the host's: the host
+plays on where it is, and each guest's game becomes a copy of the host's within a second or two
+(its player can move a few seconds after that). When you leave the session, your own game comes
+back exactly as it was when the session started, with your own save and settings.
 
 In a match each machine shows only its own player's view over the whole window, with that player's
 HUD, as a match against bots with one pad looks, and plays the sounds as that player hears them:
@@ -78,18 +91,33 @@ debug menu's ENHANCEMENTS page, keeps the shared split screen and sounds. Each m
 player's view a second time each frame, after the split screen every machine draws, so it costs some
 speed.
 
-A session loads no [mods](modding.md), on any machine: a mod on one machine and not the others
-would put them out of sync. They are still installed and on when you play alone again.
+[Mods](modding.md) change how the game plays, so a mod on one machine and not the others would put
+them out of sync: everyone needs the same mods on (the same versions), or none. The lobby says
+"different mods" otherwise; switch them on the debug menu's MODS page, then start the game again.
+
+### Leaving a session
+
+Press the debug menu's key (Back on a pad, `` ` `` on the keyboard) during a session: a panel
+shows the session and **LEAVE THE SESSION** (or **BACK TO THE GAME**). Leaving brings your own
+game back as it was before the session. When the host leaves, or a player cannot carry on (dropped
+too often, or the host's game never reached them), their game shows why for a few seconds and then
+goes back to their own game the same way. Quitting the game works too.
+
+A session started from the command line (`--net-host`, `--net-join`) starts the game into it and has
+no game of yours to go back to: quit to leave it.
 
 ## The lobby
 
-On the title, turn to the **MULTI** door and press Start (Options on a PlayStation pad, Menu on an
-Xbox pad, Enter on the keyboard), as the line under the door says, or start the game with
-`--net-lobby`. The lobby's window sits over the game, which keeps running
-underneath. It works with the mouse and keyboard, or with controller 1: the d-pad or stick moves,
-A presses, B goes back.
+On the title, go through the **MULTI** door to the barrels and, on any of them, press Start (Options
+on a PlayStation pad, Menu on an Xbox pad, Enter on the keyboard), as the line under the barrel says,
+or start the game with `--net-lobby`. The barrel turns its face up and the lobby is on it, in the
+game's own lettering, as the MULTI modes are. Controller 1 steers it (the d-pad or stick moves, A
+presses, B goes back), and so does the keyboard (the arrows, Enter, Esc). **CLOSE** turns the barrel
+back.
 
-Type your name first: it is what the others see. If you leave it, you are "Player"; the game never
+Set your **NAME** first: it is what the others see. Type it on the keyboard (Cmd+V or Ctrl+V pastes),
+or pick the letters from the keyboard on the barrel with the pad: A adds one, Z (R2 or RT) deletes one,
+Start is done and B goes back without keeping what was typed. If you leave it, you are "Player"; the game never
 takes a name from the computer.
 
 Each player's pad shows as its make and model only ("DualSense", "Xbox", "Switch Pro", "Controller",
@@ -101,7 +129,7 @@ only.
 
 Press **HOST A GAME**. The game listens on UDP port 37800 and, with `--net-unsafe-internet`, asks
 your router to open that port (UPnP or NAT-PMP). Without the switch it says "Nothing is opened on the
-router: internet play is off". With it, the window then says one of:
+router: internet play is off". With it, the lobby then says one of:
 
 * **"UDP port 37800 is open on the router"**: players on other networks can join with your
   Internet join code.
@@ -111,7 +139,7 @@ router: internet play is off". With it, the window then says one of:
   NAT)"**: the router did open the port but sits behind another router or your provider's own NAT,
   so the port opening does not reach the internet. See below.
 
-The window lists **join codes** to hand out (COPY puts one on the clipboard):
+The lobby lists **join codes** to hand out (**COPY JOIN CODE** puts the first on the clipboard):
 
 * **Internet**: your router's outside address, once the port is open.
 * **IPv6**: this machine's own IPv6 address, if it has one. IPv6 needs no port forwarding, but many
@@ -122,23 +150,23 @@ The window lists **join codes** to hand out (COPY puts one on the clipboard):
 A join code is your address and port and part of this lobby's key, written short (24 characters
 with the dashes); it is not a secret. Whoever joins learns your address, as you learn theirs, and a
 guest that joins by code refuses a machine posing as yours (see *Security* above). Your key stays the
-same from one HOST to the next, so your codes do too while your address stays the same. When everyone is in and has pressed **READY**, press
-**START**: every machine starts the game again into the session (a few seconds), and you, as
-player 1, choose MULTI and the game as on a console. The others press Start on the join screen.
+same from one HOST to the next, so your codes do too while your address stays the same. When everyone is in, press
+**START**: the session starts in a moment, without starting any game again, and you, as player 1,
+choose MULTI and the game as on a console. The others press Start on the join screen.
 
 Leaving the lobby or quitting the game closes the router's port again. A port left open by a
 crash closes itself within ten minutes (the game asks the router for a ten-minute lease and renews
 it while it runs; a router that only takes permanent mappings is not given one).
 
-Anyone with your address or code can join your lobby. **REMOVE** next to a player sends them out of
+Anyone with your address or code can join your lobby. **REMOVE P2** (and so on) sends them out of
 the lobby, and their machine cannot join it again until you host anew. Only the players in the lobby
 when you press START can join the session it starts.
 
 ### Joining
 
-Games on your network show up by themselves under **GAMES ON THIS NETWORK**: press **JOIN** next
-to one. Otherwise type the host's join code, or its address (`203.0.113.7`, `203.0.113.7:37800`,
-`[2001:db8::7]:37800`, or a host name), and press **JOIN**. In the host's lobby, press **READY**.
+Games on your network show up by themselves as **JOIN** rows with the host's name: press one.
+Otherwise choose the **JOIN** row and type the host's join code, or its address (`203.0.113.7`, `203.0.113.7:37800`,
+`[2001:db8::7]:37800`, or a host name), then Enter (or DONE). In the host's lobby, wait for the host to press **START**.
 
 A game shown as **PLAYING** has already started. A match started from a lobby takes only that
 lobby's players, and one started by hand with `--net-host` only guests with its token (below), so
@@ -151,15 +179,15 @@ first minute).
 The others never wait long for a player. Quitting tells the host, which goes on without you at
 once; a player whose game or connection stops is left behind after under a second. Everyone else
 sees "P2 LEFT" (or "P2 CATCHING UP") and plays on, the missing player's character standing still. If
-your connection only paused, your game notices, starts again by itself and catches up into your
-port within a few seconds. A new player takes a free port and comes in at the next join screen: a match under
+your connection only paused, or your game fell out of step with the host's, it notices, connects
+again by itself and plays on from a copy of the host's game within a few seconds. A new player takes a free port and comes in at the next join screen: a match under
 way cannot take on a new character, so until it ends you watch. When no port is free, a new player
 can take the port of one who has been gone for more than a minute.
 
 What JOIN can say:
 
 * **"a different version of the game"**: everyone needs the same build.
-* **"a different system"**: for now everyone needs the same OS and CPU.
+* **"different mods"**: everyone needs the same mods on, or none.
 * **"a different ROM"**: everyone needs Conker's Bad Fur Day (US).
 * **"No answer from ..."**: the address or code is wrong, the host has not pressed HOST, or the
   host's port is not open to you (see below). It comes after 4 seconds. A host still in a match
@@ -207,7 +235,7 @@ network as the host need nothing of this.
      signed, so macOS knows it by its file: after every rebuild remove the old entry and add the
      game again. Packaged releases are signed and keep their entry.
    * Linux: allow UDP 37800 (for example `sudo ufw allow 37800/udp`).
-   * Windows (when there is a Windows build): allow the game when Windows Defender Firewall asks.
+   * Windows: allow the game when Windows Defender Firewall asks (private networks are enough on a LAN).
 3. **Behind two routers** ("double NAT", the lobby says the router's outside address is private):
    forward the port on both, or put the inner one in bridge mode.
 4. **Carrier-grade NAT** (the outside address starts with `100.64` to `100.127`, or your provider

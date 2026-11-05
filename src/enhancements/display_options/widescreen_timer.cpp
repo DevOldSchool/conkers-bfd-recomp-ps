@@ -40,8 +40,8 @@ float matrix_element(uint8_t* rdram, uint32_t address, int row, int column) {
 // Before func_150938BC places the timer with func_150A7D00(matrix, x, y, z): `x` is $a1, a float's
 // bits. Returns the bits of the x to place it at.
 extern "C" uint32_t conker_widescreen_timer_x(uint8_t* rdram, uint32_t x_bits) {
-    const float widening = conker::display::rendered_aspect() / (kPictureWidth / kPictureHeight);
-    if (!conker::display::rendered_widescreen() || widening <= 1.001f) {
+    const float widening = conker::display::logic_aspect() / (kPictureWidth / kPictureHeight);
+    if (!conker::display::logic_widescreen() || widening <= 1.001f) {
         return x_bits;
     }
     float x;

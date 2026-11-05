@@ -1,4 +1,5 @@
 // The online lobby's network side; see net_lobby.hpp.
+#include "enhancements/switches.hpp"
 #include "net/net_lobby.hpp"
 
 #include <algorithm>
@@ -241,6 +242,20 @@ std::string known_pad(const std::string& text) {
 }
 
 // The host's settings ("# switch LABEL=0|1" lines) as "LABEL on/off" lines.
+// Each player keeps their own online (a switch marked local, and the camera swap): not the host's to
+// show as everyone's.
+bool own_setting(const char* label) {
+    if (std::strcmp(label, "CAMERA SWAP") == 0) {
+        return true;
+    }
+    for (const conker::switches::Switch& item : conker::switches::all()) {
+        if (std::strcmp(item.label, label) == 0) {
+            return item.local;
+        }
+    }
+    return false;
+}
+
 std::string settings_summary(const std::string& header) {
     std::string out;
     size_t at = 0;
@@ -253,7 +268,7 @@ std::string settings_summary(const std::string& header) {
         at = end + 1;
         char label[64];
         int on = 0;
-        if (std::sscanf(line.c_str(), "# switch %63[^=]=%d", label, &on) == 2) {
+        if (std::sscanf(line.c_str(), "# switch %63[^=]=%d", label, &on) == 2 && !own_setting(label)) {
             out += std::string(label) + (on != 0 ? "  on\n" : "  off\n");
         }
     }
@@ -279,16 +294,22 @@ std::string settings_differ(const std::string& theirs) {
     return out;
 }
 
-// Why this machine could not play with a game of this build, OS, ROM and lobby version ("" if it can).
-std::string mismatch(const std::string& build_in, const std::string& os, uint64_t rom, uint16_t protocol) {
+// Why this machine could not play with a game of this build, ROM and lobby version ("" if it can). The
+// OS and CPU do not matter: Macs, Linux and Windows PCs run the same game to the bit (the float
+// conversions, fused multiply-adds and libm calls that differ between them are made the same, see
+// docs/online-multiplayer-plan.md, M8).
+std::string mismatch(const std::string& build_in, const std::string& /*os*/, uint64_t rom, uint16_t protocol) {
     const std::string build = printable(build_in, 40);
+    const auto base = [](const std::string& text) { return text.substr(0, text.find("+mods-")); };
+    if (build_in != conker::net::build_text() && protocol == kProtocol && base(build_in) == base(conker::net::build_text())) {
+        return "different mods (the host has " +
+               std::string(build_in.find("+mods-") != std::string::npos ? "some on" : "none on") + ", this machine " +
+               (conker::net::build_text().find("+mods-") != std::string::npos ? "some" : "none") +
+               "); everyone needs the same mods on, or none (MODS page, then restart)";
+    }
     if (build_in != conker::net::build_text() || protocol != kProtocol) {
         return "a different version of the game (the host runs " + build + ", this machine " +
                conker::net::build_text() + "); everyone needs the same build";
-    }
-    if (os != conker::net::os_text()) {
-        return "a different system (the host runs " + printable(os, 40) + ", this machine " + conker::net::os_text() +
-               "); for now everyone needs the same OS and CPU";
     }
     if (rom != conker::net::rom_hash()) {
         return "a different ROM; everyone needs Conker's Bad Fur Day (US)";
@@ -323,7 +344,10 @@ struct Found {
     int64_t heard = 0;
 };
 
-std::mutex g_mutex;
+// Never destroyed: the lobby's thread is detached and may still run while exit() destroys statics.
+std::mutex& g_mutex = *new std::mutex;
+// Set at exit (under g_mutex): the thread then stops before it touches anything else.
+bool g_quitting = false;
 Mode g_mode = Mode::Idle;
 int g_socket = -1;             // hosting: the game port; joining: any port
 int g_probe_socket = -1;       // browsing: broadcasts out, OFFERs in
@@ -614,13 +638,14 @@ int session_delay() {
     return std::clamp(static_cast<int>(std::ceil((ping + 15 + 30) / 33.3)), 2, 15);
 }
 
-// Builds the session's command line and starts this game again with it (does not return if it can).
+// Builds the session's options and starts it in place (net_play.hpp's start_in_place): the game goes on,
+// and the lobby is done (the session has the game port now). False if it could not start.
 // The session token goes in CONKER_NET_TOKEN, not on the command line, where other users of this
 // machine could read it (ps); the restarts to rejoin keep it, as they keep the environment. So does
 // the host's key (net_seal.hpp): the host's session has the same (net_keys.hpp), and a guest's
 // session takes only that host key (CONKER_NET_HOST_PUBLIC; a join code's fingerprint of it
 // when this machine goes straight into a running session).
-void relaunch_now() {
+bool start_session() {
     std::vector<std::string> args;
     const std::string name = clean_name(read_setting("name"));
     char token[17];
@@ -660,8 +685,19 @@ void relaunch_now() {
     for (const std::string& arg : args) {
         line += " " + arg;
     }
-    std::printf("[conker] net: the lobby starts the session: starting again with%s\n", line.c_str());
-    conker::net::relaunch(args);
+    std::printf("[conker] net: the lobby starts the session in place with%s\n", line.c_str());
+    g_members.clear();
+    g_found.clear();
+    g_browsing = false;
+    g_mode = Mode::Idle;
+    g_joined_lobby = false;
+    g_start_at = 0;
+    g_go_at = 0;
+    if (!conker::net::start_in_place(args)) {
+        g_error = "Could not start the session (the log says why).";
+        return false;
+    }
+    return true;
 }
 
 // The member whose address a datagram came from, hosting; nullptr for none.
@@ -973,7 +1009,7 @@ void handle_packet(int socket, const uint8_t* data_in, size_t size_in, const soc
             g_joined_lobby = true;
             keys::remember_host(address_with_port(g_host_addr, g_host_len), g_host_pub);
             std::printf("[conker] net: lobby: in the host's lobby; host key check %s\n", keys::key_check(g_host_pub).c_str());
-            g_notice = "In " + (players.empty() ? std::string("the host") : players[0].name) + "'s lobby. Press READY.";
+            g_notice = "In " + (players.empty() ? std::string("the host") : players[0].name) + "'s lobby. The host starts the session.";
             write_setting("last", g_target_text);
         }
         return;
@@ -1079,7 +1115,7 @@ void tick(int64_t now) {
             }
             if (all_go || now - g_start_at >= kStartWaitMs) {
                 g_start_port = 0;
-                relaunch_now();
+                start_session();
             }
         }
         return;
@@ -1152,9 +1188,7 @@ void tick(int64_t now) {
         return;
     }
     if (g_mode == Mode::Starting && g_go_at != 0 && now >= g_go_at) {
-        relaunch_now();
-        g_error = "Could not start the game again for the session.";
-        g_mode = Mode::Idle;
+        start_session();
     }
 }
 
@@ -1165,6 +1199,9 @@ void thread_main() {
         int count = 0;
         {
             std::lock_guard lock(g_mutex);
+            if (g_quitting) {
+                return;
+            }
             for (int s : {g_socket, g_probe_socket, g_discovery_socket}) {
                 if (s >= 0) {
                     fds[count++] = socket_poll_in(s);
@@ -1177,6 +1214,9 @@ void thread_main() {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
         std::lock_guard lock(g_mutex);
+        if (g_quitting) {
+            return;
+        }
         for (int s : {g_socket, g_probe_socket, g_discovery_socket}) {
             for (int n = 0; s >= 0 && n < 64; n++) {
                 sockaddr_storage from{};
@@ -1198,6 +1238,12 @@ void thread_main() {
 void ensure_thread() {
     if (!g_thread_running) {
         g_thread_running = true;
+        // Registered after the lobby's statics exist, so it runs before they are destroyed: the
+        // thread sees g_quitting at its next lock and touches none of them again.
+        std::atexit([] {
+            std::lock_guard lock(g_mutex);
+            g_quitting = true;
+        });
         g_thread = std::thread(thread_main);
         g_thread.detach();
     }
@@ -1319,12 +1365,6 @@ void start() {
     if (g_mode != Mode::Hosting || g_members.empty() || g_start_at != 0) {
         return;
     }
-    for (const Member& m : g_members) {
-        if (!m.ready) {
-            g_error = m.name + " is not ready.";
-            return;
-        }
-    }
     g_start_players = 1 + static_cast<int>(g_members.size());
     g_session_token = random64();
     g_start_at = now_ms();
@@ -1394,8 +1434,8 @@ View view() {
         v.players = host_players();
         v.settings = settings_summary(conker::frame_input::settings_header());
         v.port = portmap::status();
-        v.can_start = !g_members.empty() && g_start_at == 0 &&
-                      std::all_of(g_members.begin(), g_members.end(), [](const Member& m) { return m.ready; });
+        // The host starts when it wants, once a guest is in: no READY to wait for.
+        v.can_start = !g_members.empty() && g_start_at == 0;
         static int64_t codes_at = 0;
         static std::vector<std::pair<std::string, std::string>> codes;
         static std::string codes_external;
@@ -1453,17 +1493,25 @@ bool answer_probe(int socket, const uint8_t* data, size_t size, const sockaddr_s
     return true;
 }
 
+// serve_discovery's thread runs while its generation is the current one (stop_discovery moves it on).
+std::atomic<uint32_t> g_discovery_generation{0};
+
 void serve_discovery(Offer (*offer)()) {
     const int s = open_ipv4_socket(kDiscoveryPort, true);
     if (s < 0) {
         std::printf("[conker] net: no LAN discovery: UDP port %u is not free\n", kDiscoveryPort);
         return;
     }
-    std::thread([s, offer] {
+    const uint32_t generation = ++g_discovery_generation;
+    std::thread([s, offer, generation] {
         uint8_t buffer[1500];
         for (;;) {
             pollfd fd = socket_poll_in(s);
-            socket_poll(&fd, 1, 1000);
+            socket_poll(&fd, 1, 200);
+            if (g_discovery_generation.load() != generation) {
+                socket_close(s);
+                return;
+            }
             sockaddr_storage from{};
             socklen_t from_len = sizeof(from);
             const ssize_t got = socket_receive_from(s, buffer, sizeof(buffer), reinterpret_cast<sockaddr*>(&from), &from_len);
@@ -1473,5 +1521,7 @@ void serve_discovery(Offer (*offer)()) {
         }
     }).detach();
 }
+
+void stop_discovery() { ++g_discovery_generation; }
 
 }  // namespace conker::net::lobby

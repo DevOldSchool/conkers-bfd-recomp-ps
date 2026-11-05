@@ -234,14 +234,18 @@ These environment variables are read by both builds:
   answer at all. Port-mapping
   tests (below) need `--net-unsafe-internet`, since nothing is mapped without it.
 * The online lobby (src/net/lobby_ui.hpp, src/net/net_lobby.hpp):
-  `--net-lobby` opens its window at boot. `CONKER_LOBBY_SCRIPT=<file>` drives
-  it, a line each, `<ms> <action> [text]` from the window opening: `name`,
+  `--net-lobby` opens its page at boot. `CONKER_LOBBY_SCRIPT=<file>` drives
+  it, a line each, `<ms> <action> [text]` from the page opening: `name`,
   `host [port]`, `join <address or code>`, `joinlan [host name]` (the LAN
-  list's JOIN for that game, waiting until the list shows it), `ready`,
+  list's JOIN for that game, waiting until the list shows it), `ready` (sent,
+  no longer needed to start),
   `start`, `kick <n>` (the host's REMOVE for its n-th guest), `leave`,
+  `leavesession` (LEAVE THE SESSION), `quit` (as the window's close button),
+  `key <key>` (a key pressed on the page: `up`, `down`, `left`, `right`, `enter`,
+  `esc`, `back` for Backspace, or `text:<characters>` as typed),
   `close`, `open`, `setenv NAME=value` (for the session the lobby starts
   again into, such as a test's `CONKER_VIRTUAL_PAD`) and `shot <file>`, which
-  writes what the window shows as text (players, LAN games, join codes, the
+  writes what the page shows as text (players, LAN games, join codes, the
   port's state, errors). Opening the host's port on the router
   (src/net/net_portmap.hpp) is never wanted in a test:
   `CONKER_NET_PORTMAP=0` turns it off, and `CONKER_NET_UPNP_URL=<root
@@ -303,6 +307,26 @@ These environment variables are read by both builds:
   makes with the frame and the recompiled functions that called it. The
   hashes, dumps and watch are taken from one copy of RDRAM, so they agree
   even where another thread is writing.
+  `CONKER_ARG_TRACE=<file>:<first frame>:<last frame>` writes every recompiled
+  function the game thread enters in those frames, by name, with `$a0`-`$a3`,
+  `$f12`, `$f14` and `$sp`; each other game thread writes its own to
+  `<file>.<its OSThread address>`. Names and the game's addresses are the same
+  in every build, so two machines' logs of an online session (a Mac's and a
+  Linux PC's) agree up to the first call where their games part. Frame numbers
+  restart when a session starts in place: compare the last run of the frames.
+  A guest that is dropped starts itself again and the restart truncates its
+  logs: `CONKER_NET_REJOIN_COUNT=99` keeps it stopped so they survive.
+  `CONKER_MY_VIEW_DUMP=<folder>` (a guest in a match with MY VIEW on) writes,
+  every 150 frames, game memory with the game's own split-screen list
+  (`f<frame>.game`) and with the "my view" pass's list (`f<frame>.mine`),
+  big-endian, keeping the last 8; the log gives each list's start. Walking
+  both lists shows what the pass draws differently: it found the empty
+  scissor that clipped away a guest's weapons and HUD.
+  `CONKER_AUDIO_COUNT_LOG=<file>` writes, after each audio frame, how many of
+  the synth's update params, its free, allocated and stopping voices and the
+  sound player's free events there are. Online the machines may hear sounds at
+  different volumes (the "my view"), so the audio memory below 0x80082B20
+  differs, but these counts must be equal on every frame of every machine.
   `CONKER_CALL_HASH_LOG=<file>` hashes the game thread's sequence of
   recompiled function entries (a line each 4096 calls and at the end of each
   frame), and `CONKER_CALL_HASH_REF=<log of another run>` compares as it

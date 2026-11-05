@@ -82,8 +82,8 @@ bool load_report(uint8_t* rdram, const std::filesystem::path& path, std::string*
 // Makes a debug report: a folder in debug_reports/ with report.json (`report`, a JSON object, with
 // "save" added) and a save of the game as it is now (save.bin, save.resume), made by the game's own
 // save routine, as SAVE in the pause menu makes it, into a copy: the player's save is not touched.
-// Where the game does not save, report.json only. Returns the folder's name, or "" while a save is
-// still being written.
+// Where the game does not save, and online, report.json only. Returns the folder's name, or "" while
+// a save is still being written.
 std::string request_report(uint8_t* rdram, const std::string& report);
 
 // Makes `path` the save (conker_us.bin and conker_us.resume) and starts its slot where it was

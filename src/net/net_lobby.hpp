@@ -1,12 +1,12 @@
 // The online lobby's network side (docs/online-multiplayer-plan.md, M5): hosting and joining a lobby,
 // finding games on the local network, and starting the session. The window that shows it is
-// src/net/lobby_ui_rt64.cpp; the session itself is net/net_play.
+// src/net/lobby_ui.cpp; the session itself is net/net_play.
 //
 // The lobby runs while the game plays normally underneath. HOST listens on the game's UDP port
 // (37800 by default), asks the router to open it (net/net_portmap) and shows join codes
 // (net/net_codes). JOIN takes an address or a code, or a game from the LAN list. Every machine
 // in the lobby shows the players with their pads, ping and whether their build and ROM match, and
-// the host's settings. When every guest is READY the host can START: each machine then starts
+// the host's settings. Once a guest is in, the host can START when it likes: each machine then starts
 // itself again into the session with the same options the command line takes (--net-host,
 // --net-join with the port the lobby gave it), so the session begins from a fresh boot as before.
 //
@@ -74,7 +74,7 @@ struct View {
     uint16_t game_port = 0;
     std::string key_check;           // hosting: this machine's key check; joined: the host's (net_keys.hpp)
     bool can_start = false;          // hosting: a guest is here and every guest is ready
-    bool ready = false;              // joined: this machine's READY
+    bool ready = false;              // joined: this machine's READY (sent, no longer waited for)
 };
 
 // The player name shown to others (conker-recomp-data/online.txt; "Player" until one is typed).
@@ -115,5 +115,7 @@ bool answer_probe(int socket, const uint8_t* data, size_t size, const sockaddr_s
 // Answers PROBEs on the discovery port from now on (a thread of its own), with what `offer` says
 // at the time.
 void serve_discovery(Offer (*offer)());
+// The answers stop (a session started in place has ended).
+void stop_discovery();
 
 }  // namespace conker::net::lobby

@@ -6,6 +6,7 @@
 // even/odd register pairs (high word first); return in r2 (r2:r3 for 64-bit); floats in f12/f0.
 #include <atomic>
 #include <cmath>
+#include <limits>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -190,7 +191,10 @@ void strchr_recomp(uint8_t* rdram, recomp_context* ctx) {
 }
 
 void sqrtf_recomp(uint8_t* /*rdram*/, recomp_context* ctx) {
-    ctx->f0.fl = std::sqrt(ctx->f12.fl);
+    // A negative number's NaN as the recompiled sqrt.s gives it on every machine (recomp.h): x86-64's
+    // own has the sign bit set.
+    const float value = ctx->f12.fl;
+    ctx->f0.fl = value < 0.0f ? std::numeric_limits<float>::quiet_NaN() : std::sqrt(value);
 }
 
 void ldiv_recomp(uint8_t* rdram, recomp_context* ctx) {

@@ -48,7 +48,7 @@ bool right_stick(float* x, float* y, int port = 0);
 // and clears them. Safe to call from any thread.
 void set_mouse_play(bool playing);
 
-// While a window over the game takes the input (the ONLINE lobby, src/net/lobby_ui_rt64.cpp):
+// While a page over the game takes the input (the ONLINE lobby, src/net/lobby_ui.cpp):
 // the game reads every port as nothing pressed, no mouse motion and no debug menu press, and the
 // mouse is not captured; once it lets go, each port reads nothing until its buttons are let go (the
 // press that closed the window is not the game's). Safe to call from any thread.
@@ -237,6 +237,9 @@ int take_heard_key();
 // Controller 1 as the default mapping has its pad, with the keyboard: what the debug menu reads, so
 // it can be steered whatever the mapping is.
 void read_menu(uint16_t* buttons, float* x, float* y);
+// Controller 1's pad alone (no keyboard) as the default mapping has it, read even while the input
+// is blocked: what the ONLINE lobby (src/net/lobby_ui.cpp) reads, beside the keys it gets as events.
+void read_menu_pad(uint16_t* buttons, float* x, float* y);
 
 // Whether C-left and C-right are swapped, on the right stick and on J/L, so that pushing left turns
 // the view left; part of consistent controls (src/enhancements/consistent_controls), which set it.

@@ -36,6 +36,7 @@
 #include "recomp.h"
 #include "enhancements/object_inspector/object_inspector.hpp"
 #include "platform/input.hpp"
+#include "runtime/exact_math.hpp"
 #include "runtime/frame_input.hpp"
 #include "runtime/snapshot.hpp"
 
@@ -79,6 +80,14 @@ float g_turn[kPorts] = {};  // degrees right the camera turns this frame, lock o
 bool g_playing = false;
 bool g_aiming[kPorts] = {};  // take_aim was asked this pad hook (this machine's own, see aiming())
 int g_zoom[kPorts] = {};  // steps waiting, + in
+// A sight's zoom (take_sight_zoom): frames C-up (+) or C-down (-) is still held for the last wheel step.
+int g_sight_hold[kPorts] = {};
+constexpr int kSightZoomFrames = 6;
+// A tank's turret (take_turret_turn): degrees right the mouse has asked of it and the C buttons have
+// not yet turned it, and whether it was asked last frame (otherwise it is dropped).
+float g_turret[kPorts] = {};
+bool g_turret_taken[kPorts] = {};
+constexpr float kTurretOwed = 90.0f;  // at most, so a long flick does not keep it turning
 // Native state the game's memory depends on, carried by a snapshot (runtime/snapshot.hpp).
 const bool g_snapshot_fields = [] {
     // Checked on load, as another machine's word.
@@ -94,11 +103,28 @@ const bool g_snapshot_fields = [] {
     conker::snapshot::add("mouse_look.dx", g_dx, sizeof(g_dx), finite);
     conker::snapshot::add("mouse_look.dy", g_dy, sizeof(g_dy), finite);
     conker::snapshot::add("mouse_look.turn", g_turn, sizeof(g_turn), finite);
+    conker::snapshot::add("mouse_look.turret", g_turret, sizeof(g_turret), [](const uint8_t* bytes) {
+        for (int i = 0; i < kPorts; i++) {
+            float v;
+            std::memcpy(&v, bytes + i * sizeof(float), sizeof(v));
+            if (!(std::fabs(v) <= kTurretOwed)) return false;
+        }
+        return true;
+    });
+    conker::snapshot::add_bools("mouse_look.turret_taken", g_turret_taken, kPorts);
     conker::snapshot::add("mouse_look.zoom", g_zoom, sizeof(g_zoom), [](const uint8_t* bytes) {
         for (int i = 0; i < kPorts; i++) {
             int v;
             std::memcpy(&v, bytes + i * sizeof(int), sizeof(v));
             if (v < -2 || v > 2) return false;
+        }
+        return true;
+    });
+    conker::snapshot::add("mouse_look.sight_hold", g_sight_hold, sizeof(g_sight_hold), [](const uint8_t* bytes) {
+        for (int i = 0; i < kPorts; i++) {
+            int v;
+            std::memcpy(&v, bytes + i * sizeof(int), sizeof(v));
+            if (v < -kSightZoomFrames || v > kSightZoomFrames) return false;
         }
         return true;
     });
@@ -158,6 +184,10 @@ void frame(uint8_t* rdram) {
     for (int port = 0; port < kPorts; port++) {
         g_turn[port] = 0.0f;  // a turn the camera did not take last frame is dropped
         g_aiming[port] = false;
+        if (!g_turret_taken[port]) {
+            g_turret[port] = 0.0f;  // out of the tank: nothing owed when it is back in one
+        }
+        g_turret_taken[port] = false;
         int zoom;
         conker::frame_input::take_mouse(port, &g_dx[port], &g_dy[port], &zoom);
         g_captured[port] = conker::frame_input::mouse_captured(port);
@@ -169,6 +199,23 @@ void frame(uint8_t* rdram) {
         }
         g_zoom[port] = std::clamp(g_zoom[port] + zoom, -2, 2);
     }
+}
+
+int take_sight_zoom(int port) {
+    if (port < 0 || port >= kPorts) {
+        return 0;
+    }
+    int& hold = g_sight_hold[port];
+    if (hold == 0 && g_zoom[port] != 0) {
+        hold = g_zoom[port] > 0 ? kSightZoomFrames : -kSightZoomFrames;
+        g_zoom[port] += g_zoom[port] > 0 ? -1 : 1;
+    }
+    if (hold == 0) {
+        return 0;
+    }
+    const int direction = hold > 0 ? 1 : -1;
+    hold -= direction;
+    return direction;
 }
 
 bool take_aim(int port, float* x, float* y) {
@@ -198,6 +245,26 @@ float take_turn(int port) {
     return degrees;
 }
 
+int take_turret_turn(int port, float step) {
+    if (port < 0 || port >= kPorts || !g_captured[port] || step <= 0.0f) {
+        return 0;
+    }
+    g_turret_taken[port] = true;
+    float& owed = g_turret[port];
+    owed = std::clamp(owed + g_dx[port] * kDegreesPerPixel, -kTurretOwed, kTurretOwed);
+    g_dx[port] = 0.0f;
+    // A press turns it a whole step, so one is pressed once at least half a step is owed.
+    if (owed >= step * 0.5f) {
+        owed -= step;
+        return 1;
+    }
+    if (owed <= -step * 0.5f) {
+        owed += step;
+        return -1;
+    }
+    return 0;
+}
+
 void turn_camera(int port, float degrees) {
     if (port >= 0 && port < kPorts) {
         g_turn[port] += degrees;
@@ -225,8 +292,8 @@ extern "C" void conker_mouse_camera(uint8_t* rdram, recomp_context* ctx) {
     }
     // Turned right, the view turns right: C-left's way, a negative angle.
     const float angle = -degrees * read_float(rdram, kDegreesToRadians);
-    const float c = std::cos(angle);
-    const float s = std::sin(angle);
+    const float c = conker::exact_math::cos(angle);
+    const float s = conker::exact_math::sin(angle);
     const float x = read_float(rdram, camera + kCameraEye) - read_float(rdram, camera + kCameraPivot);
     const float z = read_float(rdram, camera + kCameraEye + 8) - read_float(rdram, camera + kCameraPivot + 8);
     write_float(rdram, camera + kCameraEye, c * x + s * z + read_float(rdram, camera + kCameraPivot));

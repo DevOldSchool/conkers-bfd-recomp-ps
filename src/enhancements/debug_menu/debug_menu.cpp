@@ -62,6 +62,7 @@
 // the first page close it. The pad is read directly (conker::input::read_menu), not through the game.
 // CONKER_DEBUG_MENU=0 turns it off.
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -73,6 +74,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -149,17 +151,8 @@ constexpr int kListRows = 9;
 constexpr int kInfoY = 176;                     // the position and camera lines under the rows
 constexpr int kOverlayX = 16;                   // FPS and position in play, top left
 constexpr int kOverlayY = 12;
-// The title's doors (screen 3, func_151DE8F0), found by watching memory while scripted presses
-// turned the doors and went into MULTI: the selected door, u8 at D_800E0B1C, is 5 GAME1, 0 MULTI,
-// 1 OPTIONS, 2 CHAPTERS, and 4 once GAME1's or MULTI's door is opened. Behind MULTI's door (the
-// barrel with the skull) f32 D_800E0AF8 goes from 0 to 1 as the barrel turns to the modes, and
-// back as it turns away; u8 D_800E0B30 is 4 on the join screen and 0 before it.
-constexpr uint32_t kTitleDoor = 0x800E0B1C;
-constexpr uint32_t kBarrelTurn = 0x800E0AF8;
-constexpr uint32_t kMultiJoin = 0x800E0B30;
+// The title's doors (screen 3) and the barrels behind MULTI's: see src/net/lobby_ui.cpp.
 constexpr int kTitleScreen = 3;
-constexpr uint8_t kMultiDoor = 0;
-constexpr uint8_t kDoorOpened = 4;
 constexpr int kOnlinePromptY = 196;  // under the door
 constexpr int kSteps[] = {1, 10, 100, 1000};
 
@@ -236,13 +229,17 @@ int g_step = 2;          // index in kSteps
 
 uint16_t g_previous_buttons = 0;
 
+std::atomic<bool> g_report_requested{false};  // request_report, from the session window
+std::mutex g_report_result_mutex;
+std::string g_report_result;
+
 bool debug_menu_enabled() {
     // Off online: it pauses the game and writes its memory on one machine only.
     static const bool enabled = [] {
         const char* value = std::getenv("CONKER_DEBUG_MENU");
-        return (value == nullptr || value[0] != '0') && !conker::net::active();
+        return value == nullptr || value[0] != '0';
     }();
-    return enabled;
+    return enabled && !conker::net::active() && !conker::net::in_place();
 }
 
 void show_message(const std::string& message, const std::string& detail = "") {
@@ -952,6 +949,64 @@ void open_list(Page page) {
     g_top = 0;
 }
 
+constexpr uint32_t kMultiplayerMatch = 0x800BE616;  // D_800BE616: nonzero in a multiplayer match
+constexpr uint32_t kActors = 0x800CC2D0;           // D_800CC2D0: player n is actor n in a match
+constexpr uint32_t kActorSize = 0x32C;
+constexpr uint32_t kActorCameraBlock = 0x31C;      // the camera block: forward, eye, look-at
+constexpr int kMatchPlayers = 4;
+
+float actor_float(uint8_t* rdram, uint32_t address) {
+    const int32_t word = MEM_W(0, kseg0(address));
+    float value;
+    std::memcpy(&value, &word, sizeof(value));
+    return value;
+}
+
+// In a match, each player's position and camera (eye, look-at, yaw and pitch, as the report's own
+// "camera" has player 1's), and online which one is this machine's: the report then says where the
+// player who made it was, whichever port they play.
+nlohmann::json match_players(uint8_t* rdram) {
+    const auto rounded = [](float value) { return std::round(static_cast<double>(value) * 100.0) / 100.0; };
+    nlohmann::json players = nlohmann::json::array();
+    for (int n = 0; n < kMatchPlayers; n++) {
+        const uint32_t actor = kActors + static_cast<uint32_t>(n) * kActorSize;
+        const uint32_t camera = static_cast<uint32_t>(MEM_W(0, kseg0(actor + kActorCameraBlock)));
+        if (MEM_W(0, kseg0(actor)) == 0 || (camera & 0xFF800000) != 0x80000000) {
+            continue;  // no such player (a free actor, or one with no camera)
+        }
+        conker::resume::Camera c;
+        for (int i = 0; i < 3; i++) {
+            c.forward[i] = actor_float(rdram, camera + 0x130 + 4 * i);
+            c.eye[i] = actor_float(rdram, camera + 0x13C + 4 * i);
+            c.at[i] = actor_float(rdram, camera + 0x148 + 4 * i);
+        }
+        if (c.eye[0] == 0 && c.eye[1] == 0 && c.eye[2] == 0 && c.at[0] == 0 && c.at[1] == 0 && c.at[2] == 0) {
+            continue;  // a computer player: its camera block is never filled in
+        }
+        float facing = std::fmod(actor_float(rdram, actor + 0x40), 360.0f);
+        if (facing < 0) {
+            facing += 360.0f;
+        }
+        nlohmann::json player = {
+            {"player", n + 1},
+            {"x", rounded(actor_float(rdram, actor + 0x14))},
+            {"y", rounded(actor_float(rdram, actor + 0x18))},
+            {"z", rounded(actor_float(rdram, actor + 0x1C))},
+            {"facing", rounded(facing)},
+            {"camera",
+             {{"eye", {rounded(c.eye[0]), rounded(c.eye[1]), rounded(c.eye[2])}},
+              {"look_at", {rounded(c.at[0]), rounded(c.at[1]), rounded(c.at[2])}},
+              {"yaw", rounded(c.yaw())},
+              {"pitch", rounded(c.pitch())}}},
+        };
+        if (conker::net::active()) {
+            player["this_machine"] = n == conker::net::local_port();
+        }
+        players.push_back(player);
+    }
+    return players;
+}
+
 // The report SAVE DEBUG REPORT makes (resume_point.cpp adds "save"): everything needed to see what
 // the player saw, as JSON.
 std::string report_json(uint8_t* rdram) {
@@ -989,6 +1044,12 @@ std::string report_json(uint8_t* rdram) {
             {"yaw", rounded(c.yaw())},
             {"pitch", rounded(c.pitch())},
         };
+    }
+    if (MEM_BU(0, kseg0(kMultiplayerMatch)) != 0) {
+        report["players"] = match_players(rdram);
+        if (conker::net::active()) {
+            report["online_player"] = conker::net::local_port() + 1;
+        }
     }
     report["enhancements"] = conker::status::enhancements(rdram);
     nlohmann::json settings = conker::status::settings();
@@ -1493,6 +1554,13 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
             std::printf("[conker] GPU fault: debug report %s\n", name.c_str());
         }
     }
+    if (g_report_requested.exchange(false)) {
+        const std::string name = conker::resume::request_report(rdram, report_json(rdram));
+        std::printf("[conker] debug report: %s\n", name.empty() ? "a save is still being written" : name.c_str());
+        const std::lock_guard<std::mutex> lock(g_report_result_mutex);
+        g_report_result = name.empty() ? "Not saved: a save is still being written, try again"
+                                       : "Saved in debug_reports: " + name;
+    }
     g_frames++;
     const Clock::time_point now = Clock::now();
     const double elapsed = std::chrono::duration<double>(now - g_fps_since).count();
@@ -1527,19 +1595,12 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
         g_holding = false;
         g_pads_held = true;
     }
-    // On the MULTI door and the skull behind it, Start opens the online lobby (src/net/lobby_ui.hpp)
+    // On the skull behind the MULTI door, Start opens the online lobby (src/net/lobby_ui.hpp)
     // instead of going on: it is taken out of this frame's presses before the screen's handler reads
-    // them (func_151E51EC copies D_800BE930 after this), and a line at the bottom says so. Not on
-    // the modes or the join screen, where Start is the game's.
-    static uint8_t last_door = 0xFF;  // the door selected before one was opened
-    const bool title = MEM_BU(0, kseg0(kMenuHandler)) == kTitleScreen;
-    const uint8_t door = MEM_BU(0, kseg0(kTitleDoor));
-    if (title && door != kDoorOpened) {
-        last_door = door;
-    }
-    const bool on_multi = title && (door == kMultiDoor ||
-                                    (door == kDoorOpened && last_door == kMultiDoor && MEM_W(0, kseg0(kBarrelTurn)) == 0 &&
-                                     MEM_BU(0, kseg0(kMultiJoin)) == 0));
+    // them (func_151E51EC copies D_800BE930 after this), and a line under the barrel says so. Not on
+    // the modes or the join screen, where Start is the game's. The lobby's page then runs from here
+    // (it presses A for the barrel's face to come up, in the same frame).
+    const bool on_multi = conker::lobby_ui::on_barrels(rdram);
     if (!g_active && on_multi && !conker::net::active() && !conker::lobby_ui::is_open()) {
         const char* start = conker::input::controller_kind() == conker::input::PadKind::PlayStation ? "OPTIONS"
                             : conker::input::controller_kind() == conker::input::PadKind::None ? "ENTER"
@@ -1551,6 +1612,12 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
             conker::lobby_ui::open();
         }
     }
+    static bool lobby_was_open = false;
+    if (conker::lobby_ui::is_open() && !lobby_was_open) {
+        g_shadows = true;  // until the frame's display list is found full again
+    }
+    lobby_was_open = conker::lobby_ui::is_open();
+    conker::lobby_ui::frame(rdram, ctx);
     // The OPTIONS page's CONTROLS row: the controls page alone in the OPTIONS page's place, the
     // world going on behind it as it does behind OPTIONS (no pause).
     if (g_controls_requested) {
@@ -1563,7 +1630,13 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
             g_controls_top = 0;
         }
     }
-    if (conker::input::take_debug_menu_press() && debug_menu_enabled()) {
+    const bool menu_press = conker::input::take_debug_menu_press();
+    // In a session started from the lobby, the debug menu's key (Back, `) opens the session's window
+    // instead: LEAVE THE SESSION is there.
+    if (menu_press && conker::net::in_place() && !conker::lobby_ui::is_open()) {
+        conker::lobby_ui::open();
+    }
+    if (menu_press && debug_menu_enabled()) {
         if (g_active) {
             g_close_requested = true;
         } else if (MEM_BU(0, kseg0(kMenuHandler)) != 0) {
@@ -1594,7 +1667,7 @@ extern "C" int conker_debug_menu_holding_game() { return g_active && g_holding ?
 
 // At 0x1504286C, where func_150417AC stops drawing a text because the frame's display list is full.
 extern "C" void conker_debug_menu_text_full(uint8_t* /*rdram*/, recomp_context* /*ctx*/) {
-    if (g_active) {
+    if (g_active || conker::lobby_ui::is_open()) {
         g_shadows = false;
     }
 }
@@ -1672,6 +1745,22 @@ nlohmann::json conker::status::debug_menu() {
     return enhancement("debug_menu", "Debug menu", debug_menu_enabled(), "CONKER_DEBUG_MENU",
                        {{"wireframe", g_wireframe}, {"show_fps", g_show_fps}, {"show_position", g_show_position},
                         {"inspect", conker::inspector::active()}});
+}
+
+void conker::debug_menu::draw_text(uint8_t* rdram, recomp_context* ctx, int x, int y, bool centered, uint32_t color,
+                                   const std::string& text, float scale) {
+    ::draw_text(rdram, ctx, x, y, centered ? kCentered : kLeft, color, text, scale);
+}
+
+void conker::debug_menu::play_menu_sound(uint8_t* rdram, recomp_context* ctx, bool select) {
+    play_sound(rdram, ctx, select ? kSelectSound : kMoveSound);
+}
+
+void conker::debug_menu::request_report() { g_report_requested = true; }
+
+std::string conker::debug_menu::report_result() {
+    const std::lock_guard<std::mutex> lock(g_report_result_mutex);
+    return g_report_result;
 }
 
 bool conker::debug_menu::controls_available() { return !conker::net::active(); }

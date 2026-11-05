@@ -1,42 +1,61 @@
-// The ONLINE lobby window (docs/online-multiplayer-plan.md, M5): a Dear ImGui window over the game,
-// using the ImGui that RT64 ships. Opened with Start on the title's MULTI door (src/enhancements/
-// debug_menu/debug_menu.cpp, which says so under the door) or with --net-lobby;
-// net/net_lobby does the network side.
+// The ONLINE lobby's page (docs/online-multiplayer-plan.md, M5), drawn by the game itself on the
+// title's MULTI barrel; net/net_lobby does the network side.
 //
-// The window's frame is built on the main thread, where SDL's events come in (update()), and drawn
-// into the swap chain by RT64's present thread through its draw hook. While it is open the game reads
-// no input (input::set_blocked) and the window takes the keyboard, the mouse and controller 1, whose
-// d-pad or stick moves between the buttons, A presses one and B goes back.
+// On any barrel behind the MULTI door, Start (Enter on the keyboard) opens it (src/enhancements/debug_menu,
+// which says so under the barrel), and so does --net-lobby at boot. Opening it presses A for the
+// game, which brings the barrel's face up as it does for the modes; the barrel's picture (the skull,
+// WAR...) and everything the game draws on the face are hidden (hides_sprite) and the lobby's rows are drawn there in the game's
+// own font, as the debug menu draws its rows. Closing it presses B, which turns the barrel back. While it is open the game reads no input (input::set_blocked): controller 1's pad steers the
+// page (up and down choose, A presses, B goes back) and the keyboard does too (the arrows, Enter,
+// Esc). The name and the address or code to join are typed on the keyboard, or picked a letter at a
+// time from a keyboard on the barrel with the pad.
+//
+// Online play is input lockstep, so nothing here touches the game's memory once a session is on:
+// in a session the debug menu's key opens the session's page (BACK TO THE GAME, LEAVE THE SESSION),
+// which net/net_play draws in its own display list over the picture, above the memory every machine
+// keeps the same.
 //
 // CONKER_LOBBY_SCRIPT=<file> drives the lobby for tests, a line each: "<ms> <action> [text]", the
-// time from the window first opening; actions: name <text>, host [port], join <address or code>,
-// ready, start, leave, close, open, shot <file> (writes the View as text), setenv NAME=value (for
-// the session the lobby starts). The actions call what the window's buttons call.
+// time from the page first opening; actions: name <text>, host [port], join <address or code>,
+// joinlan [host name], ready, start, kick <n>, leave, leavesession, quit, close, open,
+// report (SAVE DEBUG REPORT in a session),
+// setenv NAME=value (for the session the lobby starts), shot <file> (writes the View as text) and
+// key <key> (a key as if pressed on the page: up, down, left, right, enter, esc, back, or text:<chars>).
+// The actions call what the page's rows call.
 #pragma once
+
+#include <cstdint>
+
+#include "recomp.h"
 
 union SDL_Event;
 struct SDL_Window;
 
-namespace RT64 {
-struct Application;
-}
-
 namespace conker::lobby_ui {
 
-// The game's window, once made (main thread), and, once RT64 is set up (on its thread), the
-// application whose device and swap chain the lobby's window draws with.
+// The game's window, once made (main thread): loads the script, and opens the page for --net-lobby.
 void set_window(SDL_Window* window);
-void attach(RT64::Application* app);
 
-// The window (the null renderer's build has none: these do nothing there).
 void open();
 void close();
 bool is_open();
 
-// Every SDL event, on the main thread; true if the window used it (the keyboard and mouse while open).
+// Every SDL event, on the main thread; true if the page used it (keys while it is open).
 bool handle_event(const SDL_Event& event);
 
-// On the main thread, often: builds the window's next frame when one is due.
+// On the main thread, often: the script, the clipboard and the keyboard's text input.
 void update();
+
+// Once a frame on the game thread, from the debug menu's tick (on every screen, before the screen's
+// handler reads the frame's presses): steers and draws the page.
+void frame(uint8_t* rdram, recomp_context* ctx);
+
+// Whether a menu sprite (func_1510D0EC's resource) is kept from being drawn: the barrel's own while
+// the page is on it. Game thread.
+bool hides_sprite(uint32_t resource);
+
+// Whether the title is on one of the barrels behind the MULTI door, still: where Start opens the page.
+// Game thread.
+bool on_barrels(uint8_t* rdram);
 
 }  // namespace conker::lobby_ui
