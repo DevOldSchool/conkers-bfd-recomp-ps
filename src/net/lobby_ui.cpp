@@ -474,26 +474,27 @@ Page build_page(const lobby::View& v) {
     switch (v.mode) {
         case Mode::Idle: {
             page.title = "ONLINE";
+            // Mods loaded at boot cannot be unloaded, and a mod on one machine and not the others puts
+            // them out of sync: a game with mods on cannot host or join until it starts again without.
+            const bool mods = conker::net::mods_on();
+            if (mods) {
+                page.lines.push_back({"MODS ARE ON  RESTART WITHOUT THEM TO PLAY", kRed});
+                page.rows.push_back({"RESTART WITHOUT MODS", Action::RestartWithoutMods, true, 0,
+                                     "THIS RUN ONLY  YOUR MODS STAY ON FOR NEXT TIME"});
+            }
             page.rows.push_back({"NAME  " + field_text(name, "PLAYER"), Action::Name, true, 0,
                                  "THE NAME THE OTHER PLAYERS SEE"});
-            page.rows.push_back({"HOST A GAME", Action::Host, true, 0,
+            page.rows.push_back({"HOST A GAME", Action::Host, !mods, 0,
                                  "ON UDP PORT " + std::to_string(conker::net::kDefaultPort) + "  THE OTHERS JOIN YOU"});
-            page.rows.push_back({"JOIN  " + field_text(target, "ADDRESS OR CODE"), Action::Join, true, 0,
+            page.rows.push_back({"JOIN  " + field_text(target, "ADDRESS OR CODE"), Action::Join, !mods, 0,
                                  "THE HOST'S ADDRESS OR JOIN CODE"});
-            if (conker::net::mods_on()) {
-                // Mods loaded at boot cannot be unloaded, and a lobby game needs everyone on the same
-                // ones: a run without any plays with everyone else who has none.
-                page.lines.push_back({"MODS ARE ON  ONLINE GAMES NEED NONE", kYellow});
-                page.rows.push_back({"RESTART WITHOUT MODS", Action::RestartWithoutMods, true, 0,
-                                     "THIS RUN ONLY  YOUR MODS STAY ON FOR NEXT TIME", kYellow});
-            }
             if (v.games.empty()) {
                 page.lines.push_back({"", kGrey});
             }
             for (size_t i = 0; i < std::min(v.games.size(), kLanShown); i++) {
                 const lobby::Game& game = v.games[i];
                 Row row{"JOIN " + upper(game.name) + "  " + std::to_string(game.players) + "P" + (game.playing ? "  PLAYING" : ""),
-                        Action::JoinGame, game.problem.empty(), i, "ON THIS NETWORK AT " + game.address};
+                        Action::JoinGame, !mods && game.problem.empty(), i, "ON THIS NETWORK AT " + game.address};
                 if (!game.problem.empty()) {
                     row.info = upper(game.problem);
                     row.info_color = kYellow;

@@ -92,12 +92,11 @@ player's view a second time each frame, after the split screen every machine dra
 speed.
 
 [Mods](modding.md) change how the game plays, so a mod on one machine and not the others would put
-them out of sync. Online games are played without mods. A game that started with mods on says
-"MODS ARE ON" on the lobby's page and has a row RESTART WITHOUT MODS: it starts the game again with
-no mods loaded, straight back on the lobby's page, ready to host or join. That is for that run
-only: the mods stay on in the MODS page, and the next time the game is started they are loaded
-again. (Games that all have exactly the same mods on can still play together without restarting;
-any other mix says "different mods".)
+them out of sync, so online games are played without mods. In a game that started with mods on,
+the lobby's page says "MODS ARE ON" in red, HOST and JOIN cannot be pressed, and its first row is
+RESTART WITHOUT MODS: it starts the game again with no mods loaded, straight back on the lobby's
+page, ready to host or join. That is for that run only: the mods stay on in the MODS page, and the
+next time the game is started they are loaded again.
 
 ### Leaving a session
 
