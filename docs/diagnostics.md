@@ -163,6 +163,15 @@ These environment variables are read by both builds:
   (30 s by default) with its network going on (it is dropped after 3 s of
   holding the host up). The host logs every wait of 100 ms or more ("waited
   N ms at frame F for player P", with how long that player had been quiet).
+* `CONKER_NET_STATS=1` counts a session's traffic (src/net/net_stats.cpp) and prints a report
+  every 10 s (`=N`: every N seconds) and when the session ends: packets and bytes on the wire (the
+  sealed datagram plus IP and UDP headers) sent and received by type, a second, a packet and a game
+  frame; the same since the last report (the match after the menus); and what the INPUT and MERGED
+  packets sent carry (headers, times, frame numbers, records, hashes, drops) with how many records
+  each held. Compare runs by bytes a frame: a run that plays slower sends fewer packets a second.
+  tools/net-test/humanpad.py makes pads (hu1.pad, hu2.pad, hu3.pad from f1, f2, f3; seeded, so the
+  same every time) that play the MULTI match with sticks that move every frame, as a person's do,
+  so the traffic is a fair one to measure: `P1=hu1.pad P2=hu2.pad runsim.sh ...`.
   `CONKER_NET_TEST_FORGED_LEAVE=<frame>` on the host feeds itself a guest's
   LEAVE with a wrong secret, with none and with the right one: only the last
   may drop the guest (it prints PASS). `tools/net-test/rejoinrun.sh` takes

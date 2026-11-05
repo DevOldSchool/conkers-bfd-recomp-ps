@@ -9,6 +9,7 @@ then. Seeded, so every run plays the same.
 
     humanpad.py f1.pad 9000 1 > hu1.pad    # the host: its pad from VI 9000 on
     humanpad.py f2.pad 9600 2 > hu2.pad
+    humanpad.py f3.pad 9400 3 > hu3.pad
 """
 import random
 import sys

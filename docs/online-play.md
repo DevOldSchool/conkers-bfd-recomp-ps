@@ -63,6 +63,10 @@ join. Every machine runs the whole game and only the controllers' input travels,
 * their own copy of the same ROM, Conker's Bad Fur Day (US);
 * the same mods on, or none.
 
+Little travels: in a match each guest sends and receives about 3 KB a second (30 small packets each
+way), and the host sends about 3 KB a second to each guest and receives as much from each, so any
+broadband or phone connection is plenty. A slow round trip costs input delay, not bandwidth.
+
 Macs, Linux and Windows PCs play together: the game gives the same results on all of them, Apple
 silicon and Intel or AMD alike.
 

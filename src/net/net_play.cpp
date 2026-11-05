@@ -2,13 +2,17 @@
 //
 // The wire: UDP datagrams, each sealed on the link between a guest and the host (net_seal.hpp: the
 // guest asks for the host's key first, and its HELLO comes in a FIRST). Inside, little-endian, the
-// magic "CKNA", a type, the session id (0 in a HELLO) and the guest's secret: 64 random bits the
-// guest picks and sends in its HELLO, then in every datagram either way between it and the host. A datagram whose secret is not its sender's
-// is ignored, so a sender that forges a peer's address but never saw its traffic cannot pose as it;
-// a dropped player's port can be taken back only with its secret. Inputs need no reliable channel: every INPUT and MERGED carries every
-// frame the other side has not acknowledged yet (up to 16), and both sides send every 10 ms, so a
-// lost datagram costs nothing but 10 ms. The handshake (the session blob in chunks, START) is
-// resent until answered.
+// handshake's packets have the magic "CKNA", a type, the session id (0 in a HELLO) and the guest's
+// secret: 64 random bits the guest picks and sends in its HELLO, then in every handshake packet either
+// way between it and the host. A datagram whose secret is not its sender's is ignored, and a dropped
+// player's port can be taken back only with its secret. INPUT and MERGED, a packet every frame, have
+// only their type and a flags byte: the link they open on is that peer's own (a guest's keys are
+// made for its join), which already says what the session and secret would. Inputs need no reliable
+// channel: every INPUT and MERGED carries every frame the other side has not acknowledged yet (up to
+// 16), one goes every frame, and the tick resends to a link with nothing sent for 100 ms (10 ms while
+// a game waits), so a lost datagram costs little. Records go as the fields that changed from the
+// record before; frame numbers as varints (CONKER_NET_STATS counts it all: net_stats.hpp). The
+// handshake (the session blob in chunks, START) is resent until answered.
 //
 //     HELLO    guest -> host   build, OS, the port it asks for, the cookie (0 at first) and the
 //                              lobby's session token (0 for none)
@@ -20,9 +24,11 @@
 //     READY    guest -> host   the whole blob is in
 //     START    host -> guest   every guest is ready; the input delay
 //     STARTED  guest -> host   START seen
-//     INPUT    guest -> host   the guest's port's records from a frame on, its last hashes
+//     INPUT    guest -> host   the guest's port's records from a frame on, its last hashes (32 bits)
 //     MERGED   host -> guest   every port's records from a frame on (with the ports held and the
-//                              ports dropped by then), and every drop: a port, its first frame and why
+//                              ports dropped by then; the guest's own port left out while it plays),
+//                              and, on the tick and for a second after they change, every drop: a
+//                              port, its first frame and why
 //     LEAVE    either way      this machine is quitting (sent a few times as it exits): the host drops
 //                              the guest's port at once, and a guest learns the session is over
 //
