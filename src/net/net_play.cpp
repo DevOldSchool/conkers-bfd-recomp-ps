@@ -64,6 +64,7 @@
 #include "net/net_portmap.hpp"
 #include "net/net_seal.hpp"
 #include "net/net_socket.hpp"
+#include "net/net_stats.hpp"
 #include "runtime/snapshot.hpp"
 #include "ultramodern/ultramodern.hpp"
 #include "librecomp/game.hpp"
@@ -395,6 +396,7 @@ struct Peer {
     uint32_t blocking_frame = 0;  // the host: the frame it has waited for this guest's input of, if any,
     int64_t blocking_since = 0;   // and since when
     uint32_t acked = 0;        // the host: the merged frames this guest has; a guest: its inputs the host has
+    uint32_t sent_upto = 0;    // the newest record sent to it (CONKER_NET_STATS counts the new ones)
     uint32_t echo = 0;         // the peer's last send time, to echo
     int64_t echo_at = 0;       // when it came
     int rtt = -1;
@@ -722,10 +724,21 @@ int64_t sim_pump() {
 }
 
 // A packet sealed on a link and sent.
+// Whether a datagram to or from addr goes as IPv6 on the wire (an IPv4 address mapped into a dual-stack
+// socket's IPv6 goes as IPv4), for CONKER_NET_STATS.
+bool wire_ipv6(const sockaddr_storage& addr) {
+    if (addr.ss_family != AF_INET6) {
+        return false;
+    }
+    const auto& a6 = reinterpret_cast<const sockaddr_in6&>(addr);
+    return !IN6_IS_ADDR_V4MAPPED(&a6.sin6_addr);
+}
+
 void send_sealed(seal::Channel& channel, const sockaddr_storage& addr, socklen_t len, const Writer& w) {
     uint8_t out[sizeof(w.data) + seal::kOverhead];
     const size_t size = seal::seal(channel, w.data, w.size, out, sizeof(out));
     if (size > 0) {
+        conker::net::stats::sent(w.size > 4 ? w.data[4] : 0, conker::net::stats::wire_bytes(size, wire_ipv6(addr)));
         send_datagram(addr, len, out, size);
     }
 }
@@ -740,6 +753,7 @@ void send_contact(const sockaddr_storage& addr, socklen_t len, const Writer& w) 
 void send_key_offer(const sockaddr_storage& from, socklen_t from_len) {
     uint8_t out[64];
     const size_t size = seal::write_offer(g_host_key, conker::net::address_cookie(from, kCookiePurpose), out, sizeof(out));
+    conker::net::stats::sent(0, conker::net::stats::wire_bytes(size, wire_ipv6(from)));
     send_datagram(from, from_len, out, size);
 }
 
@@ -1160,9 +1174,12 @@ void send_updates(bool whole = false) {
             if (!peer.started) {
                 continue;
             }
+            namespace stats = conker::net::stats;
             Writer w;
             begin(w, kMerged, peer.secret);
+            const size_t header_end = w.size;
             write_times(w, peer);
+            const size_t times_end = w.size;
             w.u32(g_input_upto[peer.port]);
             w.u8(missing_for(g_merged_upto + 1));
             w.u32(g_merged_upto);
@@ -1173,6 +1190,7 @@ void send_updates(bool whole = false) {
                                        ? std::min(g_merged_upto - first + 1, kFramesPerPacket) : 0;
             w.u32(first);
             w.u8(static_cast<uint8_t>(count));
+            const size_t frames_end = w.size;
             // Each record as its changes from the one before: a mask (bit p for port p, bit 4 for the
             // held/dropped/snapshot bytes) then what it names; the first in the packet whole. A record
             // was 71 bytes and up to 16 went 100 times a second, repeated until acknowledged, ~1-2
@@ -1216,6 +1234,7 @@ void send_updates(bool whole = false) {
                 }
                 std::memcpy(before_tail, tail, 3);
             }
+            const size_t records_end = w.size;
             // The drops, only while there is one to tell: most packets had 36 bytes of zeros.
             bool any = false;
             for (int port = 0; port < kPorts; port++) {
@@ -1227,6 +1246,20 @@ void send_updates(bool whole = false) {
                 w.u8(g_drop_reason[port]);
                 w.u32(g_live_frame[port]);
             }
+            if (stats::enabled()) {
+                stats::part(true, stats::kPartIp, stats::wire_bytes(0, wire_ipv6(peer.addr)));
+                stats::part(true, stats::kPartSeal, seal::kOverhead);
+                stats::part(true, stats::kPartHeader, header_end);
+                stats::part(true, stats::kPartTimes, times_end - header_end);
+                stats::part(true, stats::kPartFrames, frames_end - times_end);
+                stats::part(true, stats::kPartRecords, records_end - frames_end);
+                stats::part(true, stats::kPartDrops, w.size - records_end);
+                const uint32_t last = first + count - 1;
+                stats::records(true, count, count != 0 && last > peer.sent_upto ? last - std::max(peer.sent_upto, first - 1) : 0);
+            }
+            if (count != 0) {
+                peer.sent_upto = std::max(peer.sent_upto, first + count - 1);
+            }
             send_to(peer, w);
         }
         return;
@@ -1235,16 +1268,20 @@ void send_updates(bool whole = false) {
         return;
     }
     Peer& host = g_peers[0];
+    namespace stats = conker::net::stats;
     Writer w;
     begin(w, kInput, g_secret);
     w.u8(static_cast<uint8_t>(g_local_port));
+    const size_t header_end = w.size;
     write_times(w, host);
+    const size_t times_end = w.size;
     w.u32(g_merged_upto);
     const uint32_t upto = g_input_upto[g_local_port];
     const uint32_t first = std::max(host.acked + 1, static_cast<uint32_t>(g_delay + 1));
     const uint32_t count = first <= upto ? std::min(upto - first + 1, kFramesPerPacket) : 0;
     w.u32(first);
     w.u8(static_cast<uint8_t>(count));
+    const size_t frames_end = w.size;
     // As MERGED's records: a 1 then the port when it changed from the frame before (always the first),
     // else a 0.
     // The first: a 2 when it is the same as frame first - 1's (which the host has acknowledged), unless
@@ -1265,7 +1302,22 @@ void send_updates(bool whole = false) {
         }
         before = now;
     }
+    const size_t records_end = w.size;
     write_hashes(w);
+    if (stats::enabled()) {
+        stats::part(false, stats::kPartIp, stats::wire_bytes(0, wire_ipv6(host.addr)));
+        stats::part(false, stats::kPartSeal, seal::kOverhead);
+        stats::part(false, stats::kPartHeader, header_end);
+        stats::part(false, stats::kPartTimes, times_end - header_end);
+        stats::part(false, stats::kPartFrames, frames_end - times_end);
+        stats::part(false, stats::kPartRecords, records_end - frames_end);
+        stats::part(false, stats::kPartHashes, w.size - records_end);
+        const uint32_t last = first + count - 1;
+        stats::records(false, count, count != 0 && last > host.sent_upto ? last - std::max(host.sent_upto, first - 1) : 0);
+    }
+    if (count != 0) {
+        host.sent_upto = std::max(host.sent_upto, first + count - 1);
+    }
     send_to(host, w);
 }
 
@@ -1897,6 +1949,7 @@ void handle_datagram(const uint8_t* data, size_t size, const sockaddr_storage& f
     const uint8_t type = r.u8();
     const uint32_t session = r.u32();
     const uint64_t secret = r.u64();
+    conker::net::stats::received(type, conker::net::stats::wire_bytes(size, wire_ipv6(from)));
     if (contact) {
         if (type == kHello && r.ok) {
             on_rejoin_hello(from, from_len, r, secret);
@@ -2045,6 +2098,7 @@ void network_thread() {
                 send_updates(true);
             }
         }
+        conker::net::stats::tick();
         relaunch_to_rejoin();
         if (g_waiting.load()) {
             wake_game_thread();  // so that a long wait notices a drop or a desync
@@ -3233,6 +3287,7 @@ void finish_connect() {
     }
     g_merged_upto = static_cast<uint32_t>(g_delay);
     g_session_start.store(now_ms());
+    conker::net::stats::begin_session(is_host());
     g_net_stop.store(false);
     g_thread = std::thread(network_thread);
     register_goodbye();
@@ -3327,6 +3382,7 @@ void reset_session() {
 
 // Stops the network thread and closes the session's socket (in place: leaving, or connecting again).
 void stop_network() {
+    conker::net::stats::report();
     g_net_stop.store(true);
     wake_game_thread();
     if (g_connect_thread.joinable()) {
@@ -3747,6 +3803,7 @@ void frame(uint8_t* rdram, Record* record) {
         g_details[frame % kDetailFrames] = detail;
         g_own_hashes[frame % kRing] = {frame, hash};
         g_own_hash_upto = frame;
+        conker::net::stats::frame_played();
         if (g_own_hash_history.empty() || frame < g_own_hash_base) {
             g_own_hash_history.clear();
             g_own_hash_base = frame;

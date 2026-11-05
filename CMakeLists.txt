@@ -126,6 +126,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/net/net_lobby.cpp
     src/net/net_portmap.cpp
     src/net/net_seal.cpp
+    src/net/net_stats.cpp
     src/net/net_keys.cpp
     src/net/net_socket.cpp
     "${CONKER_RSP_DIR}/aspMain.cpp"
