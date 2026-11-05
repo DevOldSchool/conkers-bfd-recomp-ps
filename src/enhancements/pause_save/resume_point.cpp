@@ -1966,6 +1966,12 @@ std::string request_report(uint8_t* rdram, const std::string& text) {
         finish_report(no_save("a multiplayer match, which has no save"));
         return folder.filename().string();
     }
+    // Online the game's save routine would run on this machine only, and its memory would differ
+    // from the others' (a desync), so a report there writes nothing in the game.
+    if (conker::net::active()) {
+        finish_report(no_save("an online session, where saving would set this machine apart"));
+        return folder.filename().string();
+    }
     // With no game slot (a chapter replayed from CHAPTERS sets D_8008FDA8 to -1, and the game never
     // saves there) the save is made as slot 0's: it goes only into the report's copy, as any
     // report's does, and loading the report plays it as slot 0 of that copy.

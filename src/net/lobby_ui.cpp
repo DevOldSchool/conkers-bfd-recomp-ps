@@ -235,6 +235,8 @@ void run_script() {
             lobby::start();
         } else if (step.action == "kick") {
             lobby::kick(static_cast<size_t>(std::atoi(step.text.c_str())));
+        } else if (step.action == "report") {
+            conker::debug_menu::request_report();
         } else if (step.action == "leavesession") {
             conker::net::request_leave();
         } else if (step.action == "leave") {
@@ -775,10 +777,16 @@ void session_frame(const Input& in) {
         if (k.key == Key::Enter) select = true;
         if (k.key == Key::Escape) back = true;
     }
-    chosen = (chosen + vertical + 2) % 2;
+    chosen = (chosen + vertical + 3) % 3;
     if (back) {
         close();
         return;
+    }
+    if (select && chosen == 2) {
+        // Where this machine's player is, with the camera, to show someone a spot (the debug menu,
+        // which has the same row, is off online). The page stays open to show where it went.
+        conker::debug_menu::request_report();
+        select = false;
     }
     if (select) {
         if (chosen == 1) {
@@ -792,7 +800,11 @@ void session_frame(const Input& in) {
     menu.title = "ONLINE SESSION";
     menu.lines.push_back(upper(conker::net::status_line()));
     menu.lines.push_back("LEAVING BRINGS YOUR OWN GAME BACK");
-    menu.rows = {"BACK TO THE GAME", "LEAVE THE SESSION"};
+    const std::string report = conker::debug_menu::report_result();
+    if (!report.empty()) {
+        menu.lines.push_back(upper(report));
+    }
+    menu.rows = {"BACK TO THE GAME", "LEAVE THE SESSION", "SAVE DEBUG REPORT"};
     menu.chosen = chosen;
     const PadNames names = pad_names();
     menu.hint = std::string(names.a) + " CHOOSES  " + names.b + " GOES BACK";
