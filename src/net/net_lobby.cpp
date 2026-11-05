@@ -305,7 +305,7 @@ std::string mismatch(const std::string& build_in, const std::string& /*os*/, uin
         return "different mods (the host has " +
                std::string(build_in.find("+mods-") != std::string::npos ? "some on" : "none on") + ", this machine " +
                (conker::net::build_text().find("+mods-") != std::string::npos ? "some" : "none") +
-               "); everyone needs the same mods on, or none (MODS page, then restart)";
+               "); everyone needs the same mods on, or none (RESTART WITHOUT MODS on this page)";
     }
     if (build_in != conker::net::build_text() || protocol != kProtocol) {
         return "a different version of the game (the host runs " + build + ", this machine " +

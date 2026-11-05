@@ -162,6 +162,7 @@ std::string mode_name(Mode mode) {
 std::string describe(const lobby::View& v) {
     std::string out = "mode " + mode_name(v.mode) + "\n";
     out += conker::net::internet_allowed() ? "internet UNSAFE on\n" : "internet off\n";
+    out += conker::net::mods_on() ? "mods on " + conker::net::build_text() + "\n" : "mods none\n";
     for (const lobby::Player& p : v.players) {
         out += "player " + p.name + " | " + p.pad + " | ping " + std::to_string(p.ping) + (p.ready ? " | ready" : "") +
                (p.host ? " | host" : "") + (p.you ? " | you" : "") + "\n";
@@ -251,6 +252,12 @@ void run_script() {
             close();
         } else if (step.action == "open") {
             open();
+        } else if (step.action == "nomods") {
+            // The ONLINE page's RESTART WITHOUT MODS, which shows only with mods on (so the restarted run,
+            // which plays the script again, goes on).
+            if (conker::net::mods_on()) {
+                conker::net::restart_without_mods();
+            }
         } else if (step.action == "setenv") {
             // For the session this machine starts again into (a test's pad script, say).
             const size_t equals = step.text.find('=');
@@ -277,7 +284,8 @@ void run_script() {
 
 // --- the page (game thread) -------------------------------------------------------------------------
 
-enum class Action { None, Name, Host, Join, JoinGame, Close, Start, CopyCode, Kick, Leave, Cancel, BackToGame, LeaveSession };
+enum class Action { None, Name, Host, Join, JoinGame, Close, Start, CopyCode, Kick, Leave, Cancel, BackToGame, LeaveSession,
+                    RestartWithoutMods };
 
 struct Row {
     std::string text;
@@ -472,6 +480,13 @@ Page build_page(const lobby::View& v) {
                                  "ON UDP PORT " + std::to_string(conker::net::kDefaultPort) + "  THE OTHERS JOIN YOU"});
             page.rows.push_back({"JOIN  " + field_text(target, "ADDRESS OR CODE"), Action::Join, true, 0,
                                  "THE HOST'S ADDRESS OR JOIN CODE"});
+            if (conker::net::mods_on()) {
+                // Mods loaded at boot cannot be unloaded, and a lobby game needs everyone on the same
+                // ones: a run without any plays with everyone else who has none.
+                page.lines.push_back({"MODS ARE ON  ONLINE GAMES NEED NONE", kYellow});
+                page.rows.push_back({"RESTART WITHOUT MODS", Action::RestartWithoutMods, true, 0,
+                                     "THIS RUN ONLY  YOUR MODS STAY ON FOR NEXT TIME", kYellow});
+            }
             if (v.games.empty()) {
                 page.lines.push_back({"", kGrey});
             }
@@ -614,6 +629,7 @@ void activate(const Row& row, const lobby::View& v) {
             lobby::browse();
             break;
         case Action::Cancel: conker::net::cancel_in_place(); break;
+        case Action::RestartWithoutMods: conker::net::restart_without_mods(); break;
         case Action::BackToGame: close(); break;
         case Action::LeaveSession:
             conker::net::request_leave();

@@ -15,6 +15,7 @@
 //     --net-map                 host: open the port on the router (net/net_portmap.hpp)
 //     --net-name <name>         host: the name the lobby's LAN list shows
 //     --net-lobby               not a session: open the ONLINE lobby at boot (net/net_lobby.hpp)
+//     --net-no-mods             not a session: load no mods this run (mods.json is left as it is)
 //
 // The host waits for every guest before the game starts, and sends each its port, the input delay,
 // the host's settings (the replay header's "# switch" lines, applied as a replay applies them) and
@@ -77,6 +78,17 @@ bool active();
 
 // Whether --net-lobby asked for the ONLINE lobby to open at boot (a normal game, not a session).
 bool lobby_at_boot();
+
+// Whether this run loads no mods: a session from the command line, or --net-no-mods (game.cpp).
+bool mods_skipped();
+
+// Whether this run loaded mods (the build text has "+mods-", which a lobby game without them refuses).
+bool mods_on();
+
+// The ONLINE page's RESTART WITHOUT MODS: starts this game again (execv) with --net-no-mods and
+// --net-lobby, so it loads no mods for that run only and comes back to the ONLINE page. Returns only if
+// it could not.
+void restart_without_mods();
 
 // The input delay given on the command line (--net-delay), or -1 for one from the round trip.
 int delay_option();
