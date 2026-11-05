@@ -313,6 +313,26 @@ bool chunk_fits(uint32_t total, uint32_t max, uint32_t offset, uint32_t length, 
            length == std::min<uint64_t>(chunk, uint64_t{total} - offset);
 }
 
+// A frame's mouse as every machine plays it: a real mouse moves at most a few hundred pixels a frame,
+// and a peer's huge (finite) motion would turn a MULTI player's facing to infinity on every machine.
+// Its motion in eighths of a pixel, so that it goes as 16 bits (mouse_steps): every machine plays the
+// same rounded value, its own player's too, and a frame's rounding is at most a sixteenth of a pixel.
+constexpr float kMouseLimit = 4095.0f;
+constexpr float kMouseSteps = 8.0f;
+// A motion as limited plays it, in eighths of a pixel.
+int16_t mouse_steps(float d) {
+    return static_cast<int16_t>(std::lround(std::clamp(d, -kMouseLimit, kMouseLimit) * kMouseSteps));
+}
+
+// Through the steps as the wire carries them, so that a sender plays what its peers read (a rounded
+// -0.0 is 0 on the wire: the host played -0 where its guests played 0).
+Mouse limited(Mouse m) {
+    m.dx = static_cast<float>(mouse_steps(m.dx)) / kMouseSteps;
+    m.dy = static_cast<float>(mouse_steps(m.dy)) / kMouseSteps;
+    m.zoom = std::clamp<int8_t>(m.zoom, -2, 2);
+    return m;
+}
+
 // A port on the wire: only the fields that changed from the port before it (the one the receiver
 // has: the frame before, or nothing pressed), a bit each in a mask first. A person's thumb moves a
 // stick a step nearly every frame, and the whole port (17 bytes) went each time.
@@ -354,18 +374,8 @@ void write_port(Writer& w, uint8_t mask, const Port& p, const Mouse& m) {
         w.u8(m.captured ? 1 : 0);
         w.u8(static_cast<uint8_t>(m.zoom));
     }
-    if (mask & kFieldMouseX) w.f32(m.dx);
-    if (mask & kFieldMouseY) w.f32(m.dy);
-}
-
-// A frame's mouse as every machine plays it: a real mouse moves at most a few hundred pixels a frame,
-// and a peer's huge (finite) motion would turn a MULTI player's facing to infinity on every machine.
-constexpr float kMouseLimit = 4096.0f;
-Mouse limited(Mouse m) {
-    m.dx = std::clamp(m.dx, -kMouseLimit, kMouseLimit);
-    m.dy = std::clamp(m.dy, -kMouseLimit, kMouseLimit);
-    m.zoom = std::clamp<int8_t>(m.zoom, -2, 2);
-    return m;
+    if (mask & kFieldMouseX) w.u16(static_cast<uint16_t>(mouse_steps(m.dx)));
+    if (mask & kFieldMouseY) w.u16(static_cast<uint16_t>(mouse_steps(m.dy)));
 }
 
 // A port as write_port wrote it, over (*p, *m) as they were: the port before it. Its mask.
@@ -381,8 +391,8 @@ uint8_t read_port(Reader& r, Port* p, Mouse* m) {
         m->captured = r.u8() != 0;
         m->zoom = static_cast<int8_t>(r.u8());
     }
-    if (mask & kFieldMouseX) m->dx = r.f32();
-    if (mask & kFieldMouseY) m->dy = r.f32();
+    if (mask & kFieldMouseX) m->dx = static_cast<int16_t>(r.u16()) / kMouseSteps;
+    if (mask & kFieldMouseY) m->dy = static_cast<int16_t>(r.u16()) / kMouseSteps;
     *m = limited(*m);
     return mask;
 }
