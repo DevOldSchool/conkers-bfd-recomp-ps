@@ -813,7 +813,10 @@ void send_sealed(seal::Channel& channel, const sockaddr_storage& addr, socklen_t
     uint8_t out[sizeof(w.data) + seal::kOverhead];
     const size_t size = seal::seal(channel, w.data, w.size, out, sizeof(out));
     if (size > 0) {
-        conker::net::stats::sent(w.size > 4 ? w.data[4] : 0, conker::net::stats::wire_bytes(size, wire_ipv6(addr)));
+        // INPUT and MERGED begin with their type; the handshake's packets with the magic, then the type.
+        const bool compact = w.size >= 1 && (w.data[0] == kInput || w.data[0] == kMerged);
+        conker::net::stats::sent(compact ? w.data[0] : w.size > 4 ? w.data[4] : 0,
+                                 conker::net::stats::wire_bytes(size, wire_ipv6(addr)));
         send_datagram(addr, len, out, size);
     }
 }
@@ -3775,7 +3778,9 @@ void take_snapshot(uint8_t* rdram, uint32_t frame) {
         std::vector<uint8_t> packed(4 + size);
         const uint32_t raw_size = static_cast<uint32_t>(raw.size());
         std::memcpy(packed.data(), &raw_size, 4);
-        if (compress2(packed.data() + 4, &size, raw.data(), static_cast<uLong>(raw.size()), 1) != Z_OK) {
+        // Level 6: 5% smaller than 1 (a MULTI match's: 1153 -> 1090 KiB) for ~50 ms more on this thread,
+        // while the guest waits a few hundred ms for it anyway; 9 saves nothing more for 4x the time.
+        if (compress2(packed.data() + 4, &size, raw.data(), static_cast<uLong>(raw.size()), 6) != Z_OK) {
             std::fprintf(stderr, "[conker] net: the snapshot of frame %u could not be compressed\n", frame);
             return;
         }
