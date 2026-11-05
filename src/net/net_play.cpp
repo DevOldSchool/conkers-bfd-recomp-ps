@@ -1011,9 +1011,9 @@ void compare_hashes(uint32_t frame) {
         const Hash& theirs = g_peer_hashes[peer.port][frame % kRing];
         if ((!peer.dropped || peer.rejoining) && theirs.frame == frame && theirs.value != wire_hash(own)) {
             std::fprintf(stderr, "[conker] net: player %d is OUT OF SYNC at frame %u: their game memory hashes to "
-                                 "%016llx, the host's to %016llx\n",
+                                 "%08llx, the host's to %08llx (32 bits of each)\n",
                          peer.port + 1, frame, static_cast<unsigned long long>(theirs.value),
-                         static_cast<unsigned long long>(own));
+                         static_cast<unsigned long long>(wire_hash(own)));
             drop(peer, kOutOfSync, "out of sync");
         }
     }
