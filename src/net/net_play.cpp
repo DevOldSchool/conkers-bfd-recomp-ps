@@ -478,6 +478,8 @@ struct Peer {
     // the snapshot's frame (until then its hashes are of its own game, and it sends none).
     bool needs_snapshot = false;
     bool wants_own_port = false;  // the host: the guest asked for its own port in MERGED (on_merged)
+    int64_t update_at = 0;        // when the last INPUT or MERGED went to it,
+    int64_t whole_at = 0;         // and the last the tick sent whole (send_updates)
     uint64_t drops_sent = 0;      // the host: the drops (drops_hash) last sent to it, and when they
     int64_t drops_changed_at = 0; // changed, for MERGED's drops
 };
@@ -1254,10 +1256,27 @@ uint64_t drops_hash() {
 // Under g_mutex: the packets this side sends each tick (and when it has something new).
 // whole: the first record of each packet whole (the tick's resends), so that a receiver without the
 // frame before it (after a snapshot, say) gets going within a tick; otherwise as changes from it.
-void send_updates(bool whole = false) {
+// tick: the network thread's tick, every `every` ms: a peer gets a whole packet only when nothing has
+// gone to it for that long (a game waiting, or a lost packet with nothing new after it), or once a
+// second (the round-trip times, the drops). While frames are played a packet goes every frame with
+// every record not acknowledged, so the tick's resends at 10 a second were a quarter of the packets.
+constexpr int64_t kWholeEveryMs = 1000;
+bool update_due(Peer& peer, bool tick, int64_t every, int64_t now) {
+    if (tick && now - peer.update_at < every && now - peer.whole_at < kWholeEveryMs) {
+        return false;
+    }
+    peer.update_at = now;
+    if (tick) {
+        peer.whole_at = now;
+    }
+    return true;
+}
+
+void send_updates(bool whole = false, bool tick = false, int64_t every = 0) {
+    const int64_t sent_at = now_ms();
     if (is_host()) {
         for (Peer& peer : g_peers) {
-            if (!peer.started) {
+            if (!peer.started || !update_due(peer, tick, every, sent_at)) {
                 continue;
             }
             namespace stats = conker::net::stats;
@@ -1387,6 +1406,9 @@ void send_updates(bool whole = false) {
         return;
     }
     Peer& host = g_peers[0];
+    if (!update_due(host, tick, every, sent_at)) {
+        return;
+    }
     namespace stats = conker::net::stats;
     Writer w;
     w.u8(kInput);  // the sealed link says who it is from (handle_datagram)
@@ -2164,7 +2186,6 @@ void handle_datagram(const uint8_t* data, size_t size, const sockaddr_storage& f
 
 void network_thread() {
     int64_t last_send = 0;
-    int64_t last_update = 0;
     uint8_t buffer[kMaxPacket + 64];
     while (!g_net_stop.load()) {
         for (int wait = static_cast<int>(kSendEveryMs);; wait = 0) {
@@ -2252,10 +2273,7 @@ void network_thread() {
             } else {
                 snapshot_guest_tick(now);
             }
-            if (now - last_update >= (g_waiting.load() ? kSendEveryMs : kResendEveryMs)) {
-                last_update = now;
-                send_updates(true);
-            }
+            send_updates(true, true, g_waiting.load() ? kSendEveryMs : kResendEveryMs);
         }
         conker::net::stats::tick();
         relaunch_to_rejoin();
