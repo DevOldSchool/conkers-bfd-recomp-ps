@@ -46,6 +46,10 @@ line (a self-test of a guard that stops the game). "matrix": [{"name": ..., "env
 file one case per entry (<file>/<name>), each entry's env merged into the case's and its other keys
 (start, expect, ends, input, frames) given in place of the case's.
 
+{"delta": "camera.pitch", "from": 30, "to": 90, "min": 10}: the value changed by at least (or "max": at
+most) that much between the two frames.
+Input: each press holds "buttons", "stick" (left, about +-80), "right" (+-127, +y up) and "mouse" (pixels a
+frame, +y down) from "at" for "hold" frames. "port_flags": ["invert_aim"] sets controller 1's INVERT AIM.
 {"at": N, "actor_link": [162, 163]}: each character of model 162 keeps to (actor +0x65) one of model 163.
 Values: "u8:", "s8:", "u16:", "s16:", "u32:", "s32:", "f32:" and an address, or "[pointer]+offset" to
 read a pointer first; or a name from NAMES. Results go to build/regress/<case>/ and a summary to
@@ -55,6 +59,7 @@ import argparse
 import concurrent.futures
 import copy
 import json
+import math
 import os
 import re
 import shutil
@@ -79,6 +84,8 @@ BUTTONS = {
     "L": 0x0020, "R": 0x0010, "CUP": 0x0008, "CDOWN": 0x0004, "CLEFT": 0x0002, "CRIGHT": 0x0001,
 }
 PORT_CONNECTED = 0x01
+PORT_RIGHT_STICK = 0x02  # frame_input::Port::kRightStick
+PORT_FLAGS = {"invert_aim": 0x08}  # "port_flags": controller 1's settings that go with its record
 
 # Game memory worth naming (src/enhancements/pause_save/resume_point.cpp).
 NAMES = {
@@ -86,6 +93,22 @@ NAMES = {
     "conker.x": "f32:[0x80088720]+0x14",
     "conker.y": "f32:[0x80088720]+0x18",
     "conker.z": "f32:[0x80088720]+0x1C",
+    # Conker's camera block (*(object + 0x31C)): forward vector +0x130, eye +0x13C, look-at +0x148.
+    "camera.fx": "f32:[[0x80088720]+0x31C]+0x130",
+    "camera.fy": "f32:[[0x80088720]+0x31C]+0x134",
+    "camera.fz": "f32:[[0x80088720]+0x31C]+0x138",
+    # Conker's player block (*(actor 0 + 0x31C)): item held +0x78, sight +0x197, R aim +0x198,
+    # a mounted gun's pitch f32 +0x170 (src/enhancements/consistent_controls).
+    "player.item": "u8:[0x800CC5EC]+0x78",
+    "player.sight": "u8:[0x800CC5EC]+0x197",
+    "player.aim": "u8:[0x800CC5EC]+0x198",
+    "gun.pitch": "f32:[0x800CC5EC]+0x170",
+}
+# Values worked out from others: degrees, the view's yaw (0 along +z) and pitch (up is +).
+COMPUTED = {
+    "camera.yaw": lambda d: math.degrees(math.atan2(d.read("camera.fx"), d.read("camera.fz"))),
+    "camera.pitch": lambda d: math.degrees(math.asin(max(-1.0, min(1.0, d.read("camera.fy"))))),
+    "conker.facing": lambda d: d.read("f32:[0x80088720]+0x40"),
 }
 ACTORS, ACTOR_SIZE, ACTOR_COUNT = 0x800CC2D0, 0x32C, 25  # characters: model byte +0x4, link +0x65
 RDRAM_BASE = 0x80000000
@@ -152,6 +175,11 @@ class Dump:
         return pointer + (int(rest, 0) if rest else 0)
 
     def read(self, spec):
+        if spec in COMPUTED:
+            try:
+                return COMPUTED[spec](self)
+            except TypeError:
+                return None  # a pointer on the way is not set
         spec = NAMES.get(spec, spec)
         kind, _, where = spec.partition(":")
         if kind not in ("u8", "s8", "u16", "s16", "u32", "s32", "f32"):
@@ -172,25 +200,38 @@ class Dump:
 
 
 def replay_text(case, start, end, switches):
-    """A CONKER_FRAME_INPUT_REPLAY log for frames 1..end, with the case's presses from `start`."""
+    """A CONKER_FRAME_INPUT_REPLAY log for frames 1..end, with the case's presses from `start`. Each
+    press holds its buttons, left stick ("stick", about +-80), right stick ("right", +-127, +y up) and
+    mouse motion ("mouse", pixels a frame, +y down; the mouse counts as captured) for `hold` frames.
+    Controller 1 is a pad with a right stick, as the live input records one."""
     buttons = [0] * (end + 1)
     sticks = [(0, 0)] * (end + 1)
+    rights = [(0, 0)] * (end + 1)
+    mice = [None] * (end + 1)
     for press in case.get("input", []):
         mask = 0
         for name in re.split(r"[+ ,]+", press.get("buttons", "").upper()):
             if name:
                 mask |= BUTTONS[name]
-        stick = tuple(press.get("stick", (0, 0)))
         for frame in range(start + press["at"], min(end, start + press["at"] + press.get("hold", 1) - 1) + 1):
             buttons[frame] |= mask
             if "stick" in press:
-                sticks[frame] = stick
+                sticks[frame] = tuple(press["stick"])
+            if "right" in press:
+                rights[frame] = tuple(press["right"])
+            if "mouse" in press:
+                mice[frame] = tuple(press["mouse"])
+    flags = PORT_CONNECTED | PORT_RIGHT_STICK
+    for name in case.get("port_flags", []):
+        flags |= PORT_FLAGS[name]
     lines = ["# conker-replay 1 build=regress fixed_step=1"]
     lines += [f"# switch {label}={1 if on else 0}" for label, on in switches.items()]
     idle = " 0:0000,0,0,0,0" * 3
     for frame in range(1, end + 1):
         x, y = sticks[frame]
-        lines.append(f"{frame} 0 {PORT_CONNECTED:x}:{buttons[frame]:04x},{x},{y},0,0{idle}" + " m0:0,0,0" * 4)
+        rx, ry = rights[frame]
+        mouse = f" m1:{mice[frame][0]},{mice[frame][1]},0" if mice[frame] else " m0:0,0,0"
+        lines.append(f"{frame} 0 {flags:x}:{buttons[frame]:04x},{x},{y},{rx},{ry}{idle}{mouse}" + " m0:0,0,0" * 3)
     return "\n".join(lines) + "\n"
 
 
@@ -279,6 +320,7 @@ def run_case(binary, rom, name, case, variant=None, keep=False):
     frames = case["frames"]
     expects = case.get("expect", [])
     dump_frames = [e["at"] for e in expects if "value" in e or "actor_link" in e]
+    dump_frames += [f for e in expects if "delta" in e for f in (e["from"], e["to"])]
     deterministic = next((e for e in expects if e.get("deterministic")), None)
     hash_every = deterministic.get("every", 30) if deterministic else 0
     report = case.get("start", {}).get("report")
@@ -350,6 +392,8 @@ def check_expects(case, run, start):
             found = re.search(expect["no_log"], run.log)
             if found:
                 problems.append(f"log has {found.group(0)!r}")
+        if "delta" in expect:
+            problems += check_delta(run, start, expect)
         if "actor_link" in expect:
             dump = run.dump(start + expect["at"])
             problems += check_actor_link(dump, expect) if dump else [f"no memory dump at start + {expect['at']}"]
@@ -378,6 +422,30 @@ def check_expects(case, run, start):
                 problems.append(f"{where} is {fmt(value)}, bits 0x{expect['mask']:X} should be "
                                 f"0x{expect.get('bits', expect['mask']):X}")
     return problems
+
+
+def check_delta(run, start, expect):
+    """{"delta": value, "from": a, "to": b, "min"/"max": n}: how much the value changed from frame a to
+    frame b after the start (angles named *yaw or *facing taken the short way round)."""
+    name = expect["delta"]
+    dumps = [run.dump(start + expect["from"]), run.dump(start + expect["to"])]
+    if None in dumps:
+        return [f"no memory dump at start + {expect['from']} or + {expect['to']}"]
+    try:
+        before, after = (d.read(name) for d in dumps)
+    except ValueError as error:
+        return [str(error)]
+    if before is None or after is None:
+        return [f"{name}: a pointer is not set at start + {expect['from']} or + {expect['to']}"]
+    change = after - before
+    if name.endswith(("yaw", "facing")):
+        change = (change + 180) % 360 - 180
+    where = f"{name} from start + {expect['from']} to + {expect['to']} changed by {change:g} ({before:g} to {after:g})"
+    if "min" in expect and change < expect["min"]:
+        return [f"{where}, expected at least {expect['min']:g}"]
+    if "max" in expect and change > expect["max"]:
+        return [f"{where}, expected at most {expect['max']:g}"]
+    return []
 
 
 def check_actor_link(dump, expect):

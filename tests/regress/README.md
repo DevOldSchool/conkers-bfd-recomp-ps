@@ -42,6 +42,10 @@ for this, at the one place that makes the fix:
 | `resume_camera_distance` | the saved camera distance put back on resume |
 | `resume_checkpoint` | the saved checkpoint (scene, entrance) put back on resume |
 | `resume_actor_link` | the actor link (+0x65) mapped to the restored slots |
+| `mouse_camera` | the mouse turning the third-person camera |
+
+A switch the debug menu has can be turned off by name instead (`"without_fix": {"switches":
+{"CONSISTENT CONTROLS": 0}}`).
 
 ## The reports
 
@@ -73,6 +77,13 @@ tools/regress.py <name> --without-fix --keep
 | `resume-camera-distance` | scene 6's saved camera distance (901) comes back, not the zone's 530 |
 | `resume-checkpoint/*` | the save's checkpoint survives a resume in scenes 25, 27 and 65 |
 | `resume-actor-link/*` | scene 60's giant bat keeps to Batula's perch after a resume |
+| `consistent-controls/*` | the shotgun's twin-stick aim (right stick, mouse, left stick walking, D-pad steps), INVERT AIM, the mounted gun and the slingshot aiming up with the stick up |
+| `mouse-camera` | the mouse turns the third-person camera 0.15 degrees a pixel |
+
+Input reaches a case as the game's input record (right stick, mouse and INVERT AIM included), so
+what the SDL input layer does before the record is not covered: the camera's C-left/C-right swap on
+foot, the CONTROLS page's button remapping, keyboard bindings. Nor yet: the controls in a MULTI
+match (turning, knives, launcher scope, TANK), the story tank, and the Uzi jump's aim in Heist.
 
 Not covered yet: fixes in the RT64 renderer and its patches (they need the GPU build and
 screenshots), and drawing fixes that the null build only shows as display lists (level
