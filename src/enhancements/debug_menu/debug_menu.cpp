@@ -62,6 +62,7 @@
 // the first page close it. The pad is read directly (conker::input::read_menu), not through the game.
 // CONKER_DEBUG_MENU=0 turns it off.
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -73,6 +74,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -235,6 +237,10 @@ Position g_target;       // the teleport page's X, Y, Z, facing and camera yaw
 int g_step = 2;          // index in kSteps
 
 uint16_t g_previous_buttons = 0;
+
+std::atomic<bool> g_report_requested{false};  // request_report, from the session window
+std::mutex g_report_result_mutex;
+std::string g_report_result;
 
 bool debug_menu_enabled() {
     // Off online: it pauses the game and writes its memory on one machine only.
@@ -952,6 +958,61 @@ void open_list(Page page) {
     g_top = 0;
 }
 
+constexpr uint32_t kMultiplayerMatch = 0x800BE616;  // D_800BE616: nonzero in a multiplayer match
+constexpr uint32_t kActors = 0x800CC2D0;           // D_800CC2D0: player n is actor n in a match
+constexpr uint32_t kActorSize = 0x32C;
+constexpr uint32_t kActorCameraBlock = 0x31C;      // the camera block: forward, eye, look-at
+constexpr int kMatchPlayers = 4;
+
+float actor_float(uint8_t* rdram, uint32_t address) {
+    const int32_t word = MEM_W(0, kseg0(address));
+    float value;
+    std::memcpy(&value, &word, sizeof(value));
+    return value;
+}
+
+// In a match, each player's position and camera (eye, look-at, yaw and pitch, as the report's own
+// "camera" has player 1's), and online which one is this machine's: the report then says where the
+// player who made it was, whichever port they play.
+nlohmann::json match_players(uint8_t* rdram) {
+    const auto rounded = [](float value) { return std::round(static_cast<double>(value) * 100.0) / 100.0; };
+    nlohmann::json players = nlohmann::json::array();
+    for (int n = 0; n < kMatchPlayers; n++) {
+        const uint32_t actor = kActors + static_cast<uint32_t>(n) * kActorSize;
+        const uint32_t camera = static_cast<uint32_t>(MEM_W(0, kseg0(actor + kActorCameraBlock)));
+        if (MEM_W(0, kseg0(actor)) == 0 || (camera & 0xFF800000) != 0x80000000) {
+            continue;  // no such player (a free actor, or one with no camera)
+        }
+        conker::resume::Camera c;
+        for (int i = 0; i < 3; i++) {
+            c.forward[i] = actor_float(rdram, camera + 0x130 + 4 * i);
+            c.eye[i] = actor_float(rdram, camera + 0x13C + 4 * i);
+            c.at[i] = actor_float(rdram, camera + 0x148 + 4 * i);
+        }
+        float facing = std::fmod(actor_float(rdram, actor + 0x40), 360.0f);
+        if (facing < 0) {
+            facing += 360.0f;
+        }
+        nlohmann::json player = {
+            {"player", n + 1},
+            {"x", rounded(actor_float(rdram, actor + 0x14))},
+            {"y", rounded(actor_float(rdram, actor + 0x18))},
+            {"z", rounded(actor_float(rdram, actor + 0x1C))},
+            {"facing", rounded(facing)},
+            {"camera",
+             {{"eye", {rounded(c.eye[0]), rounded(c.eye[1]), rounded(c.eye[2])}},
+              {"look_at", {rounded(c.at[0]), rounded(c.at[1]), rounded(c.at[2])}},
+              {"yaw", rounded(c.yaw())},
+              {"pitch", rounded(c.pitch())}}},
+        };
+        if (conker::net::active()) {
+            player["this_machine"] = n == conker::net::local_port();
+        }
+        players.push_back(player);
+    }
+    return players;
+}
+
 // The report SAVE DEBUG REPORT makes (resume_point.cpp adds "save"): everything needed to see what
 // the player saw, as JSON.
 std::string report_json(uint8_t* rdram) {
@@ -989,6 +1050,12 @@ std::string report_json(uint8_t* rdram) {
             {"yaw", rounded(c.yaw())},
             {"pitch", rounded(c.pitch())},
         };
+    }
+    if (MEM_BU(0, kseg0(kMultiplayerMatch)) != 0) {
+        report["players"] = match_players(rdram);
+        if (conker::net::active()) {
+            report["online_player"] = conker::net::local_port() + 1;
+        }
     }
     report["enhancements"] = conker::status::enhancements(rdram);
     nlohmann::json settings = conker::status::settings();
@@ -1493,6 +1560,13 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
             std::printf("[conker] GPU fault: debug report %s\n", name.c_str());
         }
     }
+    if (g_report_requested.exchange(false)) {
+        const std::string name = conker::resume::request_report(rdram, report_json(rdram));
+        std::printf("[conker] debug report: %s\n", name.empty() ? "a save is still being written" : name.c_str());
+        const std::lock_guard<std::mutex> lock(g_report_result_mutex);
+        g_report_result = name.empty() ? "Not saved: a save is still being written, try again"
+                                       : "Saved in debug_reports: " + name;
+    }
     g_frames++;
     const Clock::time_point now = Clock::now();
     const double elapsed = std::chrono::duration<double>(now - g_fps_since).count();
@@ -1678,6 +1752,13 @@ nlohmann::json conker::status::debug_menu() {
     return enhancement("debug_menu", "Debug menu", debug_menu_enabled(), "CONKER_DEBUG_MENU",
                        {{"wireframe", g_wireframe}, {"show_fps", g_show_fps}, {"show_position", g_show_position},
                         {"inspect", conker::inspector::active()}});
+}
+
+void conker::debug_menu::request_report() { g_report_requested = true; }
+
+std::string conker::debug_menu::report_result() {
+    const std::lock_guard<std::mutex> lock(g_report_result_mutex);
+    return g_report_result;
 }
 
 bool conker::debug_menu::controls_available() { return !conker::net::active(); }

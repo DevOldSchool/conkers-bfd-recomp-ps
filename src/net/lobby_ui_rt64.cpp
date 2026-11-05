@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "enhancements/debug_menu/debug_menu.hpp"
 #include "gui/rt64_inspector.h"
 #include "hle/rt64_application.h"
 #include "imgui/imgui.h"
@@ -166,6 +167,8 @@ void run_script() {
             lobby::start();
         } else if (step.action == "kick") {
             lobby::kick(static_cast<size_t>(std::atoi(step.text.c_str())));
+        } else if (step.action == "report") {
+            conker::debug_menu::request_report();
         } else if (step.action == "leavesession") {
             conker::net::request_leave();
         } else if (step.action == "leave") {
@@ -340,6 +343,15 @@ void session_page(conker::net::InPlace session) {
     if (button("LEAVE THE SESSION")) {
         conker::net::request_leave();
         close();
+    }
+    // Where this machine's player is, with the camera, to show someone a spot (the debug menu, which
+    // has the same row, is off online).
+    if (button("SAVE DEBUG REPORT")) {
+        conker::debug_menu::request_report();
+    }
+    const std::string report = conker::debug_menu::report_result();
+    if (!report.empty()) {
+        text_wrapped(report, style::grey());
     }
     const bool typing = ImGui::GetIO().WantTextInput;
     if (!typing && (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))) {

@@ -10,8 +10,9 @@
 //
 // CONKER_LOBBY_SCRIPT=<file> drives the lobby for tests, a line each: "<ms> <action> [text]", the
 // time from the window first opening; actions: name <text>, host [port], join <address or code>,
-// ready, start, leave, close, open, shot <file> (writes the View as text), setenv NAME=value (for
-// the session the lobby starts). The actions call what the window's buttons call.
+// ready, start, leave, close, open, report (SAVE DEBUG REPORT in a session), shot <file> (writes
+// the View as text), setenv NAME=value (for the session the lobby starts). The actions call what the
+// window's buttons call.
 #pragma once
 
 union SDL_Event;
