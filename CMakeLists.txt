@@ -140,6 +140,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/fixes/heist_alcove.cpp
     src/fixes/frame_effects.cpp
     src/fixes/level_seams.cpp
+    src/fixes/level_visibility.cpp
     src/fixes/music_start.cpp
     src/fixes/projected_shadow.cpp
     src/fixes/rumble_banner.cpp
