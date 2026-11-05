@@ -2,13 +2,17 @@
 //
 // The wire: UDP datagrams, each sealed on the link between a guest and the host (net_seal.hpp: the
 // guest asks for the host's key first, and its HELLO comes in a FIRST). Inside, little-endian, the
-// magic "CKNA", a type, the session id (0 in a HELLO) and the guest's secret: 64 random bits the
-// guest picks and sends in its HELLO, then in every datagram either way between it and the host. A datagram whose secret is not its sender's
-// is ignored, so a sender that forges a peer's address but never saw its traffic cannot pose as it;
-// a dropped player's port can be taken back only with its secret. Inputs need no reliable channel: every INPUT and MERGED carries every
-// frame the other side has not acknowledged yet (up to 16), and both sides send every 10 ms, so a
-// lost datagram costs nothing but 10 ms. The handshake (the session blob in chunks, START) is
-// resent until answered.
+// handshake's packets have the magic "CKNA", a type, the session id (0 in a HELLO) and the guest's
+// secret: 64 random bits the guest picks and sends in its HELLO, then in every handshake packet either
+// way between it and the host. A datagram whose secret is not its sender's is ignored, and a dropped
+// player's port can be taken back only with its secret. INPUT and MERGED, a packet every frame, have
+// only their type and a flags byte: the link they open on is that peer's own (a guest's keys are
+// made for its join), which already says what the session and secret would. Inputs need no reliable
+// channel: every INPUT and MERGED carries every frame the other side has not acknowledged yet (up to
+// 16), one goes every frame, and the tick resends to a link with nothing sent for 100 ms (10 ms while
+// a game waits), so a lost datagram costs little. Records go as the fields that changed from the
+// record before; frame numbers as varints (CONKER_NET_STATS counts it all: net_stats.hpp). The
+// handshake (the session blob in chunks, START) is resent until answered.
 //
 //     HELLO    guest -> host   build, OS, the port it asks for, the cookie (0 at first) and the
 //                              lobby's session token (0 for none)
@@ -20,9 +24,11 @@
 //     READY    guest -> host   the whole blob is in
 //     START    host -> guest   every guest is ready; the input delay
 //     STARTED  guest -> host   START seen
-//     INPUT    guest -> host   the guest's port's records from a frame on, its last hashes
+//     INPUT    guest -> host   the guest's port's records from a frame on, its last hashes (32 bits)
 //     MERGED   host -> guest   every port's records from a frame on (with the ports held and the
-//                              ports dropped by then), and every drop: a port, its first frame and why
+//                              ports dropped by then; the guest's own port left out while it plays),
+//                              and, on the tick and for a second after they change, every drop: a
+//                              port, its first frame and why
 //     LEAVE    either way      this machine is quitting (sent a few times as it exits): the host drops
 //                              the guest's port at once, and a guest learns the session is over
 //
@@ -64,6 +70,7 @@
 #include "net/net_portmap.hpp"
 #include "net/net_seal.hpp"
 #include "net/net_socket.hpp"
+#include "net/net_stats.hpp"
 #include "runtime/snapshot.hpp"
 #include "ultramodern/ultramodern.hpp"
 #include "librecomp/game.hpp"
@@ -95,6 +102,15 @@ constexpr uint8_t kTailChanged = 0x10;  // a MERGED record mask bit: its held/dr
 constexpr uint8_t kAfterBase = 0x20;    // the first record's mask bit: changes from frame first - 1, which
                                         // the receiver has (it acknowledged it), not the whole record
 constexpr uint32_t kHashesPerPacket = 8;
+// INPUT's and MERGED's flags byte, after the type (their only header: the sealed link says who sent
+// them, so neither carries the magic, session or secret the handshake's packets do).
+constexpr uint8_t kWithTimes = 0x04;       // either: the round-trip times follow (the tick's packets)
+constexpr uint8_t kInputAfterBase = 0x01;  // INPUT: the first record is changes from frame first - 1
+constexpr uint8_t kInputWantsOwn = 0x02;   // INPUT: MERGED should carry this guest's own port
+constexpr uint8_t kMergedOmitsOwn = 0x01;  // MERGED: the guest's own port is left out
+constexpr uint8_t kMergedDrops = 0x02;     // MERGED: the drops follow the records
+constexpr uint8_t kMergedMissing = 0x08;   // MERGED: the ports the host waits for follow (else none)
+constexpr int64_t kDropsFreshMs = 1000;
 constexpr int64_t kSendEveryMs = 10;
 // The update packets on the tick (send_updates), which only resend what is not acknowledged and say
 // the machine is there: new input goes at once. Every kSendEveryMs while a game waits for input, so
@@ -222,6 +238,7 @@ struct Options {
 } g_options;
 
 std::atomic<bool> g_active{false};  // a session is on (the game thread reads it every frame)
+bool g_want_own_port = false;  // a guest, under g_mutex: MERGED left out its port for a frame it has no input of
 uint64_t g_secret = 0;  // a guest: its secret (see the wire, above)
 namespace seal = conker::net::seal;
 seal::KeyPair g_host_key;   // the host's: this machine's host key (net_keys.hpp), the same as its lobby's
@@ -242,6 +259,16 @@ struct Writer {
     void u32(uint32_t v) { u16(v & 0xFFFF); u16(v >> 16); }
     void u64(uint64_t v) { u32(static_cast<uint32_t>(v)); u32(static_cast<uint32_t>(v >> 32)); }
     void f32(float v) { uint32_t bits; std::memcpy(&bits, &v, 4); u32(bits); }
+    // 7 bits a byte, low first, the top bit set on all but the last: frame numbers in 3 bytes, the
+    // small differences between them in 1.
+    void uvar(uint32_t v) {
+        while (v >= 0x80) {
+            u8(static_cast<uint8_t>(v | 0x80));
+            v >>= 7;
+        }
+        u8(static_cast<uint8_t>(v));
+    }
+    void svar(int32_t v) { uvar((static_cast<uint32_t>(v) << 1) ^ static_cast<uint32_t>(v >> 31)); }
     void bytes(const void* p, size_t n) { for (size_t i = 0; i < n; i++) u8(static_cast<const uint8_t*>(p)[i]); }
     void text(const std::string& s, size_t max) {
         const size_t n = std::min(s.size(), max);
@@ -263,6 +290,19 @@ struct Reader {
     uint32_t u32() { const uint32_t lo = u16(); return lo | (static_cast<uint32_t>(u16()) << 16); }
     uint64_t u64() { const uint64_t lo = u32(); return lo | (static_cast<uint64_t>(u32()) << 32); }
     float f32() { const uint32_t bits = u32(); float v; std::memcpy(&v, &bits, 4); return std::isfinite(v) ? v : 0.0f; }
+    uint32_t uvar() {
+        uint32_t v = 0;
+        for (int shift = 0; shift < 35; shift += 7) {
+            const uint8_t b = u8();
+            v |= static_cast<uint32_t>(b & 0x7F) << shift;
+            if ((b & 0x80) == 0) {
+                return v;
+            }
+        }
+        ok = false;  // more than 5 bytes
+        return 0;
+    }
+    int32_t svar() { const uint32_t v = uvar(); return static_cast<int32_t>((v >> 1) ^ (0u - (v & 1))); }
     std::string text(size_t max) {
         const size_t n = u16();
         if (n > max || at + n > size) { ok = false; return {}; }
@@ -279,51 +319,88 @@ bool chunk_fits(uint32_t total, uint32_t max, uint32_t offset, uint32_t length, 
            length == std::min<uint64_t>(chunk, uint64_t{total} - offset);
 }
 
-void write_port(Writer& w, const Port& p, const Mouse& m) {
-    w.u16(p.buttons);
-    w.u8(static_cast<uint8_t>(p.stick_x));
-    w.u8(static_cast<uint8_t>(p.stick_y));
-    w.u8(static_cast<uint8_t>(p.right_x));
-    w.u8(static_cast<uint8_t>(p.right_y));
-    w.u8(p.flags);
-    w.u8(m.captured ? 1 : 0);
-    w.u8(static_cast<uint8_t>(m.zoom));
-    w.f32(m.dx);
-    w.f32(m.dy);
-}
-
-// A port's bytes as write_port writes them, to tell whether it changed from one frame to the next.
-constexpr size_t kPortBytes = 17;
-std::array<uint8_t, kPortBytes> port_bytes(const Port& p, const Mouse& m) {
-    Writer w;
-    write_port(w, p, m);
-    std::array<uint8_t, kPortBytes> bytes{};
-    std::memcpy(bytes.data(), w.data, kPortBytes);
-    return bytes;
-}
-
 // A frame's mouse as every machine plays it: a real mouse moves at most a few hundred pixels a frame,
 // and a peer's huge (finite) motion would turn a MULTI player's facing to infinity on every machine.
-constexpr float kMouseLimit = 4096.0f;
+// Its motion in eighths of a pixel, so that it goes as 16 bits (mouse_steps): every machine plays the
+// same rounded value, its own player's too, and a frame's rounding is at most a sixteenth of a pixel.
+constexpr float kMouseLimit = 4095.0f;
+constexpr float kMouseSteps = 8.0f;
+// A motion as limited plays it, in eighths of a pixel.
+int16_t mouse_steps(float d) {
+    return static_cast<int16_t>(std::lround(std::clamp(d, -kMouseLimit, kMouseLimit) * kMouseSteps));
+}
+
+// Through the steps as the wire carries them, so that a sender plays what its peers read (a rounded
+// -0.0 is 0 on the wire: the host played -0 where its guests played 0).
 Mouse limited(Mouse m) {
-    m.dx = std::clamp(m.dx, -kMouseLimit, kMouseLimit);
-    m.dy = std::clamp(m.dy, -kMouseLimit, kMouseLimit);
+    m.dx = static_cast<float>(mouse_steps(m.dx)) / kMouseSteps;
+    m.dy = static_cast<float>(mouse_steps(m.dy)) / kMouseSteps;
     m.zoom = std::clamp<int8_t>(m.zoom, -2, 2);
     return m;
 }
 
-void read_port(Reader& r, Port* p, Mouse* m) {
-    p->buttons = r.u16();
-    p->stick_x = static_cast<int8_t>(r.u8());
-    p->stick_y = static_cast<int8_t>(r.u8());
-    p->right_x = static_cast<int8_t>(r.u8());
-    p->right_y = static_cast<int8_t>(r.u8());
-    p->flags = r.u8();
-    m->captured = r.u8() != 0;
-    m->zoom = static_cast<int8_t>(r.u8());
-    m->dx = r.f32();
-    m->dy = r.f32();
+// A port on the wire: only the fields that changed from the port before it (the one the receiver
+// has: the frame before, or nothing pressed), a bit each in a mask first. A person's thumb moves a
+// stick a step nearly every frame, and the whole port (17 bytes) went each time.
+constexpr uint8_t kFieldButtons = 0x01;
+constexpr uint8_t kFieldStickX = 0x02;
+constexpr uint8_t kFieldStickY = 0x04;
+constexpr uint8_t kFieldRightX = 0x08;
+constexpr uint8_t kFieldRightY = 0x10;
+constexpr uint8_t kFieldMisc = 0x20;  // flags, mouse captured, zoom
+constexpr uint8_t kFieldMouseX = 0x40;
+constexpr uint8_t kFieldMouseY = 0x80;
+
+bool same_float(float a, float b) { return std::memcmp(&a, &b, sizeof(float)) == 0; }
+
+// The fields of (p, m) that differ from (bp, bm).
+uint8_t changed_fields(const Port& bp, const Mouse& bm, const Port& p, const Mouse& m) {
+    uint8_t mask = 0;
+    mask |= p.buttons != bp.buttons ? kFieldButtons : 0;
+    mask |= p.stick_x != bp.stick_x ? kFieldStickX : 0;
+    mask |= p.stick_y != bp.stick_y ? kFieldStickY : 0;
+    mask |= p.right_x != bp.right_x ? kFieldRightX : 0;
+    mask |= p.right_y != bp.right_y ? kFieldRightY : 0;
+    mask |= p.flags != bp.flags || m.captured != bm.captured || m.zoom != bm.zoom ? kFieldMisc : 0;
+    mask |= !same_float(m.dx, bm.dx) ? kFieldMouseX : 0;
+    mask |= !same_float(m.dy, bm.dy) ? kFieldMouseY : 0;
+    return mask;
+}
+
+// The mask, then the fields it names.
+void write_port(Writer& w, uint8_t mask, const Port& p, const Mouse& m) {
+    w.u8(mask);
+    if (mask & kFieldButtons) w.u16(p.buttons);
+    if (mask & kFieldStickX) w.u8(static_cast<uint8_t>(p.stick_x));
+    if (mask & kFieldStickY) w.u8(static_cast<uint8_t>(p.stick_y));
+    if (mask & kFieldRightX) w.u8(static_cast<uint8_t>(p.right_x));
+    if (mask & kFieldRightY) w.u8(static_cast<uint8_t>(p.right_y));
+    if (mask & kFieldMisc) {
+        w.u8(p.flags);
+        w.u8(m.captured ? 1 : 0);
+        w.u8(static_cast<uint8_t>(m.zoom));
+    }
+    if (mask & kFieldMouseX) w.u16(static_cast<uint16_t>(mouse_steps(m.dx)));
+    if (mask & kFieldMouseY) w.u16(static_cast<uint16_t>(mouse_steps(m.dy)));
+}
+
+// A port as write_port wrote it, over (*p, *m) as they were: the port before it. Its mask.
+uint8_t read_port(Reader& r, Port* p, Mouse* m) {
+    const uint8_t mask = r.u8();
+    if (mask & kFieldButtons) p->buttons = r.u16();
+    if (mask & kFieldStickX) p->stick_x = static_cast<int8_t>(r.u8());
+    if (mask & kFieldStickY) p->stick_y = static_cast<int8_t>(r.u8());
+    if (mask & kFieldRightX) p->right_x = static_cast<int8_t>(r.u8());
+    if (mask & kFieldRightY) p->right_y = static_cast<int8_t>(r.u8());
+    if (mask & kFieldMisc) {
+        p->flags = r.u8();
+        m->captured = r.u8() != 0;
+        m->zoom = static_cast<int8_t>(r.u8());
+    }
+    if (mask & kFieldMouseX) m->dx = static_cast<int16_t>(r.u16()) / kMouseSteps;
+    if (mask & kFieldMouseY) m->dy = static_cast<int16_t>(r.u16()) / kMouseSteps;
     *m = limited(*m);
+    return mask;
 }
 
 // --- session state (under g_mutex unless noted) -----------------------------------------------------
@@ -395,6 +472,7 @@ struct Peer {
     uint32_t blocking_frame = 0;  // the host: the frame it has waited for this guest's input of, if any,
     int64_t blocking_since = 0;   // and since when
     uint32_t acked = 0;        // the host: the merged frames this guest has; a guest: its inputs the host has
+    uint32_t sent_upto = 0;    // the newest record sent to it (CONKER_NET_STATS counts the new ones)
     uint32_t echo = 0;         // the peer's last send time, to echo
     int64_t echo_at = 0;       // when it came
     int rtt = -1;
@@ -415,6 +493,11 @@ struct Peer {
     // whose game becomes the host's only from a snapshot: it plays its port once it has played past
     // the snapshot's frame (until then its hashes are of its own game, and it sends none).
     bool needs_snapshot = false;
+    bool wants_own_port = false;  // the host: the guest asked for its own port in MERGED (on_merged)
+    int64_t update_at = 0;        // when the last INPUT or MERGED went to it,
+    int64_t whole_at = 0;         // and the last the tick sent whole (send_updates)
+    uint64_t drops_sent = 0;      // the host: the drops (drops_hash) last sent to it, and when they
+    int64_t drops_changed_at = 0; // changed, for MERGED's drops
 };
 std::vector<Peer> g_peers;     // the host: its guests; a guest: the host
 
@@ -722,10 +805,24 @@ int64_t sim_pump() {
 }
 
 // A packet sealed on a link and sent.
+// Whether a datagram to or from addr goes as IPv6 on the wire (an IPv4 address mapped into a dual-stack
+// socket's IPv6 goes as IPv4), for CONKER_NET_STATS.
+bool wire_ipv6(const sockaddr_storage& addr) {
+    if (addr.ss_family != AF_INET6) {
+        return false;
+    }
+    const auto& a6 = reinterpret_cast<const sockaddr_in6&>(addr);
+    return !IN6_IS_ADDR_V4MAPPED(&a6.sin6_addr);
+}
+
 void send_sealed(seal::Channel& channel, const sockaddr_storage& addr, socklen_t len, const Writer& w) {
     uint8_t out[sizeof(w.data) + seal::kOverhead];
     const size_t size = seal::seal(channel, w.data, w.size, out, sizeof(out));
     if (size > 0) {
+        // INPUT and MERGED begin with their type; the handshake's packets with the magic, then the type.
+        const bool compact = w.size >= 1 && (w.data[0] == kInput || w.data[0] == kMerged);
+        conker::net::stats::sent(compact ? w.data[0] : w.size > 4 ? w.data[4] : 0,
+                                 conker::net::stats::wire_bytes(size, wire_ipv6(addr)));
         send_datagram(addr, len, out, size);
     }
 }
@@ -740,6 +837,7 @@ void send_contact(const sockaddr_storage& addr, socklen_t len, const Writer& w) 
 void send_key_offer(const sockaddr_storage& from, socklen_t from_len) {
     uint8_t out[64];
     const size_t size = seal::write_offer(g_host_key, conker::net::address_cookie(from, kCookiePurpose), out, sizeof(out));
+    conker::net::stats::sent(0, conker::net::stats::wire_bytes(size, wire_ipv6(from)));
     send_datagram(from, from_len, out, size);
 }
 
@@ -903,6 +1001,10 @@ void drop(Peer& peer, Drop reason, const char* why) {
     update_offer();
 }
 
+// A hash as it goes on the wire: 32 bits of it. A desync stays in memory, so the next frame's hash
+// catches what a 1-in-4-billion match missed.
+uint64_t wire_hash(uint64_t hash) { return static_cast<uint32_t>(hash ^ (hash >> 32)); }
+
 // The host, under g_mutex: compares frame's hashes where both are in. A guest that differs from
 // the host is out of sync.
 void compare_hashes(uint32_t frame) {
@@ -913,11 +1015,11 @@ void compare_hashes(uint32_t frame) {
     const uint64_t own = *own_value;
     for (Peer& peer : g_peers) {
         const Hash& theirs = g_peer_hashes[peer.port][frame % kRing];
-        if ((!peer.dropped || peer.rejoining) && theirs.frame == frame && theirs.value != own) {
+        if ((!peer.dropped || peer.rejoining) && theirs.frame == frame && theirs.value != wire_hash(own)) {
             std::fprintf(stderr, "[conker] net: player %d is OUT OF SYNC at frame %u: their game memory hashes to "
-                                 "%016llx, the host's to %016llx\n",
+                                 "%08llx, the host's to %08llx (32 bits of each)\n",
                          peer.port + 1, frame, static_cast<unsigned long long>(theirs.value),
-                         static_cast<unsigned long long>(own));
+                         static_cast<unsigned long long>(wire_hash(own)));
             drop(peer, kOutOfSync, "out of sync");
         }
     }
@@ -925,14 +1027,15 @@ void compare_hashes(uint32_t frame) {
 
 // Each frame's hash goes in the packets of the next kHashRepeats frames played, not in every packet
 // for 8 frames: a lost packet loses no hash, and most packets carry one or two.
-constexpr uint32_t kHashRepeats = 3;
+constexpr uint32_t kHashRepeats = 2;
 uint32_t g_hashes_sent_upto = 0;  // under g_mutex: the newest frame whose hash went out
 
-void write_hashes(Writer& w) {
+// anchor: the INPUT's first record's frame, which the first hash's frame goes as a difference from.
+void write_hashes(Writer& w, uint32_t anchor) {
     // A guest whose game becomes the host's from a snapshot has nothing to compare until then (in place
     // its frames so far were its own game's).
     if (g_snap_coming && !g_snap_tried) {
-        w.u32(1);
+        w.svar(0);
         w.u8(0);
         return;
     }
@@ -948,10 +1051,10 @@ void write_hashes(Writer& w) {
         first++;
         count--;
     }
-    w.u32(first);
+    w.svar(static_cast<int32_t>(first - anchor));
     w.u8(static_cast<uint8_t>(count));
     for (uint32_t frame = first; frame < first + count; frame++) {
-        w.u64(g_own_hashes[frame % kRing].value);
+        w.u32(static_cast<uint32_t>(wire_hash(g_own_hashes[frame % kRing].value)));
     }
 }
 
@@ -1083,11 +1186,14 @@ void write_hash_log(const char* role, int port, uint32_t frame) {
 }
 
 // The host: a guest's hashes.
-void read_hashes(Reader& r, int port) {
-    const uint32_t first = r.u32();
+void read_hashes(Reader& r, int port, uint32_t anchor) {
+    const uint32_t first = anchor + static_cast<uint32_t>(r.svar());
     const uint32_t count = std::min<uint32_t>(r.u8(), kHashesPerPacket);
+    if (!r.ok || first > kMaxFrame) {
+        return;
+    }
     for (uint32_t frame = first; frame < first + count && r.ok; frame++) {
-        const uint64_t value = r.u64();
+        const uint64_t value = r.u32();
         if (r.ok && frame != 0) {
             g_peer_hashes[port][frame % kRing] = {frame, value};
             g_peer_played[port] = std::max(g_peer_played[port], frame);
@@ -1151,39 +1257,99 @@ uint8_t missing_for(uint32_t frame) {
     return missing;
 }
 
+// Under g_mutex: the drops as a number that changes when any of them does (0 for none).
+uint64_t drops_hash() {
+    uint64_t hash = 0;
+    for (int port = 0; port < kPorts; port++) {
+        hash = (hash ^ g_drop_frame[port]) * 0x100000001B3ull;
+        hash = (hash ^ g_drop_reason[port]) * 0x100000001B3ull;
+        hash = (hash ^ g_live_frame[port]) * 0x100000001B3ull;
+    }
+    bool any = false;
+    for (int port = 0; port < kPorts; port++) {
+        any = any || g_drop_frame[port] != 0 || g_drop_reason[port] != 0 || g_live_frame[port] != 0;
+    }
+    return any ? (hash | 1) : 0;
+}
+
 // Under g_mutex: the packets this side sends each tick (and when it has something new).
 // whole: the first record of each packet whole (the tick's resends), so that a receiver without the
 // frame before it (after a snapshot, say) gets going within a tick; otherwise as changes from it.
-void send_updates(bool whole = false) {
+// tick: the network thread's tick, every `every` ms: a peer gets a whole packet only when nothing has
+// gone to it for that long (a game waiting, or a lost packet with nothing new after it), or once a
+// second (the round-trip times, the drops). While frames are played a packet goes every frame with
+// every record not acknowledged, so the tick's resends at 10 a second were a quarter of the packets.
+constexpr int64_t kWholeEveryMs = 1000;
+bool update_due(Peer& peer, bool tick, int64_t every, int64_t now) {
+    if (tick && now - peer.update_at < every && now - peer.whole_at < kWholeEveryMs) {
+        return false;
+    }
+    peer.update_at = now;
+    if (tick) {
+        peer.whole_at = now;
+    }
+    return true;
+}
+
+void send_updates(bool whole = false, bool tick = false, int64_t every = 0) {
+    const int64_t sent_at = now_ms();
     if (is_host()) {
         for (Peer& peer : g_peers) {
-            if (!peer.started) {
+            if (!peer.started || !update_due(peer, tick, every, sent_at)) {
                 continue;
             }
+            namespace stats = conker::net::stats;
             Writer w;
-            begin(w, kMerged, peer.secret);
-            write_times(w, peer);
-            w.u32(g_input_upto[peer.port]);
-            w.u8(missing_for(g_merged_upto + 1));
-            w.u32(g_merged_upto);
+            w.u8(kMerged);  // the sealed link says who it is from and for (handle_datagram)
+            const size_t header_end = w.size;
             const uint32_t first = std::max(peer.acked + 1, static_cast<uint32_t>(g_delay + 1));
             // A dropped guest gets no more records, only the drops, so that one out of sync learns it;
             // a rejoining one gets them from the start, from the history.
             const uint32_t count = (!peer.dropped || peer.rejoining) && first <= g_merged_upto
                                        ? std::min(g_merged_upto - first + 1, kFramesPerPacket) : 0;
-            w.u32(first);
+            // A playing guest has its own port's input (the host merged its frames from it), so its
+            // port is left out unless it asks for it (it lacks a frame's, after a snapshot say).
+            const bool omit_own = !peer.dropped && !peer.rejoining && !peer.wants_own_port;
+            // The drops, while there is one to tell: in the tick's packets, and in every packet for a
+            // second after they change (most packets had 36 bytes of them, a session started in place
+            // all through it, its guests being newcomers at the start).
+            const int64_t now = now_ms();
+            const uint64_t drops = drops_hash();
+            if (drops != peer.drops_sent) {
+                peer.drops_sent = drops;
+                peer.drops_changed_at = now;
+            }
+            const bool send_drops = drops != 0 && (whole || now - peer.drops_changed_at < kDropsFreshMs);
+            const uint8_t missing = missing_for(g_merged_upto + 1);
+            w.u8((omit_own ? kMergedOmitsOwn : 0) | (whole ? kWithTimes : 0) | (send_drops ? kMergedDrops : 0) |
+                 (missing != 0 ? kMergedMissing : 0));
+            if (whole) {
+                write_times(w, peer);
+            }
+            const size_t times_end = w.size;
+            w.uvar(first);
             w.u8(static_cast<uint8_t>(count));
+            w.uvar(g_merged_upto + 1 - first - count);  // first + count - 1 <= g_merged_upto
+            w.svar(static_cast<int32_t>(g_input_upto[peer.port] - g_merged_upto));
+            if (missing != 0) {
+                w.u8(missing);
+            }
+            const size_t frames_end = w.size;
             // Each record as its changes from the one before: a mask (bit p for port p, bit 4 for the
             // held/dropped/snapshot bytes) then what it names; the first in the packet whole. A record
             // was 71 bytes and up to 16 went 100 times a second, repeated until acknowledged, ~1-2
             // Mbit/s once the round trip grew, which filled a phone hotspot's buffer (650 ms round trips).
-            std::array<uint8_t, kPortBytes> before[kPorts];
+            // Each port's fields as changes from the record before (the first's from frame first - 1,
+            // which the guest has acknowledged, or from nothing pressed when whole).
+            Port before[kPorts] = {};
+            Mouse before_mice[kPorts] = {};
             uint8_t before_tail[3] = {};
             const bool after_base = !whole && first > static_cast<uint32_t>(g_delay) + 1;
             if (after_base) {
                 const Merged& base = g_history[first - static_cast<uint32_t>(g_delay) - 2];
                 for (int port = 0; port < kPorts; port++) {
-                    before[port] = port_bytes(base.ports[port], base.mice[port]);
+                    before[port] = base.ports[port];
+                    before_mice[port] = base.mice[port];
                 }
                 before_tail[0] = base.held;
                 before_tail[1] = base.dropped;
@@ -1193,11 +1359,13 @@ void send_updates(bool whole = false) {
                 const Merged& record = g_history[frame - static_cast<uint32_t>(g_delay) - 1];
                 const uint8_t tail[3] = {record.held, record.dropped, record.snapshot};
                 const bool all = frame == first && !after_base;
-                std::array<uint8_t, kPortBytes> now[kPorts];
+                uint8_t fields[kPorts];
                 uint8_t mask = frame == first && after_base ? kAfterBase : 0;
                 for (int port = 0; port < kPorts; port++) {
-                    now[port] = port_bytes(record.ports[port], record.mice[port]);
-                    if (all || now[port] != before[port]) {
+                    fields[port] = omit_own && port == peer.port
+                                       ? 0
+                                       : changed_fields(before[port], before_mice[port], record.ports[port], record.mice[port]);
+                    if (fields[port] != 0) {
                         mask |= static_cast<uint8_t>(1 << port);
                     }
                 }
@@ -1207,25 +1375,47 @@ void send_updates(bool whole = false) {
                 w.u8(mask);
                 for (int port = 0; port < kPorts; port++) {
                     if ((mask & (1 << port)) != 0) {
-                        w.bytes(now[port].data(), kPortBytes);
+                        write_port(w, fields[port], record.ports[port], record.mice[port]);
                     }
-                    before[port] = now[port];
+                    before[port] = record.ports[port];
+                    before_mice[port] = record.mice[port];
                 }
                 if ((mask & kTailChanged) != 0) {
                     w.bytes(tail, 3);
                 }
                 std::memcpy(before_tail, tail, 3);
             }
-            // The drops, only while there is one to tell: most packets had 36 bytes of zeros.
-            bool any = false;
-            for (int port = 0; port < kPorts; port++) {
-                any = any || g_drop_frame[port] != 0 || g_drop_reason[port] != 0 || g_live_frame[port] != 0;
+            const size_t records_end = w.size;
+            if (send_drops) {
+                // The ports with any, a bit each, then each one's drop frame, reason and live frame.
+                uint8_t ports = 0;
+                for (int port = 0; port < kPorts; port++) {
+                    if (g_drop_frame[port] != 0 || g_drop_reason[port] != 0 || g_live_frame[port] != 0) {
+                        ports |= static_cast<uint8_t>(1 << port);
+                    }
+                }
+                w.u8(ports);
+                for (int port = 0; port < kPorts; port++) {
+                    if ((ports & (1 << port)) != 0) {
+                        w.uvar(g_drop_frame[port]);
+                        w.u8(g_drop_reason[port]);
+                        w.uvar(g_live_frame[port]);
+                    }
+                }
             }
-            w.u8(any ? 1 : 0);
-            for (int port = 0; port < kPorts && any; port++) {
-                w.u32(g_drop_frame[port]);
-                w.u8(g_drop_reason[port]);
-                w.u32(g_live_frame[port]);
+            if (stats::enabled()) {
+                stats::part(true, stats::kPartIp, stats::wire_bytes(0, wire_ipv6(peer.addr)));
+                stats::part(true, stats::kPartSeal, seal::kOverhead);
+                stats::part(true, stats::kPartHeader, header_end);
+                stats::part(true, stats::kPartTimes, times_end - header_end);
+                stats::part(true, stats::kPartFrames, frames_end - times_end);
+                stats::part(true, stats::kPartRecords, records_end - frames_end);
+                stats::part(true, stats::kPartDrops, w.size - records_end);
+                const uint32_t last = first + count - 1;
+                stats::records(true, count, count != 0 && last > peer.sent_upto ? last - std::max(peer.sent_upto, first - 1) : 0);
+            }
+            if (count != 0) {
+                peer.sent_upto = std::max(peer.sent_upto, first + count - 1);
             }
             send_to(peer, w);
         }
@@ -1235,37 +1425,57 @@ void send_updates(bool whole = false) {
         return;
     }
     Peer& host = g_peers[0];
+    if (!update_due(host, tick, every, sent_at)) {
+        return;
+    }
+    namespace stats = conker::net::stats;
     Writer w;
-    begin(w, kInput, g_secret);
-    w.u8(static_cast<uint8_t>(g_local_port));
-    write_times(w, host);
-    w.u32(g_merged_upto);
+    w.u8(kInput);  // the sealed link says who it is from (handle_datagram)
+    const size_t header_end = w.size;
     const uint32_t upto = g_input_upto[g_local_port];
     const uint32_t first = std::max(host.acked + 1, static_cast<uint32_t>(g_delay + 1));
     const uint32_t count = first <= upto ? std::min(upto - first + 1, kFramesPerPacket) : 0;
-    w.u32(first);
-    w.u8(static_cast<uint8_t>(count));
-    // As MERGED's records: a 1 then the port when it changed from the frame before (always the first),
-    // else a 0.
-    // The first: a 2 when it is the same as frame first - 1's (which the host has acknowledged), unless
-    // whole.
-    std::array<uint8_t, kPortBytes> before{};
+    // The records: each as MERGED's ports, its changed fields (a mask of 0 when none), the first's
+    // from frame first - 1 (which the host has acknowledged) unless whole, then from nothing pressed.
+    Port before{};
+    Mouse before_mouse{};
     const Input& base = g_inputs[g_local_port][(first - 1) % kRing];
     const bool after_base = !whole && first > static_cast<uint32_t>(g_delay) + 1 && base.frame == first - 1;
     if (after_base) {
-        before = port_bytes(base.port, base.mouse);
+        before = base.port;
+        before_mouse = base.mouse;
     }
+    w.u8((after_base ? kInputAfterBase : 0) | (g_want_own_port ? kInputWantsOwn : 0) | (whole ? kWithTimes : 0));
+    if (whole) {
+        write_times(w, host);
+    }
+    const size_t times_end = w.size;
+    w.uvar(first);
+    w.u8(static_cast<uint8_t>(count));
+    w.svar(static_cast<int32_t>(g_merged_upto - first));  // the merged frames this machine has
+    const size_t frames_end = w.size;
     for (uint32_t frame = first; frame < first + count; frame++) {
         const Input& input = g_inputs[g_local_port][frame % kRing];
-        const std::array<uint8_t, kPortBytes> now = port_bytes(input.port, input.mouse);
-        const bool changed = (frame == first && !after_base) || now != before;
-        w.u8(changed ? 1 : frame == first ? 2 : 0);
-        if (changed) {
-            w.bytes(now.data(), kPortBytes);
-        }
-        before = now;
+        write_port(w, changed_fields(before, before_mouse, input.port, input.mouse), input.port, input.mouse);
+        before = input.port;
+        before_mouse = input.mouse;
     }
-    write_hashes(w);
+    const size_t records_end = w.size;
+    write_hashes(w, first);
+    if (stats::enabled()) {
+        stats::part(false, stats::kPartIp, stats::wire_bytes(0, wire_ipv6(host.addr)));
+        stats::part(false, stats::kPartSeal, seal::kOverhead);
+        stats::part(false, stats::kPartHeader, header_end);
+        stats::part(false, stats::kPartTimes, times_end - header_end);
+        stats::part(false, stats::kPartFrames, frames_end - times_end);
+        stats::part(false, stats::kPartRecords, records_end - frames_end);
+        stats::part(false, stats::kPartHashes, w.size - records_end);
+        const uint32_t last = first + count - 1;
+        stats::records(false, count, count != 0 && last > host.sent_upto ? last - std::max(host.sent_upto, first - 1) : 0);
+    }
+    if (count != 0) {
+        host.sent_upto = std::max(host.sent_upto, first + count - 1);
+    }
     send_to(host, w);
 }
 
@@ -1322,15 +1532,18 @@ bool guest_open(const uint8_t* data, size_t size, const sockaddr_storage& from, 
 
 // The host, under g_mutex: a guest's INPUT.
 void on_input(Peer& peer, Reader& r) {
-    const int port = r.u8();
-    if (port != peer.port) {
-        return;
+    const int port = peer.port;
+    const uint8_t flags = r.u8();
+    if (!r.ok || (flags & ~(kInputAfterBase | kInputWantsOwn | kWithTimes)) != 0) {
+        return;  // not this build's packet
     }
-    read_times(r, peer);
-    const uint32_t acked = r.u32();
-    const uint32_t first = r.u32();
+    if ((flags & kWithTimes) != 0) {
+        read_times(r, peer);
+    }
+    const uint32_t first = r.uvar();
     const uint32_t count = std::min<uint32_t>(r.u8(), kFramesPerPacket);
-    if (!r.ok) {
+    const uint32_t acked = first + static_cast<uint32_t>(r.svar());
+    if (!r.ok || first > kMaxFrame) {
         return;
     }
     peer.started = true;
@@ -1339,25 +1552,20 @@ void on_input(Peer& peer, Reader& r) {
     }
     peer.acked = std::max(peer.acked, std::min(acked, g_merged_upto));
     const uint32_t had = g_input_upto[port];
-    Port p;
-    Mouse m;
+    peer.wants_own_port = (flags & kInputWantsOwn) != 0;
+    Port p{};
+    Mouse m{};
+    if ((flags & kInputAfterBase) != 0 && count != 0) {
+        // As changes from frame first - 1, which this machine has unless a resend of it is still to come.
+        const Input& base = g_inputs[port][(first - 1) % kRing];
+        if (base.frame != first - 1 || first - 1 > g_input_upto[port]) {
+            return;
+        }
+        p = base.port;
+        m = base.mouse;
+    }
     for (uint32_t frame = first; frame < first + count; frame++) {
-        const uint8_t changed = r.u8();
-        if (changed > 2 || (frame == first && changed == 0) || (frame != first && changed == 2)) {
-            return;  // not this build's packet
-        }
-        if (changed == 2) {
-            // The same as frame first - 1, which this machine has unless a resend of it is still to come.
-            const Input& base = g_inputs[port][(first - 1) % kRing];
-            if (base.frame != first - 1 || first - 1 > g_input_upto[port]) {
-                return;
-            }
-            p = base.port;
-            m = base.mouse;
-        }
-        if (changed == 1) {
-            read_port(r, &p, &m);
-        }
+        read_port(r, &p, &m);
         if (!r.ok) {
             return;
         }
@@ -1371,7 +1579,7 @@ void on_input(Peer& peer, Reader& r) {
     if (g_input_upto[port] != had) {
         peer.moved_on = now_ms();
     }
-    read_hashes(r, port);
+    read_hashes(r, port, first);
     if (merge()) {
         send_updates();
         wake_game_thread();
@@ -1380,13 +1588,20 @@ void on_input(Peer& peer, Reader& r) {
 
 // A guest, under g_mutex: the host's MERGED.
 void on_merged(Peer& host, Reader& r) {
-    read_times(r, host);
-    const uint32_t acked = r.u32();
-    g_host_waiting_for = r.u8() & static_cast<uint8_t>((1 << kPorts) - 1);  // only real port bits
-    const uint32_t host_upto = r.u32();
-    const uint32_t first = r.u32();
+    const uint8_t flags = r.u8();
+    if (!r.ok || (flags & ~(kMergedOmitsOwn | kMergedDrops | kWithTimes | kMergedMissing)) != 0) {
+        return;  // not this build's packet
+    }
+    if ((flags & kWithTimes) != 0) {
+        read_times(r, host);
+    }
+    const uint32_t first = r.uvar();
     const uint32_t count = std::min<uint32_t>(r.u8(), kFramesPerPacket);
-    if (!r.ok) {
+    const uint32_t host_upto = first + count - 1 + r.uvar();
+    const uint32_t acked = host_upto + static_cast<uint32_t>(r.svar());
+    g_host_waiting_for = (flags & kMergedMissing) != 0 ? r.u8() & static_cast<uint8_t>((1 << kPorts) - 1) : 0;
+    const bool omitted = (flags & kMergedOmitsOwn) != 0;
+    if (!r.ok || first > kMaxFrame) {
         return;
     }
     if (host_upto <= kMaxFrame) {
@@ -1409,8 +1624,11 @@ void on_merged(Peer& host, Reader& r) {
             record = base;
             record.frame = frame;
             mask &= static_cast<uint8_t>(~kAfterBase);
-        } else if ((mask & ~kAll) != 0 || (frame == first && mask != kAll)) {
+        } else if ((mask & ~kAll) != 0 || (frame == first && (mask & kTailChanged) == 0)) {
             return;  // not this build's packet
+        } else if (frame == first) {
+            record = Merged{};  // whole: as changes from nothing pressed
+            record.frame = frame;
         }
         for (int port = 0; port < kPorts; port++) {
             if ((mask & (1 << port)) != 0) {
@@ -1425,19 +1643,40 @@ void on_merged(Peer& host, Reader& r) {
         if (!r.ok) {
             return;
         }
+        const bool next = frame == g_merged_upto + 1 && frame < g_own_hash_upto + kRing / 2 && (!g_snap_coming || g_snap_tried);
+        if (omitted && next) {
+            // This machine's own port, left out: as the host merged it from this machine's input.
+            const int own = g_local_port;
+            const Input& input = g_inputs[own][frame % kRing];
+            if ((record.dropped & (1 << own)) != 0) {
+                record.ports[own] = neutral_port();
+                record.mice[own] = Mouse{};
+            } else if (input.frame == frame && frame <= g_input_upto[own]) {
+                record.ports[own] = normalized(input.port);
+                record.mice[own] = limited(input.mouse);
+            } else {
+                g_want_own_port = true;  // the next INPUT asks for it
+                return;
+            }
+        }
+        if (!omitted) {
+            g_want_own_port = false;
+        }
         // In order, and no further ahead of the game here than the ring holds: catching up, the
         // records come far faster than the game plays them.
-        if (frame == g_merged_upto + 1 && frame < g_own_hash_upto + kRing / 2 && (!g_snap_coming || g_snap_tried)) {
+        if (next) {
             g_merged[frame % kRing] = record;
             g_merged_upto = frame;
             advanced = true;
         }
     }
-    const bool drops = r.u8() != 0;  // none to tell: every port's drop frame, reason and live frame are 0
-    for (int port = 0; port < kPorts && r.ok; port++) {
-        const uint32_t from = drops ? r.u32() : 0;
-        const uint8_t reason = drops ? r.u8() : 0;
-        const uint32_t live = drops ? r.u32() : 0;
+    // The drops (when the packet has them): ports without any have none.
+    const uint8_t drop_ports = (flags & kMergedDrops) != 0 ? r.u8() : 0;
+    for (int port = 0; port < kPorts && r.ok && (flags & kMergedDrops) != 0; port++) {
+        const bool has = (drop_ports & (1 << port)) != 0;
+        const uint32_t from = has ? r.uvar() : 0;
+        const uint8_t reason = has ? r.u8() : 0;
+        const uint32_t live = has ? r.uvar() : 0;
         if (!r.ok) {
             continue;
         }
@@ -1890,6 +2129,23 @@ void handle_datagram(const uint8_t* data, size_t size, const sockaddr_storage& f
                   : !guest_open(data, size, from, from_len, buffer, sizeof(buffer), &got)) {
         return;
     }
+    if (got >= 1 && (buffer[0] == kInput || buffer[0] == kMerged)) {
+        // INPUT and MERGED: the type alone, then the packet. The link it opened on is this peer's own
+        // (a guest's keys are made for its join), which is what the handshake's session and secret say.
+        Peer* peer = contact ? nullptr : peer_from(from, from_len);
+        if (peer == nullptr) {
+            return;
+        }
+        conker::net::stats::received(buffer[0], conker::net::stats::wire_bytes(size, wire_ipv6(from)));
+        peer->last_heard = now_ms();
+        Reader r{buffer + 1, got - 1};
+        if (is_host() && buffer[0] == kInput) {
+            on_input(*peer, r);
+        } else if (!is_host() && buffer[0] == kMerged) {
+            on_merged(*peer, r);
+        }
+        return;
+    }
     Reader r{buffer, got};
     if (r.u32() != kMagic) {
         return;
@@ -1897,6 +2153,7 @@ void handle_datagram(const uint8_t* data, size_t size, const sockaddr_storage& f
     const uint8_t type = r.u8();
     const uint32_t session = r.u32();
     const uint64_t secret = r.u64();
+    conker::net::stats::received(type, conker::net::stats::wire_bytes(size, wire_ipv6(from)));
     if (contact) {
         if (type == kHello && r.ok) {
             on_rejoin_hello(from, from_len, r, secret);
@@ -1922,9 +2179,7 @@ void handle_datagram(const uint8_t* data, size_t size, const sockaddr_storage& f
         }
         return;
     }
-    if (is_host() && type == kInput) {
-        on_input(*peer, r);
-    } else if (is_host() && type == kReady) {
+    if (is_host() && type == kReady) {
         const uint32_t sent = r.u32();
         if (r.ok && peer->rejoining && !peer->ready) {
             peer->ready = true;
@@ -1941,8 +2196,6 @@ void handle_datagram(const uint8_t* data, size_t size, const sockaddr_storage& f
         on_snap_chunk(r);
     } else if (is_host() && type == kStarted) {
         peer->started = true;
-    } else if (!is_host() && type == kMerged) {
-        on_merged(*peer, r);
     } else if (!is_host() && type == kStart) {
         Writer w;
         begin(w, kStarted, g_secret);
@@ -1952,7 +2205,6 @@ void handle_datagram(const uint8_t* data, size_t size, const sockaddr_storage& f
 
 void network_thread() {
     int64_t last_send = 0;
-    int64_t last_update = 0;
     uint8_t buffer[kMaxPacket + 64];
     while (!g_net_stop.load()) {
         for (int wait = static_cast<int>(kSendEveryMs);; wait = 0) {
@@ -2040,11 +2292,9 @@ void network_thread() {
             } else {
                 snapshot_guest_tick(now);
             }
-            if (now - last_update >= (g_waiting.load() ? kSendEveryMs : kResendEveryMs)) {
-                last_update = now;
-                send_updates(true);
-            }
+            send_updates(true, true, g_waiting.load() ? kSendEveryMs : kResendEveryMs);
         }
+        conker::net::stats::tick();
         relaunch_to_rejoin();
         if (g_waiting.load()) {
             wake_game_thread();  // so that a long wait notices a drop or a desync
@@ -3233,6 +3483,7 @@ void finish_connect() {
     }
     g_merged_upto = static_cast<uint32_t>(g_delay);
     g_session_start.store(now_ms());
+    conker::net::stats::begin_session(is_host());
     g_net_stop.store(false);
     g_thread = std::thread(network_thread);
     register_goodbye();
@@ -3275,6 +3526,7 @@ void reset_session() {
     g_history.clear();
     g_host_upto = 0;
     g_merged_upto = 0;
+    g_want_own_port = false;
     std::fill(std::begin(g_own_hashes), std::end(g_own_hashes), Hash{});
     g_own_hash_upto = 0;
     g_own_hash_history.clear();
@@ -3327,6 +3579,7 @@ void reset_session() {
 
 // Stops the network thread and closes the session's socket (in place: leaving, or connecting again).
 void stop_network() {
+    conker::net::stats::report();
     g_net_stop.store(true);
     wake_game_thread();
     if (g_connect_thread.joinable()) {
@@ -3531,7 +3784,9 @@ void take_snapshot(uint8_t* rdram, uint32_t frame) {
         std::vector<uint8_t> packed(4 + size);
         const uint32_t raw_size = static_cast<uint32_t>(raw.size());
         std::memcpy(packed.data(), &raw_size, 4);
-        if (compress2(packed.data() + 4, &size, raw.data(), static_cast<uLong>(raw.size()), 1) != Z_OK) {
+        // Level 6: 5% smaller than 1 (a MULTI match's: 1153 -> 1090 KiB) for ~50 ms more on this thread,
+        // while the guest waits a few hundred ms for it anyway; 9 saves nothing more for 4x the time.
+        if (compress2(packed.data() + 4, &size, raw.data(), static_cast<uLong>(raw.size()), 6) != Z_OK) {
             std::fprintf(stderr, "[conker] net: the snapshot of frame %u could not be compressed\n", frame);
             return;
         }
@@ -3747,6 +4002,7 @@ void frame(uint8_t* rdram, Record* record) {
         g_details[frame % kDetailFrames] = detail;
         g_own_hashes[frame % kRing] = {frame, hash};
         g_own_hash_upto = frame;
+        conker::net::stats::frame_played();
         if (g_own_hash_history.empty() || frame < g_own_hash_base) {
             g_own_hash_history.clear();
             g_own_hash_base = frame;
