@@ -137,6 +137,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/credits/credits.cpp
     src/fixes/alien_shadow.cpp
     src/fixes/geometry_escape.cpp
+    src/fixes/heist_alcove.cpp
     src/fixes/frame_effects.cpp
     src/fixes/level_seams.cpp
     src/fixes/music_start.cpp
