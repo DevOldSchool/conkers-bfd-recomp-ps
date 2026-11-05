@@ -223,6 +223,7 @@ struct Options {
 } g_options;
 
 std::atomic<bool> g_active{false};  // a session is on (the game thread reads it every frame)
+bool g_want_own_port = false;  // a guest, under g_mutex: MERGED left out its port for a frame it has no input of
 uint64_t g_secret = 0;  // a guest: its secret (see the wire, above)
 namespace seal = conker::net::seal;
 seal::KeyPair g_host_key;   // the host's: this machine's host key (net_keys.hpp), the same as its lobby's
@@ -444,6 +445,7 @@ struct Peer {
     // whose game becomes the host's only from a snapshot: it plays its port once it has played past
     // the snapshot's frame (until then its hashes are of its own game, and it sends none).
     bool needs_snapshot = false;
+    bool wants_own_port = false;  // the host: the guest asked for its own port in MERGED (on_merged)
 };
 std::vector<Peer> g_peers;     // the host: its guests; a guest: the host
 
@@ -1217,6 +1219,10 @@ void send_updates(bool whole = false) {
                                        ? std::min(g_merged_upto - first + 1, kFramesPerPacket) : 0;
             w.u32(first);
             w.u8(static_cast<uint8_t>(count));
+            // A playing guest has its own port's input (the host merged its frames from it), so its
+            // port is left out unless it asks for it (it lacks a frame's, after a snapshot say).
+            const bool omit_own = !peer.dropped && !peer.rejoining && !peer.wants_own_port;
+            w.u8(omit_own ? 1 : 0);
             const size_t frames_end = w.size;
             // Each record as its changes from the one before: a mask (bit p for port p, bit 4 for the
             // held/dropped/snapshot bytes) then what it names; the first in the packet whole. A record
@@ -1245,7 +1251,9 @@ void send_updates(bool whole = false) {
                 uint8_t fields[kPorts];
                 uint8_t mask = frame == first && after_base ? kAfterBase : 0;
                 for (int port = 0; port < kPorts; port++) {
-                    fields[port] = changed_fields(before[port], before_mice[port], record.ports[port], record.mice[port]);
+                    fields[port] = omit_own && port == peer.port
+                                       ? 0
+                                       : changed_fields(before[port], before_mice[port], record.ports[port], record.mice[port]);
                     if (fields[port] != 0) {
                         mask |= static_cast<uint8_t>(1 << port);
                     }
@@ -1325,7 +1333,7 @@ void send_updates(bool whole = false) {
         before = base.port;
         before_mouse = base.mouse;
     }
-    w.u8(after_base ? 1 : 0);
+    w.u8((after_base ? 1 : 0) | (g_want_own_port ? 2 : 0));
     for (uint32_t frame = first; frame < first + count; frame++) {
         const Input& input = g_inputs[g_local_port][frame % kRing];
         write_port(w, changed_fields(before, before_mouse, input.port, input.mouse), input.port, input.mouse);
@@ -1422,12 +1430,13 @@ void on_input(Peer& peer, Reader& r) {
     peer.acked = std::max(peer.acked, std::min(acked, g_merged_upto));
     const uint32_t had = g_input_upto[port];
     const uint8_t flags = r.u8();
-    if (!r.ok || flags > 1) {
+    if (!r.ok || flags > 3) {
         return;  // not this build's packet
     }
+    peer.wants_own_port = (flags & 2) != 0;
     Port p{};
     Mouse m{};
-    if (flags == 1 && count != 0) {
+    if ((flags & 1) != 0 && count != 0) {
         // As changes from frame first - 1, which this machine has unless a resend of it is still to come.
         const Input& base = g_inputs[port][(first - 1) % kRing];
         if (base.frame != first - 1 || first - 1 > g_input_upto[port]) {
@@ -1466,7 +1475,8 @@ void on_merged(Peer& host, Reader& r) {
     const uint32_t host_upto = r.u32();
     const uint32_t first = r.u32();
     const uint32_t count = std::min<uint32_t>(r.u8(), kFramesPerPacket);
-    if (!r.ok) {
+    const uint8_t omitted = r.u8();
+    if (!r.ok || omitted > 1) {
         return;
     }
     if (host_upto <= kMaxFrame) {
@@ -1508,9 +1518,28 @@ void on_merged(Peer& host, Reader& r) {
         if (!r.ok) {
             return;
         }
+        const bool next = frame == g_merged_upto + 1 && frame < g_own_hash_upto + kRing / 2 && (!g_snap_coming || g_snap_tried);
+        if (omitted && next) {
+            // This machine's own port, left out: as the host merged it from this machine's input.
+            const int own = g_local_port;
+            const Input& input = g_inputs[own][frame % kRing];
+            if ((record.dropped & (1 << own)) != 0) {
+                record.ports[own] = neutral_port();
+                record.mice[own] = Mouse{};
+            } else if (input.frame == frame && frame <= g_input_upto[own]) {
+                record.ports[own] = normalized(input.port);
+                record.mice[own] = limited(input.mouse);
+            } else {
+                g_want_own_port = true;  // the next INPUT asks for it
+                return;
+            }
+        }
+        if (!omitted) {
+            g_want_own_port = false;
+        }
         // In order, and no further ahead of the game here than the ring holds: catching up, the
         // records come far faster than the game plays them.
-        if (frame == g_merged_upto + 1 && frame < g_own_hash_upto + kRing / 2 && (!g_snap_coming || g_snap_tried)) {
+        if (next) {
             g_merged[frame % kRing] = record;
             g_merged_upto = frame;
             advanced = true;
@@ -3361,6 +3390,7 @@ void reset_session() {
     g_history.clear();
     g_host_upto = 0;
     g_merged_upto = 0;
+    g_want_own_port = false;
     std::fill(std::begin(g_own_hashes), std::end(g_own_hashes), Hash{});
     g_own_hash_upto = 0;
     g_own_hash_history.clear();
