@@ -1,49 +1,465 @@
 {
   "description": "CONSISTENT CONTROLS: aiming the right way up and twin-stick controls, as the pad hook rewrites the pads. Without the switch each must fail.",
-  "covers": ["src/enhancements/consistent_controls/consistent_controls.cpp", "src/enhancements/consistent_controls/mouse_look.cpp (aiming)",
-             "the [[patches.hook]] at func_1501BBB8 in config/us.toml", "the debug menu's CONTROLS page INVERT AIM (Port::kInvertAim)"],
-  "switches": {"CONSISTENT CONTROLS": 1},
-  "without_fix": {"switches": {"CONSISTENT CONTROLS": 0}},
+  "covers": [
+    "src/enhancements/consistent_controls/consistent_controls.cpp",
+    "src/enhancements/consistent_controls/mouse_look.cpp (aiming)",
+    "the [[patches.hook]] at func_1501BBB8 in config/us.toml",
+    "the debug menu's CONTROLS page INVERT AIM (Port::kInvertAim)"
+  ],
+  "switches": {
+    "CONSISTENT CONTROLS": 1
+  },
+  "without_fix": {
+    "switches": {
+      "CONSISTENT CONTROLS": 0
+    }
+  },
   "matrix": [
-    {"name": "shotgun-right-stick-aims-up",
-     "description": "Scene 60, shotgun out (B), aiming with R: the right stick pushed up aims up",
-     "start": {"report": "scene60-20261025-081607"}, "frames": 210,
-     "input": [{"at": 60, "hold": 4, "buttons": "B"}, {"at": 120, "hold": 90, "buttons": "R"}, {"at": 160, "hold": 40, "right": [0, 127]}],
-     "expect": [{"at": 158, "value": "player.item", "eq": 59}, {"at": 158, "value": "player.aim", "eq": 2},
-                {"delta": "camera.pitch", "from": 158, "to": 200, "min": 10}]},
-    {"name": "shotgun-left-stick-walks-while-aiming",
-     "description": "Scene 60, shotgun aimed with R: the left stick walks him and leaves the aim alone (the N64 aims down with it)",
-     "start": {"report": "scene60-20261025-081607"}, "frames": 300,
-     "input": [{"at": 60, "hold": 4, "buttons": "B"}, {"at": 120, "hold": 180, "buttons": "R"}, {"at": 230, "hold": 40, "stick": [0, 80]}],
-     "expect": [{"at": 228, "value": "player.aim", "eq": 2},
-                {"delta": "conker.x", "from": 228, "to": 290, "max": -100},
-                {"delta": "camera.pitch", "from": 228, "to": 290, "min": -5}]},
-    {"name": "shotgun-mouse-aims-up",
-     "description": "Scene 60, shotgun aimed with R: the mouse moved up aims up",
-     "start": {"report": "scene60-20261025-081607"}, "frames": 210,
-     "input": [{"at": 60, "hold": 4, "buttons": "B"}, {"at": 120, "hold": 90, "buttons": "R"}, {"at": 160, "hold": 40, "mouse": [0, -6]}],
-     "expect": [{"delta": "camera.pitch", "from": 155, "to": 200, "min": 8}]},
-    {"name": "shotgun-dpad-steps",
-     "description": "Scene 60, shotgun held: D-pad left steps sideways, still facing the same way",
-     "start": {"report": "scene60-20261025-081607"}, "frames": 300,
-     "input": [{"at": 60, "hold": 4, "buttons": "B"}, {"at": 200, "hold": 60, "buttons": "DLEFT"}],
-     "expect": [{"at": 198, "value": "player.item", "eq": 59},
-                {"delta": "conker.x", "from": 198, "to": 260, "max": -100},
-                {"delta": "conker.facing", "from": 198, "to": 260, "min": -1, "max": 1}]},
-    {"name": "invert-aim",
-     "description": "Scene 60, shotgun aimed, INVERT AIM on: the right stick pushed up aims down",
-     "start": {"report": "scene60-20261025-081607"}, "frames": 210, "port_flags": ["invert_aim"],
-     "input": [{"at": 60, "hold": 4, "buttons": "B"}, {"at": 120, "hold": 90, "buttons": "R"}, {"at": 160, "hold": 40, "right": [0, 127]}],
-     "expect": [{"delta": "camera.pitch", "from": 158, "to": 200, "max": -20}]},
-    {"name": "mounted-gun-stick-up-aims-up",
-     "description": "Scene 38, on It's War's mounted gun: the stick pushed up aims up (the N64 aims down)",
-     "start": {"report": "scene38-20261027-213708"}, "frames": 130,
-     "input": [{"at": 80, "hold": 40, "stick": [0, 80]}],
-     "expect": [{"at": 78, "value": "player.sight", "eq": 2}, {"delta": "camera.pitch", "from": 78, "to": 120, "min": 30}]},
-    {"name": "slingshot-stick-up-aims-up",
-     "description": "Scene 6, the slingshot out (B on its pad): the stick pushed up aims up (the N64 aims down)",
-     "start": {"report": "scene6-20261023-133408"}, "frames": 190,
-     "input": [{"at": 60, "hold": 4, "buttons": "B"}, {"at": 140, "hold": 40, "stick": [0, 80]}],
-     "expect": [{"at": 138, "value": "player.item", "eq": 2}, {"delta": "camera.pitch", "from": 138, "to": 180, "min": 20}]}
+    {
+      "name": "shotgun-right-stick-aims-up",
+      "description": "Scene 60, shotgun out (B), aiming with R: the right stick pushed up aims up",
+      "start": {
+        "report": "scene60-20261025-081607"
+      },
+      "frames": 210,
+      "input": [
+        {
+          "at": 60,
+          "hold": 4,
+          "buttons": "B"
+        },
+        {
+          "at": 120,
+          "hold": 90,
+          "buttons": "R"
+        },
+        {
+          "at": 160,
+          "hold": 40,
+          "right": [
+            0,
+            127
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "at": 158,
+          "value": "player.item",
+          "eq": 59
+        },
+        {
+          "at": 158,
+          "value": "player.aim",
+          "eq": 2
+        },
+        {
+          "delta": "camera.pitch",
+          "from": 158,
+          "to": 200,
+          "min": 10
+        }
+      ]
+    },
+    {
+      "name": "shotgun-left-stick-walks-while-aiming",
+      "description": "Scene 60, shotgun aimed with R: the left stick walks him and leaves the aim alone (the N64 aims down with it)",
+      "start": {
+        "report": "scene60-20261025-081607"
+      },
+      "frames": 300,
+      "input": [
+        {
+          "at": 60,
+          "hold": 4,
+          "buttons": "B"
+        },
+        {
+          "at": 120,
+          "hold": 180,
+          "buttons": "R"
+        },
+        {
+          "at": 230,
+          "hold": 40,
+          "stick": [
+            0,
+            80
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "at": 228,
+          "value": "player.aim",
+          "eq": 2
+        },
+        {
+          "delta": "conker.x",
+          "from": 228,
+          "to": 290,
+          "max": -100
+        },
+        {
+          "delta": "camera.pitch",
+          "from": 228,
+          "to": 290,
+          "min": -5
+        }
+      ]
+    },
+    {
+      "name": "shotgun-mouse-aims-up",
+      "description": "Scene 60, shotgun aimed with R: the mouse moved up aims up",
+      "start": {
+        "report": "scene60-20261025-081607"
+      },
+      "frames": 210,
+      "input": [
+        {
+          "at": 60,
+          "hold": 4,
+          "buttons": "B"
+        },
+        {
+          "at": 120,
+          "hold": 90,
+          "buttons": "R"
+        },
+        {
+          "at": 160,
+          "hold": 40,
+          "mouse": [
+            0,
+            -6
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "delta": "camera.pitch",
+          "from": 155,
+          "to": 200,
+          "min": 8
+        }
+      ]
+    },
+    {
+      "name": "shotgun-dpad-steps",
+      "description": "Scene 60, shotgun held: D-pad left steps sideways, still facing the same way",
+      "start": {
+        "report": "scene60-20261025-081607"
+      },
+      "frames": 300,
+      "input": [
+        {
+          "at": 60,
+          "hold": 4,
+          "buttons": "B"
+        },
+        {
+          "at": 200,
+          "hold": 60,
+          "buttons": "DLEFT"
+        }
+      ],
+      "expect": [
+        {
+          "at": 198,
+          "value": "player.item",
+          "eq": 59
+        },
+        {
+          "delta": "conker.x",
+          "from": 198,
+          "to": 260,
+          "max": -100
+        },
+        {
+          "delta": "conker.facing",
+          "from": 198,
+          "to": 260,
+          "min": -1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "name": "invert-aim",
+      "description": "Scene 60, shotgun aimed, INVERT AIM on: the right stick pushed up aims down",
+      "start": {
+        "report": "scene60-20261025-081607"
+      },
+      "frames": 210,
+      "port_flags": [
+        "invert_aim"
+      ],
+      "input": [
+        {
+          "at": 60,
+          "hold": 4,
+          "buttons": "B"
+        },
+        {
+          "at": 120,
+          "hold": 90,
+          "buttons": "R"
+        },
+        {
+          "at": 160,
+          "hold": 40,
+          "right": [
+            0,
+            127
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "delta": "camera.pitch",
+          "from": 158,
+          "to": 200,
+          "max": -20
+        }
+      ]
+    },
+    {
+      "name": "mounted-gun-stick-up-aims-up",
+      "description": "Scene 38, on It's War's mounted gun: the stick pushed up aims up (the N64 aims down)",
+      "start": {
+        "report": "scene38-20261027-213708"
+      },
+      "frames": 130,
+      "input": [
+        {
+          "at": 80,
+          "hold": 40,
+          "stick": [
+            0,
+            80
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "at": 78,
+          "value": "player.sight",
+          "eq": 2
+        },
+        {
+          "delta": "camera.pitch",
+          "from": 78,
+          "to": 120,
+          "min": 30
+        }
+      ]
+    },
+    {
+      "name": "slingshot-stick-up-aims-up",
+      "description": "Scene 6, the slingshot out (B on its pad): the stick pushed up aims up (the N64 aims down)",
+      "start": {
+        "report": "scene6-20261023-133408"
+      },
+      "frames": 190,
+      "input": [
+        {
+          "at": 60,
+          "hold": 4,
+          "buttons": "B"
+        },
+        {
+          "at": 140,
+          "hold": 40,
+          "stick": [
+            0,
+            80
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "at": 138,
+          "value": "player.item",
+          "eq": 2
+        },
+        {
+          "delta": "camera.pitch",
+          "from": 138,
+          "to": 180,
+          "min": 20
+        }
+      ]
+    },
+    {
+      "name": "tank-turret-turns-left",
+      "description": "Scene 14, riding the story tank: the right stick pushed left (C-right in the record, the camera's swap) turns the turret left, 1.5 degrees a frame (s16 +0x2E4 of the tank, actor 1)",
+      "start": {
+        "report": "scene14-20261027-215438"
+      },
+      "frames": 80,
+      "input": [
+        {
+          "at": 60,
+          "hold": 30,
+          "buttons": "CRIGHT"
+        }
+      ],
+      "expect": [
+        {
+          "at": 58,
+          "value": "u8:0x800CC738",
+          "eq": 100
+        },
+        {
+          "at": 58,
+          "value": "s16:0x800CC8E0",
+          "eq": 0
+        },
+        {
+          "at": 74,
+          "value": "s16:0x800CC8E0",
+          "min": 15000,
+          "max": 17999
+        }
+      ]
+    },
+    {
+      "name": "tank-mouse-turns-turret",
+      "description": "Scene 14, riding the story tank: the mouse moved right turns the turret right",
+      "start": {
+        "report": "scene14-20261027-215438"
+      },
+      "frames": 110,
+      "input": [
+        {
+          "at": 60,
+          "hold": 40,
+          "mouse": [
+            10,
+            0
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "delta": "s16:0x800CC8E0",
+          "from": 58,
+          "to": 104,
+          "min": 1000
+        }
+      ]
+    },
+    {
+      "name": "tank-sight-right-stick-aims-up",
+      "description": "Scene 14, the story tank's sight (R): the right stick pushed up aims up",
+      "start": {
+        "report": "scene14-20261027-215438"
+      },
+      "frames": 290,
+      "input": [
+        {
+          "at": 200,
+          "hold": 90,
+          "buttons": "R"
+        },
+        {
+          "at": 240,
+          "hold": 40,
+          "right": [
+            0,
+            127
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "at": 238,
+          "value": "player.sight",
+          "eq": 2
+        },
+        {
+          "at": 238,
+          "value": "player.item",
+          "eq": 31
+        },
+        {
+          "delta": "camera.pitch",
+          "from": 238,
+          "to": 282,
+          "min": 30
+        }
+      ]
+    },
+    {
+      "name": "uzi-jump-right-stick-aims-up",
+      "description": "Scene 54 (Heist), the Uzis' B-pad jump: through it the right stick moves the aimer, up aiming up (f32 +0x44 of Conker's actor)",
+      "start": {
+        "report": "scene54-20261103-185231"
+      },
+      "frames": 125,
+      "input": [
+        {
+          "at": 60,
+          "hold": 4,
+          "buttons": "B"
+        },
+        {
+          "at": 90,
+          "hold": 30,
+          "right": [
+            0,
+            127
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "at": 88,
+          "value": "u16:0x800CC354",
+          "eq": 527
+        },
+        {
+          "at": 120,
+          "value": "f32:0x800CC314",
+          "min": 20
+        }
+      ]
+    },
+    {
+      "name": "uzi-jump-left-stick-does-nothing",
+      "description": "Scene 54 (Heist), the Uzis' B-pad jump: the left stick leaves the aimer alone",
+      "start": {
+        "report": "scene54-20261103-185231"
+      },
+      "frames": 125,
+      "input": [
+        {
+          "at": 60,
+          "hold": 4,
+          "buttons": "B"
+        },
+        {
+          "at": 90,
+          "hold": 30,
+          "stick": [
+            0,
+            80
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "at": 88,
+          "value": "u16:0x800CC354",
+          "eq": 527
+        },
+        {
+          "at": 120,
+          "value": "f32:0x800CC314",
+          "min": -1,
+          "max": 1
+        }
+      ]
+    }
   ]
 }

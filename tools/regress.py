@@ -208,7 +208,9 @@ def replay_text(case, start, end, switches):
     sticks = [(0, 0)] * (end + 1)
     rights = [(0, 0)] * (end + 1)
     mice = [None] * (end + 1)
-    for press in case.get("input", []):
+    # A boot start's own input (menus to a match) at frames from boot, then the case's from `start`.
+    presses = [dict(p, at=p["at"] - start) for p in case.get("start", {}).get("input", [])]
+    for press in presses + case.get("input", []):
         mask = 0
         for name in re.split(r"[+ ,]+", press.get("buttons", "").upper()):
             if name:
@@ -281,6 +283,10 @@ def run_game(binary, rom, case, folder, start, frames, variant, dump_frames=(), 
         env.update({k: str(v) for k, v in variant.get("env", {}).items()})
         switches.update(variant.get("switches", {}))
     report = case.get("start", {}).get("report")
+    eeprom = case.get("start", {}).get("eeprom")
+    if eeprom:
+        # A boot start with that report's save as the game's EEPROM (what the story has unlocked).
+        shutil.copy2(data_dir() / "reports" / eeprom / "save.bin", folder / "conker-recomp-data/saves/conker_us.bin")
     if report:
         env["CONKER_SAVE_CHECK"] = str(data_dir() / "reports" / report)
         env["CONKER_SAVE_CHECK_PLAY"] = "1"
@@ -332,7 +338,7 @@ def run_case(binary, rom, name, case, variant=None, keep=False):
     # A report is restored some 300 frames in (the save check loads it at frame 300); the frame it was
     # last restored at is kept in build/regress/start-frames.json, and the run is made again from the
     # frame it reports when that has moved.
-    start = cache.get(key, 312) if report else 0
+    start = cache.get(key, 312) if report else case.get("start", {}).get("at", 0)
     seconds = 0
     for attempt in range(4):
         run = run_game(binary, rom, case, folder, start, frames, variant, [start + f for f in dump_frames], hash_every)

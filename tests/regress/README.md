@@ -77,13 +77,20 @@ tools/regress.py <name> --without-fix --keep
 | `resume-camera-distance` | scene 6's saved camera distance (901) comes back, not the zone's 530 |
 | `resume-checkpoint/*` | the save's checkpoint survives a resume in scenes 25, 27 and 65 |
 | `resume-actor-link/*` | scene 60's giant bat keeps to Batula's perch after a resume |
-| `consistent-controls/*` | the shotgun's twin-stick aim (right stick, mouse, left stick walking, D-pad steps), INVERT AIM, the mounted gun and the slingshot aiming up with the stick up |
+| `consistent-controls/*` | the shotgun's twin-stick aim (right stick, mouse, left stick walking, D-pad steps), INVERT AIM, the mounted gun and the slingshot aiming up with the stick up; the story tank's turret (C buttons the right stick's way, the mouse) and sight; the Uzis' B-pad jump aimed with the right stick in Heist |
+| `multi-controls/*` | a MULTI match (scene 48, reached through the menus from boot): the right stick and the mouse turn the player and camera, R's look aims up with the stick up |
 | `mouse-camera` | the mouse turns the third-person camera 0.15 degrees a pixel |
 
 Input reaches a case as the game's input record (right stick, mouse and INVERT AIM included), so
 what the SDL input layer does before the record is not covered: the camera's C-left/C-right swap on
-foot, the CONTROLS page's button remapping, keyboard bindings. Nor yet: the controls in a MULTI
-match (turning, knives, launcher scope, TANK), the story tank, and the Uzi jump's aim in Heist.
+foot, the CONTROLS page's button remapping, keyboard bindings. Nor yet in a MULTI match: the
+knives and the launcher's scope (they need a weapon picked up), TANK (locked on the saves we have:
+a fresh save offers scenes 45, 52, 48, 26 and 63), and the grenade on D-pad down.
+
+A boot start can script the menus: `"start": {"boot": true, "input": [...], "at": 2700}` plays its
+presses from boot (the MULTI door and mode menu, as `multi-controls.json` does), and the case's
+frames count from `at`. Under the fixed step the menus take the same frames every run.
+`"eeprom": "<report>"` boots with that report's save instead of a fresh one.
 
 Not covered yet: fixes in the RT64 renderer and its patches (they need the GPU build and
 screenshots), and drawing fixes that the null build only shows as display lists (level
