@@ -1,0 +1,14 @@
+{
+  "description": "A pause save keeps the checkpoint (scene, entrance) the save holds, not the entrance the resumed point was entered by, so a later death or QUIT restarts at the checkpoint",
+  "covers": ["src/enhancements/pause_save/resume_point.cpp (g_checkpoint, found by tools/save_check.py)"],
+  "frames": 120,
+  "without_fix": {"env": {"CONKER_TEST_OFF": "resume_checkpoint"}},
+  "matrix": [
+    {"name": "scene25", "start": {"report": "scene25-20261024-111018"},
+     "expect": [{"at": 120, "value": "u8:0x800BE3DF", "eq": 25}, {"at": 120, "value": "u8:0x800BE3E0", "eq": 0}]},
+    {"name": "scene27", "start": {"report": "scene27-20261027-224638"},
+     "expect": [{"at": 120, "value": "u8:0x800BE3DF", "eq": 35}, {"at": 120, "value": "u8:0x800BE3E0", "eq": 2}]},
+    {"name": "scene65", "start": {"report": "scene65-20261024-230633"},
+     "expect": [{"at": 120, "value": "u8:0x800BE3DF", "eq": 65}, {"at": 120, "value": "u8:0x800BE3E0", "eq": 4}]}
+  ]
+}

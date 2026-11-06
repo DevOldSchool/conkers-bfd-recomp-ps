@@ -1,0 +1,10 @@
+{
+  "description": "Boots to the title menu with the intro skipped; the same input gives the same game twice",
+  "covers": ["CONKER_SKIP_INTRO", "CONKER_FIXED_STEP replay determinism (online lockstep)", "src/fixes/scheduler_yield.cpp"],
+  "start": {"boot": true},
+  "frames": 600,
+  "expect": [
+    {"at": 600, "value": "scene", "eq": 29},
+    {"deterministic": true, "every": 30, "ignore": ["0x80030000-0x80040000"]}
+  ]
+}

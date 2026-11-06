@@ -39,6 +39,7 @@
 #include "runtime/exact_math.hpp"
 #include "runtime/frame_input.hpp"
 #include "runtime/snapshot.hpp"
+#include "runtime/test_off.hpp"
 
 extern "C" void func_15124B18(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_15125608(uint8_t* rdram, recomp_context* ctx);
@@ -278,7 +279,7 @@ void turn_camera(int port, float degrees) {
 extern "C" void conker_mouse_camera(uint8_t* rdram, recomp_context* ctx) {
     const uint32_t camera = static_cast<uint32_t>(ctx->r4);
     const int port = camera_port(rdram, camera);
-    if (port < 0 || (g_dx[port] == 0.0f && g_turn[port] == 0.0f)) {
+    if (port < 0 || (g_dx[port] == 0.0f && g_turn[port] == 0.0f) || conker::test_off("mouse_camera")) {
         return;
     }
     float degrees = g_turn[port];

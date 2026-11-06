@@ -1,0 +1,182 @@
+{
+  "description": "CONSISTENT CONTROLS in a MULTI match (scene 48, reached through the title's MULTI door on a fresh save; frames count from 2700, the match running). Without the switch each must fail.",
+  "covers": [
+    "src/enhancements/consistent_controls/consistent_controls.cpp (match_look, aim_upright in a match)",
+    "src/enhancements/consistent_controls/mouse_look.cpp (turn_camera, take_turn)"
+  ],
+  "start": {
+    "boot": true,
+    "input": [
+      {
+        "at": 225,
+        "hold": 10,
+        "stick": [
+          80,
+          0
+        ]
+      },
+      {
+        "at": 325,
+        "hold": 10,
+        "buttons": "A"
+      },
+      {
+        "at": 400,
+        "hold": 10,
+        "buttons": "A"
+      },
+      {
+        "at": 475,
+        "hold": 10,
+        "buttons": "A"
+      },
+      {
+        "at": 1000,
+        "hold": 10,
+        "stick": [
+          0,
+          80
+        ]
+      },
+      {
+        "at": 1200,
+        "hold": 10,
+        "stick": [
+          0,
+          80
+        ]
+      },
+      {
+        "at": 1400,
+        "hold": 10,
+        "stick": [
+          0,
+          80
+        ]
+      },
+      {
+        "at": 1650,
+        "hold": 10,
+        "buttons": "A"
+      },
+      {
+        "at": 2300,
+        "hold": 10,
+        "buttons": "A"
+      },
+      {
+        "at": 2600,
+        "hold": 10,
+        "buttons": "A"
+      }
+    ],
+    "at": 2700
+  },
+  "switches": {
+    "CONSISTENT CONTROLS": 1
+  },
+  "without_fix": {
+    "switches": {
+      "CONSISTENT CONTROLS": 0
+    }
+  },
+  "matrix": [
+    {
+      "name": "right-stick-turns-player-and-camera",
+      "description": "The right stick pushed right turns the player right, 6 degrees a frame, and the camera with him (the game locks the match camera behind him)",
+      "frames": 230,
+      "input": [
+        {
+          "at": 200,
+          "hold": 15,
+          "right": [
+            127,
+            0
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "at": 198,
+          "value": "u8:0x800BE616",
+          "eq": 1
+        },
+        {
+          "at": 198,
+          "value": "scene",
+          "eq": 48
+        },
+        {
+          "delta": "conker.facing",
+          "from": 198,
+          "to": 220,
+          "min": -100,
+          "max": -80
+        },
+        {
+          "delta": "camera.yaw",
+          "from": 198,
+          "to": 220,
+          "max": -40
+        }
+      ]
+    },
+    {
+      "name": "mouse-turns-player",
+      "description": "The mouse moved right turns the player right, 0.15 degrees a pixel",
+      "frames": 230,
+      "input": [
+        {
+          "at": 200,
+          "hold": 15,
+          "mouse": [
+            10,
+            0
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "delta": "conker.facing",
+          "from": 198,
+          "to": 220,
+          "min": -26,
+          "max": -18
+        }
+      ]
+    },
+    {
+      "name": "r-look-right-stick-up-looks-up",
+      "description": "Holding R to look: the right stick pushed up looks up",
+      "frames": 480,
+      "input": [
+        {
+          "at": 400,
+          "hold": 80,
+          "buttons": "R"
+        },
+        {
+          "at": 430,
+          "hold": 40,
+          "right": [
+            0,
+            127
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "at": 428,
+          "value": "player.aim",
+          "eq": 1
+        },
+        {
+          "delta": "camera.pitch",
+          "from": 428,
+          "to": 470,
+          "min": 30
+        }
+      ]
+    }
+  ]
+}

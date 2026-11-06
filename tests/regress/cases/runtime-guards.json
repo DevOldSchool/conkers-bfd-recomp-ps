@@ -1,0 +1,21 @@
+{
+  "description": "Game memory that cannot be trusted (a hostile online host's snapshot) stops the game instead of reaching native memory",
+  "covers": ["tools/patches/n64modernruntime-untrusted-rdram.patch", "tools/patches/n64modernruntime-rdram-guard.patch",
+             "tools/patches/n64modernruntime-pi-bounds.patch", "tools/patches/n64modernruntime-n64recomp-address-window.patch",
+             "src/runtime/snapshot.cpp (self_test)"],
+  "start": {"boot": true},
+  "frames": 260,
+  "matrix": [
+    {"name": "wrap", "env": {"CONKER_RUNTIME_SELFTEST": "200:wrap"},
+     "expect": [{"log": "runtime self-test \\(wrap\\): PASS"}]},
+    {"name": "snapshot", "env": {"CONKER_SNAPSHOT_SELFTEST": "200"},
+     "expect": [{"log": "snapshot self-test: PASS"}, {"no_log": "snapshot self-test: FAIL"}]},
+    {"name": "guard-high", "env": {"CONKER_RUNTIME_SELFTEST": "200:guard_high"}, "ends": {"log": "just outside game memory \\(the guard around RDRAM\\); stopping"}},
+    {"name": "guard-low", "env": {"CONKER_RUNTIME_SELFTEST": "200:guard_low"}, "ends": {"log": "just outside game memory \\(the guard around RDRAM\\); stopping"}},
+    {"name": "queue", "env": {"CONKER_RUNTIME_SELFTEST": "200:queue"}, "ends": {"log": "message queue at .* is not one the game can have made"}},
+    {"name": "thread", "env": {"CONKER_RUNTIME_SELFTEST": "200:thread"}, "ends": {"log": "the game's memory is not one this run can trust. Stopping"}},
+    {"name": "pi", "env": {"CONKER_RUNTIME_SELFTEST": "200:pi"}, "ends": {"log": "runs outside the cartridge"}},
+    {"name": "pi-size", "env": {"CONKER_RUNTIME_SELFTEST": "200:pi_size"}, "ends": {"log": "the game's memory is not one this run can trust. Stopping"}},
+    {"name": "ai", "env": {"CONKER_RUNTIME_SELFTEST": "200:ai"}, "ends": {"log": "An audio buffer of 0x40000000 bytes"}}
+  ]
+}

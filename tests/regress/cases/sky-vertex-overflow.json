@@ -1,0 +1,49 @@
+{
+  "description": "Scene 6 in 16:9 with the wider culling, camera turning: the tiled sky stays inside its vertex buffers (308 of 304 without the fix) and the heap stays whole",
+  "covers": [
+    "src/enhancements/display_options/widescreen_culling.cpp (conker_sky_vertices, conker_sky_tile_fits)",
+    "src/runtime/heap_check.cpp"
+  ],
+  "start": {
+    "report": "scene6-20261022-224036"
+  },
+  "frames": 900,
+  "env": {
+    "CONKER_WIDESCREEN_CULLING": "1",
+    "CONKER_HEAP_CHECK": "1",
+    "CONKER_TEST_ASPECT": "16:9"
+  },
+  "switches": {
+    "WIDESCREEN": 1
+  },
+  "input": [
+    {
+      "at": 30,
+      "hold": 400,
+      "buttons": "CLEFT"
+    },
+    {
+      "at": 450,
+      "hold": 400,
+      "buttons": "CRIGHT"
+    }
+  ],
+  "expect": [
+    {
+      "at": 900,
+      "value": "scene",
+      "eq": 6
+    },
+    {
+      "no_log": "heap damaged"
+    },
+    {
+      "no_log": "sky buffer overrun"
+    }
+  ],
+  "without_fix": {
+    "env": {
+      "CONKER_TEST_OFF": "sky_vertices"
+    }
+  }
+}
