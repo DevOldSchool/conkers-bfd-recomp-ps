@@ -38,7 +38,11 @@ constexpr uint32_t kActorSize = 0x32C;
 constexpr uint32_t kActorViewRecord = 0x318;    // a player's camera record
 constexpr uint32_t kActorX = 0x14;              // f32 x, y, z
 constexpr uint32_t kActorZ = 0x1C;
+constexpr uint32_t kRecordCameraX = 0x2F8;     // f32: the camera's x and z, as func_1510FC34 reads them
+constexpr uint32_t kRecordCameraZ = 0x300;
 constexpr int kPlayers = 4;
+// A following camera stays well within two of the tree's 512-unit leaves of its player.
+constexpr float kFollowDistance = 1024.0f;
 constexpr uint32_t kNodeHidden = 0x0;           // s16: a hidden bit per view (and the box's bottom)
 constexpr uint32_t kNodeNext = 0x4;             // s16: offset to the next sibling, 0 for the last
 constexpr uint32_t kNodeChild = 0xC;            // s16: offset to the first child, 0 for a leaf
@@ -135,8 +139,18 @@ extern "C" void conker_level_visibility(uint8_t* rdram, recomp_context* ctx) {
     }
     const recomp_context saved = *ctx;
     const int camera_cell = MEM_H(0, kseg0(kViewCells + 2 * view));
-    const int player_cell = cell_at(rdram, ctx, static_cast<int32_t>(load_float(rdram, player + kActorX)),
-                                    static_cast<int32_t>(load_float(rdram, player + kActorZ)));
+    // Only while the camera follows its player. A cutscene's camera can be in another room: Heist's
+    // briefing is shot in the boss's office while the players wait in their corridors, over 1,800
+    // units away, and the corridors' rows showed some 12,800 more nodes there, after which the
+    // office's floor was not drawn and the characters left trails across it. Far from the player the
+    // camera's row stands alone (decoded again below, in case last frame's bits were a union).
+    const uint32_t record = static_cast<uint32_t>(MEM_W(0, kseg0(kViewRecords))) + static_cast<uint32_t>(view) * kViewRecordSize;
+    const float dx = load_float(rdram, record + kRecordCameraX) - load_float(rdram, player + kActorX);
+    const float dz = load_float(rdram, record + kRecordCameraZ) - load_float(rdram, player + kActorZ);
+    const bool follows = dx * dx + dz * dz <= kFollowDistance * kFollowDistance;
+    const int player_cell = !follows ? camera_cell
+                                     : cell_at(rdram, ctx, static_cast<int32_t>(load_float(rdram, player + kActorX)),
+                                               static_cast<int32_t>(load_float(rdram, player + kActorZ)));
     if (player_cell >= 0 && camera_cell >= 0) {
         static std::vector<uint32_t> nodes;
         static std::vector<uint8_t> hidden;
