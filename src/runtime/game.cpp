@@ -47,8 +47,10 @@ recomp::GameEntry make_game_entry() {
     entry.mod_game_id = "conker";
     // Online, every machine runs the same frames from the same inputs, so a mod on one machine and not
     // the others would split the game apart: a session loads no mods. They are still opened, or
-    // librecomp would save mods.json without them and the player's choice would be lost.
-    entry.skip_mod_loading = net::active();
+    // librecomp would save mods.json without them and the player's choice would be lost. The ONLINE
+    // page's RESTART WITHOUT MODS (--net-no-mods) does the same for one run, so a game with mods on can
+    // play online.
+    entry.skip_mod_loading = net::mods_skipped();
     entry.save_type = recomp::SaveType::Eep16k;  // NFUE uses a 16 kbit EEPROM
     entry.is_enabled = true;
     entry.has_compressed_code = true;  // the game overlay is RZIP-compressed in ROM

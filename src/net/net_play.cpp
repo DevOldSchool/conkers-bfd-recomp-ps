@@ -229,6 +229,7 @@ struct Options {
     int want_port = 0;    // join: the port the lobby gave this machine (1 to 4), 0 for any
     bool map = false;     // host: open the port on the router (the lobby's HOST did)
     bool lobby = false;   // open the ONLINE lobby at boot (not a session)
+    bool no_mods = false; // --net-no-mods: load no mods this run (the lobby's RESTART WITHOUT MODS)
     std::string name = "Player";  // the name the LAN list shows for this host
     uint64_t token = 0;   // the session token (--net-token, the lobby's or a host's own): the host lets in only guests with it
     bool open = false;    // --net-open: a host without a token, which lets in anyone with the same build
@@ -2433,8 +2434,8 @@ ssize_t receive(uint8_t* buffer, size_t size, sockaddr_storage* from, socklen_t*
 // this can be wrong only until then).
 std::string mods_text() {
     static const std::string text = [] {
-        if (g_active.load()) {
-            return std::string();  // from the command line: no mods loaded (game.cpp)
+        if (g_active.load() || g_options.no_mods) {
+            return std::string();  // a session from the command line or --net-no-mods: no mods loaded (game.cpp)
         }
         std::vector<std::string> on;
         for (const recomp::mods::ModDetails& details : recomp::mods::get_all_mod_details("conker")) {
@@ -3384,6 +3385,8 @@ bool parse_net_options(int argc, char** argv, std::vector<char*>* kept_out) {
             g_options.map = true;
         } else if (arg == "--net-lobby") {
             g_options.lobby = true;
+        } else if (arg == "--net-no-mods") {
+            g_options.no_mods = true;
         } else if (arg == "--net-unsafe-internet") {
             g_options.internet = true;
         } else if (arg == "--net-lan-only") {
@@ -3451,6 +3454,10 @@ uint32_t game_memory_end() { return g_active ? kHashEnd : 0; }
 
 bool lobby_at_boot() { return g_options.lobby; }
 
+bool mods_skipped() { return g_active || g_options.no_mods; }
+
+bool mods_on() { return !mods_text().empty(); }
+
 int delay_option() { return g_options.delay; }
 
 std::string build_text() { return ::build_text(); }
@@ -3461,6 +3468,15 @@ void relaunch(const std::vector<std::string>& net_args) {
     std::vector<std::string> line = g_plain_argv;
     line.insert(line.end(), net_args.begin(), net_args.end());
     // The session keeps the lobby's choice, whichever way this build starts.
+    line.push_back(g_options.internet ? "--net-unsafe-internet" : "--net-lan-only");
+    process::start_again(line);
+}
+
+void restart_without_mods() {
+    std::printf("[conker] net: starting again without mods, back to the ONLINE page\n");
+    std::vector<std::string> line = g_plain_argv;
+    line.push_back("--net-no-mods");
+    line.push_back("--net-lobby");
     line.push_back(g_options.internet ? "--net-unsafe-internet" : "--net-lan-only");
     process::start_again(line);
 }

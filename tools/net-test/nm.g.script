@@ -1,0 +1,7 @@
+# see nm.h.script
+500 shot @L.g.view0
+1000 nomods
+1500 name Guest
+3500 joinlan Host
+8000 shot @L.g.view2
+8500 ready

@@ -61,7 +61,7 @@ join. Every machine runs the whole game and only the controllers' input travels,
 
 * the same build of the game (the lobby says when one differs);
 * their own copy of the same ROM, Conker's Bad Fur Day (US);
-* the same mods on, or none.
+* no mods on: the lobby's RESTART WITHOUT MODS starts a game that has some without them (see below).
 
 Little travels: in a match each guest sends and receives about 3 KB a second (30 small packets each
 way), and the host sends about 3 KB a second to each guest and receives as much from each, so any
@@ -96,8 +96,11 @@ player's view a second time each frame, after the split screen every machine dra
 speed.
 
 [Mods](modding.md) change how the game plays, so a mod on one machine and not the others would put
-them out of sync: everyone needs the same mods on (the same versions), or none. The lobby says
-"different mods" otherwise; switch them on the debug menu's MODS page, then start the game again.
+them out of sync, so online games are played without mods. In a game that started with mods on,
+the lobby's page says "MODS ARE ON" in red, HOST and JOIN cannot be pressed, and its first row is
+RESTART WITHOUT MODS: it starts the game again with no mods loaded, straight back on the lobby's
+page, ready to host or join. That is for that run only: the mods stay on in the MODS page, and the
+next time the game is started they are loaded again.
 
 ### Leaving a session
 
@@ -191,7 +194,7 @@ can take the port of one who has been gone for more than a minute.
 What JOIN can say:
 
 * **"a different version of the game"**: everyone needs the same build.
-* **"different mods"**: everyone needs the same mods on, or none.
+* **"different mods"**: one machine has mods on; press RESTART WITHOUT MODS on it.
 * **"a different ROM"**: everyone needs Conker's Bad Fur Day (US).
 * **"No answer from ..."**: the address or code is wrong, the host has not pressed HOST, or the
   host's port is not open to you (see below). It comes after 4 seconds. A host still in a match
@@ -278,6 +281,8 @@ The lobby starts the session with these options, which also work on their own:
   measures the round trip once, at the start. If "WAITING FOR P2" keeps showing, the delay is too
   short for that player's link: a larger `--net-delay` trades a little input lag for no stops.
 * `--net-lobby` opens the lobby at boot instead.
+* `--net-no-mods` loads no mods for that run (mods.json is left as it is), as RESTART WITHOUT MODS
+  does with `--net-lobby`. A session started with `--net-host` or `--net-join` never loads mods.
 * `--net-unsafe-internet` allows play outside the LAN (see the top of this page). Without it,
   everything above is LAN only. The lobby passes it on to the session it starts.
 

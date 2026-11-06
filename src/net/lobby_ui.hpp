@@ -18,6 +18,7 @@
 // CONKER_LOBBY_SCRIPT=<file> drives the lobby for tests, a line each: "<ms> <action> [text]", the
 // time from the page first opening; actions: name <text>, host [port], join <address or code>,
 // joinlan [host name], ready, start, kick <n>, leave, leavesession, quit, close, open,
+// nomods (RESTART WITHOUT MODS),
 // report (SAVE DEBUG REPORT in a session),
 // setenv NAME=value (for the session the lobby starts), shot <file> (writes the View as text) and
 // key <key> (a key as if pressed on the page: up, down, left, right, enter, esc, back, or text:<chars>).
