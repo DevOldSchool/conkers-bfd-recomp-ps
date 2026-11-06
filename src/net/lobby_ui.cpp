@@ -22,6 +22,7 @@
 #include "net/net_play.hpp"
 #include "platform/input.hpp"
 #include "platform/process.hpp"
+#include "ultramodern/config.hpp"
 
 namespace conker::lobby_ui {
 
@@ -973,9 +974,12 @@ void update() {
     if (!copy.empty()) {
         SDL_SetClipboardText(copy.c_str());
     }
-    static bool text_input = false;
-    const bool wanted = g_typing.load() && g_open.load();
-    if (wanted != text_input) {
+    // SDL turns text input on when video starts. Left on, macOS treats a held letter (WASD) as typing
+    // and opens its press-and-hold accent picker over the game, so it is on only while a field is
+    // being edited. RT64's developer-mode inspector has ImGui text fields, so it keeps it on there.
+    static int text_input = -1;  // unknown until the first update stops it
+    const bool wanted = (g_typing.load() && g_open.load()) || ultramodern::renderer::get_graphics_config().developer_mode;
+    if (static_cast<int>(wanted) != text_input) {
         text_input = wanted;
         if (wanted) {
             SDL_StartTextInput();
