@@ -47,8 +47,9 @@ if [ ! -d "$XWIN_DIR/crt/lib/$xwin_arch" ]; then
     fi
     xwin --accept-license --cache-dir "$here/build/xwin-cache" --arch "$xwin_arch" splat --output "$XWIN_DIR"
 fi
-# On a case-sensitive disk, the SDK headers the source names in another case (Shlobj.h for ShlObj.h).
-python3 "$here/tools/windows/case_links.py" "$XWIN_DIR" "$here/src" "$here/lib"
+# On a case-sensitive disk, the SDK headers and libraries the source names in another case (Shlobj.h
+# for ShlObj.h, Shcore.lib for shcore.lib); again after configuring, for the libraries CMake fetched.
+python3 "$here/tools/windows/case_links.py" "$XWIN_DIR" "$here/src" "$here/lib" "$here/CMakeLists.txt"
 
 # RT64's file_to_c runs during the build, so it is built for this machine as well.
 export HOST_TOOLS_DIR="$here/build/windows-host-tools"
@@ -76,5 +77,6 @@ cmake -S "$here" -B "$build" -G Ninja -Wno-dev \
     -DCMAKE_CROSSCOMPILING_EMULATOR="$here/tools/windows/host_tool.sh" \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER="$renderer" \
     -DCMAKE_TRY_COMPILE_CONFIGURATION=Release "${signing[@]}"
+python3 "$here/tools/windows/case_links.py" "$XWIN_DIR" "$build/_deps"
 cmake --build "$build"
 echo "built $build/ConkersBadFurDayRecompiled.exe"
