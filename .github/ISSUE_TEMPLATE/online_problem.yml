@@ -1,0 +1,106 @@
+name: Online play problem
+description: Hosting, joining or playing MULTI online goes wrong.
+labels: ["bug", "online"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Online problems usually need what **every** machine in the session saw,
+        so please collect the log from each one (below).
+
+        **Do not post join codes or IP addresses**: a join code holds the host's address. Leave them out
+        of the text and the logs (replace them with `HOST`), or post the logs after blanking them.
+
+        **The log of each machine**: `last-run.log` in the game's data folder, `conker-recomp-data`:
+        - macOS: `~/Library/Application Support/ConkersBadFurDayRecompiled/conker-recomp-data`
+        - Windows: `%LOCALAPPDATA%\ConkersBadFurDayRecompiled\conker-recomp-data`
+        - Linux: `~/.local/share/ConkersBadFurDayRecompiled/conker-recomp-data`
+
+        It is overwritten when the game starts again (the one before is `previous-run.log`), so copy it
+        after the problem, before starting the game again. Started from a terminal, the game prints its
+        log there instead.
+
+        For a problem that is not about online play, use the bug report instead.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you post
+      options:
+        - label: I searched the existing issues and this is not already reported.
+          required: true
+        - label: Every machine ran the same build, with no mods on.
+          required: true
+        - label: I have left out join codes and IP addresses.
+          required: true
+
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Where it went wrong
+      options:
+        - Hosting or joining (the lobby, a join code, a machine that cannot connect)
+        - Starting the session (stuck on STARTING THE SESSION)
+        - During the match (out of step, freezes, stutters, one machine sees something else)
+        - Leaving, or a second session after one
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What each machine showed, and what you expected instead.
+      placeholder: On the joining machine the camera turned on its own while nobody touched it; the host's view was normal.
+    validations:
+      required: true
+
+  - type: textarea
+    id: machines
+    attributes:
+      label: The machines
+      description: One line each, the host first. Its system (macOS, Windows x64 or ARM64, Linux), the controller or keyboard, and the player number it had.
+      placeholder: |
+        Host: macOS, keyboard and mouse, player 1
+        Windows ARM64, Xbox pad, player 2
+        Windows x64, keyboard and touchpad, player 3
+    validations:
+      required: true
+
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network
+      options:
+        - All on the same home network (LAN)
+        - Over the internet
+        - Some on the same network, some over the internet
+    validations:
+      required: true
+
+  - type: input
+    id: build
+    attributes:
+      label: Build
+      description: The release, as the first line of last-run.log names it.
+      placeholder: v0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often
+      options:
+        - Every time
+        - Often
+        - Once or rarely
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Drag each machine's last-run.log here (renamed for the machine, such as host.log, player2.log), with join codes and addresses blanked. Screenshots and videos are welcome too.

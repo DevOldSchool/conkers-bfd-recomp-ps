@@ -1,5 +1,11 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Help with installing or playing
+    url: https://github.com/DevOldSchool/conkers-bfd-recomp#playing
+    about: Getting the game running, the ROM it needs, controls and settings. Online play is in docs/online-play.md.
+  - name: Security problem
+    url: https://github.com/DevOldSchool/conkers-bfd-recomp/security/advisories/new
+    about: Report it privately (see SECURITY.md), not in a public issue.
   - name: Decompilation questions
     url: https://github.com/DevOldSchool/conkers-bfd-decomp
     about: Questions about the matching decomp itself belong in its repository.

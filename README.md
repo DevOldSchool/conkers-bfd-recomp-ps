@@ -188,6 +188,11 @@ says how to turn it off. The details, and every setting, are in
 * [docs/online-play.md](docs/online-play.md): playing MULTI online: hosting,
   joining, join codes, port forwarding and firewalls
 
+## Contributing
+
+Bug reports, fixes and enhancements are welcome: [CONTRIBUTING.md](CONTRIBUTING.md) says how the
+project works and what fits. Report security problems privately ([SECURITY.md](SECURITY.md)).
+
 ## AI disclosure
 
 This project is developed with the help of AI. Much of the code, the tools
