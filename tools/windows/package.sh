@@ -57,7 +57,7 @@ if ! command -v zip > /dev/null; then
     exit 1
 fi
 
-version="$(git -C "$here" describe --always --dirty 2>/dev/null || echo unknown)"
+version="$("$here/tools/version.sh")"
 # The PE header's machine field: 0x8664 x64, 0xAA64 arm64.
 pe=$((0x$(od -A n -t x4 -j 60 -N 4 "$exe" | tr -d ' ')))
 machine="$(od -A n -t x2 -j $((pe + 4)) -N 2 "$exe" | tr -d ' ')"

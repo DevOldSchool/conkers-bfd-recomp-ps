@@ -237,7 +237,7 @@ def main() -> None:
     out = Path(sys.argv[2])
     platform = sys.argv[3]
     out.mkdir(parents=True, exist_ok=True)
-    version = git("describe", "--always", "--dirty")
+    version = subprocess.run([str(REPO / "tools/version.sh")], check=True, capture_output=True, text=True).stdout.strip()
 
     (out / "LICENSE.txt").write_text((REPO / "LICENSE").read_text(encoding="utf-8"), encoding="utf-8")
     (out / "COPYING.txt").write_text((REPO / "lib/N64ModernRuntime/COPYING").read_text(encoding="utf-8"),

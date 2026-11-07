@@ -35,7 +35,7 @@ env:
 jobs:
   macos:
     name: macOS (Apple silicon)
-    runs-on: macos-14
+    runs-on: macos-15
     environment: rom
     timeout-minutes: 120
     steps:
@@ -83,7 +83,7 @@ jobs:
         working-directory: recomp
         run: |
           tools/package_macos.sh build/macos
-          version="$(git describe --always)"
+          version="$(tools/version.sh)"
           (cd dist && ditto -c -k --keepParent ConkersBadFurDayRecompiled.dSYM "Conkers-Bad-Fur-Day-Recompiled-$version-macos-dsym.zip")
 
       - uses: actions/upload-artifact@v4

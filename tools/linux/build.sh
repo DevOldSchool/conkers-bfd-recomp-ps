@@ -30,7 +30,7 @@ jobs=$(( memory_gb / 2 > 0 ? memory_gb / 2 : 1 ))
 
 # git cannot describe the source inside the container, so the binary's version (tools/build_version.cmake),
 # which online play compares, comes from here; the tarball is named with the same text.
-version="$(git -C "$here" describe --always --dirty 2>/dev/null || echo unknown)"
+version="$("$here/tools/version.sh")"
 
 echo "==> building $version in $build ($jobs jobs)"
 docker run --rm --platform "$platform" -v "$here:/src" -w /src -e CONKER_BUILD_VERSION="$version" "$image" bash -c "

@@ -50,17 +50,15 @@ runs:
         CONKER_ROM: ${{ github.workspace }}/assets/${{ inputs.assets-rom }}
       run: tools/regenerate.sh
 
-    # The release's version is `git describe` of this checkout: the patches must not make it "-dirty",
-    # and on a tag it must be the tag itself.
+    # The release's version (tools/version.sh): on a tag it must be the tag itself, never "-dirty".
     - name: Check the version
       shell: bash
       working-directory: recomp
       run: |
-        git config diff.ignoreSubmodules dirty
-        version="$(git describe --always --dirty)"
+        version="$(tools/version.sh)"
         echo "version $version"
         if [[ "$version" == *-dirty ]]; then
-          git status --short
+          git status --short --ignore-submodules=dirty
           echo "::error::the checkout is dirty after regenerating: $version"
           exit 1
         fi
