@@ -1,7 +1,9 @@
 # Game regression cases
 
 `tools/regress.py` runs the headless (null) build through the cases in `cases/` and checks that our
-fixes to the game still hold. It needs the ROM, so it is run locally, not in CI.
+fixes to the game still hold. It needs the ROM, so CI runs it only in the ROM build
+(`.github/workflows/rom-build.yml`, on pushes to main), which gets the ROM and the reports from the
+private assets repository.
 
 ```bash
 cmake -S . -B build/host -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER=null

@@ -552,7 +552,7 @@ def load_cases(names):
 
 
 def command_run(args):
-    binary = Path(args.binary)
+    binary = Path(args.binary).resolve()  # each run starts in its own folder
     rom = Path(args.rom) if args.rom else default_rom()
     if not binary.exists():
         sys.exit(f"{binary} is not built (cmake -S . -B build/host -G Ninja -DCONKER_RENDERER=null)")
