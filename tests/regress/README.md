@@ -2,13 +2,13 @@
 
 `tools/regress.py` runs the headless (null) build through the cases in `cases/` and checks that our
 fixes to the game still hold. It needs the ROM, so CI runs it only in the ROM build
-(`.github/workflows/rom-build.yml`, on pushes to main), which gets the ROM and the reports from the
-private assets repository.
+(`.github/workflows/rom-build.yml`, on pushes to main), which gets the ROM and the reports from a
+private repository.
 
 ```bash
 cmake -S . -B build/host -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER=null
 cmake --build build/host
-tools/regress.py --without-fix
+CONKER_REGRESS_DATA=/path/to/regress tools/regress.py --without-fix
 ```
 
 The whole set takes about two minutes with 6 jobs (`--jobs`). Name cases to run only those
@@ -51,9 +51,8 @@ A switch the debug menu has can be turned off by name instead (`"without_fix": {
 
 ## The reports
 
-Reports are pause saves from play, so they stay out of this repository: they are in `regress/reports/`
-of the private conkers-bfd-assets checkout next to this one (or the folder `CONKER_REGRESS_DATA`
-names). `tools/regress.py add-report <report folder>` copies one there. The game checks a report's
+Reports are pause saves from play, so they stay out of this repository: they are in `reports/` of the
+private folder `CONKER_REGRESS_DATA` names. `tools/regress.py add-report <report folder>` copies one there. The game checks a report's
 folder name (`scene<N>-<date>-<time>`), so the copy keeps it.
 
 ## Adding a case

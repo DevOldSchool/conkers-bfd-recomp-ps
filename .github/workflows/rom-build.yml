@@ -1,7 +1,8 @@
 # Builds the game from the ROM and runs the regression cases (tests/regress), on pushes to main and
-# by hand. The ROM and the regression reports come from the private conkers-bfd-assets repository
-# through a read-only deploy key, which only the `rom` environment holds; that environment takes
-# main and v* tags only, so pull requests (forks included) never reach it.
+# by hand. The ROM and the regression reports come from a private repository through a read-only
+# deploy key. The `rom` environment holds the key and where they are, as secrets (ASSETS_REPO,
+# ASSETS_ROM, ASSETS_REGRESS: the repository, the ROM's path in it and the reports' folder), and
+# takes main and v* tags only, so pull requests (forks included) never reach it.
 #
 # Nothing made from the ROM leaves the runner: no artifacts, no caches (a pull request can read the
 # base branch's caches), and only the regression summary, which is the cases' own text, goes into
@@ -53,15 +54,15 @@ jobs:
           ref: ${{ env.DECOMP_REF }}
           path: decomp
 
-      # Only the US ROM and the regression reports, not the other dumps.
+      # Only the ROM and the regression reports.
       - uses: actions/checkout@v4
         with:
-          repository: DevOldSchool/conkers-bfd-assets
+          repository: ${{ secrets.ASSETS_REPO }}
           ssh-key: ${{ secrets.ASSETS_DEPLOY_KEY }}
           path: assets
           sparse-checkout: |
-            baserom.us.z64
-            regress
+            ${{ secrets.ASSETS_ROM }}
+            ${{ secrets.ASSETS_REGRESS }}
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -76,7 +77,7 @@ jobs:
         working-directory: recomp
         env:
           CONKER_DECOMP: ${{ github.workspace }}/decomp
-          CONKER_ROM: ${{ github.workspace }}/assets/baserom.us.z64
+          CONKER_ROM: ${{ github.workspace }}/assets/${{ secrets.ASSETS_ROM }}
         run: tools/regenerate.sh
 
       - name: Build (headless)
@@ -88,8 +89,8 @@ jobs:
       - name: Regression cases
         working-directory: recomp
         env:
-          CONKER_ROM: ${{ github.workspace }}/assets/baserom.us.z64
-          CONKER_REGRESS_DATA: ${{ github.workspace }}/assets/regress
+          CONKER_ROM: ${{ github.workspace }}/assets/${{ secrets.ASSETS_ROM }}
+          CONKER_REGRESS_DATA: ${{ github.workspace }}/assets/${{ secrets.ASSETS_REGRESS }}
         run: python3 tools/regress.py --jobs 4
 
       - name: Summary
