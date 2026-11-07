@@ -20,7 +20,7 @@ jobs:
     name: No ROM data or personal information
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -57,7 +57,7 @@ jobs:
     name: Lint tools
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: ruff
         run: pipx run --spec ruff==0.6.9 ruff check tools
       - name: shellcheck
@@ -67,7 +67,7 @@ jobs:
     name: Patches apply, N64Recomp builds, mod sandbox tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Only what the patches and N64Recomp need: rt64's other submodules are large and unused here.
       - name: Check out submodules

@@ -44,7 +44,7 @@ if ! grep -q '^CONKER_EMBEDDED_MOD_IDS:INTERNAL=.*conker_speedrun' "$build/CMake
 fi
 echo "==> packaging $binary ($(stat -f '%Sm' "$binary"))"
 
-version="$(git -C "$here" describe --always --dirty 2>/dev/null || echo unknown)"
+version="$("$here/tools/version.sh")"
 minos="$(otool -l "$binary" | awk '/LC_BUILD_VERSION/ {found = 1} found && $1 == "minos" {print $2; exit}')"
 arch="$(lipo -archs "$binary")"
 
