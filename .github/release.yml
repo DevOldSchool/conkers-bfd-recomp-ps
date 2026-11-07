@@ -1,0 +1,17 @@
+# How a release's generated notes group the pull requests merged since the last release (the
+# release workflow makes them with --generate-notes): by the label on each pull request, in this
+# order, the first match winning. Unlabelled ones go under "Other changes".
+changelog:
+  exclude:
+    labels: ["skip-changelog"]
+  categories:
+    - title: Fixes
+      labels: ["bug"]
+    - title: Online play
+      labels: ["online"]
+    - title: Enhancements
+      labels: ["enhancement"]
+    - title: Documentation
+      labels: ["documentation"]
+    - title: Other changes
+      labels: ["*"]
