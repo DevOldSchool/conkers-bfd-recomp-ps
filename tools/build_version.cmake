@@ -9,7 +9,7 @@ if(DEFINED ENV{CONKER_BUILD_VERSION} AND NOT "$ENV{CONKER_BUILD_VERSION}" STREQU
     set(version "$ENV{CONKER_BUILD_VERSION}")
 else()
     # As tools/version.sh: "-dirty" for changed tracked files here, not for the patched submodules.
-    execute_process(COMMAND git describe --always WORKING_DIRECTORY "${SOURCE}"
+    execute_process(COMMAND git describe --tags --always WORKING_DIRECTORY "${SOURCE}"
         OUTPUT_VARIABLE version OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
     execute_process(COMMAND git status --porcelain --untracked-files=no --ignore-submodules=dirty
         WORKING_DIRECTORY "${SOURCE}" OUTPUT_VARIABLE changes OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
