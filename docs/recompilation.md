@@ -19,8 +19,8 @@
   `tools/gen_extras_decl.py` keeps the list of required ones in sync.
 * `[[patches.hook]]` snippets in `config/us.toml` call helpers in
   `src/fixes/` and `src/enhancements/`, for example to keep the music manager
-  from dropping a sequence the audio thread has not started yet (see
-  [rsp-microcode.md](rsp-microcode.md)), and to carry out the geometry code's
+  from dropping a sequence the audio thread has not started yet
+  (`src/fixes/music_start.cpp`), and to carry out the geometry code's
   escape from `func_150AE280` back to `func_150ADAF0`'s caller with
   `setjmp`/`longjmp` (`src/fixes/geometry_escape.h`). Hooks inside a shared
   code region go on the region's first function (`func_150A3A70`), because
@@ -73,10 +73,8 @@ Includes are written from `src/`, as in `#include "runtime/memory.hpp"`.
 * `div`, `divu`, `ddiv` and `ddivu` by zero give the VR4300's results (a
   quotient of -1, or 1 for a negative signed dividend, and the dividend as the
   remainder) instead of dividing on the host. Rare's hand-written geometry code
-  divides by zero without a check: `div $s3, $fp` at `0x150A3EE4` does so
-  during boot, as found in our own testing by logging every division by zero
-  in the recompiled game. A plain C division trapped there on x86 (SIGFPE, so
-  Windows and Linux builds would crash) and gave a quotient of 0 on ARM64.
+  divides by zero without a check (`div $s3, $fp` at `0x150A3EE4`, during
+  boot), and a plain C division traps there on x86.
 
 `tools/patches/n64modernruntime-running-thread.patch` (apply in
 `lib/N64ModernRuntime`) adds `ultramodern::set_running_thread_address`, a
@@ -212,23 +210,16 @@ to the worker's ("Workload Graphics", "Present Graphics", ...), and while
 encoders' execution status and call it with the queue, the error and the
 encoders that faulted (`src/platform/gpu_faults.cpp`).
 
-`tools/patches/rt64-metal-float-to-int.patch` (apply in `lib/rt64`) fixes the
-GPU faults those reports found. RT64's pixel shader picks a draw's LOD tile from
-`int(floor(log2(maxDst)))`, where `maxDst` is the largest texture-coordinate
-derivative. When the coordinates do not change across a pixel, `maxDst` is 0
-and `log2` gives -inf. D3D12 and Vulkan convert that to INT_MIN, which the clamp
-that follows brings back to tile 0, but on Metal converting an infinite or NaN
-float to an int is undefined, and some of the specialized pipelines the
-compiler made indexed `RDPTiles` with garbage: a read far outside the buffer
-("GPU Address Fault Error"), and after a handful of them macOS stopped running
-the game's GPU work, leaving the window black. Metal's shader validation showed
-it as "Invalid device load" in `PSMain` at offsets whose low bits were an
-`RDPTile` field and whose tile index was INT_MIN plus the draw's first tile. The
-patch keeps the value finite before converting it, and does the same for the
-mip level of replacement textures with mipmaps (a negative or infinite float
-converted to uint). RT64's build does not track the shaders' `.hlsli` includes,
-so an existing build needs `touch lib/rt64/src/shaders/RasterPS.hlsl` to
-rebuild them. A candidate for upstreaming.
+`tools/patches/rt64-metal-float-to-int.patch` (apply in `lib/rt64`) keeps
+RT64's shaders from converting an infinite or NaN float to an int, which is
+undefined on Metal. The LOD tile choice, `int(floor(log2(maxDst)))`, is -inf
+when the texture coordinates do not change across a pixel, and some pipelines
+then indexed `RDPTiles` far out of bounds: GPU address faults, and after a few
+of them a black window (see [diagnostics.md](diagnostics.md#gpu-faults-black-screen-game-still-running)).
+The mip level of replacement textures is kept finite the same way. RT64's build
+does not track the shaders' `.hlsli` includes, so an existing build needs
+`touch lib/rt64/src/shaders/RasterPS.hlsl` to rebuild them. A candidate for
+upstreaming.
 
 `tools/patches/rt64-dl-command-limit.patch` (apply in `lib/rt64`) keeps a
 broken display list from hanging the game. If the game rewrites the display-list
@@ -240,36 +231,16 @@ frame is tens of thousands) with `RT64: display list at ... stopped after ...`
 on stderr, and pops at most the matrices on the stack. The game then loses that
 one frame and runs on.
 
-The rewrite came from Rare's scheduler (func_800049E0) under CPU load, and
-`src/fixes/scheduler_yield.cpp` now prevents it. When the audio timer fires
-while a graphics task runs, the scheduler asks the RSP to yield and waits in
-state 3 for the SP completion, which then starts the audio task in D_8002AC54.
-The timer message has already cleared D_8002AC6C, so a retrace that falls in
-that wait takes the next audio task into D_8002AC54 and sets a second timer. On
-hardware the yield takes microseconds. Here yields are ignored and a graphics
-task's SP completion is sent when the gfx thread picks the task up, which on a
-busy machine can be several retraces later. The second audio task is then
-started twice, its second SP completion is taken for a graphics one, and
-func_80005020 completes the frame a second time. The game's pending-frame count
-(D_800BEAA8) is then one below the frames really queued. At the next scene
-change the game sees it reach 0 with a frame still queued, frees both
-display-list buffers, and builds the new scene's first two frames into the same
-memory while RT64 draws that old frame from it. The fix keeps D_8002AC6C set
-while state 3 waits, as the short hardware yield effectively does. In stress
-runs (three games and ten busy loops) 4 of 24 runs reached the rewrite without
-it and 0 of 33 with it.
+The known cause of such a rewrite, Rare's scheduler (func_800049E0) completing
+a frame twice under CPU load, is fixed by `src/fixes/scheduler_yield.cpp`,
+whose comment explains the race.
 
 `tools/patches/rt64-thread-exit.patch` (apply in `lib/rt64` after the others)
-keeps quitting from hanging. RT64 stops its shader compiler, texture upload and
-stream, workload and present threads by clearing a "running" flag and waking
-the condition variable they wait on, but cleared the flag without holding that
-condition's mutex. A thread that had just checked the flag and was about to
-wait missed the wakeup, slept for ever, and `RT64::Application::end` waited on
-it, with the main thread stuck behind (seen as a hang report with the gfx
-thread in `~CompilationThread` and all three `RT64 Shader` threads in
-`condition_variable::wait`). The patch clears each flag under its mutex, and
-sets the shader and upload flags before their threads start, so an early stop
-is not overwritten by the thread's own `= true`.
+keeps quitting from hanging. RT64 stopped its worker threads by clearing a
+"running" flag without holding the mutex of the condition they wait on, so a
+thread could miss the wakeup and `RT64::Application::end` waited on it for
+ever. The patch clears each flag under its mutex, and sets the shader and
+upload flags before their threads start, so an early stop is not overwritten.
 
 `tools/patches/rt64-object-picking.patch` (apply in `lib/rt64` after the
 others) is for the debug menu's INSPECT (`src/enhancements/object_inspector`).

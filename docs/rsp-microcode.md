@@ -9,7 +9,7 @@ microcode (recompiled with RSPRecomp) and Rare's graphics microcode, which RT64
 | Microcode | Identity | Where in ROM (US) | Status for the recomp |
 | --- | --- | --- | --- |
 | Boot | standard SGI/Rare `rspboot` | `0x290D0:0x291A0` | nothing to do |
-| Audio | Rare `n_aspMain`, Perfect Dark lineage, two overlays plus MP3 | text `0x291A0:0x2AAD0`, data `0x2C960:0x2D4B0` | recompiled by RSPRecomp (`config/aspMain.toml`), plays through the intro and title scene |
+| Audio | Rare `n_aspMain`, Perfect Dark lineage, two overlays plus MP3 | text `0x291A0:0x2AAD0`, data `0x2C960:0x2D4B0` | recompiled by RSPRecomp (`config/aspMain.toml`) |
 | Graphics | Rare `F3DEX2CBFD`, eight variants | text `0x31A10:0x3C110`, data `0x3D910:0x40F10` | RT64 support in `tools/patches/rt64-f3dex2cbfd.patch` |
 
 ## Graphics: F3DEX2CBFD
@@ -102,14 +102,6 @@ The RT64 patch (`tools/patches/rt64-f3dex2cbfd.patch`, applied in
    for RT64's texgen shader, and the colour is passed as a per-vertex ambient
    light.
 4. **RDP side.** Unchanged: CBFD uses the standard RDP command set.
-
-Still open: the lighting follows GLideN64 and has not been checked against
-the real microcode or a hardware capture; the wooden floor in the intro looks
-streaky (texture filtering, LOD or texture coordinates, not yet investigated);
-and nothing is known about what the BS/BG variants change. The large grey
-shapes on the weasels in the title scene are their tails and match a
-cycle-accurate emulator render (Mupen64Plus with CXD4 and Angrylion); they
-are not a CBFD decoding error.
 
 ## Audio: n_aspMain with the MP3 overlay
 
@@ -217,39 +209,9 @@ independent references from the decomp (`./conker mp3-assets extract`,
 Not verified: tempo against an emulator recording (the decomp's renders are
 approximate and the intro section has chainsaw and voice effects on top, so
 onset-based tempo comparison was inconclusive), A/V sync against hardware,
-reverb and other effects against hardware, and anything past the title
-scene. `CONKER_SILENT_AUDIO=1` restores the old silent task.
-
-### Title music lost to a frame-pacing race (fixed)
-
-Before the fix, some headless runs entered the title scene with its clock and
-ambience but no sequence `0034`: 1 of 5 sequential runs, and 10 of 33 runs with
-three to seven instances in parallel, since host load makes it more likely. Rare's
-music manager (`func_8000D758`, called once per game frame) starts a sequence
-with `func_80008CE8` + `func_800084D8`. Those only queue SetSeq and Play events
-on the player. At its next tick it reads the player state through
-`func_8000853C`, and a stopped player (state 0) means "sequence finished": it
-frees the record (`func_8000D2F8`, also `func_8000DEC4`). The fade-in and the
-per-frame mixing callback of the sequence are then never run, and `0034` stays
-at its starting volume of 14, inaudible under the ambience.
-
-The audio thread (`func_80009400`, priority 12, above the game thread's 10)
-applies queued events while it renders, and it renders one 736-sample frame
-every second retrace. On hardware the frame that starts the title music takes
-the CPU long enough, and the audio thread preempts it, so the render always
-comes before the manager's next tick. Recompiled, the frame finishes in about
-1 ms. After the long loading frame before the title scene, the game's catch-up
-pacing starts the next frame on the very next retrace. When the start frame
-falls just after a render, that retrace is an odd one with no render, and the
-manager sees the new player as stopped. Traced over 12 runs, the music played
-whenever the audio thread applied Play within 19.5 ms and was lost whenever it
-took 24 ms or more.
-
-A hook on `func_8000853C` (`conker_seqp_state_hook` in `src/fixes/music_start.cpp`) reports
-a stopped player that still has a Play event queued as playing, which is the
-state hardware shows at that point. Without it 10 of 33 runs lost the music.
-With it 30 of 30 played `0034` (corr 0.89 to 0.90), and the hook fired in the
-runs that would have failed.
+and reverb and other effects against hardware. Past the title scene the audio
+has been checked by playing the game through, not measured.
+`CONKER_SILENT_AUDIO=1` skips the audio microcode.
 
 The CPU side of MP3 decoding lives in main (`__conker_mp3_*` in the decomp's
 ELF) and recompiles normally. The large handwritten block in the game overlay

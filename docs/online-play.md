@@ -43,8 +43,9 @@ or quitting closes the router's port again.
 ### Joining
 
 Games on your network show up as **JOIN** rows: press one. Otherwise choose
-**JOIN** and type the host's join code or address (`203.0.113.7`,
-`203.0.113.7:37800`, `[2001:db8::7]:37800` or a host name). A dropped player
+**JOIN** and type the host's join code, address or host name. An address can
+have a port after it, for example `203.0.113.7`, `203.0.113.7:37800` or, for
+IPv6, `[2001:db8::7]:37800`. A dropped player
 gets their place back by joining again from the same machine, and a game that
 falls out of step with the host's catches up by itself.
 
