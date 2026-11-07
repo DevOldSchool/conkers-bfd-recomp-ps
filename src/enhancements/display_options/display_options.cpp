@@ -1,8 +1,12 @@
-// A VOLUME row and a CONTROLS row under the sound row on the title menu's OPTIONS page, and display rows between
-// it and CHEATS: whether the sharper text and menus are drawn (SHARP TEXT or ORIGINAL
-// TEXT), the display mode (WINDOWED, BORDERLESS, FULL SCREEN), the picture's shape (4:3 or
-// WIDESCREEN), the resolution the picture is drawn at in that mode, and whether it is scaled to
-// fill the window or screen or drawn at its own size.
+// VOLUME, CONTROLS and GRAPHICS rows under the sound row on the title menu's OPTIONS page. GRAPHICS
+// (A, or a step either way) turns the same page into a GRAPHICS page, the engine drawing only its
+// rows, until B: whether the sharper text and menus are drawn (SHARP TEXT or ORIGINAL TEXT), the
+// display mode (WINDOWED, BORDERLESS, FULL SCREEN), the picture's shape (4:3 or WIDESCREEN), the
+// resolution the picture is drawn at in that mode, whether it is scaled to fill the window or
+// screen or drawn at its own size, and the FRAME RATE (src/enhancements/frame_rate). B there is
+// taken from the page's buttons (D_8008FDD4 + 0x20, read by func_151DF1BC after the engine) so
+// that it goes back to OPTIONS instead of leaving it. The GRAPHICS row borrows option 10, which
+// the GRAPHICS page's SHARP TEXT row borrows too, so the selection stays on it either way.
 // Native helpers called from the [[patches.hook]] snippets in config/us.toml (func_151DF1BC,
 // func_151E3344); CONKER_DISPLAY_OPTIONS=0 leaves the page as it was.
 //
@@ -53,6 +57,7 @@
 // longer words would run under them. The engine puts every row 34 pixels below the last; with
 // these rows the page would reach the bottom of the picture, so the display rows are grouped
 // closer together, with more room before CHEATS, and the joysticks follow the same rows.
+#include <chrono>
 #include <cstdint>
 #include <iterator>
 #include <cstdio>
@@ -66,6 +71,8 @@
 #include "platform/display_mode.hpp"
 #include "platform/input.hpp"
 #include "enhancements/debug_menu/debug_menu.hpp"
+#include "enhancements/frame_rate/frame_rate.hpp"
+#include "net/net_play.hpp"
 #include "enhancements/status.hpp"
 #include "runtime/frame_input.hpp"
 
@@ -82,10 +89,14 @@ constexpr uint32_t kMaximums = 0x8008FE84;       // D_8008FE84[23]
 constexpr uint32_t kRecords = 0x800AB64C;        // D_800AB64C: each option's record
 constexpr uint32_t kTextTable = 0x800E0BD8;      // D_800E0BD8: the language's string pointers
 constexpr uint32_t kSelected = 0x8008FE34;       // D_8008FE34: the selected option
+constexpr uint32_t kMenuState = 0x8008FDD4;      // D_8008FDD4: the menus' state; +0x20 the buttons pressed
+constexpr int kMenuButtons = 0x20;
+constexpr uint16_t kMenuA = 0x10;                // A on CHEATS opens it
+constexpr uint16_t kMenuB = 0x20;                // B leaves OPTIONS (func_15007668)
 constexpr int8_t kNoLabel = -1;
 constexpr int kStickSpread = 18;                 // extra room on each side of the rows, in pixels
 constexpr int kEngineRowSpacing = 0x22;          // func_151E3344's row pitch on this page
-constexpr int kPageTop = 0x36;                   // the top row's y: 0x46 in the engine, moved up for the volume and mouse rows
+constexpr int kPageTop = 0x46;                   // the top row's y, as the engine has it: the sound icon clears the heading
 constexpr int kRowYSlot = 0x138;                 // func_151E3344's stack: the row's y (low half)
 constexpr uint32_t kStickFrom = 0x8008FDE4;      // D_8008FDE4: the row the joysticks move from
 constexpr uint32_t kStickProgress = 0x8008FDE8;  // D_8008FDE8: how far they have moved (float)
@@ -120,6 +131,13 @@ Borrowed g_sharp_row{10, 23, 5, {21, 22, 25, 23, 24, 26}, kStringArea + 12 * kSt
 // Option 0 shares string 4 with option 12; string 2 is both options' label, unused while borrowed.
 Borrowed g_volume_row{0, 0, 3, {2, 3, 4, 5}, kStringArea + 17 * kStringStride, {3, 2, 5}};
 Borrowed g_mouse_row{8, 18, 2, {13, 14, 15}, kStringArea + 20 * kStringStride};  // CONTROLS
+// FRAME RATE: option 22's record is two bytes (a special kind) and the table's last, followed by
+// the zero padding before D_800AB690, so for the call it is made a three-value text record that
+// runs two bytes into that padding (saved and put back with the rest). Its strings are 40-42,
+// which nothing on this page draws.
+Borrowed g_rate_row{22, 59, 3, {-63, 127, 0, 0}, kStringArea + 23 * kStringStride, {40, 41, 42}};
+bool g_rate_shown = false;       // this call has the frame rate row
+int8_t g_shown_rate = 0;
 bool g_controls_shown = false;   // this call has the controls row
 bool g_a_was_held = false;       // controller 1's A at the last call, for a press on that row
 constexpr int8_t kCarouselMiddle = 2;
@@ -132,17 +150,24 @@ int g_drawn_option[kMaxRows];  // the shown options in the order they are drawn 
 int g_option_y[kMaxRows];      // where each shown option's row is drawn
 int g_selected_before = 0;     // the selected option when the call began
 
+// Which page the engine is drawing: OPTIONS itself, or the GRAPHICS page opened from its GRAPHICS
+// row (option 10 on OPTIONS, the SHARP TEXT row on GRAPHICS).
+bool g_graphics_open = false;
+bool g_page_switched = false;  // the joysticks start on the selected row of the new page
+std::chrono::steady_clock::time_point g_last_call;  // to start on OPTIONS when the page is opened again
+constexpr int kGraphicsPageTop = 0x40;
+constexpr int kGraphicsRowSpacing = 17;
+
 // The gap below a row, by the option it shows.
 int gap_after(int option) {
+    if (g_graphics_open) {
+        return kGraphicsRowSpacing;
+    }
     switch (option) {
-        case 9: return 20;    // the sound icon, then the volume
-        case 0:               // the volume, the mouse speed, then the display rows
-        case 8:
-        case 10:
-        case 12:
-        case 15:
-        case 16: return 15;   // between the display rows
-        case 19: return 24;   // the display rows, then CHEATS
+        case 9: return 26;    // the sound icon, then the volume
+        case 0:               // the volume, the controls, then GRAPHICS
+        case 8: return 19;
+        case 10: return 28;   // GRAPHICS, then CHEATS
         default: return kEngineRowSpacing;
     }
 }
@@ -161,7 +186,7 @@ void lay_out(uint32_t mask) {
     const int mouse = g_mouse_row.option;
     const bool has_mouse = (mask & (1u << mouse)) != 0;
     int drawn = 0;
-    int y = kPageTop;
+    int y = g_graphics_open ? kGraphicsPageTop : kPageTop;
     auto place = [&](int option) {
         g_drawn_option[drawn++] = option;
         g_option_y[option] = y;
@@ -179,6 +204,21 @@ void lay_out(uint32_t mask) {
         if (option == 9 && has_mouse) {
             place(mouse);
         }
+    }
+}
+
+int row_of(const int* options, int option);
+
+// After a page switch the engine's joysticks would move from a row of the other page: they start
+// on the selected row instead.
+void start_sticks(uint8_t* rdram) {
+    if (!g_page_switched) {
+        return;
+    }
+    g_page_switched = false;
+    const int row = row_of(g_row_option, MEM_BU(0, kseg0(kSelected)));
+    if (row >= 0) {
+        MEM_B(0, kseg0(kStickFrom)) = static_cast<int8_t>(row);
     }
 }
 
@@ -351,16 +391,38 @@ extern "C" void conker_display_options_begin(uint8_t* rdram, recomp_context* ctx
         !record_matches(rdram, g_mouse_row)) {
         return;
     }
-    const int volume = conker::audio::volume();
-    borrow(rdram, g_volume_row, kVolumeMiddle, {volume_words(volume - 1), volume_words(volume), volume_words(volume + 1)});
-    ctx->r4 |= 1u << g_volume_row.option;
+    // The page opened again (not drawn for a while; B, the only way out of the GRAPHICS page, comes
+    // back here first): it starts on OPTIONS. Long enough not to be a hitch.
+    const auto now = std::chrono::steady_clock::now();
+    if (now - g_last_call > std::chrono::seconds(5)) {
+        g_graphics_open = false;
+    }
+    g_last_call = now;
+    g_controls_shown = false;
+    g_rate_shown = false;
 
-    g_controls_shown = conker::debug_menu::controls_available();
-    if (g_controls_shown) {
-        borrow(rdram, g_mouse_row, 0, {"CONTROLS", "CONTROLS"});
-        ctx->r4 |= 1u << g_mouse_row.option;
+    if (!g_graphics_open) {
+        const int volume = conker::audio::volume();
+        borrow(rdram, g_volume_row, kVolumeMiddle, {volume_words(volume - 1), volume_words(volume), volume_words(volume + 1)});
+        ctx->r4 |= 1u << g_volume_row.option;
+
+        g_controls_shown = conker::debug_menu::controls_available();
+        if (g_controls_shown) {
+            borrow(rdram, g_mouse_row, 0, {"CONTROLS", "CONTROLS"});
+            ctx->r4 |= 1u << g_mouse_row.option;
+        }
+        // GRAPHICS: option 10's five values all say it; a step either way, or A, opens the page.
+        borrow(rdram, g_sharp_row, kCarouselMiddle, {"GRAPHICS", "GRAPHICS", "GRAPHICS", "GRAPHICS", "GRAPHICS"});
+        ctx->r4 |= 1u << g_sharp_row.option;
+        lay_out(static_cast<uint32_t>(ctx->r4));
+        start_sticks(rdram);
+        g_selected_before = MEM_BU(0, kseg0(kSelected));
+        g_active = true;
+        return;
     }
 
+    // The GRAPHICS page: only its rows, without the sound row and CHEATS.
+    ctx->r4 = 0;
     const bool sharp = conker::display::sharp();
     const char* const same = sharp ? "SHARP TEXT" : "ORIGINAL TEXT";
     const char* const other = sharp ? "ORIGINAL TEXT" : "SHARP TEXT";
@@ -386,7 +448,19 @@ extern "C" void conker_display_options_begin(uint8_t* rdram, recomp_context* ctx
     g_shown_fill = conker::display::fill(mode) ? 0 : 1;
     borrow(rdram, g_fill_row, g_shown_fill, {"FILL SCREEN", "CENTERED"});
     ctx->r4 |= 1u << g_fill_row.option;
+
+    // Not online: the session plays at the host's frame rate.
+    g_rate_shown = !conker::net::active() && !conker::net::in_place() && record_matches(rdram, g_rate_row);
+    if (g_rate_shown) {
+        using conker::frame_rate::Choice;
+        const Choice choice = conker::frame_rate::choice();
+        g_shown_rate = choice == Choice::Sixty ? 1 : choice == Choice::SixtySmooth ? 2 : 0;
+        borrow(rdram, g_rate_row, g_shown_rate,
+               {choice == Choice::ThirtySmooth ? "30 FPS SMOOTH" : "30 FPS", "60 FPS", "60 FPS SMOOTH"});
+        ctx->r4 |= 1u << g_rate_row.option;
+    }
     lay_out(static_cast<uint32_t>(ctx->r4));
+    start_sticks(rdram);
     g_selected_before = MEM_BU(0, kseg0(kSelected));
     g_active = true;
 }
@@ -399,24 +473,56 @@ extern "C" void conker_display_options_end(uint8_t* rdram, recomp_context* /*ctx
     g_active = false;
     MEM_B(0, kseg0(kSelected)) =
         static_cast<int8_t>(follow_page_order(g_selected_before, MEM_BU(0, kseg0(kSelected))));
-    const int8_t volume_step = static_cast<int8_t>(give_back(rdram, g_volume_row) - kVolumeMiddle);
-    const bool controls_stepped = g_controls_shown && give_back(rdram, g_mouse_row) != 0;
     uint16_t buttons;
     float x;
     float y;
     conker::frame_input::read(&buttons, &x, &y, 0);
     const bool a_pressed = (buttons & conker::input::kA) != 0 && !g_a_was_held;
     g_a_was_held = (buttons & conker::input::kA) != 0;
+    // The page's own buttons this frame, which func_151DF1BC reads after this call: B leaves OPTIONS.
+    const uint32_t menu = static_cast<uint32_t>(MEM_W(0, kseg0(kMenuState)));
+    const bool menu_ok = menu >= 0x80000000u && menu < 0x80800000u;
+
+    if (!g_graphics_open) {
+        const int8_t volume_step = static_cast<int8_t>(give_back(rdram, g_volume_row) - kVolumeMiddle);
+        const bool controls_stepped = g_controls_shown && give_back(rdram, g_mouse_row) != 0;
+        const bool graphics_stepped = give_back(rdram, g_sharp_row) != kCarouselMiddle;
+        const int selected = MEM_BU(0, kseg0(kSelected));
+        if (volume_step != 0) {
+            conker::audio::set_volume(conker::audio::volume() + (volume_step > 0 ? 1 : -1));
+        } else if (controls_stepped || (g_controls_shown && a_pressed && selected == g_mouse_row.option)) {
+            conker::debug_menu::open_controls();
+        } else if (graphics_stepped || (a_pressed && selected == g_sharp_row.option)) {
+            g_graphics_open = true;  // its first row is option 10 too, so the selection stays
+            g_page_switched = true;
+            if (menu_ok) {
+                MEM_HU(kMenuButtons, kseg0(menu)) &= static_cast<uint16_t>(~(kMenuA | kMenuB));
+            }
+        }
+        return;
+    }
+
+    // B on the GRAPHICS page goes back to OPTIONS, on its GRAPHICS row, instead of leaving.
+    if (menu_ok && (MEM_HU(kMenuButtons, kseg0(menu)) & kMenuB) != 0) {
+        MEM_HU(kMenuButtons, kseg0(menu)) &= static_cast<uint16_t>(~(kMenuA | kMenuB));
+        g_graphics_open = false;
+        g_page_switched = true;
+        MEM_B(0, kseg0(kSelected)) = static_cast<int8_t>(g_sharp_row.option);
+    }
     const int8_t mode = give_back(rdram, g_mode_row);
     const int8_t shape = give_back(rdram, g_shape_row);
     const int8_t step = static_cast<int8_t>(give_back(rdram, g_scale_row) - kCarouselMiddle);
     const int8_t fill = give_back(rdram, g_fill_row);
     const int8_t sharp_step = static_cast<int8_t>(give_back(rdram, g_sharp_row) - kCarouselMiddle);
-    if (volume_step != 0) {
-        conker::audio::set_volume(conker::audio::volume() + (volume_step > 0 ? 1 : -1));
-    } else if (controls_stepped || (g_controls_shown && a_pressed && MEM_BU(0, kseg0(kSelected)) == g_mouse_row.option)) {
-        conker::debug_menu::open_controls();
-    } else if (sharp_step != 0) {
+    if (g_rate_shown) {
+        g_rate_shown = false;
+        const int8_t rate = give_back(rdram, g_rate_row);
+        if (rate != g_shown_rate) {
+            using conker::frame_rate::Choice;
+            conker::frame_rate::request_choice(rate == 1 ? Choice::Sixty : rate == 2 ? Choice::SixtySmooth : Choice::Thirty);
+        }
+    }
+    if (sharp_step != 0) {
         conker::display::request_sharp(!conker::display::sharp());
     } else if (mode != g_shown_mode && mode >= 0 && mode < conker::display::kModeCount) {
         conker::display::request(static_cast<Mode>(mode));
@@ -440,7 +546,7 @@ extern "C" void conker_display_options_sticks(uint8_t* rdram, recomp_context* ct
     if (g_active && (selected == g_mode_row.option || selected == g_shape_row.option ||
                      selected == g_scale_row.option || selected == g_fill_row.option ||
                      selected == g_sharp_row.option || selected == g_volume_row.option ||
-                     selected == g_mouse_row.option)) {
+                     selected == g_mouse_row.option || selected == g_rate_row.option)) {
         ctx->r16 += kStickSpread;
     }
 }

@@ -24,10 +24,15 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <mutex>
+#include <string>
 
 #include "recomp.h"
 #include "ultramodern/ultra64.h"
 #include "enhancements/frame_rate/frame_rate.hpp"
+#include "enhancements/frame_rate/latency.hpp"
 #include "enhancements/status.hpp"
 #include "enhancements/switches.hpp"
 #include "runtime/game.hpp"
@@ -49,12 +54,75 @@ constexpr uint32_t kFrameDelta = 0x800BE9A4;    // D_800BE9A4: the same as a flo
 constexpr uint32_t kScene = 0x800BE9F0;         // D_800BE9F0
 constexpr uint32_t kPlayerObject = 0x80088720;  // D_80088720: Conker's object, position at +0x14
 
-std::atomic<bool> g_enabled{[] {
-    const char* value = std::getenv("CONKER_60FPS");
-    return value != nullptr && value[0] == '1';
-}()};  // the debug menu switches it
+// --- settings: the OPTIONS page's FRAME RATE row, kept in conker-recomp-data/frame_rate.cfg --------
+// "fps=<30|60>" and "smooth=<0|1>"; 60 fps with smooth motion unless the file says otherwise.
+// CONKER_60FPS and CONKER_SMOOTH (0 or 1) override them for one run, and CONKER_REFRESH (see the
+// renderer) turns smoothing on. The debug menu's switches change them until the game is closed;
+// only the row saves them.
+struct Settings {
+    std::atomic<bool> sixty{true};
+    std::atomic<bool> smooth{true};
+};
 
-bool enabled() { return g_enabled.load(std::memory_order_relaxed); }
+std::mutex g_save_mutex;
+
+std::filesystem::path config_path() {
+    return std::filesystem::current_path() / "conker-recomp-data" / "frame_rate.cfg";
+}
+
+bool env_flag(const char* name, bool* value) {
+    const char* text = std::getenv(name);
+    if (text == nullptr || text[0] == '\0') {
+        return false;
+    }
+    *value = text[0] == '1';
+    return true;
+}
+
+// A function-local static: the first call (in play, after main has set the data folder) loads it.
+Settings& settings() {
+    static Settings* loaded = [] {
+        auto* result = new Settings;
+        std::ifstream file(config_path());
+        for (std::string line; std::getline(file, line);) {
+            const size_t equals = line.find('=');
+            if (equals == std::string::npos) {
+                continue;
+            }
+            const std::string key = line.substr(0, equals);
+            const std::string value = line.substr(equals + 1);
+            if (key == "fps") {
+                result->sixty.store(value != "30");
+            } else if (key == "smooth") {
+                result->smooth.store(value == "1");
+            }
+        }
+        bool value;
+        if (env_flag("CONKER_60FPS", &value)) {
+            result->sixty.store(value);
+        }
+        if (env_flag("CONKER_SMOOTH", &value)) {
+            result->smooth.store(value);
+        }
+        if (const char* refresh = std::getenv("CONKER_REFRESH"); refresh != nullptr && refresh[0] != '\0') {
+            result->smooth.store(true);
+        }
+        return result;
+    }();
+    return *loaded;
+}
+
+void save_settings() {
+    std::lock_guard lock(g_save_mutex);
+    std::ofstream file(config_path());
+    file << "fps=" << (settings().sixty.load() ? 60 : 30) << '\n'
+         << "smooth=" << (settings().smooth.load() ? 1 : 0) << '\n';
+    if (!file) {
+        std::fprintf(stderr, "[conker] could not write %s\n", config_path().string().c_str());
+    }
+}
+
+bool enabled() { return settings().sixty.load(std::memory_order_relaxed); }
 
 void wake_scheduler(uint8_t* rdram) {
     osSendMesg(rdram, static_cast<int32_t>(kSchedulerQueue), kWakeMessage, OS_MESG_NOBLOCK);
@@ -106,6 +174,7 @@ void log_frame(uint8_t* rdram) {
 // func_1501C880, after it queues a frame's task on D_8003B1E8.
 extern "C" void conker_60fps_task_queued(uint8_t* rdram, recomp_context* /*ctx*/) {
     log_frame(rdram);
+    conker::latency::task_queued();
     if (enabled()) {
         wake_scheduler(rdram);
     }
@@ -234,10 +303,35 @@ bool conker::frame_rate::thirty_hz_step(uint8_t* rdram) {
 
 bool conker::frame_rate::sixty_fps() { return enabled(); }
 
+bool conker::frame_rate::smooth() { return settings().smooth.load(std::memory_order_relaxed); }
+
+conker::frame_rate::Choice conker::frame_rate::choice() {
+    if (!enabled()) {
+        return smooth() ? Choice::ThirtySmooth : Choice::Thirty;
+    }
+    return smooth() ? Choice::SixtySmooth : Choice::Sixty;
+}
+
+void conker::frame_rate::request_choice(Choice choice) {
+    settings().sixty.store(choice == Choice::Sixty || choice == Choice::SixtySmooth);
+    settings().smooth.store(choice == Choice::SixtySmooth || choice == Choice::ThirtySmooth);
+    save_settings();
+}
+
 nlohmann::json conker::status::frame_rate() {
-    return enhancement("frame_rate", "60 fps (experimental)", enabled(), "CONKER_60FPS");
+    return enhancement("frame_rate", "60 fps", enabled(), "CONKER_60FPS");
+}
+
+nlohmann::json conker::status::smooth_motion() {
+    return enhancement("smooth_motion", "Smooth motion (frame interpolation)", conker::frame_rate::smooth(),
+                       "CONKER_SMOOTH");
 }
 
 conker::switches::Switch conker::switches::frame_rate() {
-    return {"60 FPS", enabled, [](bool on) { g_enabled.store(on); }};
+    return {"60 FPS", enabled, [](bool on) { settings().sixty.store(on); }};
+}
+
+// Only this machine's pictures: never part of an online host's settings.
+conker::switches::Switch conker::switches::smooth_motion() {
+    return {"SMOOTH MOTION", conker::frame_rate::smooth, [](bool on) { settings().smooth.store(on); }, true};
 }

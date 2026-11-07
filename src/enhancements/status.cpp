@@ -84,6 +84,7 @@ nlohmann::json enhancements(uint8_t* rdram) {
         adaptive_triggers(),
         consistent_controls(),
         frame_rate(),
+        smooth_motion(),
         my_view(),
         enhancement("sharp_font", "Sharper text", sharp_font, "CONKER_SHARP_FONT", sharp_options),
         enhancement("sharp_menus", "Sharper menus", sharp_menus, "CONKER_SHARP_MENUS", sharp_options),

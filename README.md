@@ -155,7 +155,7 @@ says how to turn it off. The details, and every setting, are in
 
 | Enhancement | What it does | Off |
 | --- | --- | --- |
-| [Display options](docs/enhancements.md#display-options) | Volume, window, borderless or full screen, widescreen, resolution, fill or centered, and sharp or original text, in the OPTIONS menu | `CONKER_DISPLAY_OPTIONS=0` hides the rows |
+| [Display options](docs/enhancements.md#display-options) | Volume in the OPTIONS menu, and a GRAPHICS page there: window, borderless or full screen, widescreen, resolution, fill or centered, sharp or original text, and the frame rate | `CONKER_DISPLAY_OPTIONS=0` hides the rows |
 | [Skip to the title menu](docs/enhancements.md#skip-to-the-title-menu) | L skips the boot logos, the intro and the title scene's opening | `CONKER_SKIP_INTRO=0` |
 | [Skip any cutscene](docs/enhancements.md#skip-any-cutscene) | L skips every cutscene, the first time too | `CONKER_SKIP_CUTSCENES=0` |
 | [SAVE and LOAD in the pause menu](docs/enhancements.md#save-and-load-in-the-pause-menu) | Save where Conker stands and load back to that spot, with a snapshot of every save | `CONKER_PAUSE_SAVE=0` |
@@ -172,7 +172,8 @@ says how to turn it off. The details, and every setting, are in
 | [Sharper text](docs/enhancements.md#sharper-text) | The font enlarged with Super-xBR from your ROM | `CONKER_SHARP_FONT=0` |
 | [Sharper menus](docs/enhancements.md#sharper-menus) | The menus' signs and headings, and the speech bubbles, enlarged the same way | `CONKER_SHARP_MENUS=0` |
 | [Texture packs](docs/enhancements.md#texture-packs) | RT64 replacement packs from `conker-recomp-data/texture_packs` | `CONKER_TEXTURE_PACKS=0` |
-| [60 fps (experimental)](docs/enhancements.md#60-fps-experimental) | Starts a frame on every retrace instead of every second one | Off by default; `CONKER_60FPS=1` turns it on |
+| [60 fps](docs/enhancements.md#60-fps) | Starts a frame on every retrace instead of every second one | FRAME RATE on the GRAPHICS page; `CONKER_60FPS=0` |
+| [Smooth motion](docs/enhancements.md#smooth-motion) | Pictures drawn between the game's frames, up to the display's refresh rate (120 Hz and more) | FRAME RATE on the GRAPHICS page; `CONKER_SMOOTH=0` |
 
 ## Documentation
 

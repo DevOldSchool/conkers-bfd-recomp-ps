@@ -65,6 +65,8 @@
 #include "enhancements/pad_icons/pad_icons.hpp"
 #include "enhancements/sharp_font/sharp_font.hpp"
 #include "enhancements/sharp_menus/sharp_menus.hpp"
+#include "enhancements/frame_rate/frame_rate.hpp"
+#include "enhancements/frame_rate/latency.hpp"
 #include "fixes/frame_effects.hpp"
 #include "gbi/rt64_gbi.h"
 #include "hle/rt64_application.h"
@@ -423,6 +425,38 @@ public:
 #endif
         app_->userConfig.developerMode = developer_mode;
         app_->userConfig.resolution = RT64::UserConfiguration::Resolution::WindowIntegerScale;
+        // Smooth motion (conker::frame_rate::smooth): RT64 draws pictures between two of the game's
+        // frames by matching their draw calls and blending the transforms, at the display's refresh
+        // rate, or with CONKER_REFRESH=<hz> at that rate (no faster than the display). It can be
+        // switched while the game runs (apply_smooth_motion).
+        if (const char* refresh = std::getenv("CONKER_REFRESH"); refresh != nullptr && refresh[0] != '\0') {
+            if (const int hz = std::atoi(refresh); hz > 0) {
+                smooth_rate_ = RT64::UserConfiguration::RefreshRate::Manual;
+                app_->userConfig.refreshRateTarget = hz;
+            }
+        }
+        // RT64's own teleport check stops blending a transform that speeds up from rest or turns
+        // back, which Conker's bones and its camera-relative level pieces do all the time: they
+        // snapped in the pictures between frames (flicker). Only a jump of this many world units
+        // in one game frame counts as a teleport (CONKER_INTERP_TELEPORT overrides it).
+        float teleport = 500.0f;
+        if (const char* value = std::getenv("CONKER_INTERP_TELEPORT"); value != nullptr && value[0] != '\0') {
+            teleport = static_cast<float>(std::atof(value));
+        }
+        RT64::SetInterpolationTeleportDistance(teleport);
+        // At 60 fps the game starts a frame in the retrace its predecessor was swapped in, into the
+        // other of its two frame buffers, so RT64 can be drawing a newer frame (cleared to black
+        // first) into the frame buffer of the picture it is presenting: whole black pictures. Each
+        // frame's own picture is presented from a copy (CONKER_INTERP_PRIVATE=0 turns that off).
+        const char* private_targets = std::getenv("CONKER_INTERP_PRIVATE");
+        RT64::SetInterpolationPrivateTargets(private_targets == nullptr || private_targets[0] != '0');
+        applied_smooth_ = conker::frame_rate::smooth();
+        app_->userConfig.refreshRate = applied_smooth_ ? smooth_rate_ : RT64::UserConfiguration::RefreshRate::Original;
+        if (applied_smooth_) {
+            std::printf("[conker] smooth motion on\n");
+        }
+        // Every present is counted (the debug menu's SHOW FPS) and, with CONKER_LATENCY_LOG, logged.
+        RT64::SetPresentHook([](uint64_t tag, int index, int count) { conker::latency::presented(tag, index, count); });
 
         uint32_t thread_id = 0;
 #if defined(_WIN32)
@@ -549,6 +583,16 @@ public:
         // Online, the session's status in the corner, drawn after the game's frame from a list of its
         // own (net_play.cpp), so the game's memory never holds it.
         const uint32_t list = conker::net::overlay_display_list(app_->core.RDRAM, task_list & 0x3FFFFFF);
+        // With frame interpolation, the game's own rate: RT64 otherwise reads it from the VI history,
+        // where a frame that took one retrace too many reads as no steady rate and switches
+        // interpolation off for a few frames (often under load, as when turning the camera fast).
+        apply_smooth_motion();
+        if (applied_smooth_) {
+            app_->state->setRefreshRate(conker::frame_rate::sixty_fps() ? 60 : 30);
+        }
+        if (conker::latency::enabled()) {
+            app_->state->nextWorkloadTag.store(conker::latency::take_task_sample(), std::memory_order_relaxed);
+        }
         if (frame_memory.empty()) {
             app_->processDisplayLists(app_->core.RDRAM, list, 0, true);
         } else {
@@ -675,6 +719,21 @@ public:
     }
 
 private:
+    RT64::UserConfiguration::RefreshRate smooth_rate_ = RT64::UserConfiguration::RefreshRate::Display;
+    bool applied_smooth_ = false;
+
+    // Smooth motion switched on or off (the OPTIONS page's FRAME RATE row, the debug menu).
+    void apply_smooth_motion() {
+        const bool smooth = conker::frame_rate::smooth();
+        if (smooth == applied_smooth_) {
+            return;
+        }
+        applied_smooth_ = smooth;
+        app_->userConfig.refreshRate = smooth ? smooth_rate_ : RT64::UserConfiguration::RefreshRate::Original;
+        app_->updateUserConfig(false);
+        std::printf("[conker] smooth motion %s\n", smooth ? "on" : "off");
+    }
+
     static constexpr float kPictureAspect = float(conker::display::kPictureWidth) / conker::display::kPictureHeight;
 
     // The picture's shape when Expand widens it to the swap chain's: the swap chain's shape, made up

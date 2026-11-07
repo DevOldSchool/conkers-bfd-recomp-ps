@@ -38,6 +38,7 @@ Switch haptics();
 Switch adaptive_triggers();
 Switch consistent_controls();
 Switch frame_rate();
+Switch smooth_motion();  // src/enhancements/frame_rate/frame_rate.cpp
 Switch my_view();  // src/enhancements/my_view/my_view.cpp
 Switch pad_buttons();  // src/enhancements/pad_icons/choice.cpp
 
