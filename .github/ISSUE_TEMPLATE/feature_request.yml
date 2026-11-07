@@ -1,0 +1,42 @@
+name: Enhancement idea
+description: Suggest a change or a new enhancement.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The aim is the game as Rare made it, with a few quality-of-life enhancements that keep to its
+        style and can each be switched off. The ones there are, and what they do, are in
+        [docs/enhancements.md](https://github.com/DevOldSchool/conkers-bfd-recomp/blob/main/docs/enhancements.md).
+        Ideas that fit that are the most likely to happen.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you post
+      options:
+        - label: I searched the existing issues and docs/enhancements.md, and this is not there already.
+          required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What would change, from the player's side.
+      placeholder: An option to show the item Conker holds in the corner of the screen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What it makes better, and for whom.
+    validations:
+      required: true
+
+  - type: textarea
+    id: original
+    attributes:
+      label: Keeping to the original
+      description: How it would fit the game's look and feel. Should it be on or off by default?
