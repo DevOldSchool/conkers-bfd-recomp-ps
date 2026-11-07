@@ -11,7 +11,7 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
-version="$(git -C "$here" describe --always 2>/dev/null)"
+version="$(git -C "$here" describe --tags --always 2>/dev/null)"
 name="Conkers-Bad-Fur-Day-Recompiled-$version-source"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
