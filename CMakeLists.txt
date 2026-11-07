@@ -168,6 +168,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/enhancements/display_options/widescreen_copies.cpp
     src/enhancements/display_options/widescreen_culling.cpp
     src/enhancements/display_options/edge_text.cpp
+    src/enhancements/display_options/widescreen_bubbles.cpp
     src/enhancements/display_options/widescreen_frame.cpp
     src/enhancements/display_options/widescreen_out.cpp
     src/enhancements/display_options/widescreen_timer.cpp

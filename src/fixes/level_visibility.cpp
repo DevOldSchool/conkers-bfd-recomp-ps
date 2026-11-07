@@ -13,6 +13,13 @@
 // So a node is hidden only when the rows of both cells hide it: the camera's and the one the view's
 // player stands in. Both rows are decoded every frame from the table (the game decodes only on a
 // change), so the nodes' bits depend on nothing but the two cells, and nothing is kept between frames.
+//
+// The rows were also made for a 4:3 view. In widescreen the wider sides of the view reach what the
+// camera's cell's row hides: from inside the hollow log on Windy (scene 6) the camera looks past the
+// log's end, where the hidden hillside left black with bits of grass floating in it. In widescreen,
+// while the camera follows its player, the rows of the eight cells around the camera count too, so a
+// node is hidden only when every one of them hides it; what the view test leaves out still is not
+// drawn (widescreen_culling.cpp).
 // Only drawing changes. CONKER_LEVEL_VISIBILITY=0 keeps the game's own.
 #include <cstdint>
 #include <cstdlib>
@@ -20,6 +27,7 @@
 #include <vector>
 
 #include "recomp.h"
+#include "platform/display_mode.hpp"
 
 extern "C" void func_1510FD20(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_1510FE30(uint8_t* rdram, recomp_context* ctx);
@@ -43,6 +51,7 @@ constexpr uint32_t kRecordCameraZ = 0x300;
 constexpr int kPlayers = 4;
 // A following camera stays well within two of the tree's 512-unit leaves of its player.
 constexpr float kFollowDistance = 1024.0f;
+constexpr float kCell = 512.0f;  // the tree's leaves
 constexpr uint32_t kNodeHidden = 0x0;           // s16: a hidden bit per view (and the box's bottom)
 constexpr uint32_t kNodeNext = 0x4;             // s16: offset to the next sibling, 0 for the last
 constexpr uint32_t kNodeChild = 0xC;            // s16: offset to the first child, 0 for a leaf
@@ -152,22 +161,54 @@ extern "C" void conker_level_visibility(uint8_t* rdram, recomp_context* ctx) {
                                      : cell_at(rdram, ctx, static_cast<int32_t>(load_float(rdram, player + kActorX)),
                                                static_cast<int32_t>(load_float(rdram, player + kActorZ)));
     if (player_cell >= 0 && camera_cell >= 0) {
+        // The cells whose rows count: the camera's, the player's and, in widescreen, the camera's
+        // neighbours (see the top of the file).
+        int cells[11];
+        int count = 0;
+        auto add = [&](int cell) {
+            if (cell < 0) {
+                return;
+            }
+            for (int i = 0; i < count; i++) {
+                if (cells[i] == cell) {
+                    return;
+                }
+            }
+            cells[count++] = cell;
+        };
+        add(camera_cell);
+        add(player_cell);
+        if (follows && conker::display::logic_widescreen()) {
+            const float cx = load_float(rdram, record + kRecordCameraX);
+            const float cz = load_float(rdram, record + kRecordCameraZ);
+            for (int ix = -1; ix <= 1; ix++) {
+                for (int iz = -1; iz <= 1; iz++) {
+                    if (ix != 0 || iz != 0) {
+                        add(cell_at(rdram, ctx, static_cast<int32_t>(cx + kCell * ix), static_cast<int32_t>(cz + kCell * iz)));
+                    }
+                }
+            }
+        }
         static std::vector<uint32_t> nodes;
         static std::vector<uint8_t> hidden;
         collect_nodes(rdram, &nodes);
         const int16_t bit = static_cast<int16_t>(1 << view);
         // The camera's row, as the game has it (decoded again: the bits may be last frame's union).
         decode_row(rdram, ctx, view, camera_cell);
-        if (player_cell != camera_cell) {
+        if (count > 1) {
             hidden.resize(nodes.size());
             for (size_t i = 0; i < nodes.size(); i++) {
                 hidden[i] = (MEM_H(kNodeHidden, kseg0(nodes[i])) & bit) != 0;
             }
-            decode_row(rdram, ctx, view, player_cell);
-            for (size_t i = 0; i < nodes.size(); i++) {
-                if (!hidden[i]) {
-                    MEM_H(kNodeHidden, kseg0(nodes[i])) = static_cast<int16_t>(MEM_H(kNodeHidden, kseg0(nodes[i])) & ~bit);
+            for (int c = 1; c < count; c++) {
+                decode_row(rdram, ctx, view, cells[c]);
+                for (size_t i = 0; i < nodes.size(); i++) {
+                    hidden[i] = hidden[i] && (MEM_H(kNodeHidden, kseg0(nodes[i])) & bit) != 0;
                 }
+            }
+            for (size_t i = 0; i < nodes.size(); i++) {
+                const int16_t value = MEM_H(kNodeHidden, kseg0(nodes[i]));
+                MEM_H(kNodeHidden, kseg0(nodes[i])) = static_cast<int16_t>(hidden[i] ? (value | bit) : (value & ~bit));
             }
             MEM_H(0, kseg0(kViewCells + 2 * view)) = static_cast<int16_t>(camera_cell);
         }

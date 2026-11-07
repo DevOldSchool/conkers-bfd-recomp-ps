@@ -575,6 +575,30 @@ func = "func_15154D80"
 before_vram = 0x1515547C
 text = "{ void conker_widescreen_frame_end(uint8_t*, recomp_context*); conker_widescreen_frame_end(rdram, ctx); }"
 
+# Widescreen: the speech and thought bubbles reach past the 4:3 sides instead of stopping in a
+# straight line there. func_1516B6BC draws a bubble; func_15095D34 writes each of its stretched
+# pieces, which are moved so the left is not clamped and redrawn as extended rectangles. See
+# src/enhancements/display_options/widescreen_bubbles.cpp.
+[[patches.hook]]
+func = "func_1516B6BC"
+before_vram = 0x1516B6BC
+text = "{ void conker_widescreen_bubble_begin(uint8_t*, recomp_context*); conker_widescreen_bubble_begin(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1516B6BC"
+before_vram = 0x1516C870
+text = "{ void conker_widescreen_bubble_end(uint8_t*, recomp_context*); conker_widescreen_bubble_end(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_15095D34"
+before_vram = 0x15095D34
+text = "{ void conker_widescreen_bubble_rect_begin(uint8_t*, recomp_context*); conker_widescreen_bubble_rect_begin(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_15095D34"
+before_vram = 0x15096294
+text = "{ void conker_widescreen_bubble_rect_end(uint8_t*, recomp_context*); conker_widescreen_bubble_rect_end(rdram, ctx); }"
+
 # Widescreen: the black over a multiplayer player's view once they are out of lives covers the
 # widened view. func_15180580 draws a player's death wipe; once closed, its one FILLRECT is drawn
 # stretched. See src/enhancements/display_options/widescreen_out.cpp.
