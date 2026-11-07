@@ -53,9 +53,9 @@ constexpr int kPlayers = 4;
 constexpr float kFollowDistance = 1024.0f;
 constexpr float kCell = 512.0f;  // the tree's leaves
 constexpr uint32_t kNodeHidden = 0x0;           // s16: a hidden bit per view (and the box's bottom)
-constexpr uint32_t kNodeNext = 0x4;             // s16: offset to the next sibling, 0 for the last
+constexpr uint32_t kNodeNext = 0x4;             // s16: a leaf's offset to the next node in walk order, 0 at the end
 constexpr uint32_t kNodeChild = 0xC;            // s16: offset to the first child, 0 for a leaf
-constexpr size_t kMaxNodes = 65536;
+constexpr size_t kMaxNodes = 65536;  // a guard against a broken tree: real ones have hundreds
 
 const bool g_enabled = [] {
     const char* value = std::getenv("CONKER_LEVEL_VISIBILITY");
@@ -100,25 +100,21 @@ int cell_at(uint8_t* rdram, recomp_context* ctx, int32_t x, int32_t z) {
     return static_cast<int16_t>(ctx->r2);
 }
 
-// Every node of the tree.
+// Every node of the tree, in the order the game walks it (func_150A6760): a node's first child
+// follows at +0xC; a node without children jumps by +4 to the next node in that order, 0 at the end.
 void collect_nodes(uint8_t* rdram, std::vector<uint32_t>* nodes) {
     nodes->clear();
-    std::vector<uint32_t> pending;
-    pending.push_back(static_cast<uint32_t>(MEM_W(0, kseg0(kTreeRoot))));
-    while (!pending.empty() && nodes->size() < kMaxNodes) {
-        uint32_t node = pending.back();
-        pending.pop_back();
-        while (in_rdram(node) && nodes->size() < kMaxNodes) {
-            nodes->push_back(node);
-            const int16_t child = MEM_H(kNodeChild, kseg0(node));
-            if (child != 0) {
-                pending.push_back(node + child);
-            }
-            const int16_t next = MEM_H(kNodeNext, kseg0(node));
-            if (next == 0) {
-                break;
-            }
+    uint32_t node = static_cast<uint32_t>(MEM_W(0, kseg0(kTreeRoot)));
+    while (in_rdram(node) && nodes->size() < kMaxNodes) {
+        nodes->push_back(node);
+        const int16_t child = MEM_H(kNodeChild, kseg0(node));
+        const int16_t next = MEM_H(kNodeNext, kseg0(node));
+        if (child != 0) {
+            node += child;
+        } else if (next != 0) {
             node += next;
+        } else {
+            break;
         }
     }
 }
