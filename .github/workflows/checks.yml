@@ -1,5 +1,5 @@
 # Checks that need no ROM, so they run on every push to main and every pull request, forks included.
-# The ROM builds will be a separate workflow.
+# The ROM build is rom-build.yml.
 name: Checks
 
 on:

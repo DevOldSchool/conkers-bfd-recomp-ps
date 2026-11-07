@@ -11,8 +11,7 @@ its fix ("without_fix"): --without-fix runs that and the case must then FAIL, wh
 can see the bug at all.
 
 The reports cases start from are pause saves, not ROM data, but personal play: they are kept out of
-this repository, in the folder named by CONKER_REGRESS_DATA (default: regress/ in the private
-conkers-bfd-assets checkout next to this one), as reports/<name>/ (save.bin, save.resume,
+this repository, in the folder named by CONKER_REGRESS_DATA, as reports/<name>/ (save.bin, save.resume,
 report.json), the name the game gave the report (scene<N>-<date>-<time>, which it checks). `add-report`
 copies one there.
 
@@ -128,12 +127,11 @@ def git_common_parent():
 def data_dir():
     if os.environ.get("CONKER_REGRESS_DATA"):
         return Path(os.environ["CONKER_REGRESS_DATA"])
-    return git_common_parent() / "conkers-bfd-assets/regress"
+    sys.exit("set CONKER_REGRESS_DATA to the folder that holds the reports (reports/<name>/)")
 
 
 def default_rom():
-    for candidate in (os.environ.get("CONKER_ROM"), git_common_parent() / "conkers-bfd-assets/baserom.us.z64",
-                      git_common_parent() / "conkers-bfd-decomp/roms/baserom.us.z64"):
+    for candidate in (os.environ.get("CONKER_ROM"), git_common_parent() / "conkers-bfd-decomp/roms/baserom.us.z64"):
         if candidate and Path(candidate).exists():
             return Path(candidate)
     return None
@@ -552,7 +550,7 @@ def load_cases(names):
 
 
 def command_run(args):
-    binary = Path(args.binary)
+    binary = Path(args.binary).resolve()  # each run starts in its own folder
     rom = Path(args.rom) if args.rom else default_rom()
     if not binary.exists():
         sys.exit(f"{binary} is not built (cmake -S . -B build/host -G Ninja -DCONKER_RENDERER=null)")

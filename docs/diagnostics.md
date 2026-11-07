@@ -120,10 +120,10 @@ These environment variables are read by both builds:
   milliseconds after start, as the full-screen shortcuts would, so mode
   changes can be tested by script, for example while the pause menu is open.
 * `CONKER_DUMP_AUDIO=<file.wav>` records every buffer the game queues
-  (16-bit stereo at the game's 22,020 Hz) in either build. The log prints a
-  line every 5 s of audio with the peak, RMS, minimum output-queue depth and
-  underrun count. Both builds always print those lines. If the output has been
-  exactly zero for 10 s after there was sound, they also print one
+  (16-bit stereo at the game's 22,020 Hz) in either build. With
+  `CONKER_AUDIO_STATS=1` the log prints a line every 5 s of audio with the
+  peak, RMS, minimum output-queue depth and underrun count. If the output has been
+  exactly zero for 10 s after there was sound, the log always gets one
   `audio: silent for 10 s` line with the music manager's view of the three
   sequence players: player state (0 stopped, 1 playing, 2 stopping, 3
   paused), the sequence, its volume and pause mode, and the music-paused flag

@@ -84,6 +84,7 @@ int stats_peak = 0;
 double stats_square_sum = 0.0;
 size_t stats_min_queued = SIZE_MAX;  // output queue depth (frames) seen when a buffer arrives
 uint64_t stats_underruns = 0;         // buffers that arrived to an empty output queue
+bool stats_log = false;              // CONKER_AUDIO_STATS=1: the line every 5 s of audio
 
 void note_queue_depth(size_t queued) {
     stats_min_queued = std::min(stats_min_queued, queued);
@@ -153,11 +154,13 @@ void update_stats(const int16_t* data, size_t frame_count) {
     stats_frames += frame_count;
     total_frames += frame_count;
     if (stats_frames >= static_cast<uint64_t>(frequency) * 5) {
-        const double rms = std::sqrt(stats_square_sum / static_cast<double>(stats_frames * 2));
-        std::printf("[conker] audio: %.1f s rendered at %u Hz, last 5 s peak %d rms %.0f, output queue min %.0f ms, %llu underruns\n",
-                    static_cast<double>(total_frames) / frequency, frequency, stats_peak, rms,
-                    1000.0 * static_cast<double>(stats_min_queued) / frequency,
-                    static_cast<unsigned long long>(stats_underruns));
+        if (stats_log) {
+            const double rms = std::sqrt(stats_square_sum / static_cast<double>(stats_frames * 2));
+            std::printf("[conker] audio: %.1f s rendered at %u Hz, last 5 s peak %d rms %.0f, output queue min %.0f ms, %llu underruns\n",
+                        static_cast<double>(total_frames) / frequency, frequency, stats_peak, rms,
+                        1000.0 * static_cast<double>(stats_min_queued) / frequency,
+                        static_cast<unsigned long long>(stats_underruns));
+        }
         stats_frames = 0;
         stats_peak = 0;
         stats_square_sum = 0.0;
@@ -276,6 +279,9 @@ void init() {
     load_volume();
     if (const char* value = std::getenv("CONKER_AUDIO_LATENCY_MS"); value != nullptr && value[0] != '\0') {
         latency_cushion_ms = std::max(0.0, std::atof(value));
+    }
+    if (const char* value = std::getenv("CONKER_AUDIO_STATS"); value != nullptr && value[0] == '1') {
+        stats_log = true;
     }
     if (const char* path = std::getenv("CONKER_DUMP_AUDIO"); path != nullptr && path[0] != '\0') {
         open_wav(path);
