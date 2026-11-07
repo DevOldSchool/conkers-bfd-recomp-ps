@@ -36,7 +36,7 @@ jobs:
     environment: rom
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: recomp
 
@@ -48,14 +48,14 @@ jobs:
           git submodule update --init --depth 1 lib/rt64
           git -C lib/rt64 submodule update --init --depth 1 src/contrib/plume
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: DevOldSchool/conkers-bfd-decomp
           ref: ${{ env.DECOMP_REF }}
           path: decomp
 
       # Only the ROM and the regression reports.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ secrets.ASSETS_REPO }}
           ssh-key: ${{ secrets.ASSETS_DEPLOY_KEY }}

@@ -21,14 +21,14 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
       with:
         repository: DevOldSchool/conkers-bfd-decomp
         ref: ${{ inputs.decomp-ref }}
         path: decomp
         persist-credentials: false
 
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
       with:
         repository: ${{ inputs.assets-repo }}
         ssh-key: ${{ inputs.deploy-key }}

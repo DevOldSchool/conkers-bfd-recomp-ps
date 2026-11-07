@@ -39,7 +39,7 @@ jobs:
     environment: rom
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: recomp
           fetch-depth: 0
@@ -86,7 +86,7 @@ jobs:
           version="$(tools/version.sh)"
           (cd dist && ditto -c -k --keepParent ConkersBadFurDayRecompiled.dSYM "Conkers-Bad-Fur-Day-Recompiled-$version-macos-dsym.zip")
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: recomp/dist/*.zip
@@ -107,7 +107,7 @@ jobs:
           && '[{"arch":"x64","runner":"ubuntu-24.04"}]'
           || '[{"arch":"x64","runner":"ubuntu-24.04"},{"arch":"arm64","runner":"ubuntu-24.04-arm"}]') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: recomp
           fetch-depth: 0
@@ -128,7 +128,7 @@ jobs:
         working-directory: recomp
         run: tools/linux/build.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.arch }}
           path: recomp/dist/*.tar.gz
@@ -145,7 +145,7 @@ jobs:
       matrix:
         arch: [x64, arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: recomp
           fetch-depth: 0
@@ -181,7 +181,7 @@ jobs:
         working-directory: recomp
         run: tools/windows/package.sh build/windows-rt64${{ matrix.arch == 'arm64' && '-arm64' || '' }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-${{ matrix.arch }}
           path: recomp/dist/*.zip
@@ -192,7 +192,7 @@ jobs:
     name: Source archive
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: recomp
           fetch-depth: 0
@@ -200,7 +200,7 @@ jobs:
       - name: Archive
         working-directory: recomp
         run: tools/source_archive.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: source
           path: recomp/dist/*.tar.gz
@@ -215,7 +215,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: packages
           merge-multiple: true
