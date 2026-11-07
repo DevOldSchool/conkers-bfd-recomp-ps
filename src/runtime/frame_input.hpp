@@ -90,6 +90,14 @@ constexpr int kMaxMouseSpeed = 400;
 int mouse_speed();
 void set_mouse_speed(int percent);
 
+// How fast the right stick aims and turns the view, per port, as a percentage: the CONTROLS page's
+// STICK AIM row, kept in input.cfg. It scales the right stick as it goes into the record; the game
+// turns no faster than at the stick's full tilt, so above 100% only less tilt is needed for it.
+constexpr int kMinStickAim = 25;
+constexpr int kMaxStickAim = 200;
+int stick_aim(int port);
+void set_stick_aim(int port, int percent);
+
 // The debug menu's CONTROLS page, kept in input.cfg too. INVERT AIM, per port, turns the stick's aim
 // the other way (pushed up aims down, as on the N64) wherever consistent controls aim it; it goes
 // into the record as Port::kInvertAim. INVERT MOUSE AIM turns controller 1's mouse's aim the other

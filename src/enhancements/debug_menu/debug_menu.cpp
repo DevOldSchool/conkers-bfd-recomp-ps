@@ -82,6 +82,7 @@
 #include "recomp.h"
 #include "librecomp/mods.hpp"
 #include "enhancements/debug_menu/debug_menu.hpp"
+#include "enhancements/frame_rate/latency.hpp"
 #include "enhancements/object_inspector/object_inspector.hpp"
 #include "enhancements/pause_save/resume_point.hpp"
 #include "enhancements/quit_game/quit_game.hpp"
@@ -165,9 +166,11 @@ enum MainRow { kDebugView, kEnhancements, kControls, kMods, kTeleport, kLoadSnap
 enum DebugViewRow { kWireframe, kShowFps, kShowPosition, kInspect, kDebugViewRows };
 // The controls page's rows: these, then a row for each of the mapped buttons (for the keyboard, then
 // its stick, walk and zoom keys), then RESET BUTTONS.
-enum ControlsRow { kController, kInvertAim, kMouseAim, kInvertMouseAim, kFirstMappedRow };
+enum ControlsRow { kController, kInvertAim, kStickAim, kMouseAim, kInvertMouseAim, kFirstMappedRow };
 // MOUSE AIM's speeds, percent: how fast the captured mouse aims (frame_input::mouse_speed).
 constexpr int kMouseSpeeds[] = {25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 400};
+// STICK AIM's, percent: how fast the right stick aims (frame_input::stick_aim), per controller.
+constexpr int kStickSpeeds[] = {25, 50, 75, 100, 125, 150, 175, 200};
 int reset_buttons_row(bool keys) {
     return kFirstMappedRow + (keys ? conker::input::kKeyRows : conker::input::kMappedButtonCount);
 }
@@ -220,7 +223,10 @@ std::string g_message_detail;  // a smaller line under it
 Clock::time_point g_message_until;
 
 bool g_wireframe = false;
-bool g_show_fps = false;
+bool g_show_fps = [] {  // CONKER_SHOW_FPS=1 starts with it on
+    const char* value = std::getenv("CONKER_SHOW_FPS");
+    return value != nullptr && value[0] == '1';
+}();
 bool g_show_position = false;
 int g_frames = 0;
 Clock::time_point g_fps_since = Clock::now();
@@ -691,6 +697,7 @@ void draw_controls_page(uint8_t* rdram, recomp_context* ctx) {
     std::vector<std::string> rows = {
         "CONTROLLER  " + std::to_string(port + 1) + (port != 0 ? "" : keys ? "  KEYBOARD" : "  PAD"),
         std::string("INVERT AIM  ") + on_off(conker::frame_input::invert_aim(port)),
+        "STICK AIM  " + std::to_string(conker::frame_input::stick_aim(port)) + "%",
         "MOUSE AIM  " + std::to_string(conker::frame_input::mouse_speed()) + "%",
         std::string("INVERT MOUSE AIM  ") + on_off(conker::frame_input::invert_mouse_aim()),
     };
@@ -716,6 +723,9 @@ void draw_controls_page(uint8_t* rdram, recomp_context* ctx) {
         more = "LEFT AND RIGHT CHOOSE";
     } else if (g_controls_row == kMouseAim) {
         info = "HOW FAST CONTROLLER 1'S MOUSE AIMS";
+        more = "LEFT AND RIGHT CHANGE";
+    } else if (g_controls_row == kStickAim) {
+        info = "HOW FAST THE STICK AIMS";
         more = "LEFT AND RIGHT CHANGE";
     } else if (g_controls_row == kInvertAim || g_controls_row == kInvertMouseAim) {
         info = g_controls_row == kInvertAim ? "THE STICK PUSHED UP AIMS DOWN AS ON THE N64" : "CONTROLLER 1'S MOUSE PUSHED UP AIMS DOWN";
@@ -1319,6 +1329,21 @@ int32_t controls_page(int vertical, int horizontal, bool fresh_horizontal, uint1
             }
             conker::frame_input::set_invert_mouse_aim(!conker::frame_input::invert_mouse_aim());
             return kSelectSound;
+        case kStickAim: {
+            // Left slower, right (or A) faster, stopping at either end.
+            if (horizontal == 0 && !a) {
+                return 0;
+            }
+            const int now = conker::frame_input::stick_aim(port);
+            int next = now;
+            if (horizontal < 0) {
+                for (int speed : kStickSpeeds) next = speed < now ? speed : next;
+            } else {
+                for (auto it = std::rbegin(kStickSpeeds); it != std::rend(kStickSpeeds); ++it) next = *it > now ? *it : next;
+            }
+            conker::frame_input::set_stick_aim(port, next);
+            return next != now && fresh_horizontal ? kMoveSound : 0;
+        }
         case kMouseAim: {
             // Left slower, right (or A) faster, stopping at either end.
             if (horizontal == 0 && !a) {
@@ -1599,17 +1624,30 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
     g_frames++;
     const Clock::time_point now = Clock::now();
     const double elapsed = std::chrono::duration<double>(now - g_fps_since).count();
+    // The pictures shown: more than the game's frames with frame interpolation (CONKER_REFRESH).
+    static uint64_t presents_since = conker::latency::presents();
+    static int shown_fps = 0;
     if (elapsed >= 0.5) {
         g_fps = static_cast<int>(g_frames / elapsed + 0.5);
+        const uint64_t presents = conker::latency::presents();
+        shown_fps = static_cast<int>((presents - presents_since) / elapsed + 0.5);
+        presents_since = presents;
         g_frames = 0;
         g_fps_since = now;
     }
     int y = kOverlayY;
-    if (g_show_fps) {
-        draw_text(rdram, ctx, kOverlayX, y, kLeft, 0xFFFFFFFF, std::to_string(g_fps) + " FPS");
+    // Not online: the overlay's text goes into game memory on this machine only, which desynced a
+    // match from its first frame (as the menu itself, see debug_menu_enabled).
+    const bool overlay_allowed = !conker::net::active() && !conker::net::in_place();
+    if (g_show_fps && overlay_allowed) {
+        std::string fps_text = std::to_string(g_fps) + " FPS";
+        if (shown_fps > g_fps + 2) {
+            fps_text += "  " + std::to_string(shown_fps) + " SHOWN";
+        }
+        draw_text(rdram, ctx, kOverlayX, y, kLeft, 0xFFFFFFFF, fps_text);
         y += kLineHeight;
     }
-    if (g_show_position && !g_active) {
+    if (g_show_position && !g_active && overlay_allowed) {
         draw_text(rdram, ctx, kOverlayX, y, kLeft, 0xFFFFFFFF, position_line(rdram));
         draw_text(rdram, ctx, kOverlayX, y + kLineHeight, kLeft, 0xFFFFFFFF, camera_line(rdram));
         y += 2 * kLineHeight;

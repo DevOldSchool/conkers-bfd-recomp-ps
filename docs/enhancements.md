@@ -6,8 +6,10 @@ off for a run. The summary is in the [README](../README.md#enhancements).
 
 ## Display options
 
-The OPTIONS page of the title menu has volume and controls rows under the
-sound setting, then five display rows.
+The OPTIONS page of the title menu has volume, controls and GRAPHICS rows
+under the sound setting. GRAPHICS (A, or left or right) opens a page of six
+rows, from SHARP TEXT to FRAME RATE, drawn the same way; B goes back to
+OPTIONS.
 
 * VOLUME, from OFF to 100% in steps of 10%, stopping at either end. It turns
   down what the game plays (the sound effects, music and speech together),
@@ -19,7 +21,7 @@ sound setting, then five display rows.
 
 * CONTROLS: A (or left or right) opens the controls page over OPTIONS, the
   same page as the [debug menu's CONTROLS](#debug-menu): each controller's
-  buttons and keys, INVERT AIM, MOUSE AIM and INVERT MOUSE AIM. It takes
+  buttons and keys, INVERT AIM, STICK AIM, MOUSE AIM and INVERT MOUSE AIM. It takes
   OPTIONS' place and the title scene goes on behind it, as behind OPTIONS;
   B goes back. Not online, where only your game would stop reading the pad
   and drawing OPTIONS while it is open.
@@ -73,6 +75,11 @@ sound setting, then five display rows.
   every game pixel is an even block. Covering the screen it fills by
   default; a lower resolution then fills it with larger pixels. A window is
   centered by default, which only shows once it is resized by hand.
+* FRAME RATE: 30 FPS (the original, and the default, since not every machine
+  holds 60), 60 FPS ([60 fps](#60-fps)), or 60 FPS SMOOTH (60 fps with
+  [smooth motion](#smooth-motion)). Kept in
+  `conker-recomp-data/frame_rate.cfg`. Not online, where the session plays at
+  the host's frame rate.
 
 The window and the screen-covering modes each keep their own resolution,
 shape and fill. F11, Cmd+Enter, Alt+Enter or Ctrl+Cmd+F switch between the
@@ -245,6 +252,15 @@ button. Up and down choose a row, A or left and right change it, B goes back:
     wherever [consistent controls](#consistent-controls) aim it (R's look,
     the slingshot, the guns, scopes, mounted guns and the tank's gun).
     With CONSISTENT CONTROLS off the stick aims that way anyway.
+  * STICK AIM, from 25% to 200% in steps of 25, left and right, stopping at
+    either end: how fast the stick aims (a sight, a gun, R's look, the
+    slingshot, a mounted gun), not how fast it turns the view. 100% is the
+    default. The game turns no faster than with the stick all the way over, so
+    above 100% it only gets there with less tilt; below, aiming is finer and
+    slower. The right stick is scaled as it goes into the record while it aims,
+    so online each player keeps their own and the games stay alike; where the
+    left stick aims (R's look, the slingshot and the story's mounted guns) it
+    applies offline only.
   * MOUSE AIM, from 25% to 400% (25, 50, 75, 100, 125, 150, 175, 200, 250,
     300, 400), left and right, stopping at either end: how fast the captured
     mouse aims (R, the slingshot, a scope or a mounted gun). Turning the
@@ -558,9 +574,39 @@ the sharper text and menus and your pad's buttons. `CONKER_TEXTURE_PACKS=0` load
 sharper text and menus out as packs to edit; `tools/font_pack.py` writes the
 font's glyphs with their hashes as a template for new art.
 
-## 60 fps (experimental)
+## 60 fps
 
-Off by default. `CONKER_60FPS=1` lets the game start a frame on every retrace
-instead of every second one. Its logic already steps by elapsed time, so
-movement, jumps, the camera, animation and cutscenes keep their speed; a few
-things still assume 30 fps.
+Off by default (FRAME RATE on the GRAPHICS page; `CONKER_60FPS=0` or `1` for one
+run). The game starts a frame on every retrace instead of every second one. Its
+logic already steps by elapsed time, so movement, jumps, the camera, animation
+and cutscenes keep their speed; a few things still assume 30 fps. Online, every
+player plays at the host's setting.
+
+## Smooth motion
+
+Off by default (60 FPS SMOOTH on the GRAPHICS page; `CONKER_SMOOTH=0` or `1` for
+one run). RT64 draws pictures between the game's frames, up to the display's
+refresh rate: on a 120 Hz display, two pictures for each frame at 60 fps or four
+at 30 fps. It matches each frame's draw calls with the last one's and blends
+their transforms and the camera; the game itself is unchanged, so it is this
+machine's own choice, online too. `CONKER_REFRESH=<hz>` draws at that rate
+instead of the display's (no faster).
+
+It costs some delay: a move begins to show about as soon as without it, but is
+fully shown one picture later at 60 fps (about 44 ms from the pad being read
+instead of 34 ms, measured on a 120 Hz display) and three pictures later at 30
+fps (about 79 ms instead of 51 ms). `CONKER_LATENCY_LOG=<file>` writes a line
+for every picture presented, and `tools/latency_summary.py` sums it up. SHOW
+FPS in the debug menu shows the pictures shown each second as well as the
+game's frames.
+
+How it is set up for Conker (`tools/patches/rt64-interpolation.patch`):
+
+* RT64 is given the game's rate (30 or 60) rather than reading it from the VI
+  history, so a frame that takes a retrace too many does not switch
+  interpolation off.
+* A transform is blended unless it moved more than 500 world units in a frame,
+  which counts as a teleport (`CONKER_INTERP_TELEPORT` sets the distance).
+* Each frame's own picture is presented from a copy, as RT64 does with MSAA,
+  since at 60 fps the game draws the next frame into the frame buffer being
+  presented (`CONKER_INTERP_PRIVATE=0` presents from the frame buffer).

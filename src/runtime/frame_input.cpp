@@ -23,6 +23,7 @@
 #include "build_version.h"
 #include "enhancements/consistent_controls/mouse_look.hpp"
 #include "enhancements/frame_rate/frame_rate.hpp"
+#include "enhancements/frame_rate/latency.hpp"
 #include "enhancements/mp_characters/mp_characters.hpp"
 #include "enhancements/my_view/my_view.hpp"
 #include "enhancements/switches.hpp"
@@ -96,6 +97,27 @@ const bool g_invert_loaded = [] {
         g_invert_aim[port].store(conker::input_config::get(invert_aim_key(port)) == "1");
     }
     g_invert_mouse_aim.store(conker::input_config::get("invert_mouse_aim") == "1");
+    return true;
+}();
+
+// The CONTROLS page's STICK AIM, per port ("stick_aim<port 1 to 4>=<percent>", 100 unless set),
+// scales the right stick as it goes into the record, so another machine running the same records
+// aims as this machine's player did. The game turns no faster than with the stick all the way over
+// (values past it change nothing: logged on It's War's mounted gun), so above 100% the stick only
+// gets there sooner; below it, the most it aims is slower too.
+std::string stick_aim_key(int port) { return "stick_aim" + std::to_string(port + 1); }
+
+constexpr int kDefaultStickAim = 100;
+
+std::atomic<int> g_stick_aim[conker::input::kPorts] = {};
+
+const bool g_stick_aim_loaded = [] {
+    for (int port = 0; port < conker::input::kPorts; port++) {
+        const std::string kept = conker::input_config::get(stick_aim_key(port));
+        g_stick_aim[port].store(kept.empty() ? kDefaultStickAim
+                                             : std::clamp(std::atoi(kept.c_str()), conker::frame_input::kMinStickAim,
+                                                          conker::frame_input::kMaxStickAim));
+    }
     return true;
 }();
 
@@ -229,8 +251,14 @@ Port sample_port(int index) {
     static const bool no_right_stick = std::getenv("CONKER_TEST_NO_RIGHT_STICK") != nullptr;
     if (!no_right_stick && conker::input::right_stick(&right_x, &right_y, index)) {
         port.flags |= Port::kRightStick;
-        port.right_x = right_axis(right_x);
-        port.right_y = right_axis(right_y);
+        // Only while the pad aims (it aimed in the last frame's pad hook), as the mouse's speed. Online
+        // this machine's controller 1 plays the session's port for it (as its mouse does).
+        const int game_port = conker::net::active() && index == 0 ? conker::net::local_port() : index;
+        const float scale = conker::consistent_controls::stick_aiming(game_port)
+                                ? static_cast<float>(g_stick_aim[index].load(std::memory_order_relaxed)) / 100.0f
+                                : 1.0f;
+        port.right_x = right_axis(right_x * scale);
+        port.right_y = right_axis(right_y * scale);
     }
     if (conker::input::has_rumble(index)) {
         port.flags |= Port::kRumble;
@@ -528,6 +556,19 @@ void set_mouse_speed(int percent) {
     }
     std::printf("[conker] mouse aim %d%%\n", percent);
     input_config::set("mouse_aim", std::to_string(percent));
+}
+
+int stick_aim(int port) {
+    return port >= 0 && port < input::kPorts ? g_stick_aim[port].load() : kDefaultStickAim;
+}
+
+void set_stick_aim(int port, int percent) {
+    percent = std::clamp(percent, kMinStickAim, kMaxStickAim);
+    if (port < 0 || port >= input::kPorts || g_stick_aim[port].exchange(percent) == percent) {
+        return;
+    }
+    std::printf("[conker] controller %d: stick aim %d%%\n", port + 1, percent);
+    input_config::set(stick_aim_key(port), percent == kDefaultStickAim ? "" : std::to_string(percent));
 }
 
 bool invert_aim(int port) { return port >= 0 && port < input::kPorts && g_invert_aim[port].load(); }
@@ -844,6 +885,7 @@ extern "C" void conker_frame_input_begin(uint8_t* rdram, recomp_context* ctx) {
     // this machine's own game can be kept or put back.
     conker::net::before_input(rdram, ctx);
     Record record = sample_live();
+    conker::latency::input_sampled();
     int zoom = 0;
     take_live_mouse(conker::net::active() ? conker::net::local_port() : 0, &record.mice[0].dx, &record.mice[0].dy, &zoom);
     record.mice[0].zoom = static_cast<int8_t>(zoom < -127 ? -127 : zoom > 127 ? 127 : zoom);

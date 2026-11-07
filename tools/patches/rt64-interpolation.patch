@@ -1,0 +1,255 @@
+--- a/src/hle/rt64_workload.h
++++ b/src/hle/rt64_workload.h
+@@ -225,6 +225,7 @@
+         FramebufferChangePool fbChangePool;
+         FramebufferStorage fbStorage;
+         uint32_t viOriginalRate;
++        uint64_t userTag = 0;
+         hlslpp::uint2 viFbSize = {};
+         DebuggerRenderer debuggerRenderer;
+         DebuggerCamera debuggerCamera;
+--- a/src/hle/rt64_state.h
++++ b/src/hle/rt64_state.h
+@@ -121,6 +121,8 @@
+         // differs between machines, and a game that reads it back (Conker's camera reads depth) then
+         // plays differently on each: online play in lockstep keeps game memory free of it. 0: no limit.
+         std::atomic<uint32_t> protectedRDRAMEnd{ 0 };
++        // Copied into the next workload submitted (Workload::userTag) and reported with its presents.
++        std::atomic<uint64_t> nextWorkloadTag{ 0 };
+         std::atomic<uint32_t> protectedWritesSkipped{ 0 };
+         std::atomic<uint32_t> protectedLastSkipped{ 0 };
+         uint32_t lastWorkloadIndex;
+--- a/src/hle/rt64_state.cpp
++++ b/src/hle/rt64_state.cpp
+@@ -1661,6 +1661,8 @@
+             workload.pointLights = scriptLights;
+         }
+ #   endif
++
++        workload.userTag = nextWorkloadTag.load(std::memory_order_relaxed);
+ 
+         // Store the presentation rate in the workload.
+         if (extended.refreshRate != UINT16_MAX) {
+--- a/src/hle/rt64_shared_queue_resources.h
++++ b/src/hle/rt64_shared_queue_resources.h
+@@ -23,6 +23,7 @@
+         uint32_t available = 0;
+         uint32_t count = 0;
+         bool skipped = false;
++        uint64_t userTag = 0;
+     };
+ 
+     struct SharedQueueResources {
+--- a/src/hle/rt64_workload_queue.cpp
++++ b/src/hle/rt64_workload_queue.cpp
+@@ -3,6 +3,7 @@
+ //
+ 
+ #include "rt64_workload_queue.h"
++#include "rhi/rt64_render_hooks.h"
+ 
+ #include "common/rt64_thread.h"
+ 
+@@ -320,6 +321,7 @@
+         FramebufferManager &fbManager = ext.sharedResources->framebufferManager;
+         RenderTargetManager &targetManager = ext.sharedResources->renderTargetManager;
+         const bool usingMSAA = (targetManager.multisampling.sampleCount > 1);
++        const bool privateTargets = usingMSAA || GetInterpolationPrivateTargets();
+ 
+         rendererCPUProfiler.start();
+ 
+@@ -386,7 +388,7 @@
+         // Reset the max height tracking for all active framebuffers.
+         fbManager.resetTracking();
+ 
+-        if ((overrideTarget != nullptr) && !usingMSAA) {
++        if ((overrideTarget != nullptr) && !privateTargets) {
+             targetManager.setOverride(overrideTargetKey, overrideTarget);
+         }
+ 
+@@ -828,9 +830,14 @@
+                     }
+ 
+                     // Do the resolve if using MSAA while target override is active and we're on the correct framebuffer pair index.
+-                    if (usingMSAA && (overrideTarget != nullptr) && ((uint32_t)overrideTargetFbPairIndex == f)) {
++                    if (privateTargets && (overrideTarget != nullptr) && ((uint32_t)overrideTargetFbPairIndex == f)) {
+                         overrideTarget->resize(ext.workloadGraphicsWorker, colorTarget->width, colorTarget->height);
+-                        overrideTarget->resolveFromTarget(ext.workloadGraphicsWorker, colorTarget, ext.shaderLibrary);
++                        if (usingMSAA) {
++                            overrideTarget->resolveFromTarget(ext.workloadGraphicsWorker, colorTarget, ext.shaderLibrary);
++                        }
++                        else {
++                            overrideTarget->copyWholeFromTarget(ext.workloadGraphicsWorker, colorTarget);
++                        }
+                     }
+ 
+                     const uint64_t writeTimestamp = fbManager.nextWriteTimestamp();
+@@ -875,7 +882,7 @@
+             ext.textureCache->decrementLock();
+         }
+ 
+-        if ((overrideTarget != nullptr) && !usingMSAA) {
++        if ((overrideTarget != nullptr) && !privateTargets) {
+             targetManager.removeOverride(overrideTargetKey);
+         }
+ 
+@@ -1063,10 +1070,11 @@
+                 curFrameCounters.presented = 0;
+                 curFrameCounters.available = 0;
+                 curFrameCounters.count = displayFrames;
++                curFrameCounters.userTag = workload.userTag;
+ 
+                 // Create as many render targets as required to store the interpolated targets.
+                 auto &interpolatedTargets = ext.sharedResources->interpolatedColorTargets;
+-                const bool usingMSAA = (ext.sharedResources->renderTargetManager.multisampling.sampleCount > 1);
++                const bool usingMSAA = (ext.sharedResources->renderTargetManager.multisampling.sampleCount > 1) || GetInterpolationPrivateTargets();
+                 const bool usesHDR = ext.sharedResources->renderTargetManager.usesHDR;
+                 uint32_t requiredFrames = (usingMSAA && generateInterpolatedFrames) ? displayFrames : (displayFrames - 1);
+                 if ((requiredFrames > 0) && (interpolatedTargets.size() < requiredFrames)) {
+--- a/src/hle/rt64_present_queue.cpp
++++ b/src/hle/rt64_present_queue.cpp
+@@ -99,7 +99,7 @@
+     void PresentQueue::threadPresent(const Present &present, bool &swapChainValid) {
+         FramebufferManager &fbManager = ext.sharedResources->framebufferManager;
+         RenderTargetManager &targetManager = ext.sharedResources->renderTargetManager;
+-        const bool usingMSAA = (targetManager.multisampling.sampleCount > 1);
++        const bool usingMSAA = (targetManager.multisampling.sampleCount > 1) || GetInterpolationPrivateTargets();
+         hlslpp::float2 resolutionScale;
+         EnhancementConfiguration::Presentation::Mode presentationMode;
+         bool removeBlackBorders;
+@@ -420,6 +420,9 @@
+                 RenderCommandSemaphore *waitSemaphore = drawSemaphores[swapChainIndex].get();
+                 presentTimestamp = Timer::current();
+                 swapChainValid = ext.swapChain->present(swapChainIndex, &waitSemaphore, 1);
++                if (PresentHook *hook = GetPresentHook()) {
++                    hook(frameCounters.userTag, i, framesToPresent);
++                }
+                 presentProfiler.logAndRestart();
+             }
+         }
+--- a/src/hle/rt64_rigid_body.cpp
++++ b/src/hle/rt64_rigid_body.cpp
+@@ -4,10 +4,18 @@
+ 
+ #include "rt64_rigid_body.h"
+ 
++#include <atomic>
++
+ #include "../include/rt64_extended_gbi.h"
+ #include "common/rt64_math.h"
+ 
+ namespace RT64 {
++    static std::atomic<float> interpolationTeleportDistance{ 0.0f };
++
++    void SetInterpolationTeleportDistance(float distance) {
++        interpolationTeleportDistance = distance;
++    }
++
+     // RigidBody
+ 
+     RigidBody::RigidBody() {
+@@ -17,7 +25,14 @@
+     }
+ 
+     void RigidBody::updateLinear(const hlslpp::float4x4 &prevTransform, const hlslpp::float4x4 &curTransform, uint8_t componentInterpolation) {
+-        if (componentInterpolation == G_EX_COMPONENT_AUTO) {
++        const float teleportDistance = interpolationTeleportDistance.load(std::memory_order_relaxed);
++        if ((componentInterpolation == G_EX_COMPONENT_AUTO) && (teleportDistance > 0.0f)) {
++            // A plain distance limit: only a jump longer than this between two frames is a teleport.
++            const hlslpp::float3 curLinearVelocity = curTransform[3].xyz - prevTransform[3].xyz;
++            lerpTranslation = float(hlslpp::length(curLinearVelocity)) < teleportDistance;
++            linearVelocity = curLinearVelocity;
++        }
++        else if (componentInterpolation == G_EX_COMPONENT_AUTO) {
+             const float Epsilon = 1e-6f;
+             const float VelocityTolerance = 5.0f; // TODO: Make configurable.
+             const float MagnitudeThreshold = 10.0f; // TODO: Make configurable.
+--- a/src/rhi/rt64_render_hooks.h
++++ b/src/rhi/rt64_render_hooks.h
+@@ -66,6 +66,24 @@
+ 
+     void SetPresentFocus(const PresentFocus &focus);
+     PresentFocus GetPresentFocus();
++
++    // Called on the present thread right after each picture is presented: the userTag of the workload
++    // it was made from, and its index among the count pictures made from it (more than one with
++    // frame interpolation).
++    using PresentHook = void(uint64_t userTag, int index, int count);
++
++    // Frame interpolation: a matched transform whose position moved more than this between two of the
++    // game's frames is treated as a teleport and not blended. 0 (the default) keeps RT64's own check,
++    // which also stops blending when a transform speeds up from rest or turns back.
++    void SetInterpolationTeleportDistance(float distance);
++
++    // Frame interpolation: also present each game frame's own picture from a private copy, as RT64
++    // does with MSAA, so drawing the next frames into the same frame buffer cannot change it while
++    // it is on screen.
++    void SetInterpolationPrivateTargets(bool enable);
++    bool GetInterpolationPrivateTargets();
++    void SetPresentHook(PresentHook *hook);
++    PresentHook *GetPresentHook();
+ };
+ 
+ #define RT64_DRAW_TAG_PUSH 0xD7A600
+--- a/src/rhi/rt64_render_hooks.cpp
++++ b/src/rhi/rt64_render_hooks.cpp
+@@ -19,7 +19,25 @@
+     static bool presentedPictureSet = false;
+     static std::mutex presentFocusMutex;
+     static PresentFocus presentFocus;
++    static std::atomic<PresentHook *> presentHook = nullptr;
++    static std::atomic<bool> interpolationPrivateTargets = false;
+ 
++    void SetInterpolationPrivateTargets(bool enable) {
++        interpolationPrivateTargets = enable;
++    }
++
++    bool GetInterpolationPrivateTargets() {
++        return interpolationPrivateTargets;
++    }
++
++    void SetPresentHook(PresentHook *hook) {
++        presentHook = hook;
++    }
++
++    PresentHook *GetPresentHook() {
++        return presentHook;
++    }
++
+     RenderHookInit *GetRenderHookInit() {
+         return init;
+     }
+--- a/src/render/rt64_render_target.h
++++ b/src/render/rt64_render_target.h
+@@ -67,6 +67,8 @@
+         void setupDepthFramebuffer(RenderWorker *worker);
+         void copyFromTarget(RenderWorker *worker, RenderTarget *src, uint32_t x, uint32_t y, uint32_t width, uint32_t height, const ShaderLibrary *shaderLibrary);
+         void resolveFromTarget(RenderWorker *worker, RenderTarget *src, const ShaderLibrary *shaderLibrary);
++        // A plain copy of a target of the same size and format (neither multisampled).
++        void copyWholeFromTarget(RenderWorker *worker, RenderTarget *src);
+         void copyFromChanges(RenderWorker *worker, const FramebufferChange &fbChange, uint32_t fbWidth, uint32_t fbHeight, uint32_t rowStart, const ShaderLibrary *shaderLibrary);
+         void greyFromGreen(RenderWorker *worker, const ShaderLibrary *shaderLibrary);
+         void frameMosaic(RenderWorker *worker, const ShaderLibrary *shaderLibrary, const interop::FrameMosaicCB &mosaicCB);
+--- a/src/render/rt64_render_target.cpp
++++ b/src/render/rt64_render_target.cpp
+@@ -239,6 +239,20 @@
+         }
+ 
+         // Copy scaling attributes from source.
++        resolutionScale = src->resolutionScale;
++        downsampleMultiplier = src->downsampleMultiplier;
++        misalignX = src->misalignX;
++        invMisalignX = src->invMisalignX;
++    }
++
++    void RenderTarget::copyWholeFromTarget(RenderWorker *worker, RenderTarget *src) {
++        RenderTextureBarrier copyBarriers[] = {
++            RenderTextureBarrier(src->texture.get(), RenderTextureLayout::COPY_SOURCE),
++            RenderTextureBarrier(texture.get(), RenderTextureLayout::COPY_DEST)
++        };
++
++        worker->commandList->barriers(RenderBarrierStage::COPY, copyBarriers, uint32_t(std::size(copyBarriers)));
++        worker->commandList->copyTexture(texture.get(), src->texture.get());
+         resolutionScale = src->resolutionScale;
+         downsampleMultiplier = src->downsampleMultiplier;
+         misalignX = src->misalignX;

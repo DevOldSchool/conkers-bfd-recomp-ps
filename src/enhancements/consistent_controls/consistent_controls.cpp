@@ -120,6 +120,7 @@ constexpr uint8_t kRocketLauncher = 0x16;
 constexpr uint8_t kStoryRocketLauncher = 0x0C;  // It's War's, from its B pads; scoped the same way
 constexpr uint8_t kScopedGun = 0x24;  // a match's gun with a scope on R, as the launcher's
 constexpr uint8_t kSlingshot = 0x02;  // out with B on its pad, aimed without R
+constexpr uint8_t kMountedGun = 0x1B;  // a mounted machine gun (the story's and a match's)
 constexpr uint32_t kPlayerScoped = 0x197;  // u8: 2 while the launcher's scope is up, or mounted
 constexpr uint8_t kScoped = 2;
 constexpr uint32_t kActorAnimation = 0x84;  // u16: the animation Conker plays
@@ -251,8 +252,16 @@ bool invert_aim(int pad) {
     return (conker::frame_input::port(pad).flags & conker::frame_input::Port::kInvertAim) != 0;
 }
 
-// The mouse's aim, the pad's port's mouse; false when it has none (not captured).
+// Pads that aimed in this pad hook (cleared at its start): STICK AIM scales the right stick only for
+// them, as it goes into the next frame's record (conker::consistent_controls::stick_aiming).
+std::atomic<bool> g_stick_aimed[4] = {};
+
+// The mouse's aim, the pad's port's mouse; false when it has none (not captured). Every aim asks
+// it, so it notes that the pad aims.
 bool mouse_aim(int pad, float* x, float* y) {
+    if (pad >= 0 && pad < 4) {
+        g_stick_aimed[pad].store(true, std::memory_order_relaxed);
+    }
     return conker::mouse_look::take_aim(pad, x, y);
 }
 
@@ -338,8 +347,11 @@ void aim_upright(uint8_t* rdram, recomp_context* ctx, int pad, int at) {
     float mouse_x;
     float mouse_y;
     mouse_aim(pad, &mouse_x, &mouse_y);
-    const float x = MEM_B(at + 2, ctx->r29) / kStickRange + mouse_x;
-    const float stick_y = MEM_B(at + 3, ctx->r29) / kStickRange;
+    // STICK AIM scales this stick too (the right stick's is scaled in its record). Offline only: the
+    // left stick goes into the record as it is, and online every machine must aim it alike.
+    const float scale = conker::net::active() ? 1.0f : conker::frame_input::stick_aim(pad) / 100.0f;
+    const float x = MEM_B(at + 2, ctx->r29) / kStickRange * scale + mouse_x;
+    const float stick_y = MEM_B(at + 3, ctx->r29) / kStickRange * scale;
     const float y = (invert_aim(pad) ? stick_y : -stick_y) - mouse_y;
     MEM_B(at + 2, ctx->r29) = stick_axis(x);
     MEM_B(at + 3, ctx->r29) = stick_axis(y);
@@ -449,7 +461,13 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player,
     // In a match whatever aims with a sight (the knives, item 0x14, as much as the launcher) aims
     // as the launcher's scope does, a match's mounted gun (item 0x1B) too; tanks never get here.
     if (launcher_scoped(rdram, player) || (match && sighted(rdram, player))) {
-        if (twin_stick_aim(rdram, ctx, pad, at, buttons, launcher_scoped(rdram, player), true)) {
+        // The left stick's up and down give C-up and C-down through the launcher's scope (walking)
+        // and on a match's mounted gun (zooming, as it always did); through the knife sight they
+        // would zoom, so there the D-pad zooms instead.
+        // On the gun the item is 0x1B but not held (+0x11A is 0, logged in COLORS), so only the item.
+        const bool on_mounted_gun = MEM_BU(kPlayerItem, kseg0(player)) == kMountedGun;
+        const bool stick_gives_c = launcher_scoped(rdram, player) || on_mounted_gun;
+        if (twin_stick_aim(rdram, ctx, pad, at, buttons, stick_gives_c, true)) {
             MEM_H(at, ctx->r29) = static_cast<int16_t>(step_with_dpad(buttons));
         }
         return;
@@ -490,6 +508,9 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player,
 // them while it is open.
 extern "C" void conker_consistent_controls(uint8_t* rdram, recomp_context* ctx) {
     conker::mouse_look::frame(rdram);
+    for (auto& aimed : g_stick_aimed) {
+        aimed.store(false, std::memory_order_relaxed);
+    }
     if (!conker::net::active() && !consistent_controls_enabled()) {
         return;
     }
@@ -531,6 +552,10 @@ nlohmann::json conker::status::consistent_controls() {
 }
 
 bool conker::consistent_controls::enabled() { return consistent_controls_enabled(); }
+
+bool conker::consistent_controls::stick_aiming(int pad) {
+    return pad >= 0 && pad < 4 && g_stick_aimed[pad].load(std::memory_order_relaxed);
+}
 
 conker::switches::Switch conker::switches::consistent_controls() {
     // Each player's own online: it goes with their port (frame_input::Port::kConsistentControls).

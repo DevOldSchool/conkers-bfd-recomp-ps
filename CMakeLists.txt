@@ -173,6 +173,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/enhancements/display_options/widescreen_out.cpp
     src/enhancements/display_options/widescreen_timer.cpp
     src/enhancements/frame_rate/frame_rate.cpp
+    src/enhancements/frame_rate/latency.cpp
     src/enhancements/intro_skip/intro_skip.cpp
     src/enhancements/max_detail/max_detail.cpp
     src/enhancements/my_view/my_view.cpp
