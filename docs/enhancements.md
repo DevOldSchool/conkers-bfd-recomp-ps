@@ -43,13 +43,11 @@ sound setting, then five display rows.
   (`CONKER_WIDESCREEN_CULLING=0` keeps the 4:3 choice); the tiled sky gets
   vertex buffers big enough for the extra tiles. The metal frame of the
   turret's first-person view reaches the sides, its plates carrying on with
-  more bolts (in 4:3 too it now closes the pixel of scene the game leaves
-  past each end). The countdown timer hung on chains (over the bomb in the
+  more bolts (in 4:3 too it closes the pixel of scene the game leaves past
+  each end). The countdown timer hung on chains (over the bomb in the
   little girl's room, for one) moves out to the right side, so its chain
   runs off the edge as it does in 4:3. Every view of a multiplayer split screen is widened alike
-  (tools/patches/rt64-split-screen-wide.patch): RT64 used to widen only a view
-  as wide as everything else it was drawn with, so of two players' views one
-  could stay 4:3. A view's own fades, the circle wipe when a player dies and
+  (tools/patches/rt64-split-screen-wide.patch). A view's own fades, the circle wipe when a player dies and
   the rocket launcher's scope cover its widened width too; the wipe's circle
   stays centred on its player and its black stops at the view's edge. Each
   view's HUD (score, ammo, radar and the aiming reticle) stays centred in its
@@ -112,9 +110,7 @@ diagonals, and press A. SAVE saves the game where Conker stands, and LOAD,
 or starting that save from the title menu, puts him back on that spot,
 facing the same way, with the camera put back where it looked once it has
 settled behind him: the same direction, distance and pitch, and the game's
-camera kept at that distance (saves made before this keep only the spot;
-saves from before the distance was kept take the distance the camera comes
-to rest at, and a debug report's takes it from its `report.json`). Quitting
+camera kept at that distance. Quitting
 from the pause menu keeps the spot too. The spot is kept in
 `conker_us.resume` next to the save; a checkpoint reached later takes over
 as usual. The game's own save only records finished events, so the spot
