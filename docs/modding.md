@@ -22,8 +22,20 @@ game again (what is not saved is lost). The choice is kept in
 `conker-recomp-data/mods.json`: `enabled_mods`, and `mod_order`, where mods
 later in the list win where two touch the same thing.
 
-The log (`last-run.log` for the app) shows `Loading mod <id>`, and the
-game shows a message if a mod fails to load.
+The log (`last-run.log` for the app) lists each mod as on or off
+(`[conker] mod <id> <version>: on`), shows `Loading mod <id>` for each one
+that loads, and the game shows a message if a mod fails to load.
+
+## Built-in mods
+
+The packaged builds carry the Speedrun mod (`mods/speedrun`, below) inside
+the game, off until it is turned on in the MODS page like any other. A copy of
+a mod with the same id in the `mods` folder is used instead of the built-in
+one. `tools/build_mods.sh` builds every mod under `mods/`, and CMake builds
+the `.nrm` files named in `CONKER_EMBEDDED_MODS` into the game (one not built
+yet is left out with a warning). The packaging scripts build the mods first
+and refuse a build that lacks them, so building a release needs the mod
+tools below.
 
 Online sessions load no mods, on any machine, so they stay in sync. A debug
 report lists the installed mods and which were on.

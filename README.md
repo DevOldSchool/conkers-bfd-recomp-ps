@@ -6,7 +6,9 @@ made it: the same look, sound and feel, running natively. On top of that
 come a few small quality-of-life changes, such as widescreen, higher
 resolutions, sharper text and menus and skippable cutscenes, listed under
 [Enhancements](#enhancements). They stay out of the way of the original
-style, and most can be switched off.
+style, and most can be switched off. MULTI can also be played online, across
+macOS, Windows and Linux ([docs/online-play.md](docs/online-play.md)), and code mods can be added
+([docs/modding.md](docs/modding.md)).
 
 It is a static recompilation built with
 [N64Recomp](https://github.com/N64Recomp/N64Recomp) and
@@ -20,23 +22,52 @@ This repository contains no ROM data. You need your own US ROM
 
 ## Status
 
-The RT64 build boots through the intro, title scene and menus, plays the new
-game's opening, saves, and reaches the first playable area, where Conker can
-be walked around. Saved games load from the title menu. There is no known
-crash. Graphics (Rare's F3DEX2CBFD microcode in RT64), audio (the `n_aspMain`
-microcode through RSPRecomp) and EEPROM saves all work that far.
+The game is fully functional and has been played from start to finish: the
+story, its chapters (replayed from the title's CHAPTERS page), saves, and
+MULTI with up to four players on one machine or online. Graphics run Rare's F3DEX2CBFD microcode in RT64, audio runs the
+`n_aspMain` microcode through RSPRecomp, and saves are the game's own EEPROM.
+Problems found are tracked in the issues; a bug report with a debug report
+attached (see the issue form) is the quickest to fix.
 
 Platforms:
 
-* macOS
-* Windows (tested once, with a build cross-compiled on a Mac)
-* Linux
+* macOS on Apple silicon
+* Windows 10 (version 1803 or later) and 11, x64 and ARM64
+* Linux: Ubuntu 24.04 or newer with a Vulkan driver
+
+## Playing
+
+Download the build for your system from the releases, or build it yourself
+(below). No game data comes with it: the first time it starts, the game asks
+for your own US ROM and keeps a copy in its data folder, with the saves,
+settings, mods and logs:
+
+* macOS: `~/Library/Application Support/ConkersBadFurDayRecompiled`
+* Windows: `%LOCALAPPDATA%\ConkersBadFurDayRecompiled`
+* Linux: `~/.local/share/ConkersBadFurDayRecompiled`
+
+The builds are not signed by Apple or Microsoft, so the first start needs a
+step more:
+
+* macOS: open the app once, then in System Settings > Privacy & Security
+  choose Open Anyway.
+* Windows: before extracting, right-click the zip, choose Properties, tick
+  Unblock and press OK. If SmartScreen still stops the game, choose More
+  info, then Run anyway.
+* Linux: run `install.sh` in the folder to add the game to your applications.
+
+The debug menu (View, Create or Share on a pad, `` ` `` on the keyboard) holds
+the settings that are not in the game's own OPTIONS, the MODS page (the
+Speedrun timer comes built in, off until you turn it on) and SAVE DEBUG
+REPORT for bug reports. To quit with a pad or in full screen,
+press Start on the title menu and choose EXIT GAME. If the game crashes, the next start says so and points
+at the log in the data folder's `crash-reports`.
 
 ## Building
 
 Step-by-step guides, one-time setup included:
 
-* [macOS](docs/building-macos.md) (the platform tested most)
+* [macOS](docs/building-macos.md)
 * [Windows](docs/building-windows.md)
 * [Linux](docs/building-linux.md)
 
@@ -128,6 +159,7 @@ says how to turn it off. The details, and every setting, are in
 | [Skip to the title menu](docs/enhancements.md#skip-to-the-title-menu) | L skips the boot logos, the intro and the title scene's opening | `CONKER_SKIP_INTRO=0` |
 | [Skip any cutscene](docs/enhancements.md#skip-any-cutscene) | L skips every cutscene, the first time too | `CONKER_SKIP_CUTSCENES=0` |
 | [SAVE and LOAD in the pause menu](docs/enhancements.md#save-and-load-in-the-pause-menu) | Save where Conker stands and load back to that spot, with a snapshot of every save | `CONKER_PAUSE_SAVE=0` |
+| [EXIT GAME](docs/enhancements.md#exit-game) | Start on the title's corners opens a menu with EXIT GAME, to close the game with a pad alone | `CONKER_QUIT_GAME=0` |
 | [Debug menu](docs/enhancements.md#debug-menu) | Wireframe, frame rate, position, enhancements on and off, teleport, snapshots and debug reports | `CONKER_DEBUG_MENU=0` |
 | [Surround by default](docs/enhancements.md#surround-by-default) | A new save file's sound setting is surround instead of stereo | `CONKER_SURROUND_DEFAULT=0` |
 | [Every multiplayer character](docs/enhancements.md#every-multiplayer-character) | MULTI has every character the cheat codes unlock (the Caveman, Neo Conker, Gregg and the rest), without the codes | `CONKER_MP_CHARACTERS=0` |
@@ -142,15 +174,6 @@ says how to turn it off. The details, and every setting, are in
 | [Texture packs](docs/enhancements.md#texture-packs) | RT64 replacement packs from `conker-recomp-data/texture_packs` | `CONKER_TEXTURE_PACKS=0` |
 | [60 fps (experimental)](docs/enhancements.md#60-fps-experimental) | Starts a frame on every retrace instead of every second one | Off by default; `CONKER_60FPS=1` turns it on |
 
-## Fixes
-
-Where the recompiled game behaves differently from hardware, or the original
-gets something wrong, it is fixed without a setting. One fix can be turned off:
-
-* **No Rumble Pak banner with a rumbling pad.** The title menu's "INSERT
-  RUMBLE PAK" banner shows on an N64 even with the pak inserted. It is left
-  out when controller 1's pad can rumble; `CONKER_RUMBLE_BANNER=1` shows it.
-
 ## Documentation
 
 * [docs/enhancements.md](docs/enhancements.md): each enhancement in full
@@ -162,12 +185,8 @@ gets something wrong, it is fixed without a setting. One fix can be turned off:
 * [docs/modding.md](docs/modding.md): installing (only from people you trust) and making code mods
 * [docs/memory-layout.md](docs/memory-layout.md): the TLB layout
 * [docs/rsp-microcode.md](docs/rsp-microcode.md): graphics and audio microcode
-* [docs/investigations.md](docs/investigations.md): open problems and what
-  has been ruled out
 * [docs/online-play.md](docs/online-play.md): playing MULTI online: hosting,
-  joining, join codes, port forwarding and firewalls (work in progress)
-* [docs/online-multiplayer-plan.md](docs/online-multiplayer-plan.md): how
-  online play works and what is left
+  joining, join codes, port forwarding and firewalls
 
 ## AI disclosure
 
@@ -197,6 +216,12 @@ license:
 * The patches in `tools/patches` change those projects, and each is under
   the license of the project it patches.
 * The sharper text and menus use Hyllian's Super-xBR (MIT).
+
+Every packaged build carries these licenses, with the notices of the libraries
+compiled into it and a SOURCE.txt naming the exact commit it was built from
+(`tools/package_notices.py`; in the macOS app, under `Contents/Resources/Licenses`).
+Each release attaches the complete source, submodules included, made by
+`tools/source_archive.sh`.
 
 *Conker's Bad Fur Day* and its code, art and sound belong to Rare and
 Microsoft. This project is not affiliated with or endorsed by them, contains

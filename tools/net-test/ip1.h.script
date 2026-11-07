@@ -1,6 +1,0 @@
-# a session started in place: the host STARTs once its guest is READY (no restart). Pads: ip1.pad (host),
-# ip2.pad (guest), f1/f2.pad shifted 1200 VIs for a game already on the title when the session starts
-1500 name Host
-2000 host 37810
-12000 shot @L.h.view1
-12500 start

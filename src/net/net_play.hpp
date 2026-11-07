@@ -1,4 +1,4 @@
-// Online play by input lockstep (docs/online-multiplayer-plan.md, M3). Every machine runs the
+// Online play by input lockstep. Every machine runs the
 // whole game; each game frame's input record (src/runtime/frame_input.cpp) is exchanged over UDP,
 // and a frame starts only once every port's input for it is in. Star topology: guests send their
 // pad to the host, the host merges every port's input for a frame and sends the merged record to

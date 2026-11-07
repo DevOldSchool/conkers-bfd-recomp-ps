@@ -66,7 +66,9 @@ void register_overlays() {
     recomp::mods::set_jump_table_data(std::move(jump_table_data));
     // A mod runs its own code in the game, so a newly installed one waits for the player to turn it
     // on (the debug menu's MODS page, which says to trust where it came from).
+    // The built-in mods (the speedrun timer) are no exception: they start off too.
     recomp::mods::set_enable_new_mods(false);
+    register_embedded_mods();
     register_mod_data_exports();
     recomp::overlays::overlay_section_table_data_t sections{
         .code_sections = section_table,

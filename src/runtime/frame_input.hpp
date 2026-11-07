@@ -1,4 +1,4 @@
-// The game's input, one record per game frame (docs/online-multiplayer-plan.md, M0). Once a frame,
+// The game's input, one record per game frame. Once a frame,
 // at the start of func_1501905C (before func_1501BBB8 reads the pads), every port's pad, the
 // scripted presses and controller 1's mouse are sampled into a record, and everything the game
 // logic sees of the input for that frame comes from it: the PIF shim's controller answers and
@@ -123,6 +123,8 @@ void leave_fixed_step();
 // The audio frames from Rare's audio thread to the game thread's model, carrying on where the thread
 // was (frame_audio.cpp); false while it is not at the top of its loop.
 bool take_audio_frames(uint8_t* rdram);
+// And back to the audio thread on leaving a session, after this machine's own game is put back.
+void give_back_audio_frames(uint8_t* rdram);
 // The frame number the next frame's record follows: a session's frames count from 1.
 void set_frame(uint32_t frame);
 // After a session: this machine's own settings (settings_header() before it) back, its own

@@ -161,6 +161,25 @@ the latest save; to go back to an earlier one, copy its two files over
 `conker_us.bin` and `conker_us.resume` while the game is closed, or load it
 from the debug menu. `CONKER_SAVE_SNAPSHOTS=0` stops keeping them.
 
+## EXIT GAME
+
+A way to close the game from inside it, for a player with only a pad, or in
+full screen, where the window's close button is out of reach. On the title
+menu, while the room turns between GAME 1, MULTI, OPTIONS and CHAPTERS,
+Start opens a menu instead of the corner (A still opens the corner): RESUME
+and EXIT GAME. Up and down choose; A on RESUME, B or Start closes the menu.
+A on EXIT GAME asks EXIT GAME? with NO chosen; right picks YES, and A on YES
+closes the game (A on NO, B or Start takes the question back). The room does
+not turn while the menu is up. From play, the pause menu's QUIT goes back to
+the title first.
+
+The game closes exactly as when its window is closed: nothing is saved that
+was not saved already, and the next start shows no notice of a crash. It is
+not offered online, where the session's window (the debug menu's key) has
+LEAVE THE SESSION, or the window can be closed. `CONKER_QUIT_GAME=0` leaves
+Start as the game has it; the debug menu's ENHANCEMENTS page can switch it
+too.
+
 ## Debug menu
 
 View on an Xbox pad, Create (Share) on a PlayStation pad, or the `` ` `` key opens
@@ -207,8 +226,8 @@ button. Up and down choose a row, A or left and right change it, B goes back:
 * ENHANCEMENTS: every enhancement that can be switched while the game
   runs, each ON or OFF, starting as its `CONKER_*` variable set it: SHARP
   TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
-  WIDESCREEN CULLING, SKIP INTRO, SKIP CUTSCENES, PAUSE SAVE AND LOAD, SAVE
-  SNAPSHOTS, SURROUND DEFAULT, MP CHARACTERS, FULL DETAIL, DRAW DISTANCE,
+  WIDESCREEN CULLING, SKIP INTRO, SKIP CUTSCENES, PAUSE SAVE AND LOAD, EXIT
+  GAME, SAVE SNAPSHOTS, SURROUND DEFAULT, MP CHARACTERS, FULL DETAIL, DRAW DISTANCE,
   CONSISTENT CONTROLS, PAD BUTTONS, 60 FPS and MY VIEW (online: only your own
   view and sounds, see docs/online-play.md), in a list like LOAD REPORT's
   (nine rows at a time, scrolling). A or left and right switch the chosen one.
@@ -548,6 +567,4 @@ font's glyphs with their hashes as a template for new art.
 Off by default. `CONKER_60FPS=1` lets the game start a frame on every retrace
 instead of every second one. Its logic already steps by elapsed time, so
 movement, jumps, the camera, animation and cutscenes keep their speed; a few
-things still assume 30 fps. See
-[investigations.md](investigations.md#60-fps-conker_60fps1-experimental) for
-what was measured.
+things still assume 30 fps.

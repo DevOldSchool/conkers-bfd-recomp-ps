@@ -1,7 +1,0 @@
-# two machines: join the game called Host from the LAN list, READY, then play f2.pad
-1500 name Guest
-3000 shot @L.g.view1
-3500 joinlan Host
-8000 shot @L.g.view2
-8500 ready
-9000 setenv CONKER_VIRTUAL_PAD=@N/f2.pad

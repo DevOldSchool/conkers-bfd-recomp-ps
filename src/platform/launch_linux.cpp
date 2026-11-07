@@ -1,6 +1,7 @@
 // The Linux build started from the desktop: data folder and log (see launch.hpp). The ROM dialog is
 // in launch_nfd.cpp.
 #include "platform/launch.hpp"
+#include "platform/crash_log.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -33,6 +34,7 @@ void enter_data_folder() {
     if (error || !from_desktop()) {
         return;
     }
+    crash_log::start_run(folder / "conker-recomp-data");
     const std::string log = (folder / "conker-recomp-data" / "last-run.log").string();
     std::freopen(log.c_str(), "w", stdout);
     // stderr shares stdout's open file, and so its position: a second open of the file kept its own
@@ -41,5 +43,7 @@ void enter_data_folder() {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     std::setvbuf(stderr, nullptr, _IONBF, 0);
 }
+
+void warn_if_emulated() {}
 
 }  // namespace conker::launch

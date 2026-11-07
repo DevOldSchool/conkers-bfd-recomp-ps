@@ -1,6 +1,6 @@
 {
   "description": "Count Batula's mansion (scene 60): after a pause save, the giant bat (model 162) still circles Batula's perch (163), not the villager that took the perch's old slot",
-  "covers": ["src/enhancements/pause_save/resume_point.cpp (restored_link, PR #66)"],
+  "covers": ["src/enhancements/pause_save/resume_point.cpp (restored_link)"],
   "frames": 90,
   "expect": [{"at": 90, "actor_link": [162, 163]}],
   "without_fix": {"env": {"CONKER_TEST_OFF": "resume_actor_link"}},

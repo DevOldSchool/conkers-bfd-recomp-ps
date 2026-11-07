@@ -14,9 +14,9 @@ body:
         1. When the problem is on screen (or just after), open the debug menu: **View** on an Xbox
            pad, **Create** (Share) on a PlayStation pad, or the **`` ` ``** key on the keyboard.
         2. Choose **SAVE DEBUG REPORT** and press A.
-        3. Close the game, then open the `conker-recomp-data/debug_reports/` folder. It is in the
-           folder you started the game from. The report is the folder named after the scene and
-           the time, for example `scene12-20261022-191043`.
+        3. Close the game, then open the `debug_reports` folder in the game's data folder (below).
+           The report is the folder named after the scene and the time, for example
+           `scene12-20261022-191043`.
         4. Zip that folder and drag the zip into the box below.
 
         A report has the build, the scene, Conker's position, the camera, your settings and
@@ -25,8 +25,19 @@ body:
         is not changed. Read `report.json` before attaching if you want to see exactly what is in it.
 
         If the game **froze**, the same folder may also have a `hang-<date>-<time>.txt`: attach
-        that too. If it **crashed**, there is no report, but the terminal it was started from
-        prints what failed: paste that output below.
+        that too.
+
+        If it **crashed or would not start**, there is no report: open the game again and it says
+        so, with a **Show the log** button. Attach the `crash-<date>_<time>.log` it shows (and, on
+        Windows, the `.dmp` file of the same name). They are in the `crash-reports` folder of the
+        game's data folder. Started from a terminal instead, the game prints to the terminal: paste
+        that output.
+
+        **The game's data folder** (`conker-recomp-data`):
+        - macOS: `~/Library/Application Support/ConkersBadFurDayRecompiled/conker-recomp-data`
+        - Windows: `%LOCALAPPDATA%\ConkersBadFurDayRecompiled\conker-recomp-data`
+        - Linux: `~/.local/share/ConkersBadFurDayRecompiled/conker-recomp-data`
+        - or, started from a folder that already has a `conker-recomp-data` folder, that one.
 
         **Never attach or link a ROM**, or anything made from one. Issues that do are closed.
 
@@ -63,7 +74,7 @@ body:
     id: debug_report
     attributes:
       label: Debug report
-      description: Drag the zipped report folder here (and any `hang-*.txt`). Screenshots and videos are welcome too.
+      description: Drag the zipped report folder here (and any `hang-*.txt`, or for a crash the `crash-*.log` and `.dmp`). Screenshots and videos are welcome too.
       placeholder: Drop scene12-20261022-191043.zip here
 
   - type: textarea

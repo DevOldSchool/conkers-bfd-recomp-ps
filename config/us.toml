@@ -87,6 +87,13 @@ func = "func_800095A0"
 before_vram = 0x100095D4
 text = "{ void osAiGetLength_recomp(uint8_t*, recomp_context*); void conker_audio_queued(uint8_t*, recomp_context*); uint64_t saved_v0 = ctx->r2; osAiGetLength_recomp(rdram, ctx); ctx->r3 = ctx->r2; ctx->r2 = saved_v0; conker_audio_queued(rdram, ctx); }"
 
+# func_15015E80 sizes the frame display list buffers when a scene loads: more room for what this port
+# draws besides the game (src/fixes/display_list_room.cpp).
+[[patches.hook]]
+func = "func_15015E80"
+before_vram = 0x15015E80
+text = "{ void conker_display_list_room(uint8_t*, recomp_context*); conker_display_list_room(rdram, ctx); }"
+
 # func_80004250 walks the heap once a frame; check the list first and report damage (a write past
 # the end of a block) before the walk follows it. See src/runtime/heap_check.cpp.
 [[patches.hook]]

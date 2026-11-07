@@ -10,6 +10,8 @@
 # right click > Open, or clears the quarantine with `xattr -dr com.apple.quarantine "Conker's Bad Fur Day Recompiled.app"`.
 # No ROM is packaged. Opened from Finder the app asks for the tester's own ROM once and keeps its data
 # and last-run.log in ~/Library/Application Support/ConkersBadFurDayRecompiled (src/platform/launch.hpp).
+# Contents/Resources/Licenses holds the licenses and SOURCE.txt (tools/package_notices.py); attach
+# tools/source_archive.sh's tarball to the release beside the zip.
 # dist/ConkersBadFurDayRecompiled.dSYM holds the debug information, for tools/symbolicate.sh on a tester's crash.
 set -euo pipefail
 
@@ -33,6 +35,11 @@ fi
 # A build from before the packaged-app support would quit at once when opened from Finder.
 if ! grep -q "Choose your Conker" "$binary"; then
     echo "$binary predates the packaged-app support (src/platform/launch_apple.mm): rebuild it" >&2
+    exit 1
+fi
+# The built-in mods (tools/build_mods.sh, CONKER_EMBEDDED_MODS): a release always carries them.
+if ! grep -q '^CONKER_EMBEDDED_MOD_IDS:INTERNAL=.*conker_speedrun' "$build/CMakeCache.txt" 2>/dev/null; then
+    echo "$build has no built-in speedrun mod: run tools/build_mods.sh, then build again" >&2
     exit 1
 fi
 echo "==> packaging $binary ($(stat -f '%Sm' "$binary"))"
@@ -122,6 +129,9 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
 rm -rf "$(dirname "$iconset")"
+
+# The licenses the app must carry (the GPL-3.0 among them) and where its source is.
+python3 "$here/tools/package_notices.py" "$build" "$app/Contents/Resources/Licenses" macos
 
 echo "==> pointing the binary at the bundled SDL"
 exe="$app/Contents/MacOS/ConkersBadFurDayRecompiled"

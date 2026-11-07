@@ -1,5 +1,5 @@
 // Hashes of the game's memory once a game frame, for finding where two runs of the same input part
-// ways (docs/online-multiplayer-plan.md, M1). CONKER_STATE_HASH_LOG=<file> writes a line a frame:
+// ways. CONKER_STATE_HASH_LOG=<file> writes a line a frame:
 // the frame number, then one 32-bit hash per 16 KiB block of RDRAM from 0x80000000 to 0x80400000
 // (256 of them), taken at the start of func_1501905C, before the frame's input record. Compare two
 // logs with tools/compare_state_hashes.py. CONKER_STATE_HASH_EVERY=<n> hashes every nth frame only.

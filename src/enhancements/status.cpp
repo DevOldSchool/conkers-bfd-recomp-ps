@@ -73,6 +73,7 @@ nlohmann::json enhancements(uint8_t* rdram) {
         intro_skip(),
         cutscene_skip(),
         pause_save(),
+        quit_game(),
         save_snapshots(),
         surround_default(rdram),
         mp_characters(),

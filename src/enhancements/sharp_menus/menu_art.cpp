@@ -64,6 +64,10 @@ const Resources& resources() {
 }
 
 // --- Super-xBR -----------------------------------------------------------------------------------
+//
+// A port of Hyllian's Super-xBR shader (libretro glsl-shaders, xbr/shaders/super-xbr), under the
+// MIT license: Copyright (c) 2015 Hyllian. The full notice is in tools/package_notices.py, and
+// every packaged build carries it in THIRD-PARTY-NOTICES.txt.
 
 using Pixel = std::array<double, 4>;
 using Plane = std::vector<Pixel>;  // w x h, premultiplied

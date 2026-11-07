@@ -12,6 +12,7 @@
 // F3DEX2CBFD microcode support. Audio is rendered by the recompiled audio microcode and played
 // through SDL2 in the RT64 build (src/platform/audio.cpp).
 #include <atomic>
+#include <cctype>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -48,8 +49,10 @@ static long _dyld_get_image_vmaddr_slide(int) { return 0; }
 #include "net/net_play.hpp"
 #include "runtime/rsp.hpp"
 #if CONKER_LAUNCH_UI
+#include "platform/crash_log.hpp"
 #include "platform/launch.hpp"
 #endif
+#include <exception>
 #if CONKER_RENDERER_RT64
 #include "platform/renderer_rt64.hpp"
 #include <SDL.h>
@@ -129,7 +132,20 @@ void message_box(const char* msg) {
 #endif
 }
 void vi_callback() { vi_count++; }
-void gfx_init_callback() { std::printf("[conker] gfx thread started\n"); }
+#if defined(_WIN32)
+LONG WINAPI crash_filter(EXCEPTION_POINTERS* info);
+#endif
+void gfx_init_callback() {
+    std::printf("[conker] gfx thread started\n");
+#if defined(_WIN32)
+    // A graphics driver can put in its own unhandled-exception filter while the renderer starts;
+    // a crash after that would then leave no report. Ours goes back on top.
+    LPTOP_LEVEL_EXCEPTION_FILTER previous = SetUnhandledExceptionFilter(crash_filter);
+    if (previous != crash_filter) {
+        std::printf("[conker] crash filter was replaced while the renderer started; put back\n");
+    }
+#endif
+}
 
 #if defined(_WIN32)
 void write_stderr(const char* data, int size) { _write(2, data, static_cast<unsigned>(size)); }
@@ -184,41 +200,138 @@ void report_crash(const char* what, void* address) {
 #if defined(_WIN32)
 // Names each frame from the PDB next to the executable when there is one.
 void print_backtrace(CONTEXT* context) {
+    // Windows' own unwinder (the function tables in each module), which follows ARM64's signed return
+    // addresses where StackWalk64 stopped after a frame or two.
     HANDLE process = GetCurrentProcess();
     SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
     const bool symbols = SymInitialize(process, nullptr, TRUE);
-    STACKFRAME64 frame{};
-    frame.AddrPC.Offset = context->Rip;
-    frame.AddrPC.Mode = AddrModeFlat;
-    frame.AddrFrame.Offset = context->Rbp;
-    frame.AddrFrame.Mode = AddrModeFlat;
-    frame.AddrStack.Offset = context->Rsp;
-    frame.AddrStack.Mode = AddrModeFlat;
+    CONTEXT ctx = *context;
     alignas(SYMBOL_INFO) char symbol_buf[sizeof(SYMBOL_INFO) + 256];
     for (int i = 0; i < 64; i++) {
-        if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, process, GetCurrentThread(), &frame, context, nullptr,
-                         SymFunctionTableAccess64, SymGetModuleBase64, nullptr) ||
-            frame.AddrPC.Offset == 0) {
+#if defined(_M_ARM64)
+        const DWORD64 pc = ctx.Pc & 0x0000FFFFFFFFFFFFULL;  // without the pointer-authentication bits
+#else
+        const DWORD64 pc = ctx.Rip;
+#endif
+        if (pc == 0) {
             break;
         }
-        const DWORD64 pc = frame.AddrPC.Offset;
         auto* symbol = reinterpret_cast<SYMBOL_INFO*>(symbol_buf);
         symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
         symbol->MaxNameLen = 255;
         DWORD64 displacement = 0;
-        char buf[384];
+        char module[MAX_PATH] = "?";
+        HMODULE handle = nullptr;
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCSTR>(pc), &handle)) {
+            char path[MAX_PATH];
+            if (GetModuleFileNameA(handle, path, MAX_PATH) != 0) {
+                const char* slash = std::strrchr(path, '\\');
+                std::snprintf(module, sizeof(module), "%s", slash != nullptr ? slash + 1 : path);
+            }
+        }
+        const unsigned long long offset = handle != nullptr ? pc - reinterpret_cast<DWORD64>(handle) : 0;
+        char buf[512];
         int len;
         if (symbols && SymFromAddr(process, pc, &displacement, symbol)) {
-            len = std::snprintf(buf, sizeof(buf), "%-3d 0x%016llx %s + %llu\n", i, static_cast<unsigned long long>(pc), symbol->Name,
+            len = std::snprintf(buf, sizeof(buf), "%-3d %s+0x%llx %s + %llu\n", i, module, offset, symbol->Name,
                                 static_cast<unsigned long long>(displacement));
         } else {
-            len = std::snprintf(buf, sizeof(buf), "%-3d 0x%016llx\n", i, static_cast<unsigned long long>(pc));
+            len = std::snprintf(buf, sizeof(buf), "%-3d %s+0x%llx\n", i, module, offset);
         }
         write_stderr(buf, len);
+
+        DWORD64 image_base = 0;
+        PRUNTIME_FUNCTION function = RtlLookupFunctionEntry(pc, &image_base, nullptr);
+        if (function == nullptr) {
+            // A leaf function: the return address is in LR (ARM64) or on top of the stack (x64).
+#if defined(_M_ARM64)
+            if (ctx.Lr == 0 || (ctx.Lr & 0x0000FFFFFFFFFFFFULL) == pc) {
+                break;
+            }
+            ctx.Pc = ctx.Lr;
+            ctx.Lr = 0;
+#else
+            ctx.Rip = *reinterpret_cast<DWORD64*>(ctx.Rsp);
+            ctx.Rsp += 8;
+#endif
+            continue;
+        }
+        PVOID handler_data = nullptr;
+        DWORD64 establisher = 0;
+        RtlVirtualUnwind(UNW_FLAG_NHANDLER, image_base, pc, function, &ctx, &handler_data, &establisher, nullptr);
     }
 }
 
+// The message of the last C++ exception thrown on each thread, noted as it is thrown: one nobody
+// catches ends the process through std::terminate, where MSVC no longer has it as current.
+thread_local char t_last_throw[512];
+
+LONG CALLBACK note_cxx_throw(EXCEPTION_POINTERS* info) {
+    const EXCEPTION_RECORD* record = info->ExceptionRecord;
+    // MSVC's C++ throw: code 'msc', magic, the object, its ThrowInfo, and the image the RVAs are from.
+    if (record->ExceptionCode != 0xE06D7363 || record->NumberParameters < 4 ||
+        record->ExceptionInformation[0] != 0x19930520 || record->ExceptionInformation[2] == 0) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    auto* object = reinterpret_cast<char*>(record->ExceptionInformation[1]);
+    const auto* throw_info = reinterpret_cast<const uint8_t*>(record->ExceptionInformation[2]);
+    const uintptr_t base = record->ExceptionInformation[3];
+    // ThrowInfo: attributes, unwind, forward-compat, catchable type array (each a 32-bit field).
+    const auto* types = reinterpret_cast<const int32_t*>(base + *reinterpret_cast<const int32_t*>(throw_info + 12));
+    const char* first_name = nullptr;
+    for (int32_t i = 0; i < types[0] && i < 16; i++) {
+        // CatchableType: properties, type descriptor, this displacement (mdisp, pdisp, vdisp), size, copy.
+        const auto* type = reinterpret_cast<const uint8_t*>(base + types[1 + i]);
+        const auto* descriptor = reinterpret_cast<const uint8_t*>(base + *reinterpret_cast<const int32_t*>(type + 4));
+        const char* name = reinterpret_cast<const char*>(descriptor + 2 * sizeof(void*));
+        if (first_name == nullptr) {
+            first_name = name;
+        }
+        if (std::strcmp(name, ".?AVexception@std@@") == 0) {
+            const int32_t displacement = *reinterpret_cast<const int32_t*>(type + 8);
+            const auto* e = reinterpret_cast<const std::exception*>(object + displacement);
+            std::snprintf(t_last_throw, sizeof(t_last_throw), "%s: %s", first_name, e->what());
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+    }
+    std::snprintf(t_last_throw, sizeof(t_last_throw), "%s", first_name != nullptr ? first_name : "unknown type");
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+// Several threads can fail at once (the renderer's workers did): the first one writes the report and
+// ends the process; the others wait for it rather than write over its minidump.
+std::atomic_flag g_reporting = ATOMIC_FLAG_INIT;
+void claim_report() {
+    if (g_reporting.test_and_set()) {
+        Sleep(INFINITE);
+    }
+}
+
+// Where a crash's minidump goes: crash-reports/pending.dmp, renamed with its log at the next start
+// (crash_log.cpp). Empty when started from a terminal. Set before any crash, so the filter builds nothing.
+wchar_t g_dump_path[MAX_PATH] = {};
+
+void write_minidump(EXCEPTION_POINTERS* info) {
+    if (g_dump_path[0] == L'\0') {
+        return;
+    }
+    HANDLE file = CreateFileW(g_dump_path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    MINIDUMP_EXCEPTION_INFORMATION exception{GetCurrentThreadId(), info, FALSE};
+    MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), file,
+                      static_cast<MINIDUMP_TYPE>(MiniDumpWithThreadInfo | MiniDumpWithIndirectlyReferencedMemory),
+                      info != nullptr ? &exception : nullptr, nullptr, nullptr);
+    CloseHandle(file);
+    const char line[] = "[conker] minidump written (crash-reports, beside this log at the next start)\n";
+    write_stderr(line, sizeof(line) - 1);
+}
+
 LONG WINAPI crash_filter(EXCEPTION_POINTERS* info) {
+    claim_report();
+    write_minidump(info);
     const EXCEPTION_RECORD* record = info->ExceptionRecord;
     char what[64];
     void* address = record->ExceptionAddress;
@@ -256,10 +369,86 @@ void dump_trace_at_exit() {
     }
 }
 
+// An exception nobody caught (the renderer failing to start throws one) ends the game through
+// std::terminate, which no signal handler or exception filter sees: say what it was, and where.
+[[noreturn]] void terminate_handler() {
+#if defined(_WIN32)
+    claim_report();
+#endif
+    char buf[640];
+    int len = std::snprintf(buf, sizeof(buf), "[conker] fatal: uncaught exception\n");
+#if defined(_WIN32)
+    if (t_last_throw[0] != '\0') {
+        len = std::snprintf(buf, sizeof(buf), "[conker] fatal: uncaught exception %s\n", t_last_throw);
+    }
+#endif
+    if (std::exception_ptr current = std::current_exception()) {
+        try {
+            std::rethrow_exception(current);
+        } catch (const std::exception& e) {
+            len = std::snprintf(buf, sizeof(buf), "[conker] fatal: uncaught exception: %s\n", e.what());
+        } catch (...) {
+        }
+    }
+    write_stderr(buf, len);
+#if defined(_WIN32)
+    CONTEXT context{};
+    RtlCaptureContext(&context);
+    EXCEPTION_RECORD record{};
+    record.ExceptionCode = 0xE0000001;  // ours: an uncaught C++ exception
+    EXCEPTION_POINTERS pointers{&record, &context};
+    write_minidump(&pointers);
+    print_backtrace(&context);
+    TerminateProcess(GetCurrentProcess(), 128 + 6);  // the exit status a SIGABRT gives on POSIX
+#else
+    void* frames[64];
+    const int count = backtrace(frames, 64);
+    backtrace_symbols_fd(frames, count, 2);
+#endif
+    _exit(128 + 6);
+}
+
+#if defined(_WIN32)
+// The Microsoft C runtime keeps one terminate handler per thread, so set_terminate in main covers
+// the main thread only: an exception escaping the renderer's or another library's thread would end
+// in abort() with nothing said. This TLS callback runs for every thread as it starts and installs
+// the handler there too.
+void NTAPI terminate_on_every_thread(PVOID, DWORD reason, PVOID) {
+    if (reason == DLL_THREAD_ATTACH) {
+        std::set_terminate(terminate_handler);
+    }
+}
+// The C runtime's own ways to end the process (abort(), a bad argument to a CRT function, a pure
+// virtual call) skip the exception filter: report them the same way, with a minidump.
+[[noreturn]] void crt_fatal(const char* what) {
+    claim_report();
+    char buf[160];
+    const int len = std::snprintf(buf, sizeof(buf), "\n[conker] fatal: %s\n", what);
+    write_stderr(buf, len);
+    CONTEXT context{};
+    RtlCaptureContext(&context);
+    EXCEPTION_RECORD record{};
+    record.ExceptionCode = 0xE0000002;  // ours: the C runtime ended the process
+    EXCEPTION_POINTERS pointers{&record, &context};
+    write_minidump(&pointers);
+    print_backtrace(&context);
+    TerminateProcess(GetCurrentProcess(), 128 + 6);
+    _exit(128 + 6);
+}
+#endif
+
 void install_crash_handler() {
     std::atexit(dump_trace_at_exit);
+    std::set_terminate(terminate_handler);
 #if defined(_WIN32)
     SetUnhandledExceptionFilter(crash_filter);
+    AddVectoredExceptionHandler(1, note_cxx_throw);
+    signal(SIGABRT, [](int) { crt_fatal("abort() called"); });
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    _set_invalid_parameter_handler([](const wchar_t*, const wchar_t*, const wchar_t*, unsigned, uintptr_t) {
+        crt_fatal("invalid parameter passed to a C runtime function");
+    });
+    _set_purecall_handler([] { crt_fatal("pure virtual function call"); });
 #else
     struct sigaction action{};
     action.sa_sigaction = crash_handler;
@@ -286,6 +475,14 @@ const char* rom_error_name(recomp::RomValidationError err) {
 
 } // namespace
 
+#if defined(_WIN32)
+// Outside the unnamed namespace: the linker keeps it by name (/INCLUDE).
+#pragma section(".CRT$XLC", read)
+extern "C" __declspec(allocate(".CRT$XLC")) const PIMAGE_TLS_CALLBACK conker_terminate_tls = terminate_on_every_thread;
+#pragma comment(linker, "/INCLUDE:_tls_used")
+#pragma comment(linker, "/INCLUDE:conker_terminate_tls")
+#endif
+
 uint64_t conker::current_vi() { return vi_count.load(); }
 
 uint16_t conker::scripted_buttons() {
@@ -307,7 +504,20 @@ uint16_t conker::scripted_buttons() {
 // Set as main returns from a normal quit (the window closed, Cmd-Q).
 std::atomic<bool> g_quitting_normally{false};
 
+int run(int argc, char** argv);
+
 int main(int argc, char** argv) {
+    const int status = run(argc, argv);
+#if CONKER_LAUNCH_UI
+    // Every way back here is a run that ended as it meant to; crashes, aborts and the runtime's
+    // fatal-error exits never get here, so their log is kept at the next start (crash_log.hpp).
+    std::printf("[conker] quit normally (status %d)\n", status);
+    conker::crash_log::mark_clean_exit();
+#endif
+    return status;
+}
+
+int run(int argc, char** argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);  // keep log order intact if the game thread crashes
     // Registered first, so it runs last of the exit handlers (the online LEAVE, the router's port, the
     // triggers let go) and before the destructors of the statics made before main. The game's own
@@ -327,6 +537,55 @@ int main(int argc, char** argv) {
     }
 #if CONKER_LAUNCH_UI
     conker::launch::enter_data_folder();
+    conker::crash_log::log_system_info();
+    conker::launch::warn_if_emulated();
+#if defined(_WIN32)
+    if (!conker::crash_log::reports_folder().empty()) {
+        std::error_code error;
+        std::filesystem::create_directories(conker::crash_log::reports_folder(), error);
+        const std::wstring dump = (conker::crash_log::reports_folder() / "pending.dmp").wstring();
+        if (dump.size() < MAX_PATH) {
+            std::wcsncpy(g_dump_path, dump.c_str(), MAX_PATH - 1);
+        }
+    }
+#endif
+    if (conker::launch::from_desktop() && conker::crash_log::previous_crash()) {
+        // Nobody reads the log of a game started from the desktop: say where the failed run's is.
+        const std::filesystem::path log = *conker::crash_log::previous_crash();
+        const std::string text = "The game did not close normally last time.\n\nIf it crashed or failed to start, "
+                                 "please attach its log, " + log.filename().string() +
+                                 " (and a .dmp file of the same name, if there is one), when you report the "
+                                 "problem. It is in the crash-reports folder.";
+#if defined(__APPLE__)
+        SDL_InitSubSystem(SDL_INIT_VIDEO);
+#endif
+        const SDL_MessageBoxButtonData buttons[] = {
+            {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Continue"},
+            {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Show the log"},
+        };
+        const SDL_MessageBoxData box{SDL_MESSAGEBOX_INFORMATION, nullptr, "Conker's Bad Fur Day Recompiled",
+                                     text.c_str(), SDL_arraysize(buttons), buttons, nullptr};
+        int pressed = 0;
+        if (SDL_ShowMessageBox(&box, &pressed) == 0 && pressed == 1) {
+            // The folder, in Finder, Explorer or the desktop's file manager.
+            // file:///C:/... on Windows, file:///home/... style elsewhere, spaces and the like escaped.
+            std::string url = "file://";
+            const std::string folder = log.parent_path().generic_string();
+            if (folder.empty() || folder[0] != '/') {
+                url += '/';
+            }
+            for (const unsigned char c : folder) {
+                if (std::isalnum(c) || std::strchr("/-_.~:", c) != nullptr) {
+                    url += static_cast<char>(c);
+                } else {
+                    char escaped[4];
+                    std::snprintf(escaped, sizeof(escaped), "%%%02X", c);
+                    url += escaped;
+                }
+            }
+            SDL_OpenURL(url.c_str());
+        }
+    }
 #endif
 
     // Stored ROM copy, saves and mod folders live here.

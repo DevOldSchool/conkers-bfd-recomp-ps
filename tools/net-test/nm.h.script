@@ -1,9 +1,0 @@
-# a game with mods on restarting without them from the ONLINE page (lrun.sh nm; put a mod in one lobby's
-# conker-recomp-data/mods and mods.json): "nomods" restarts only a game with mods on, and the page's
-# script plays again from the start in the restarted game, where it is then passed over
-500 shot @L.h.view0
-1000 nomods
-1500 name Host
-2000 host 37810
-12000 shot @L.h.view1
-12500 start

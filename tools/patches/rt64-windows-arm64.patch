@@ -1,0 +1,60 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -47,9 +47,25 @@
+     else()
+         set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/src/contrib/dxc/lib/${DXC_HOST_ARCH}" "${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/${DXC_HOST_ARCH}/dxc-linux")
+     endif()
++    # Only DXC with its signing library (libdxil, x86-64 Linux and Windows only) writes the signed
++    # DXIL D3D12 accepts: a parent project can name another DXC, such as one run in a container.
++    if (RT64_CROSS_DXC)
++        set (DXC ${RT64_CROSS_DXC})
++    endif()
+ endif()
+ 
+ if (WIN32)
++    # The CPU the game is built for, and the DXC it loads at run time: a parent project may point
++    # RT64_WIN_DXC_DIR at another copy with the same layout (bin/<arch>, lib/<arch>), such as DXC's
++    # own release, which has the arm64 DLLs this one lacks.
++    if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64)$")
++        set (RT64_WIN_ARCH "arm64")
++    else()
++        set (RT64_WIN_ARCH "x64")
++    endif()
++    if (NOT RT64_WIN_DXC_DIR)
++        set (RT64_WIN_DXC_DIR "${PROJECT_SOURCE_DIR}/src/contrib/dxc")
++    endif()
+     if (NOT DXC)
+         set (DXC "${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/x64/dxc.exe")
+     endif()
+@@ -59,8 +75,8 @@
+     )
+ 
+     # Dependencies that must be next to the DLL.
+-    configure_file("${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/x64/dxcompiler.dll" "dxcompiler.dll" COPYONLY)
+-    configure_file("${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/x64/dxil.dll" "dxil.dll" COPYONLY)
++    configure_file("${RT64_WIN_DXC_DIR}/bin/${RT64_WIN_ARCH}/dxcompiler.dll" "dxcompiler.dll" COPYONLY)
++    configure_file("${RT64_WIN_DXC_DIR}/bin/${RT64_WIN_ARCH}/dxil.dll" "dxil.dll" COPYONLY)
+ elseif (APPLE)
+     if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+         # find zlib and include in dyld path
+@@ -301,7 +317,9 @@
+ endfunction()
+ 
+ # Point cmake at src/contrib/mupen64plus-win32-deps/SDL2-2.26.3 for SDL2 on windows, look for an installed package on other systems
+-if (WIN32)
++# (unless the parent project brings its own SDL2: that copy has no arm64 build)
++if (RT64_SDL2_FROM_PARENT)
++elseif (WIN32)
+     set(SDL2_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/include")
+     set(SDL2_LIBRARIES "SDL2" "SDL2main")
+     link_directories("${PROJECT_SOURCE_DIR}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/lib/x64")
+@@ -491,7 +509,7 @@
+         D3D12
+         DXGI
+         Shcore.lib
+-        ${PROJECT_SOURCE_DIR}/src/contrib/dxc/lib/x64/dxcompiler.lib)
++        ${RT64_WIN_DXC_DIR}/lib/${RT64_WIN_ARCH}/dxcompiler.lib)
+ 
+     target_include_directories(rt64 PRIVATE ${zstd_SOURCE_DIR}/lib)
+ endif()

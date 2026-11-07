@@ -288,6 +288,18 @@ recomp_context* thread_waiting_on(uint8_t* rdram, uint32_t queue) {
     return nullptr;
 }
 
+std::string describe_threads(uint8_t* rdram) {
+    std::lock_guard lock(g_threads_mutex);
+    std::string out;
+    char line[96];
+    for (const Thread& t : g_threads) {
+        const Place p = place_of(rdram, t);
+        std::snprintf(line, sizeof(line), " %08x:state %d queue %08x", p.thread, p.state, p.queue);
+        out += line;
+    }
+    return out;
+}
+
 std::vector<uint8_t> save(uint8_t* rdram, recomp_context* ctx, uint32_t frame, std::string* why) {
     std::vector<Thread> threads;
     {

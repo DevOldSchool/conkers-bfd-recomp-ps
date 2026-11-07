@@ -41,6 +41,10 @@
 // types it leaves out.
 #include <windows.h>
 #endif
+#if defined(__linux__)
+#include <dlfcn.h>
+#include <link.h>
+#endif
 #include "platform/renderer_rt64.hpp"
 #include "platform/present_focus.hpp"
 #include "platform/render_debug.hpp"
@@ -83,6 +87,26 @@
 namespace conker::renderer {
 
 namespace {
+
+#if defined(__linux__)
+// Keeps every library loaded now (the Vulkan loader and its GPU driver among them) loaded until the
+// process ends. When RT64 shuts down, the loader unloads the driver, and a driver that set a
+// thread-local value on the gfx thread (Mesa's do) leaves a destructor behind that runs from the
+// unloaded library as the thread exits: a crash on every quit, which the next start reports.
+void keep_libraries_loaded() {
+    std::vector<std::string> names;
+    dl_iterate_phdr([](dl_phdr_info* info, size_t, void* out) -> int {
+        if (info->dlpi_name != nullptr && info->dlpi_name[0] != '\0') {
+            static_cast<std::vector<std::string>*>(out)->push_back(info->dlpi_name);
+        }
+        return 0;
+    }, &names);
+    // Not from inside dl_iterate_phdr, which holds the loader's lock.
+    for (const std::string& name : names) {
+        dlopen(name.c_str(), RTLD_NOW | RTLD_NOLOAD | RTLD_NODELETE);
+    }
+}
+#endif
 
 uint8_t dmem[0x1000];
 uint8_t imem[0x1000];
@@ -411,6 +435,9 @@ public:
             app_ = nullptr;
             return;
         }
+#if defined(__linux__)
+        keep_libraries_loaded();
+#endif
         start_texture_dump(*app_);
         install_object_picker();
         conker::frame_effects::use_gpu(true);

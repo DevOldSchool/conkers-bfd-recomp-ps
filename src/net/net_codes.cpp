@@ -301,7 +301,7 @@ bool lan_address(const sockaddr_storage& addr) {
 }
 
 namespace {
-std::atomic<bool> g_internet_allowed{false};
+std::atomic<bool> g_internet_allowed{true};
 }
 
 void set_internet_allowed(bool allowed) { g_internet_allowed.store(allowed); }
@@ -328,8 +328,8 @@ bool sender_allowed(const sockaddr_storage& from) {
 }
 
 std::string internet_off_message() {
-    return "internet play is off: this build joins and hosts on the LAN only until its online security is "
-           "trusted. Start the game with --net-unsafe-internet to allow it (docs/online-play.md)";
+    return "internet play is off: the game was started with --net-lan-only, which joins and hosts on the "
+           "LAN only";
 }
 
 AddressKind ipv4_kind(uint32_t a) {

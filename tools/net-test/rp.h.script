@@ -1,7 +1,0 @@
-# SAVE DEBUG REPORT in a session (xlobby.sh rp h|g, pads ip1.pad / ip2.pad): each machine saves one
-# mid-match; report.json's "players" has both, "this_machine" the one that saved it
-1500 name Host
-2000 host 37810
-12000 shot @L.h.view1
-12500 start
-230000 report

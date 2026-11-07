@@ -296,8 +296,7 @@ std::string settings_differ(const std::string& theirs) {
 
 // Why this machine could not play with a game of this build, ROM and lobby version ("" if it can). The
 // OS and CPU do not matter: Macs, Linux and Windows PCs run the same game to the bit (the float
-// conversions, fused multiply-adds and libm calls that differ between them are made the same, see
-// docs/online-multiplayer-plan.md, M8).
+// conversions, fused multiply-adds and libm calls that differ between them are made the same).
 std::string mismatch(const std::string& build_in, const std::string& /*os*/, uint64_t rom, uint16_t protocol) {
     const std::string build = printable(build_in, 40);
     const auto base = [](const std::string& text) { return text.substr(0, text.find("+mods-")); };

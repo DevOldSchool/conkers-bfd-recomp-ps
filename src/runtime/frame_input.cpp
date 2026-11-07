@@ -225,7 +225,9 @@ Port sample_port(int index) {
     port.flags = Port::kConnected;
     float right_x = 0.0f;
     float right_y = 0.0f;
-    if (conker::input::right_stick(&right_x, &right_y, index)) {
+    // CONKER_TEST_NO_RIGHT_STICK=1: the pads count as having none, as the keyboard alone (tests).
+    static const bool no_right_stick = std::getenv("CONKER_TEST_NO_RIGHT_STICK") != nullptr;
+    if (!no_right_stick && conker::input::right_stick(&right_x, &right_y, index)) {
         port.flags |= Port::kRightStick;
         port.right_x = right_axis(right_x);
         port.right_y = right_axis(right_y);
@@ -311,7 +313,9 @@ void log_record(const Record& record) {
         const char* path = std::getenv("CONKER_FRAME_INPUT_LOG");
         FILE* opened = path != nullptr && path[0] != '\0' ? std::fopen(path, "w") : nullptr;
         if (opened != nullptr) {
-            std::setvbuf(opened, nullptr, _IOLBF, 0);  // runs end by being killed
+            // Line buffered, as runs end by being killed. Windows' C runtime refuses a size of 0 (the
+            // game stops: an invalid parameter) and buffers _IOLBF fully, so each line is flushed there.
+            std::setvbuf(opened, nullptr, _IOLBF, BUFSIZ);
             std::fputs(conker::frame_input::settings_header().c_str(), opened);
         }
         return opened;
@@ -328,6 +332,9 @@ void log_record(const Record& record) {
         std::fprintf(file, " m%d:%.9g,%.9g,%d", mouse.captured, mouse.dx, mouse.dy, mouse.zoom);
     }
     std::fputc('\n', file);
+#if defined(_WIN32)
+    std::fflush(file);
+#endif
 }
 
 // CONKER_FRAME_INPUT_REPLAY=<file>: the records of a CONKER_FRAME_INPUT_LOG, by frame number.

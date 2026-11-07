@@ -77,12 +77,22 @@ The ROM is kept in `conker-recomp-data`, so later runs can leave it out.
 
 ## Packaging for another Mac
 
+Run `tools/build_mods.sh` before building a release: it builds the speedrun
+mod the packaged game carries, off by default (it needs `brew install llvm lld`;
+see [modding.md](modding.md)), and `tools/package_macos.sh` refuses a build
+without it.
+
 `tools/package_macos.sh` turns the RT64 build into `dist/Conker's Bad Fur Day Recompiled.app` and
 a zip of it to send. The app carries its own SDL, so the other Mac needs no
 Homebrew, but it needs the same kind of chip (Apple silicon) and at least the
 macOS version the build was made for (see *For an older macOS* below). The app is not notarised: on the other
 Mac, right click it and choose Open the first time, or run
 `xattr -dr com.apple.quarantine "Conker's Bad Fur Day Recompiled.app"`.
+
+The app carries its licenses, and a `SOURCE.txt` naming the commit it was
+built from, in `Contents/Resources/Licenses`. Package from a clean, committed
+checkout, and attach `tools/source_archive.sh`'s source tarball to the release
+beside the zip.
 
 The app asks for the player's own ROM the first time it opens and keeps a
 copy, along with settings, saves and `last-run.log`, in

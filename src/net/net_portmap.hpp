@@ -1,4 +1,4 @@
-// Opening a host's UDP port on its router (docs/online-multiplayer-plan.md, M5): UPnP IGD through
+// Opening a host's UDP port on its router: UPnP IGD through
 // miniupnpc, then NAT-PMP through libnatpmp (which PCP routers answer too). Done on a thread of its
 // own, since asking a router takes a few seconds; the mapping is leased for an hour and renewed every
 // half hour, and removed when the game exits (close()). A hosting game that starts again into the

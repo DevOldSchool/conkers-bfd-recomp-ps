@@ -23,6 +23,11 @@ bool from_desktop();
 //   Windows: %LOCALAPPDATA%\ConkersBadFurDayRecompiled, with the same exception as Linux.
 void enter_data_folder();
 
+// Windows only: when the x64 build runs under emulation on an ARM PC, says that the ARM64 build
+// runs faster, in the log every time and in a window the first time (or every time from a terminal,
+// only in the log). Call after enter_data_folder(). Elsewhere it does nothing.
+void warn_if_emulated();
+
 // Asks for the ROM with an open dialog; empty when it is cancelled. Call on the main thread, on
 // macOS after SDL's video is initialised so the panel runs in SDL's application.
 std::filesystem::path choose_rom();

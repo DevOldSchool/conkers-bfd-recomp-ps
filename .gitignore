@@ -13,3 +13,7 @@ conker-recomp-data/
 .DS_Store
 .vscode/
 .idea/
+cmake-build-*/
+.ruff_cache/
+__pycache__/
+.claude/

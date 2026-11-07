@@ -1,5 +1,5 @@
 // Experimental 60 fps: CONKER_60FPS=1 lets Rare's scheduler start a frame on every retrace instead
-// of every second one. Off by default; docs/investigations.md has what was measured. Native helpers
+// of every second one. Off by default. Native helpers
 // called from the [[patches.hook]] snippets for func_1501C880, func_800049E0, func_80004DB0,
 // func_80005020, the half steps in func_15116BAC, func_151169B4, func_151934B4 and func_8000BF60,
 // the frame counters in func_15043384 and func_151934B4, the menu repeat timers in func_151DE8F0,
@@ -72,7 +72,9 @@ void log_frame(uint8_t* rdram) {
         const char* path = std::getenv("CONKER_FRAME_LOG");
         FILE* opened = path != nullptr && path[0] != '\0' ? std::fopen(path, "w") : nullptr;
         if (opened != nullptr) {
-            std::setvbuf(opened, nullptr, _IOLBF, 0);  // runs end by being killed
+            // Line buffered, as runs end by being killed. Windows' C runtime refuses a size of 0 (the
+            // game stops: an invalid parameter) and buffers _IOLBF fully, so each line is flushed there.
+            std::setvbuf(opened, nullptr, _IOLBF, BUFSIZ);
         }
         return opened;
     }();
@@ -94,6 +96,9 @@ void log_frame(uint8_t* rdram) {
                  static_cast<unsigned long long>(conker::current_vi()), static_cast<int>(MEM_W(0, kseg0(kFrameTicks))),
                  static_cast<unsigned>(MEM_W(0, kseg0(kScene))), read_float(rdram, kFrameDelta), position[0],
                  position[1], position[2], eye[0], eye[1], eye[2]);
+#if defined(_WIN32)
+    std::fflush(file);
+#endif
 }
 
 }  // namespace

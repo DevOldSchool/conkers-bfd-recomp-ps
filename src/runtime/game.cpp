@@ -10,6 +10,7 @@
 #endif
 
 #include "funcs.h"
+#include "librecomp/mods.hpp"
 #include "ultramodern/ultramodern.hpp"
 #include "runtime/memory.hpp"
 #include "net/net_play.hpp"
@@ -139,6 +140,12 @@ void on_init(uint8_t* rdram, recomp_context* /*ctx*/) {
         rom.subspan(memory::kGameArchiveRom, memory::kGameArchiveEnd - memory::kGameArchiveRom));
     std::printf("[conker] game archive: %zu code chunks, %zu code bytes, %zu data bytes\n",
                 archive.code_chunk_count, archive.code.size(), archive.data.size());
+    // Each mod, built in or installed, and whether it runs this time (the MODS page switches them).
+    for (const recomp::mods::ModDetails& mod : recomp::mods::get_all_mod_details("conker")) {
+        const bool on = recomp::mods::is_mod_enabled(mod.mod_id) || recomp::mods::is_mod_auto_enabled(mod.mod_id);
+        std::printf("[conker] mod %s %s: %s\n", mod.mod_id.c_str(), mod.version.to_string().c_str(),
+                    on && !net::mods_skipped() ? "on" : "off");
+    }
 
     if (!memory::make_window_accessible(rdram, memory::kGameCodeVram, archive.code.size())) {
         throw std::runtime_error("failed to map the game code window");

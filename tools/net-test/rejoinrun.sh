@@ -3,7 +3,7 @@
 # KILL_AT the guest is killed then and a new guest (role g2) joins by hand at REJOIN_AT, from the
 # guest's own folder (the same machine: it has its secret for this host, so it gets its port back) or,
 # with REJOIN_DIR=guest2, from a fresh one (another machine: a newcomer).
-# G2ARGS: extra arguments for the machine that joins again (HARGS/GARGS pass to runsim). FAULT=term
+# G2PAD: the pad script of the machine that joins again (f2.pad). G2ARGS: extra arguments for it (HARGS/GARGS pass to runsim). FAULT=term
 # quits the guest normally instead of killing it; FAULT=stop freezes it for STOP_SECS (3) and lets it go
 # (no REJOIN_AT: it rejoins by itself). With KILL_AT and no REJOIN_AT, nobody joins again.
 source ${0:A:h}/env.sh
@@ -33,7 +33,7 @@ elif [[ -n $4 ]]; then
   sleep $(( $5 - $4 ))
   L=$W0/logs/$NAME; RD=${REJOIN_DIR:-guest}
   mkdir -p $W/$RD/conker-recomp-data/saves; [[ $RD == guest2 ]] && rm -rf $W/guest2/conker-recomp-data/saves/*(N) $W/guest2/conker-recomp-data/net/secrets.txt(N)
-  (cd $W/$RD && env ${=G2ENV} CONKER_DISPLAY=windowed CONKER_AUDIO=0 CONKER_ORIGINAL_SIZE=1 CONKER_VIRTUAL_PAD=$K/f2.pad \
+  (cd $W/$RD && env ${=G2ENV} CONKER_DISPLAY=windowed CONKER_AUDIO=0 CONKER_ORIGINAL_SIZE=1 CONKER_VIRTUAL_PAD=$K/${G2PAD:-f2.pad} \
     CONKER_FRAME_INPUT_LOG=$L.g2.input.log CONKER_STATE_HASH_LOG=$L.g2.hash.log CONKER_STATE_HASH_EVERY=30 \
     CONKER_FRAME_LOG=$L.g2.frame.log $BIN $ROM \
     --net-join 127.0.0.1:$PORT ${=G2ARGS} > $L.g2.out 2>&1 &)

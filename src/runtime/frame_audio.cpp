@@ -1,5 +1,5 @@
 // With CONKER_FIXED_STEP=1, the audio frames are made by the game thread at the start of each game
-// frame instead of by the audio thread on the real clock (docs/online-multiplayer-plan.md, M1).
+// frame instead of by the audio thread on the real clock.
 // Native helpers called from the [[patches.hook]] snippets for func_80009400 and func_800095A0 in
 // config/us.toml, and from the frame input hook.
 //
@@ -32,6 +32,7 @@
 
 extern "C" void func_800095A0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void osRecvMesg_recomp(uint8_t* rdram, recomp_context* ctx);
+extern "C" int32_t osSendMesg(uint8_t* rdram, int32_t mq, int32_t msg, int32_t flags);  // ultramodern
 extern uint8_t dmem[];  // librecomp rsp.cpp
 
 namespace {
@@ -44,7 +45,8 @@ constexpr uint32_t kAudioFrameCount = 0x8002AE44;  // D_8002AE44: audio frames m
 constexpr uint32_t kTaskRecords = 0x8003E390;      // D_8003E390: three AudioTaskRecord pointers
 constexpr uint32_t kCompletionQueue = 0x8003E608;  // D_8003E608: the RSP's "audio task done" messages
 constexpr uint32_t kAudioQueue = 0x8003E5D0;       // D_8003E5D0: the audio thread's own (the scheduler's messages)
-constexpr uint32_t kShortFrame = 0x80040F88;       // D_80040F88: samples in a short audio frame
+constexpr uint32_t kRecordMessage = 0x6C;          // AudioTaskRecord: scheduler.completionMessage
+constexpr uint32_t kShortFrame = 0x80040F88;      // D_80040F88: samples in a short audio frame
 constexpr uint32_t kLongFrame = 0x80040F8C;        // D_80040F8C: in a long one
 constexpr uint32_t kShortCooldown = 0x80040F84;    // D_80040F84: frames before another short one
 constexpr int32_t kRetraceMessage = 1;
@@ -139,18 +141,69 @@ bool conker::frame_input::take_audio_frames(uint8_t* rdram) {
         g_first = true;
         return true;
     }
-    if (conker::snapshot::thread_waiting_on(rdram, kCompletionQueue) != nullptr) {
+    static int refusals = 0;
+    const auto refuse = [&] {
+        if (++refusals % 150 == 0) {
+            std::printf("[conker] fixed step: the audio thread is not at the top of its loop (%d frames):%s\n", refusals,
+                        conker::snapshot::describe_threads(rdram).c_str());
+        }
         return false;
+    };
+    if (conker::snapshot::thread_waiting_on(rdram, kCompletionQueue) != nullptr) {
+        return refuse();
     }
     const recomp_context* audio = conker::snapshot::thread_waiting_on(rdram, kAudioQueue);
     if (audio == nullptr) {
-        return false;
+        return refuse();
     }
+    refusals = 0;
     g_first = audio->r20 != 0;
     const uint32_t previous = static_cast<uint32_t>(audio->r21);
     g_previous = g_first || !in_rdram(previous) ? 0 : previous;
     g_in_flight = g_first ? 0 : 1;
     return true;
+}
+
+// Back from a session: the audio frames from the model to Rare's audio thread, which is waiting at
+// the top of its loop (as when they were taken, and as the snapshot of this machine's own game puts
+// it). Its registers are as they were when the model took over, but the model has made frames since
+// and taken their tasks' "done" messages: the thread gets the model's previous record, and a "done"
+// on its completion queue for each finished frame the model has not handed out yet (the one the
+// thread would wait for after making its next frame). Without them it waited, frame after frame, for
+// the "done" of the task it had just sent, one behind for good, and was never at the top of its loop
+// when the next session started (it hung on STARTING THE SESSION).
+void conker::frame_input::give_back_audio_frames(uint8_t* rdram) {
+    const auto clear = [] {
+        g_in_flight = 0;
+        g_finished.clear();
+        g_calls = 0;
+        g_previous = 0;
+        g_first = true;
+    };
+    if (MEM_BU(0, kseg0(kAudioStarted)) == 0) {
+        clear();
+        return;
+    }
+    recomp_context* audio = conker::snapshot::thread_waiting_on(rdram, kAudioQueue);
+    if (audio == nullptr) {
+        std::printf("[conker] fixed step: the audio thread is not at the top of its loop; its frames stay as they are\n");
+        clear();
+        return;
+    }
+    audio->r20 = g_first ? 1 : 0;
+    audio->r21 = g_first ? 0 : kseg0(g_previous);
+    if (!g_first) {
+        for (const uint32_t record : g_finished) {
+            // The message the scheduler sends for a record's task: its own AudioCompletionMessage.
+            const uint32_t message = static_cast<uint32_t>(MEM_W(kRecordMessage, kseg0(record)));
+            if (!in_rdram(message) || static_cast<uint32_t>(MEM_W(4, kseg0(message))) != record) {
+                std::printf("[conker] fixed step: audio record %08x has no completion message\n", record);
+                continue;
+            }
+            osSendMesg(rdram, static_cast<int32_t>(kCompletionQueue), static_cast<int32_t>(message), 0);  // OS_MESG_NOBLOCK
+        }
+    }
+    clear();
 }
 
 // func_80009400, with the message type it just received in $v0: under the fixed step a retrace

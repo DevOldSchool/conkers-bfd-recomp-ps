@@ -1,4 +1,0 @@
-# look.h/look.g (lrun.sh, SHOTS="7 14"): the lobby's pages for screenshots: the guest's LAN list at
-# 7 s and its lobby at 14 s, the host's page with one player then two
-1500 name Host
-3000 host 37810

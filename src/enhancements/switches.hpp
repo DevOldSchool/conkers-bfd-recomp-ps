@@ -28,6 +28,7 @@ Switch widescreen_culling();
 Switch intro_skip();
 Switch cutscene_skip();
 Switch pause_save();
+Switch quit_game();  // src/enhancements/quit_game/quit_game.cpp
 Switch save_snapshots();
 Switch surround_default();
 Switch mp_characters();

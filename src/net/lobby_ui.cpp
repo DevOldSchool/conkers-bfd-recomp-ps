@@ -162,7 +162,7 @@ std::string mode_name(Mode mode) {
 // The View as text, for a script's "shot" and the log.
 std::string describe(const lobby::View& v) {
     std::string out = "mode " + mode_name(v.mode) + "\n";
-    out += conker::net::internet_allowed() ? "internet UNSAFE on\n" : "internet off\n";
+    out += conker::net::internet_allowed() ? "internet on\n" : "internet off\n";
     out += conker::net::mods_on() ? "mods on " + conker::net::build_text() + "\n" : "mods none\n";
     for (const lobby::Player& p : v.players) {
         out += "player " + p.name + " | " + p.pad + " | ping " + std::to_string(p.ping) + (p.ready ? " | ready" : "") +
@@ -557,7 +557,9 @@ Page build_page(const lobby::View& v) {
             break;
     }
     add_messages(page.info, v, session_message);
-    page.info.push_back(internet ? Line{"UNSAFE  INTERNET PLAY IS ON", kRed} : Line{"LAN ONLY  INTERNET PLAY IS OFF", kGrey});
+    if (!internet) {
+        page.info.push_back(Line{"LAN ONLY  INTERNET PLAY IS OFF", kGrey});
+    }
     return page;
 }
 

@@ -1,6 +1,6 @@
 # Building on Linux
 
-Not tested yet. RT64 renders through Vulkan on an X11 window, so you need a
+RT64 renders through Vulkan on an X11 window, so you need a
 GPU driver with Vulkan support. See the [README](../README.md#building) for
 what every build needs and the build options.
 
@@ -61,12 +61,20 @@ build/rt64/ConkersBadFurDayRecompiled /path/to/conker-us.z64
 
 ## Building in Docker
 
-`tools/linux/build.sh` builds in an Ubuntu 24.04 Docker container for the
+`tools/linux/build.sh` first builds the speedrun mod the packaged game carries
+(`tools/build_mods.sh`, on the host: clang with the MIPS target and `ld.lld`,
+see [modding.md](modding.md)), then builds in an Ubuntu 24.04 Docker container for the
 machine Docker runs on (arm64 on Apple silicon), into `build/linux-arm64`, and
-packages `dist/Conkers-Bad-Fur-Day-Recompiled-<version>-linux-arm64.tar.gz`. It runs on
-Ubuntu 24.04 or newer with SDL2, GTK 3 and a Vulkan driver; the README in the
-tarball has the `apt` line. It needs `tools/regenerate.sh` to have been run
+packages `dist/Conkers-Bad-Fur-Day-Recompiled-<version>-linux-arm64.tar.gz`. It carries
+its own SDL2 in `libs/` (built from source with `-DCONKER_BUNDLED_SDL2=ON`, so it
+needs only the C library and loads X11, Wayland and the sound system at run time),
+and runs on Ubuntu 24.04 or newer with a desktop, which brings GTK 3 and a
+Vulkan driver. It needs `tools/regenerate.sh` to have been run
 first.
+
+The tarball's `licenses` folder holds the licenses and a `SOURCE.txt` naming
+the commit it was built from. Package from a clean, committed checkout, and
+attach `tools/source_archive.sh`'s source tarball to the release beside it.
 
 In the tarball, `install.sh` adds the game to the desktop's applications with
 its icon. Started from there, it asks for the player's own ROM the first time

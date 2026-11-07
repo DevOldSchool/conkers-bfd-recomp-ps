@@ -1,4 +1,4 @@
-// Online "my view" (docs/online-multiplayer-plan.md, M6): in a match each machine shows only its own
+// Online "my view": in a match each machine shows only its own
 // player's view, scaled up to the window, and plays the sounds as that player hears them.
 #pragma once
 

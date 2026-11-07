@@ -1,4 +1,4 @@
-// The online lobby's network side (docs/online-multiplayer-plan.md, M5): hosting and joining a lobby,
+// The online lobby's network side: hosting and joining a lobby,
 // finding games on the local network, and starting the session. The window that shows it is
 // src/net/lobby_ui.cpp; the session itself is net/net_play.
 //

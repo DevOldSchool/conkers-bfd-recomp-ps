@@ -5,9 +5,12 @@
 #   tools/linux/build.sh [platform]    (default: the Docker host's, linux/arm64 on Apple silicon)
 #
 # Needs Docker and the recompiled code from tools/regenerate.sh (build/us), which is plain C and the
-# same for every platform. The build goes to build/linux-<arch>. The binary needs SDL2, GTK 3 and a
-# Vulkan driver on the machine it runs on; the tarball's README says how to install them on Ubuntu,
-# and its install.sh adds the game, with its icon, to the desktop's applications.
+# same for every platform. The build goes to build/linux-<arch>. The tarball carries its own SDL2 in
+# libs/ (CONKER_BUNDLED_SDL2); GTK 3 and a Vulkan driver come with a desktop install, and the README says
+# how to add them to a minimal one,
+# its install.sh adds the game, with its icon, to the desktop's applications, and licenses/ holds the
+# licenses and SOURCE.txt (tools/package_notices.py). Attach tools/source_archive.sh's tarball to the
+# release beside it.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -15,6 +18,8 @@ platform="${1:-linux/$(docker info --format '{{.Architecture}}' | sed 's/aarch64
 arch="${platform#linux/}"
 image="conker-recomp-linux:$arch"
 build="build/linux-$arch"
+
+"$here/tools/build_mods.sh"
 
 echo "==> build image $image"
 docker build --platform "$platform" -t "$image" "$here/tools/linux"
@@ -30,9 +35,15 @@ version="$(git -C "$here" describe --always --dirty 2>/dev/null || echo unknown)
 echo "==> building $version in $build ($jobs jobs)"
 docker run --rm --platform "$platform" -v "$here:/src" -w /src -e CONKER_BUILD_VERSION="$version" "$image" bash -c "
     set -e
-    cmake -S . -B '$build' -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER=rt64
+    cmake -S . -B '$build' -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER=rt64 -DCONKER_BUNDLED_SDL2=ON
     cmake --build '$build' --target ConkersBadFurDayRecompiled -j $jobs
 "
+
+# The built-in mods (tools/build_mods.sh, CONKER_EMBEDDED_MODS): a release always carries them.
+if ! grep -q '^CONKER_EMBEDDED_MOD_IDS:INTERNAL=.*conker_speedrun' "$here/$build/CMakeCache.txt" 2>/dev/null; then
+    echo "$build has no built-in speedrun mod: run tools/build_mods.sh, then build again" >&2
+    exit 1
+fi
 
 name="Conkers-Bad-Fur-Day-Recompiled-$version-linux-$arch"
 stage="$here/dist/$name"
@@ -40,12 +51,15 @@ echo "==> packaging dist/$name.tar.gz"
 rm -rf "$stage" "$stage.tar.gz"
 mkdir -p "$stage"
 cp "$here/$build/ConkersBadFurDayRecompiled" "$stage/ConkersBadFurDayRecompiled"
+# Its own SDL2 (CONKER_BUNDLED_SDL2), found through the game's $ORIGIN/libs run path.
+cp -R "$here/$build/libs" "$stage/libs"
 # The window and launcher icon, at 256 px (sips on macOS; the full 1024 px elsewhere).
 if command -v sips > /dev/null; then
     sips -z 256 256 "$here/assets/app-icon.png" --out "$stage/conkers-bad-fur-day-recompiled.png" > /dev/null
 else
     cp "$here/assets/app-icon.png" "$stage/conkers-bad-fur-day-recompiled.png"
 fi
+python3 "$here/tools/package_notices.py" "$here/$build" "$stage/licenses" linux
 cat > "$stage/install.sh" <<'EOF'
 #!/bin/sh
 # Adds Conker's Bad Fur Day Recompiled to the desktop's applications, with its icon, run from this folder.
@@ -72,22 +86,28 @@ echo "Added Conker's Bad Fur Day Recompiled to your applications."
 EOF
 chmod +x "$stage/install.sh"
 cat > "$stage/README.txt" <<'EOF'
-Conker's Bad Fur Day Recompiled, a test build for Linux.
+Conker's Bad Fur Day Recompiled for Linux.
 
-Needs SDL2, GTK 3 and a Vulkan driver. On Ubuntu 24.04 or newer:
+Runs on Ubuntu 24.04 or newer, and other distributions as new, with a desktop and a Vulkan
+driver, which a desktop install has; SDL2 comes in libs/. A minimal install without them needs:
 
-    sudo apt install libsdl2-2.0-0 libgtk-3-0t64 mesa-vulkan-drivers
+    sudo apt install libgtk-3-0t64 mesa-vulkan-drivers
 
-Then add the game to your applications, with its icon:
+Add the game to your applications, with its icon:
 
     ./install.sh
 
 and start it from there. No ROM is included: the first time, it asks for your own US ROM (.z64)
 and keeps a copy, so it only asks once. Settings, saves, the ROM copy and last-run.log (the log
 when it was started from the desktop) are kept in ~/.local/share/ConkersBadFurDayRecompiled/conker-recomp-data.
+If the game crashes or will not start, open it again: it says so and shows the log to attach to a
+bug report (crash-reports/crash-<date>_<time>.log there).
 
 From a terminal, ./ConkersBadFurDayRecompiled prints its log there instead, and ./ConkersBadFurDayRecompiled /path/to/rom.z64
 uses that ROM (and keeps it in place of the stored copy).
+
+The licenses are in licenses/: the game as a whole is passed on under the GPL-3.0 (COPYING.txt),
+and licenses/SOURCE.txt says where its source code is.
 EOF
 tar -C "$here/dist" -czf "$stage.tar.gz" "$name"
 rm -rf "$stage"

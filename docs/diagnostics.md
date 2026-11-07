@@ -76,7 +76,9 @@ These environment variables are read by both builds:
   sends only the make and model (`tools/net-test/lrun.sh pn` with them in
   HENV and GENV: each view lists the other machine's pad by model and its own
   by name).
-* **Rumble.** The log shows the pak probe for each connected controller
+* **Rumble.** The title menu's "INSERT RUMBLE PAK" banner, which an N64 shows
+  even with the pak in, is left out when controller 1's pad can rumble;
+  `CONKER_RUMBLE_BANNER=1` shows it. The log shows the pak probe for each connected controller
   (`controller <n> rumble pak inserted` or `not inserted`) and every change of
   the motor the game asks for (`VI <n>: rumble on/off, port <n>`); a rumble is a run of on/off lines, since
   the game pulses the motor to set its strength. `CONKER_RUMBLE_TEST=1` (RT64
@@ -134,7 +136,7 @@ These environment variables are read by both builds:
   two over the same pad script.
 * `CONKER_FRAME_INPUT_LOG=<file>` writes the input record of every game frame,
   the one place the game logic reads its input from
-  (src/runtime/frame_input.cpp, M0 of docs/online-multiplayer-plan.md): the
+  (src/runtime/frame_input.cpp): the
   frame number, the VI, then per controller port `flags:buttons,stick x,stick
   y,right x,right y` (flags 1 connected, 2 has a right stick, 4 Rumble Pak;
   sticks as the game reads them, the right stick in steps of 1/127) and
@@ -194,7 +196,7 @@ These environment variables are read by both builds:
   `conker-recomp-data/net/desync-<session>-p<port>-f<frame>-<host|guest>.txt`;
   the folder keeps the 16 newest. The last 128 frames also carry one hash per
   64 KiB block of game memory (`b <frame> ...` lines), so
-  `tools/net-test/compare_desync.py <host file> <guest file>` prints the first
+  `tools/compare_desync.py <host file> <guest file>` prints the first
   frame that differs and which blocks differ, from the two players' files alone.
   Next to each desync file is a `.ram` file (under 1 MB): that machine's hashed
   game memory for its last 16 frames, the first whole and the others as zlib-packed
@@ -206,7 +208,6 @@ These environment variables are read by both builds:
   A packaged app writes its log, stdout and stderr together, to
   `last-run.log` in its data folder. A dropped guest starts itself again to rejoin
   at most 4 times in a row (`CONKER_NET_REJOIN_COUNT` counts them).
-  The runs behind docs/online-multiplayer-plan.md's M3 table used these.
   A guest's secret for a host (the 64 bits every session datagram carries, so
   that a forged sender cannot pose as it) is kept in
   `conker-recomp-data/net/secrets.txt`, one `address secret` line a host
@@ -221,7 +222,7 @@ These environment variables are read by both builds:
   firewall dropping a joining game's replies looks, for JOIN's message then.
   `CONKER_NET_TEST_HOST_KEY=<64 hex>` gives a host that secret key instead of
   its kept one (`conker-recomp-data/net/host_key`), so that its join codes are
-  known beforehand (tools/net-test/lobbystart.sh).
+  known beforehand, for scripted tests.
 * Sealed packets (src/net/net_seal.hpp): every lobby and session packet but the
   LAN list's PROBE and OFFER is encrypted on a link of its own between a guest
   and the host. A packet that does not open is dropped without a word, as a
@@ -230,18 +231,14 @@ These environment variables are read by both builds:
   `CONKER_NET_HOST_PUBLIC` (or a join code's 10-hex-digit fingerprint of it).
   `conker-recomp-data/net/known_hosts` holds the key last seen at each address
   joined: delete a line to forget a host's key.
-* LAN only (src/net/net_codes.hpp `sender_allowed`): without
-  `--net-unsafe-internet`, every session, lobby and LAN-list socket drops a
-  datagram from outside the LAN before looking at it. A build configured with
-  `-DCONKER_NET_INTERNET_DEFAULT=ON` starts as if the switch were given (the log's
-  UNSAFE line says "this build's default"); `--net-lan-only` turns it off, and
-  the session a lobby starts is given `--net-unsafe-internet` or `--net-lan-only`
-  to keep the lobby's choice.
-  `CONKER_NET_TEST_INTERNET_PORT=<n>` makes a sender whose UDP source port is
-  n count as one on the internet, so a crafted packet from 127.0.0.1 can stand
-  in for a stranger without an address alias: a PROBE or HELLO from it gets no
-  answer at all. Port-mapping
-  tests (below) need `--net-unsafe-internet`, since nothing is mapped without it.
+* LAN only (src/net/net_codes.hpp `sender_allowed`): with `--net-lan-only`,
+  every session, lobby and LAN-list socket drops a datagram from outside the
+  LAN before looking at it, and nothing is mapped on the router. The session a
+  lobby starts is given `--net-internet` or `--net-lan-only` to keep the
+  lobby's choice. With `--net-lan-only`, `CONKER_NET_TEST_INTERNET_PORT=<n>`
+  makes a sender whose UDP source port is n count as one on the internet, so a
+  crafted packet from 127.0.0.1 can stand in for a stranger without an address
+  alias: a PROBE or HELLO from it gets no answer at all.
 * The online lobby (src/net/lobby_ui.hpp, src/net/net_lobby.hpp):
   `--net-lobby` opens its page at boot. `CONKER_LOBBY_SCRIPT=<file>` drives
   it, a line each, `<ms> <action> [text]` from the page opening: `name`,
@@ -344,8 +341,7 @@ These environment variables are read by both builds:
   `CONKER_CALL_DUMP=<frame>:<calls>` writes the same window to `<file>.dump`
   to diff against, which names the function where the two runs took
   different paths. The hashes are of the names' addresses, so they compare
-  only between runs of one build. docs/online-multiplayer-plan.md has what
-  these found.
+  only between runs of one build.
 * `CONKER_FIXED_STEP=1` makes every frame step the game logic by the same
   amount, 2 retraces (1 with `CONKER_60FPS=1`), instead of the retraces the
   frame took, so what happens depends on the input and not on how fast the

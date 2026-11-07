@@ -354,6 +354,73 @@ middle row, a quirk left out here. `src/fixes/frame_effects.cpp` reads the
 rectangle and step, or the view's middle and where the copy was taken, from
 each effect when its task is handed to RT64, and skips the CPU passes.
 
+### The other patches
+
+`tools/apply_patches.sh` applies these too, in the order it lists. Each
+patch's own comments say more.
+
+Game memory is not trusted. A save snapshot, a debug report or an online
+host's game replaces RDRAM whole, so anything native that game memory steers
+is checked before use:
+
+* `n64modernruntime-untrusted-rdram.patch`: a thread's context and a message
+  queue's fields, read from RDRAM, are believed only when they are what this
+  run made; anything else stops the game.
+* `n64modernruntime-rdram-guard.patch`: inaccessible guard pages either side
+  of the 4 GiB reservation, so an access that runs past it faults.
+* `n64modernruntime-pi-bounds.patch`: a ROM or save transfer outside the ROM
+  or the save stops the game instead of reading host memory.
+* `n64modernruntime-audio-buffer.patch`: an audio buffer must lie inside RDRAM
+  and be a sane size.
+* `rt64-extended-gbi.patch`, `rt64-rsp-indices.patch`, `rt64-vertex-slots.patch`,
+  `rt64-texture-loads.patch`, `rt64-dl-stack.patch` and `rt64-vi-copy.patch`:
+  RT64 ignores display-list commands whose addresses, indices, vertex slots
+  or sizes fall outside what they may touch, budgets texture loads, limits the
+  call stack, and copies only the VI picture that fits game memory, where it
+  used to assert or read past the end.
+
+Repeatable runs and online play:
+
+* `n64modernruntime-n64recomp-float-determinism.patch` (in
+  `lib/N64ModernRuntime/N64Recomp`): float-to-integer conversions and the NaN
+  of a negative square root come out the same on arm64 and x86-64.
+* `n64modernruntime-count-override.patch`: the game may supply `osGetCount`
+  itself.
+* `n64modernruntime-game-speed.patch`: the game's time (VIs, the count,
+  timers) can run faster than real time, for catching up after a rejoin.
+* `n64modernruntime-timer-snapshot.patch`: the timers the game has set can be
+  read and put back, for snapshots.
+* `n64modernruntime-isolated-pass.patch`: a stretch of game code can run with
+  no other thread run and no message from outside delivered, so nothing else
+  writes memory meanwhile.
+* `rt64-online-writeback.patch`: images the GPU draws are not written back to
+  game memory below a set address, since what the GPU draws differs between
+  machines.
+* `rt64-forget-framebuffers.patch`: RT64 forgets every framebuffer, for a game
+  whose memory was replaced.
+* `rt64-present-focus.patch`: one part of the frame buffer presented alone,
+  scaled to the window (an online player's own view in a split screen).
+
+Picture:
+
+* `rt64-hidden-rows.patch`: frame-buffer rows the VI never shows, which the
+  game leaves undrawn, are shown black.
+* `rt64-split-screen-wide.patch`: each view of a split screen is widened for
+  widescreen the same way, with the bars between them.
+
+Building and platforms:
+
+* `n64modernruntime-function-exit.patch`: the game quits without running
+  static destructors while its threads still run.
+* `plume-moltenvk-robustness.patch` (in `lib/rt64/src/contrib/plume`): leaves
+  `robustBufferAccess2` off, whose MoltenVK output does not compile (Apple's
+  GPUs, and Linux VMs on them).
+* `rt64-metal-version.patch`: compiles the Metal shaders for the macOS version
+  the build targets.
+* `rt64-cross-dxc.patch` and `rt64-windows-arm64.patch`: the Windows cross
+  build, for x64 and ARM64, with shaders signed by the DXC whose DLLs the game
+  ships (see [building-windows.md](building-windows.md)).
+
 RT64's CMake turns plume's Retina support off, which would size the Metal
 swap chain in points and leave macOS to upscale it 2x on a Retina screen. Our
 `CMakeLists.txt` defines `PLUME_APPLE_RETINA_ENABLED` for the `plume` target

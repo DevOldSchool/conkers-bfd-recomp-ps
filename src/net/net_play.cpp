@@ -36,9 +36,6 @@
 // running session.
 #include "net/net_play.hpp"
 
-#ifndef CONKER_NET_INTERNET_DEFAULT
-#define CONKER_NET_INTERNET_DEFAULT 0  // set by CMake (CONKER_NET_INTERNET_DEFAULT)
-#endif
 
 #include <algorithm>
 #include <array>
@@ -233,9 +230,8 @@ struct Options {
     std::string name = "Player";  // the name the LAN list shows for this host
     uint64_t token = 0;   // the session token (--net-token, the lobby's or a host's own): the host lets in only guests with it
     bool open = false;    // --net-open: a host without a token, which lets in anyone with the same build
-    // --net-unsafe-internet: not the LAN only (net_codes.hpp). On from the start in a build made with
-    // CONKER_NET_INTERNET_DEFAULT (test builds, for now), where --net-lan-only turns it off.
-    bool internet = CONKER_NET_INTERNET_DEFAULT != 0;
+    // Internet play (net_codes.hpp): on unless --net-lan-only.
+    bool internet = true;
 } g_options;
 
 std::atomic<bool> g_active{false};  // a session is on (the game thread reads it every frame)
@@ -932,6 +928,7 @@ void hash_blocks(const uint8_t* rdram, uint32_t* out) {
 constexpr uint32_t kDepthBuffer = 0x000BE9C4;  // D_800BE9C4: the depth buffer
 constexpr uint32_t kScreenWidth = 0x000BE620;  // D_800BE620
 constexpr uint32_t kScreenHeight = 0x000BE624; // D_800BE624
+constexpr uint32_t kViewDepthRows = 0x000BE2B0; // D_800BE2B0: per view, its row of depth (camera +0x8BC)
 void clear_depth(uint8_t* rdram) {
     uint32_t depth;
     uint32_t width;
@@ -947,6 +944,21 @@ void clear_depth(uint8_t* rdram) {
     const uint16_t clear = 0xFFFC;
     for (uint32_t at = depth; at + 2 <= depth + width * height * 2; at += 2) {
         std::memcpy(rdram + at, &clear, 2);  // every halfword the same, so its place in the word does not matter
+    }
+    // And each view's row of depth the camera scans (D_800BE2B0, by view): it is indexed by the
+    // screen's X, so a view right of the first column (a 3- or 4-player split screen) reads past what
+    // the game copies in, which held stale words: the camera took them for scenery close by and
+    // swung round its idle player.
+    for (uint32_t view = 0; view < 4; view++) {
+        uint32_t row;
+        std::memcpy(&row, rdram + kViewDepthRows + view * 4, 4);
+        row &= 0x1FFFFFFF;
+        if (row < kHashStart || row + width * 2 > kHashEnd) {
+            continue;
+        }
+        for (uint32_t at = row; at + 2 <= row + width * 2; at += 2) {
+            std::memcpy(rdram + at, &clear, 2);
+        }
     }
 }
 
@@ -3387,7 +3399,7 @@ bool parse_net_options(int argc, char** argv, std::vector<char*>* kept_out) {
             g_options.lobby = true;
         } else if (arg == "--net-no-mods") {
             g_options.no_mods = true;
-        } else if (arg == "--net-unsafe-internet") {
+        } else if (arg == "--net-internet" || arg == "--net-unsafe-internet") {  // the old name too
             g_options.internet = true;
         } else if (arg == "--net-lan-only") {
             g_options.internet = false;
@@ -3439,11 +3451,8 @@ bool parse_args(int* argc, char** argv) {
     *argc = static_cast<int>(kept.size());
     g_active = g_options.host || g_options.join;
     conker::net::set_internet_allowed(g_options.internet);
-    if (g_options.internet) {
-        std::printf("[conker] net: UNSAFE: internet play on (%s): the online code's security is not trusted yet "
-                    "(docs/online-play.md)\n",
-                    CONKER_NET_INTERNET_DEFAULT != 0 ? "this build's default; --net-lan-only turns it off"
-                                                     : "--net-unsafe-internet");
+    if (!g_options.internet) {
+        std::printf("[conker] net: LAN only (--net-lan-only): no internet play this run\n");
     }
     return true;
 }
@@ -3468,7 +3477,7 @@ void relaunch(const std::vector<std::string>& net_args) {
     std::vector<std::string> line = g_plain_argv;
     line.insert(line.end(), net_args.begin(), net_args.end());
     // The session keeps the lobby's choice, whichever way this build starts.
-    line.push_back(g_options.internet ? "--net-unsafe-internet" : "--net-lan-only");
+    line.push_back(g_options.internet ? "--net-internet" : "--net-lan-only");
     process::start_again(line);
 }
 
@@ -3477,7 +3486,7 @@ void restart_without_mods() {
     std::vector<std::string> line = g_plain_argv;
     line.push_back("--net-no-mods");
     line.push_back("--net-lobby");
-    line.push_back(g_options.internet ? "--net-unsafe-internet" : "--net-lan-only");
+    line.push_back(g_options.internet ? "--net-internet" : "--net-lan-only");
     process::start_again(line);
 }
 
@@ -4554,6 +4563,7 @@ bool leave_session(uint8_t* rdram, recomp_context* ctx) {
         ultramodern::change_save_file(u8"net", kGameId);
         return false;
     }
+    conker::frame_input::give_back_audio_frames(rdram);
     conker::frame_input::leave_fixed_step();
     conker::frame_input::restore_settings(g_own_settings);
     conker::display::release_saved_picture();

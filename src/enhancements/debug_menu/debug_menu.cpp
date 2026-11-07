@@ -83,6 +83,7 @@
 #include "enhancements/debug_menu/debug_menu.hpp"
 #include "enhancements/object_inspector/object_inspector.hpp"
 #include "enhancements/pause_save/resume_point.hpp"
+#include "enhancements/quit_game/quit_game.hpp"
 #include "enhancements/status.hpp"
 #include "enhancements/switches.hpp"
 #include "build_version.h"
@@ -1618,6 +1619,10 @@ extern "C" void conker_debug_menu_tick(uint8_t* rdram, recomp_context* ctx) {
     }
     lobby_was_open = conker::lobby_ui::is_open();
     conker::lobby_ui::frame(rdram, ctx);
+    // EXIT GAME under the title's corners (src/enhancements/quit_game).
+    if (!g_active && !conker::lobby_ui::is_open()) {
+        conker::quit_game::frame(rdram, ctx);
+    }
     // The OPTIONS page's CONTROLS row: the controls page alone in the OPTIONS page's place, the
     // world going on behind it as it does behind OPTIONS (no pause).
     if (g_controls_requested) {
@@ -1673,7 +1678,8 @@ extern "C" void conker_debug_menu_text_full(uint8_t* /*rdram*/, recomp_context* 
 }
 
 // In func_1501BBB8 once the pads are read (sp+0x38): while the menu is open, and until every
-// button is let go after it closes, the game gets empty pads.
+// button is let go after it closes, the game gets empty pads; and while the title's EXIT GAME is
+// chosen.
 extern "C" void conker_debug_menu_pads(uint8_t* rdram, recomp_context* ctx) {
     if (!g_active && g_pads_held) {
         uint16_t buttons;
@@ -1681,13 +1687,15 @@ extern "C" void conker_debug_menu_pads(uint8_t* rdram, recomp_context* ctx) {
         conker::input::read(&buttons, &x, &y);
         g_pads_held = buttons != 0;
     }
-    if (!g_active && !g_pads_held) {
+    // EXIT GAME on the title holds the pads too, the stick with them (src/enhancements/quit_game).
+    const bool exit_holds = !g_active && conker::quit_game::holds_pads();
+    if (!g_active && !g_pads_held && !exit_holds) {
         return;
     }
     for (int pad = 0; pad < kPadCount; pad++) {
         const int offset = kPads + pad * kPadSize;
         MEM_H(offset, ctx->r29) = 0;
-        if (g_active) {
+        if (g_active || exit_holds) {
             MEM_B(offset + 2, ctx->r29) = 0;  // the stick too, while the menu is up
             MEM_B(offset + 3, ctx->r29) = 0;
         }

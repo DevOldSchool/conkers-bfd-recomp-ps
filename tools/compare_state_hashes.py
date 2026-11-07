@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare two CONKER_STATE_HASH_LOG files frame by frame (docs/online-multiplayer-plan.md, M1).
+"""Compare two CONKER_STATE_HASH_LOG files frame by frame.
 
 Each line of a log is a frame number and one hash per 16 KiB block of RDRAM from 0x80000000. Prints
 the first frame where the runs differ outside the ignored blocks, and for each block how many of the

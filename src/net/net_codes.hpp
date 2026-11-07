@@ -1,4 +1,4 @@
-// Join codes and the addresses behind them (docs/online-multiplayer-plan.md, M5).
+// Join codes and the addresses behind them.
 //
 // A join code is a host's address, UDP port and 40 bits of its key (net_seal.hpp: a guest that joins
 // by code refuses a machine posing as the host) written in Crockford's base 32 (digits and capitals
@@ -53,18 +53,18 @@ LocalAddresses local_addresses();
 // grade NAT, IPv6 unique-local or link-local): the LAN list's discovery port answers only those.
 bool local_network_address(const sockaddr_storage& addr);
 
-// --- LAN only, unless --net-unsafe-internet (docs/online-play.md) ---------------------------------
+// --- LAN only, with --net-lan-only (docs/online-play.md) -------------------------------------------
 //
-// Internet play is off until the online code's security is trusted. Without the switch, every
-// socket of the session, the lobby and the LAN list drops a datagram from outside the LAN before
-// anything else looks at it, a guest joins only a LAN address, and nothing is mapped on the router.
+// With the switch, every socket of the session, the lobby and the LAN list drops a datagram from
+// outside the LAN before anything else looks at it, a guest joins only a LAN address, and nothing is
+// mapped on the router.
 
 // Whether an address is on the LAN: loopback, private (10/8, 172.16/12, 192.168/16), link-local
 // (169.254/16, fe80::/10) or IPv6 unique-local (fc00::/7), as IPv4 or IPv4-mapped. Carrier-grade NAT
 // (100.64/10, which overlay networks such as Tailscale use) is the internet here.
 bool lan_address(const sockaddr_storage& addr);
 
-// --net-unsafe-internet: set once from the command line, before any socket.
+// Off with --net-lan-only: set once from the command line, before any socket.
 void set_internet_allowed(bool allowed);
 bool internet_allowed();
 

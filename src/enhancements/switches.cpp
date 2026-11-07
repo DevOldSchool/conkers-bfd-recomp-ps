@@ -30,6 +30,7 @@ std::vector<Switch> all() {
         intro_skip(),
         cutscene_skip(),
         pause_save(),
+        quit_game(),
         save_snapshots(),
         surround_default(),
         mp_characters(),

@@ -1,5 +1,0 @@
-# a newcomer joining a running match by the join code (the game is PLAYING)
-1500 name Late
-1600 setenv CONKER_VIRTUAL_PAD=@N/nc4.pad
-3000 shot @L.g2.view1
-3500 join @CODE

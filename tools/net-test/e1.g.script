@@ -1,9 +1,0 @@
-1500 name Guest
-3000 join 127.0.0.1:37811
-8000 shot @L.g.view1
-8500 join 127.0.0.1:37810
-10500 shot @L.g.view2
-11000 join not-a-code-#
-11500 shot @L.g.view3
-12000 join K3F9-2QXA-7M0C
-12500 shot @L.g.view4

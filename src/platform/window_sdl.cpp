@@ -51,6 +51,8 @@ namespace conker::window {
 
 namespace {
 
+constexpr const char* kWindowTitle = "Conker's Bad Fur Day Recompiled";
+
 // The picture RT64 presents. Conker's VI shows a 292-pixel-wide frame buffer (VI_WIDTH 292,
 // VI_X_SCALE 0.5 over H_START 0x8C..0x2D5) and 214 lines (V_START 0x3D..0x1E8), inside black
 // borders that RT64 crops (removeBlackBorders). RT64's VI::fbSize rounds the height up to 216.
@@ -371,7 +373,7 @@ ultramodern::renderer::WindowHandle create_window(void* /*gfx_data*/) {
     flags |= SDL_WINDOW_VULKAN;
 #endif
     // Hidden until it is measured: the size in points depends on the display's pixels per point.
-    g_window = SDL_CreateWindow("Conker's Bad Fur Day Recompiled", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+    g_window = SDL_CreateWindow(kWindowTitle, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                 kOriginalWidth, kOriginalHeight, flags);
     if (g_window == nullptr) {
         std::fprintf(stderr, "[conker] SDL_CreateWindow failed: %s\n", SDL_GetError());
@@ -449,16 +451,22 @@ void show_cursor_for_inspector() {
 
 } // namespace
 
+void request_quit() {
+    SDL_Event event{};
+    event.type = SDL_QUIT;
+    SDL_PushEvent(&event);
+}
+
 void update_gfx(void* /*gfx_data*/) {
     conker::hang_watch::beat();
     // Online, the session's status in the title too: it changes while the game waits for a player,
-    // when the picture holds.
-    if (conker::net::active() && g_window != nullptr) {
+    // when the picture holds. After the session the plain title comes back.
+    if (g_window != nullptr) {
         static std::string shown;
-        const std::string status = conker::net::title_status();
+        const std::string status = conker::net::active() ? conker::net::title_status() : std::string();
         if (status != shown) {
             shown = status;
-            SDL_SetWindowTitle(g_window, ("Conker's Bad Fur Day: Recompiled - " + status).c_str());
+            SDL_SetWindowTitle(g_window, status.empty() ? kWindowTitle : (std::string(kWindowTitle) + " - " + status).c_str());
         }
     }
     SDL_Event event;

@@ -338,7 +338,7 @@ void open(uint16_t port) {
         g_port = port;
         if (!internet_allowed()) {
             g_status = {State::Off, "", "",
-                        "Nothing is opened on the router: internet play is off."};
+                        "Nothing is opened on the router: LAN only (--net-lan-only)."};
             return;
         }
         const char* off = std::getenv("CONKER_NET_PORTMAP");

@@ -10,4 +10,8 @@ void* create_gfx();
 ultramodern::renderer::WindowHandle create_window(void* gfx_data);
 void update_gfx(void* gfx_data);
 
+// Closes the game as the window's close button does (an SDL_QUIT event, so the event loop quits the
+// runtime and main returns normally). Any thread.
+void request_quit();
+
 } // namespace conker::window

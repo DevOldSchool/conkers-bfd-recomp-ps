@@ -1,5 +1,6 @@
 // The packaged macOS app: data folder, log and ROM panel (see launch.hpp).
 #include "platform/launch.hpp"
+#include "platform/crash_log.hpp"
 
 #include <cstdio>
 #include <system_error>
@@ -31,6 +32,7 @@ void enter_data_folder() {
     if (error) {
         return;
     }
+    crash_log::start_run(folder / "conker-recomp-data");
     const std::string log = (folder / "conker-recomp-data" / "last-run.log").string();
     std::freopen(log.c_str(), "w", stdout);
     // stderr shares stdout's open file, and so its position: a second open of the file kept its own
@@ -56,5 +58,7 @@ std::filesystem::path choose_rom() {
         return std::filesystem::path(panel.URL.fileSystemRepresentation);
     }
 }
+
+void warn_if_emulated() {}
 
 }  // namespace conker::launch

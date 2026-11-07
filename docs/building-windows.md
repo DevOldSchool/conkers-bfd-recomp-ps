@@ -1,8 +1,7 @@
 # Building on Windows
 
-Tested once on Windows, with a build cross-compiled on a Mac (see
-[Cross-compiling](#cross-compiling-from-macos-or-linux)); building on Windows
-itself, as below, is not tested yet. RT64 renders through Direct3D 12 (or Vulkan)
+Build on Windows itself, as below, or cross-compile on macOS or Linux (see
+[Cross-compiling](#cross-compiling-from-macos-or-linux)). RT64 renders through Direct3D 12 (or Vulkan)
 on Windows 10 version 1803 or later, or Windows 11. The build scripts are Bash,
 so the steps run in Git Bash. See the [README](../README.md#building) for what
 every build needs and the build options.
@@ -54,8 +53,8 @@ cmake --build build/rt64
 `regenerate.sh` builds N64Recomp itself the first time. The build compiles
 about 54 MB of generated C, so it takes a while. It puts the DLLs the game needs
 (SDL2 and RT64's shader compiler) next to `ConkersBadFurDayRecompiled.exe`, so
-the `.exe` and `.dll` files in `build/rt64` are what another computer needs,
-with the Microsoft Visual C++ Redistributable (x64) that most already have.
+the `.exe` and `.dll` files in `build/rt64` are all another computer needs: the
+C++ runtime is linked in, so no Visual C++ Redistributable is needed.
 
 ## Run
 
@@ -81,6 +80,31 @@ the zip, right-click it, choose **Properties** and tick **Unblock**.
 A crash prints the faulting N64 address and a backtrace to the console (or the
 log), named from `ConkersBadFurDayRecompiled.pdb` when it is next to the game.
 
+## Packaging for another PC
+
+```sh
+tools/windows/package.sh
+```
+
+makes `dist/Conkers-Bad-Fur-Day-Recompiled-<version>-windows-x64.zip` (or
+`windows-arm64`, for an ARM64 build): the game, its DLLs, a README and
+`licenses` (the licenses and a `SOURCE.txt` naming the commit it was built
+from). Package from a clean, committed checkout, and attach
+`tools/source_archive.sh`'s source tarball to the release beside it.
+
+The `.pdb` (debug information) goes in a zip of its own, `...-pdb.zip`. Keep it
+with the release: a crash report from a player's copy is only addresses until
+the `.pdb` is next to the game, where the crash reporter names each frame from
+it.
+
+## Windows on ARM
+
+An ARM64 build runs natively on ARM PCs (Snapdragon and the like). The x64 build
+runs there too, under Windows' emulation and more slowly; started that way it
+says so in its log, and the first time in a window. RT64's own SDL2 and DXC are
+x64 only, so an ARM64 build fetches DXC's release (which has the ARM64 DLLs) and
+builds SDL2 from source, both at pinned versions (`CMakeLists.txt`).
+
 ## After pulling changes
 
 ```sh
@@ -96,22 +120,36 @@ the build through `regenerate.sh`.
 
 ## Cross-compiling from macOS or Linux
 
-`tools/windows/cross_build.sh` builds the Windows game on macOS or Linux, to
-check that it still builds. It uses clang-cl and lld-link, and the MSVC C
-runtime and Windows SDK that [xwin](https://github.com/Jake-Shadle/xwin)
-downloads. RT64's shaders are compiled by the host's DXC, which cannot sign
-DXIL, so it is not a build to hand out.
+`tools/windows/cross_build.sh` builds the Windows game on macOS or Linux,
+with the speedrun mod built in and off by default (`tools/build_mods.sh`, which
+needs clang with the MIPS target and `ld.lld`; see [modding.md](modding.md)). It
+uses clang-cl and lld-link, and the MSVC C runtime and Windows SDK that
+[xwin](https://github.com/Jake-Shadle/xwin) downloads.
+
+The D3D12 shaders compiled at build time must be signed, and must come from the
+very same DXC version as the `dxcompiler.dll` the game ships: RT64 links them
+with shaders it compiles at run time, and DXC refuses to link pieces from two
+versions ("Cannot link libraries with conflicting compiler versions"). Only
+Windows' `dxc.exe` matches the DLL, so with Docker running the build compiles
+them with the `dxc.exe` of the DXC release whose DLLs it ships, under Wine in an
+x86-64 Linux container (`tools/windows/dxc-wine.Dockerfile`,
+`tools/windows/dxc_signed.sh`; emulated on Apple silicon, about 5 seconds a
+shader). Without Docker this machine's DXC compiles them and the game crashes on
+its first frame on Windows, so that build is only good for checking that the
+code compiles. A build made on Windows needs none of this.
 
 ```sh
 brew install llvm lld xwin    # macOS; on Linux, clang, lld and xwin from your package manager or cargo
 tools/apply_patches.sh
 tools/regenerate.sh
 XWIN_ACCEPT_LICENSE=1 tools/windows/cross_build.sh
+XWIN_ACCEPT_LICENSE=1 tools/windows/cross_build.sh rt64 arm64    # Windows on ARM
 ```
 
 The first run downloads the runtime and SDK into `build/xwin` (about 800 MB),
 which needs `XWIN_ACCEPT_LICENSE=1`: it accepts Microsoft's license for them.
-The game lands in `build/windows-rt64`; `tools/windows/cross_build.sh null`
+The game lands in `build/windows-rt64` (ARM64: `build/windows-rt64-arm64`, with
+the ARM64 runtime and SDK downloaded on its first run); `tools/windows/cross_build.sh null`
 builds the headless one into `build/windows-null`.
 
 Wine runs both. The headless build needs nothing else; the RT64 one needs a

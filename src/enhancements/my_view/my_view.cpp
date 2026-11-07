@@ -1,4 +1,4 @@
-// Online "my view" (docs/online-multiplayer-plan.md, M6): in a match each machine shows only its own
+// Online "my view": in a match each machine shows only its own
 // player's view, scaled up to the window, and plays the sounds around that player as they hear
 // them. Every machine still simulates and draws every view, which keeps the machines in step; only
 // what is presented and the volume and pan the sound player is given change. Native helpers called
@@ -940,6 +940,24 @@ void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
     MEM_W(0, kseg0(kLastView)) = 0;
     MEM_BU(0, kseg0(kViewOrder)) = static_cast<uint8_t>(local);
     const Zoom zoom = zoom_of(rdram, local);
+    static const bool zoom_log = std::getenv("CONKER_MY_VIEW_ZOOM_LOG") != nullptr;
+    if (zoom_log) {
+        const uint32_t r = static_cast<uint32_t>(MEM_W(0, kseg0(kViews))) + static_cast<uint32_t>(local) * kViewSize;
+        static std::string last;
+        static uint32_t passes = 0;
+        passes++;
+        char line[400];
+        std::snprintf(line, sizeof(line), "[zoom] z=%d x=%.4f y=%.4f s=%.4f n=%.4f off=%.4f 6C=%.4f 70=%.4f 74=%.4f 78=%.4f 7C=%.4f 14=%.4f C=%.4f 1C=%.4f\n",
+                    zoom.zoomed, zoom.x, zoom.y, zoom.scale, zoom.narrowing, read_float(rdram, kViewAngleOffset),
+                    read_float(rdram, r + 0x6C), read_float(rdram, r + 0x70), read_float(rdram, r + 0x74),
+                    read_float(rdram, r + 0x78), read_float(rdram, r + 0x7C), read_float(rdram, r + 0x14),
+                    read_float(rdram, r + 0xC), read_float(rdram, r + 0x1C));
+        if (last != line) {
+            last = line;
+            std::printf("[conker] my view pass %u: %s", passes, line + 7);
+            std::fflush(stdout);
+        }
+    }
     call(rdram, ctx, func_1501A8C0, view, 0, 0x3FF, 0);  // the local view's record over the whole screen
     if (zoom.zoomed) {
         apply_zoom(rdram, ctx, local, full_screen_zoom(rdram, local, zoom));

@@ -1,4 +1,4 @@
-// The ONLINE lobby's page (docs/online-multiplayer-plan.md, M5), drawn by the game itself on the
+// The ONLINE lobby's page, drawn by the game itself on the
 // title's MULTI barrel; net/net_lobby does the network side.
 //
 // On any barrel behind the MULTI door, Start (Enter on the keyboard) opens it (src/enhancements/debug_menu,
