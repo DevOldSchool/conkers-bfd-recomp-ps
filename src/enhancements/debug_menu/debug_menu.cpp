@@ -76,6 +76,7 @@
 #include <iterator>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "recomp.h"
@@ -289,6 +290,34 @@ const std::vector<Mod>& mods() {
         return list;
     }();
     return all;
+}
+
+// Whether mods.json lists exactly the mods switched on now. librecomp writes it from a thread that
+// waits for a second with no further switches first, so a restart straight after a switch would
+// read the old list and bring the mod back the way it was.
+bool mods_saved() {
+    std::ifstream file(recomp::get_config_path() / "mods.json");
+    const nlohmann::json config = nlohmann::json::parse(file, nullptr, false);
+    if (config.is_discarded() || !config.contains("enabled_mods") || !config["enabled_mods"].is_array()) {
+        return false;
+    }
+    const nlohmann::json& listed = config["enabled_mods"];
+    return std::all_of(mods().begin(), mods().end(), [&](const Mod& mod) {
+        const bool in_file = std::find(listed.begin(), listed.end(), mod.id) != listed.end();
+        return in_file == recomp::mods::is_mod_enabled(mod.id);
+    });
+}
+
+// Waits up to a few seconds for librecomp's write of mods.json (see mods_saved).
+bool wait_for_mods_saved() {
+    const auto give_up = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+    while (!mods_saved()) {
+        if (std::chrono::steady_clock::now() > give_up) {
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    return true;
 }
 
 // A mod switched since the game started, which only a restart applies.
@@ -1368,6 +1397,11 @@ int32_t mods_page(int vertical, int horizontal, bool fresh_horizontal, uint16_t 
             return 0;
         }
         // The same command line, as the online lobby starts a session (does not return if it can).
+        if (!wait_for_mods_saved()) {
+            std::printf("[conker] debug menu: mods.json not saved, not starting again\n");
+            show_message("COULD NOT SAVE THE MODS");
+            return kSelectSound;
+        }
         std::printf("[conker] debug menu: starting again for the mods\n");
         conker::net::relaunch({});
         show_message("COULD NOT START AGAIN");

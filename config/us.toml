@@ -1142,3 +1142,15 @@ text = "{ void conker_edge_text_begin(uint8_t*, recomp_context*); conker_edge_te
 func = "func_15043384"
 before_vram = 0x150436B0
 text = "{ void conker_edge_text_end(uint8_t*, recomp_context*); conker_edge_text_end(rdram, ctx); }"
+
+# A cutscene skipped before its queued music has taken over leaves the old music playing (Mrs Bee's
+# hive cutscene). See src/fixes/music_skip.cpp.
+[[patches.hook]]
+func = "func_8000D96C"
+before_vram = 0x1000D96C
+text = "{ void conker_music_change_hook(uint8_t*, recomp_context*); conker_music_change_hook(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_8000DE1C"
+before_vram = 0x1000DE1C
+text = "{ void conker_music_stop_hook(uint8_t*, recomp_context*); conker_music_stop_hook(rdram, ctx); }"

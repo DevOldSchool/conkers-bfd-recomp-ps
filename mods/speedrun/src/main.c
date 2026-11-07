@@ -43,14 +43,16 @@ typedef struct {
 
 // Most ends come from replaying every sub-chapter from the CHAPTERS page and comparing the events
 // each replay sets beforehand with the next one's. SCAREDY BIRDY ends as Conker sobers up at the
-// second context pad, PAN HANDLED once the key has opened the door, MRS BEE as she has her hive back,
-// GREAT BALLS OF POO once the mountain door opens, and SUNNY DAYS on the game's "Sunflower Babe" as
-// the bounce starts (its page event is "Meet King Bee"); MARVIN's page event is set as Marvin dies.
+// second context pad, PAN HANDLED once the key has opened the door, GREAT BALLS OF POO once the
+// mountain door opens, and SUNNY DAYS on the game's "Sunflower Babe" as the bounce starts (its page
+// event is "Meet King Bee"); MARVIN's page event is set as Marvin dies.
+// MRS BEE ends on its page event, "The Queen's lost her Home!", done as her last cutscene ends (22,
+// which it used to wait for, is on the beetles' side of WINDY: it needs 21 and 19).
 // WINDY's stretches end the run at MRS BEE (BARN BOYS next), GREAT BALLS OF POO (BATS TOWER) and
 // MR BARREL (SPOOKY).
 static const SubChapter sub_chapters[] = {
     {0, 0, 1, "SCAREDY BIRDY"}, {0, 4, 5, "PAN HANDLED"}, {0, 6, 6 | ON_LEAVING, "GARGOYLE"},
-    {1, 10, 22 | ENDS_RUN, "MRS BEE"}, {1, 117, 118, "POO CABIN"}, {1, 132, 132, "PRUNED"},
+    {1, 10, 10 | ENDS_RUN, "MRS BEE"}, {1, 117, 118, "POO CABIN"}, {1, 132, 132, "PRUNED"},
     {1, 133, 133, "YEE HAA!"}, {1, 120, 120, "SEWAGE SUCKS"}, {1, 28, 29 | ENDS_RUN, "GREAT BALLS OF POO"},
     {1, 11, 44, "WASPS' REVENGE"}, {1, 39, 39 | ENDS_RUN, "MR BARREL"},
     {2, 69, 69, "MRS CATFISH"}, {2, 85, 85, "BARRY'S MATE"}, {2, 81, 83, "COGS' REVENGE"},
@@ -183,9 +185,15 @@ RECOMP_HOOK("func_151E30C4") void splits_start(void) {
     state = RUN_WAITING;
 }
 
+// An end is reached once its event is done: its status says so at once, while its flag can wait
+// for the next load (MRS BEE's does).
+static int done(s32 event) {
+    return event_set(event) || (event != NONE && event_status[event] == EVENT_DONE);
+}
+
 static int ended(s32 i) {
     u32 end = sub_chapters[i].end;
-    return event_set(end & 0xFF) && (end >> 16 == 0 || event_set((end >> 16) & 0xFF));
+    return done(end & 0xFF) && (end >> 16 == 0 || done((end >> 16) & 0xFF));
 }
 
 // The run's first frame in play: the sub-chapters before the chosen one, and any other the replay has
@@ -244,12 +252,7 @@ static void split(s32 i, int ending) {
 static void follow(void) {
     s32 i;
 
-    for (i = 0; i < SUB_CHAPTER_COUNT; i++) {
-        if (sub_chapters[i].chapter != chapter && !was_set[i] && event_set(sub_chapters[i].page)) {
-            split(-1, 1);
-            return;
-        }
-    }
+    // The chapter's own ends first: a cutscene can set one with the next chapter's page event.
     for (i = chapter_first; i <= last && state == RUN_RUNNING; i++) {
         u32 end = sub_chapters[i].end;
         if (row[i] != ROW_TO_COME || !ended(i)) {
@@ -261,6 +264,11 @@ static void follow(void) {
             left_from[i] = current_scene;
         } else if (current_scene != left_from[i] && current_scene != SCENE_GREGG) {
             split(i, (end & ENDS_RUN) != 0);
+        }
+    }
+    for (i = 0; i < SUB_CHAPTER_COUNT && state == RUN_RUNNING; i++) {
+        if (sub_chapters[i].chapter != chapter && !was_set[i] && event_set(sub_chapters[i].page)) {
+            split(-1, 1);
         }
     }
 }

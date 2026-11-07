@@ -59,9 +59,14 @@ extern u8 D_800BEAC1;
 
 #define PAD_L 0x0020
 
-// The game's event flags, a bit per event (bit n & 7 of byte n >> 3): set once the event is done.
+// The game's event flags, a bit per event (bit n & 7 of byte n >> 3). They are what the save keeps,
+// and in play an event can be finished well before its bit is set (MRS BEE's 10 waits for a load).
 extern u8* D_800D2E4C;
 #define event_flags D_800D2E4C
+// Each event's status, a byte per event: 1 while it runs, 3 once it is done (EVENT_DONE), at once.
+extern u8 D_800D2E70[];
+#define event_status D_800D2E70
+#define EVENT_DONE 3
 
 // --- CHAPTERS menu -------------------------------------------------------------------------------
 

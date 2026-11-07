@@ -151,6 +151,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/fixes/level_seams.cpp
     src/fixes/level_visibility.cpp
     src/fixes/music_start.cpp
+    src/fixes/music_skip.cpp
     src/fixes/projected_shadow.cpp
     src/fixes/rumble_banner.cpp
     src/fixes/scheduler_yield.cpp
