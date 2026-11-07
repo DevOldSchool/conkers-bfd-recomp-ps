@@ -1,0 +1,70 @@
+# The steps every ROM job shares: the decomp at DECOMP_REF and the ROM from the private repository
+# (checked out beside this repository, never inside it), the submodule patches, and the code
+# regenerated from the ROM into recomp/build/us. Composite actions cannot read secrets, so the job
+# passes them in. Expects this repository in `recomp` with its submodules, and cmake, ninja, python3
+# and a C++ compiler on the PATH.
+name: Regenerate from the ROM
+description: Check out the decomp and the ROM, apply the patches and regenerate the recompiled code.
+inputs:
+  decomp-ref:
+    description: The conkers-bfd-decomp revision to read.
+    required: true
+  assets-repo:
+    description: The private repository that holds the ROM (secret).
+    required: true
+  assets-rom:
+    description: The ROM's path in it (secret).
+    required: true
+  deploy-key:
+    description: Its read-only deploy key (secret).
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        repository: DevOldSchool/conkers-bfd-decomp
+        ref: ${{ inputs.decomp-ref }}
+        path: decomp
+        persist-credentials: false
+
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.assets-repo }}
+        ssh-key: ${{ inputs.deploy-key }}
+        path: assets
+        sparse-checkout: ${{ inputs.assets-rom }}
+        sparse-checkout-cone-mode: false
+        persist-credentials: false
+
+    - name: Apply patches
+      shell: bash
+      working-directory: recomp
+      run: tools/apply_patches.sh
+
+    - name: Regenerate the code from the ROM
+      shell: bash
+      working-directory: recomp
+      env:
+        CONKER_DECOMP: ${{ github.workspace }}/decomp
+        CONKER_ROM: ${{ github.workspace }}/assets/${{ inputs.assets-rom }}
+      run: tools/regenerate.sh
+
+    # The release's version is `git describe` of this checkout: the patches must not make it "-dirty",
+    # and on a tag it must be the tag itself.
+    - name: Check the version
+      shell: bash
+      working-directory: recomp
+      run: |
+        git config diff.ignoreSubmodules dirty
+        version="$(git describe --always --dirty)"
+        echo "version $version"
+        if [[ "$version" == *-dirty ]]; then
+          git status --short
+          echo "::error::the checkout is dirty after regenerating: $version"
+          exit 1
+        fi
+        if [[ "$GITHUB_REF" == refs/tags/* ]] && [ "$version" != "$GITHUB_REF_NAME" ]; then
+          echo "::error::version $version is not the tag $GITHUB_REF_NAME"
+          exit 1
+        fi
