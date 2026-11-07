@@ -220,6 +220,50 @@ struct Replacement {
     std::vector<uint8_t> png;
 };
 
+// Rare's thought bubble reaches its picture's left and right sides: its soft rim stops there at
+// under half its strength, which an N64 hid at the screen's edges. Drawn inside a widened picture
+// (or by a screen that shows its edges) that showed as a straight cut on each side. Each row that
+// touches a side is carried on past it by kBubbleRim pixels, its rim fading at the slope it
+// had (at least kMinRimSlope a pixel), and the widened rows are squeezed back to the picture's
+// width, so the bubble comes out a little narrower with its sides rounded off. A row that does not
+// touch the sides is only squeezed.
+constexpr int kBubbleRim = 2 * kScale;
+constexpr float kMinRimSlope = 16.0f;
+
+menu_art::Image finish_bubble_sides(const menu_art::Image& in) {
+    const int wide = in.width + 2 * kBubbleRim;
+    menu_art::Image padded(wide, in.height);
+    for (int y = 0; y < in.height; y++) {
+        std::copy_n(in.at(0, y), in.width * 4, padded.at(kBubbleRim, y));
+        for (const int side : {0, 1}) {
+            const int edge = side == 0 ? 0 : in.width - 1;
+            const int step = side == 0 ? 1 : -1;  // inwards
+            const float* rim = in.at(edge, y);
+            const float alpha = rim[3];
+            const float slope = std::max((in.at(edge + 4 * step, y)[3] - alpha) / 4.0f, kMinRimSlope);
+            for (int i = 1; i <= kBubbleRim; i++) {
+                float* p = padded.at(kBubbleRim + edge - i * step, y);
+                std::copy_n(rim, 3, p);
+                p[3] = alpha > 0.0f ? std::max(alpha - slope * float(i), 0.0f) : 0.0f;
+            }
+        }
+    }
+    menu_art::Image out(in.width, in.height);
+    const float scale = float(wide) / float(in.width);
+    for (int y = 0; y < in.height; y++) {
+        for (int x = 0; x < in.width; x++) {
+            const float source = std::clamp((float(x) + 0.5f) * scale - 0.5f, 0.0f, float(wide - 1));
+            const int left = std::min(int(source), wide - 2);
+            const float f = source - float(left);
+            const float* a = padded.at(left, y);
+            const float* b = padded.at(left + 1, y);
+            float* p = out.at(x, y);
+            for (int c = 0; c < 4; c++) p[c] = a[c] + (b[c] - a[c]) * f;
+        }
+    }
+    return out;
+}
+
 // A bubble four times larger. RT64 reads an IA8 texel as its intensity in red, green and blue and
 // its alpha on its own, not premultiplied, and the bubbles are white even where they are clear, so
 // that filtering blends their edges towards white. The replacement keeps that: the four channels
@@ -236,7 +280,7 @@ std::optional<Replacement> bubble(const Bubble& bubble) {
             p[3] = float((texel & 15) * 17);
         }
     }
-    const menu_art::Image big = menu_art::super_xbr(image, kScale);
+    const menu_art::Image big = finish_bubble_sides(menu_art::super_xbr(image, kScale));
     std::vector<uint8_t> rgba(big.pixels.size());
     for (size_t i = 0; i < rgba.size(); i++) rgba[i] = uint8_t(std::clamp(std::lround(big.pixels[i]), 0L, 255L));
     RT64::LoadTile load{};
