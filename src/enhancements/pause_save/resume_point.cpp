@@ -2594,6 +2594,104 @@ extern "C" void conker_resume_start(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
+// The event log (CONKER_EVENT_LOG=1): each change to the event flags (*D_800D2E4C, a bit per
+// event), to their status (D_800D2E70, 1 running, 3 done) and to the cutscene slots (D_800C35EA) is
+// printed with the scene and the frame, so a split's end can be read off a play-through. Named
+// events carry the game's name for them (the table at D_80087430, 0x14 bytes each, the name first).
+namespace {
+
+constexpr uint32_t kEventFlagsPointer = 0x800D2E4C;
+constexpr uint32_t kEventStatus = 0x800D2E70;
+constexpr uint32_t kEventTable = 0x80087430;
+constexpr int kEventCount = 0xCC;
+constexpr int kEventFlagBytes = 0x1B;
+constexpr int kCutsceneSlots = 4;
+
+struct EventLog {
+    uint32_t flags_at = 0;
+    std::array<uint8_t, kEventFlagBytes> flags{};
+    std::array<uint8_t, kEventCount> status{};
+    std::array<uint8_t, kCutsceneSlots> cutscenes{};
+    bool primed = false;
+    uint32_t frame = 0;
+};
+EventLog g_event_log;
+
+std::string event_name(uint8_t* rdram, int event) {
+    const uint32_t name = static_cast<uint32_t>(MEM_W(0, kseg0(kEventTable + static_cast<uint32_t>(event) * 0x14)));
+    if (name < 0x80000000u || name >= 0x80800000u) {
+        return {};
+    }
+    std::string text;
+    for (uint32_t at = name; text.size() < 64; at++) {
+        const char c = static_cast<char>(MEM_BU(0, kseg0(at)));
+        if (c == 0) {
+            break;
+        }
+        text += c;
+    }
+    return " \"" + text + "\"";
+}
+
+void log_events(uint8_t* rdram) {
+    static const bool on = [] {
+        const char* value = std::getenv("CONKER_EVENT_LOG");
+        return value != nullptr && value[0] == '1';
+    }();
+    if (!on) {
+        return;
+    }
+    EventLog& log = g_event_log;
+    log.frame++;
+    const uint32_t flags_at = static_cast<uint32_t>(MEM_W(0, kseg0(kEventFlagsPointer)));
+    if (flags_at < 0x80000000u || flags_at >= 0x80800000u) {
+        return;
+    }
+    std::array<uint8_t, kEventFlagBytes> flags{};
+    for (int i = 0; i < kEventFlagBytes; i++) {
+        flags[i] = MEM_BU(0, kseg0(flags_at + static_cast<uint32_t>(i)));
+    }
+    std::array<uint8_t, kEventCount> status{};
+    for (int i = 0; i < kEventCount; i++) {
+        status[i] = MEM_BU(0, kseg0(kEventStatus + static_cast<uint32_t>(i)));
+    }
+    std::array<uint8_t, kCutsceneSlots> cutscenes{};
+    for (int i = 0; i < kCutsceneSlots; i++) {
+        cutscenes[i] = MEM_BU(0, kseg0(kCutscenePlaying + static_cast<uint32_t>(i)));
+    }
+    const int scene = MEM_W(0, kseg0(0x800BE9F0));
+    if (log.primed && flags_at == log.flags_at) {
+        for (int event = 0; event < kEventFlagBytes * 8; event++) {
+            const bool was = (log.flags[event >> 3] >> (event & 7)) & 1;
+            const bool now = (flags[event >> 3] >> (event & 7)) & 1;
+            if (was != now) {
+                std::printf("[conker] event %d %s%s (scene %d, frame %u)\n", event, now ? "set" : "cleared",
+                            event_name(rdram, event).c_str(), scene, log.frame);
+            }
+        }
+        for (int event = 0; event < kEventCount; event++) {
+            if (status[event] != log.status[event]) {
+                std::printf("[conker] event %d status %d -> %d%s (scene %d, frame %u)\n", event, log.status[event],
+                            status[event], event_name(rdram, event).c_str(), scene, log.frame);
+            }
+        }
+        for (int slot = 0; slot < kCutsceneSlots; slot++) {
+            if (cutscenes[slot] != log.cutscenes[slot]) {
+                std::printf("[conker] cutscene slot %d %d -> %d (scene %d, frame %u)\n", slot, log.cutscenes[slot],
+                            cutscenes[slot], scene, log.frame);
+            }
+        }
+        std::fflush(stdout);
+    }
+    log.flags_at = flags_at;
+    log.flags = flags;
+    log.status = status;
+    log.cutscenes = cutscenes;
+    log.primed = true;
+}
+
+}  // namespace
+
 // At the start of func_1501C57C, the EEPROM manager, once a frame: when a LOAD's slot read has
 // been done, start the game as PLAY does.
 // Also keeps the snapshot of a save once it is written, and moves Conker to the point being
@@ -2602,6 +2700,7 @@ extern "C" void conker_resume_tick(uint8_t* rdram, recomp_context* ctx) {
     data_folder();  // fixed from the first frame, before any report is loaded
     player_save_path();
     check::tick(rdram, ctx);
+    log_events(rdram);
     if (g_snapshot_pending && MEM_B(0, kseg0(kEepromAction)) == 0 && MEM_W(0, kseg0(kEepromWriting)) == 0) {
         g_snapshot_pending = false;
         write_snapshot(rdram);
