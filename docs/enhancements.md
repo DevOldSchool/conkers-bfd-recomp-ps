@@ -75,8 +75,9 @@ OPTIONS.
   every game pixel is an even block. Covering the screen it fills by
   default; a lower resolution then fills it with larger pixels. A window is
   centered by default, which only shows once it is resized by hand.
-* FRAME RATE: 30 FPS (the original), 60 FPS ([60 fps](#60-fps)), or 60 FPS
-  SMOOTH (the default: 60 fps with [smooth motion](#smooth-motion)). Kept in
+* FRAME RATE: 30 FPS (the original, and the default, since not every machine
+  holds 60), 60 FPS ([60 fps](#60-fps)), or 60 FPS SMOOTH (60 fps with
+  [smooth motion](#smooth-motion)). Kept in
   `conker-recomp-data/frame_rate.cfg`. Not online, where the session plays at
   the host's frame rate.
 
@@ -575,7 +576,7 @@ font's glyphs with their hashes as a template for new art.
 
 ## 60 fps
 
-On by default (FRAME RATE on the GRAPHICS page; `CONKER_60FPS=0` or `1` for one
+Off by default (FRAME RATE on the GRAPHICS page; `CONKER_60FPS=0` or `1` for one
 run). The game starts a frame on every retrace instead of every second one. Its
 logic already steps by elapsed time, so movement, jumps, the camera, animation
 and cutscenes keep their speed; a few things still assume 30 fps. Online, every
@@ -583,7 +584,7 @@ player plays at the host's setting.
 
 ## Smooth motion
 
-On by default (60 FPS SMOOTH on the GRAPHICS page; `CONKER_SMOOTH=0` or `1` for
+Off by default (60 FPS SMOOTH on the GRAPHICS page; `CONKER_SMOOTH=0` or `1` for
 one run). RT64 draws pictures between the game's frames, up to the display's
 refresh rate: on a 120 Hz display, two pictures for each frame at 60 fps or four
 at 30 fps. It matches each frame's draw calls with the last one's and blends

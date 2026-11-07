@@ -271,7 +271,7 @@ def run_game(binary, rom, case, folder, start, frames, variant, dump_frames=(), 
         "CONKER_SKIP_INTRO": "1",
         "CONKER_SAVE_SNAPSHOTS": "0",
         "CONKER_FIXED_STEP": "1",
-        # The cases count frames at the original 30 fps (the game defaults to 60).
+        # The cases count frames at the original 30 fps, whatever a frame_rate.cfg in the folder says.
         "CONKER_60FPS": "0",
         "CONKER_TEST_SPEED": str(SPEED),
         "CONKER_TEST_EXIT_AT": str(end),

@@ -10,7 +10,7 @@ namespace conker::frame_rate {
 // Code that waits a number of frames counts only these, so it waits as long at either rate.
 bool thirty_hz_step(uint8_t* rdram);
 
-// Whether the game runs at 60 fps (on unless conker-recomp-data/frame_rate.cfg or CONKER_60FPS=0
+// Whether the game runs at 60 fps (off unless conker-recomp-data/frame_rate.cfg or CONKER_60FPS=1
 // says otherwise). An online session plays at the host's.
 bool sixty_fps();
 

@@ -172,8 +172,8 @@ says how to turn it off. The details, and every setting, are in
 | [Sharper text](docs/enhancements.md#sharper-text) | The font enlarged with Super-xBR from your ROM | `CONKER_SHARP_FONT=0` |
 | [Sharper menus](docs/enhancements.md#sharper-menus) | The menus' signs and headings, and the speech bubbles, enlarged the same way | `CONKER_SHARP_MENUS=0` |
 | [Texture packs](docs/enhancements.md#texture-packs) | RT64 replacement packs from `conker-recomp-data/texture_packs` | `CONKER_TEXTURE_PACKS=0` |
-| [60 fps](docs/enhancements.md#60-fps) | Starts a frame on every retrace instead of every second one | FRAME RATE on the GRAPHICS page; `CONKER_60FPS=0` |
-| [Smooth motion](docs/enhancements.md#smooth-motion) | Pictures drawn between the game's frames, up to the display's refresh rate (120 Hz and more) | FRAME RATE on the GRAPHICS page; `CONKER_SMOOTH=0` |
+| [60 fps](docs/enhancements.md#60-fps) | Starts a frame on every retrace instead of every second one | Off by default; FRAME RATE on the GRAPHICS page, or `CONKER_60FPS=1` |
+| [Smooth motion](docs/enhancements.md#smooth-motion) | Pictures drawn between the game's frames, up to the display's refresh rate (120 Hz and more) | Off by default; FRAME RATE on the GRAPHICS page (60 FPS SMOOTH), or `CONKER_SMOOTH=1` |
 
 ## Documentation
 

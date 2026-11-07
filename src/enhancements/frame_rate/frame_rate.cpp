@@ -55,13 +55,14 @@ constexpr uint32_t kScene = 0x800BE9F0;         // D_800BE9F0
 constexpr uint32_t kPlayerObject = 0x80088720;  // D_80088720: Conker's object, position at +0x14
 
 // --- settings: the OPTIONS page's FRAME RATE row, kept in conker-recomp-data/frame_rate.cfg --------
-// "fps=<30|60>" and "smooth=<0|1>"; 60 fps with smooth motion unless the file says otherwise.
+// "fps=<30|60>" and "smooth=<0|1>"; the original 30 fps without smoothing unless the file says
+// otherwise (not every machine holds 60).
 // CONKER_60FPS and CONKER_SMOOTH (0 or 1) override them for one run, and CONKER_REFRESH (see the
 // renderer) turns smoothing on. The debug menu's switches change them until the game is closed;
 // only the row saves them.
 struct Settings {
-    std::atomic<bool> sixty{true};
-    std::atomic<bool> smooth{true};
+    std::atomic<bool> sixty{false};
+    std::atomic<bool> smooth{false};
 };
 
 std::mutex g_save_mutex;
@@ -92,7 +93,7 @@ Settings& settings() {
             const std::string key = line.substr(0, equals);
             const std::string value = line.substr(equals + 1);
             if (key == "fps") {
-                result->sixty.store(value != "30");
+                result->sixty.store(value == "60");
             } else if (key == "smooth") {
                 result->smooth.store(value == "1");
             }
