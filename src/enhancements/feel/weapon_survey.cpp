@@ -14,6 +14,7 @@
 #include "recomp.h"
 
 #include "enhancements/feel/feel.hpp"
+#include "enhancements/players.hpp"
 #include "platform/data_folder.hpp"
 #include "platform/input.hpp"
 #include "runtime/frame_input.hpp"
@@ -22,22 +23,8 @@ namespace conker::survey {
 
 namespace {
 
-inline gpr kseg0(uint32_t address) { return static_cast<gpr>(static_cast<int32_t>(address)); }
+using namespace conker::players;
 
-constexpr uint32_t kConker = 0x80088720;       // D_80088720: Conker's actor
-constexpr uint32_t kMultiplayer = 0x800BE616;  // D_800BE616: nonzero during a match
-constexpr uint32_t kScene = 0x800BE9F0;        // D_800BE9F0: the scene being played
-constexpr uint32_t kActors = 0x800CC2D0;       // D_800CC2D0: player n is actor n in a match
-constexpr uint32_t kActorSize = 0x32C;
-constexpr uint32_t kActorPosition = 0x14;      // floats
-constexpr uint32_t kActorAnimation = 0x84;     // u16
-constexpr uint32_t kActorPlayer = 0x31C;       // the player's block
-constexpr uint32_t kPlayerAction = 0x75;       // u8: the B pad's action
-constexpr uint32_t kPlayerItem = 0x78;         // u8
-constexpr uint32_t kPlayerItemState = 0x11A;   // u8: 2 in hand
-constexpr uint32_t kPlayerSight = 0x197;       // u8: 2 through a sight or on a mounted gun
-constexpr uint32_t kPlayerLook = 0x198;        // u8: R's look, 1 going in, 2 looking, 3 coming out
-constexpr int kPlayers = 4;
 constexpr size_t kMaxListed = 48;              // animations and sounds kept per item
 
 struct Item {
@@ -66,8 +53,6 @@ uint8_t g_held[kPlayers] = {};         // the item each player holds now (0: non
 bool g_holding[kPlayers] = {};
 float g_last_pos[kPlayers][3] = {};
 bool g_rumbling[kPlayers] = {};
-
-bool in_rdram(uint32_t address) { return address >= 0x80000000u && address < 0x80800000u; }
 
 float read_float(uint8_t* rdram, uint32_t address) {
     const uint32_t word = static_cast<uint32_t>(MEM_W(0, kseg0(address)));
@@ -118,27 +103,18 @@ void write_file() {
     g_last_write = std::chrono::steady_clock::now();
 }
 
-// The players and their actors: Conker alone in the story, the four in a match.
-uint32_t player_actor(uint8_t* rdram, int player, bool match) {
-    if (!match) {
-        const uint32_t conker = static_cast<uint32_t>(MEM_W(0, kseg0(kConker)));
-        return player == 0 && in_rdram(conker) ? conker : 0;
-    }
-    return kActors + static_cast<uint32_t>(player) * kActorSize;
-}
-
 }  // namespace
 
 void frame(uint8_t* rdram) {
     if (!conker::feel::live()) return;
-    const bool match = MEM_BU(0, kseg0(kMultiplayer)) != 0;
+    const bool match = multiplayer(rdram);
     const uint32_t scene = static_cast<uint32_t>(MEM_W(0, kseg0(kScene)));
     std::lock_guard lock(g_mutex);
     for (int p = 0; p < kPlayers; p++) {
-        const uint32_t actor = player_actor(rdram, p, match);
-        const uint32_t block = actor != 0 ? static_cast<uint32_t>(MEM_W(kActorPlayer, kseg0(actor))) : 0;
+        const uint32_t actor = conker::players::actor(rdram, p);
+        const uint32_t block = conker::players::block(rdram, actor);
         const bool rumbling = conker::input::rumble_on(p);
-        if (!in_rdram(block)) {
+        if (block == 0) {
             g_holding[p] = false;
             g_rumbling[p] = rumbling;
             continue;

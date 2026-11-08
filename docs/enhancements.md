@@ -405,53 +405,50 @@ slingshot coming out, each shot in the grip of the trigger that fired it,
 the elastic stretched again and the click when it is ready, a hard hit
 and a short heavy rumble in both grips for each shotgun blast, zoomed or
 not, a thump when Conker lands from a jump, on any ground, and a much heavier one when
-he splats after a long fall or is squashed flat. The game's own rumble is unchanged. More sounds are a
-line each in src/enhancements/haptics/haptics.cpp, found with
-`CONKER_SOUND_LOG=1` (see [diagnostics](diagnostics.md)).
+he splats after a long fall or is squashed flat. A fall that kills
+(flailing on the way down) ends in the deepest hit of all and a long
+rumble dying away. More sounds are a line each in
+src/enhancements/haptics/haptics.cpp, found with `CONKER_SOUND_LOG=1`
+(see [diagnostics](diagnostics.md)).
+
+Each weapon has a feel of its own in the hand: the Uzis, the tommy gun and
+the flamethrower pulse from grip to grip as they fire, the chainsaw idles
+with a dull rumble and bites harder as it cuts, and the game's own rumble
+takes each gun's character. Seated at a mounted machine gun, as in the
+wasps' hive, every round it fires kicks a grip, left then right; nothing
+shakes while the barrels wind up.
 
 On macOS a DualSense plays them shaped, through Core Haptics, which reaches
 the pad over Bluetooth too. Every other pad, and every pad on Windows and
 Linux, plays them on its rumble motors: the heavy one in the left grip takes
 the soft thumps, the light one in the right the crisp taps. An Xbox One or
 Series pad also has a motor in each trigger, and the slingshot is felt in
-the trigger that fired it. `CONKER_HAPTICS=0` turns it off, and
+the trigger that fired it. `CONKER_HAPTICS=0` turns them off, and HAPTICS
+on the debug menu's ENHANCEMENTS page switches them;
 `CONKER_HAPTICS_MOTORS=1` plays them on the motors on a DualSense on macOS
 too.
 
 In a multiplayer match every pad feels its own player: their landings,
-splats and shotgun blasts, and their own Rumble Pak. The slingshot's
-sounds are single player's.
+splats, shotgun blasts and weapons, and their own Rumble Pak. The
+slingshot's sounds are single player's.
 
-## Peeing and the machine gun in the triggers
+## Adaptive triggers
 
-A DualSense's triggers (both are Z) take the feel of the two things
-Conker does by holding Z:
+A DualSense's triggers (both are Z) resist for what Conker is doing:
 
 - **Peeing, drunk.** Once B starts the stream, the triggers resist
   lightly, then harder as holding Z sends it further, firmest when it
   reaches as far as it goes, and they ease off again as it falls back.
   They go free when he stops.
-- **The mounted machine gun**, as in the wasps' hive: the triggers pull
-  heavy past the first fifth of their travel, and every round the gun
-  fires thumps in both grips, since the gun is held with both hands.
-  Nothing shakes while the barrels wind up, and each thump is short
-  enough to leave a gap before the next, so the rounds are felt one by
-  one.
+- **The mounted machine gun**: the triggers pull heavy past the first
+  fifth of their travel.
+- **Guns in hand**: each gun's own resistance, light for the Uzis and the
+  rifles.
 
-The triggers only resist; they don't shake. On macOS a DualSense's
-thumps go through Core Haptics; any other pad that can rumble plays them
-on its motors, without the trigger resistance. `CONKER_ADAPTIVE_TRIGGERS=0`
-turns it all off, and ADAPTIVE TRIGGERS on the debug menu's ENHANCEMENTS
-page switches it.
-
-In a multiplayer match each player's pad has the triggers and thumps of
-that player's own mounted gun.
-
-Each weapon has a feel of its own: the Uzis, the tommy gun and the
-flamethrower pulse from grip to grip as they fire, the chainsaw idles with
-a dull rumble and bites harder as it cuts, and the guns' triggers resist.
-A fall that kills (flailing on the way down) ends in the deepest hit of
-all and a long rumble dying away.
+The triggers only resist; the shaking is the haptics above.
+`CONKER_ADAPTIVE_TRIGGERS=0` turns them off, and ADAPTIVE TRIGGERS on the
+debug menu's ENHANCEMENTS page switches them. In a multiplayer match each
+player's pad has the triggers of that player's own gun.
 
 ## feel.cfg
 
