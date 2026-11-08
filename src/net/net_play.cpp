@@ -2520,10 +2520,18 @@ std::string mods_text() {
     return text;
 }
 
+// The version every machine in a session must share: the build's own, or the one the build was told to
+// play as (CMake's CONKER_NET_VERSION, for a port built on a given version of this project).
+#ifdef CONKER_NET_VERSION
+constexpr const char* kNetVersion = CONKER_NET_VERSION;
+#else
+constexpr const char* kNetVersion = CONKER_BUILD_VERSION;
+#endif
+
 // CONKER_NET_TEST_BUILD=<text> poses as another build, to see the handshake and the lobby refuse it.
 std::string build_text() {
     const char* test = std::getenv("CONKER_NET_TEST_BUILD");
-    return test != nullptr ? std::string(test) : std::string(CONKER_BUILD_VERSION) + mods_text();
+    return test != nullptr ? std::string(test) : std::string(kNetVersion) + mods_text();
 }
 std::string os_text() { return std::string(kOs) + "-" + kCpu; }
 // CONKER_NET_TEST_ROM=<hex> poses as another ROM, the same way.
