@@ -123,7 +123,7 @@ says how to build it.
 
 The game code is not in that source. The build makes it from your own ROM with N64Recomp
 (tools/regenerate.sh). Conker's Bad Fur Day and its code, art and sound belong to Rare and
-Microsoft; this project is not affiliated with or endorsed by them, or by Sony.
+Microsoft; this project is not affiliated with or endorsed by them.
 """
 
 

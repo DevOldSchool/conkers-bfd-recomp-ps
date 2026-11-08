@@ -18,7 +18,7 @@ This repository contains no ROM data. You need your own US ROM
 ## Status
 
 Tested on a console on firmware 13.60: the story and MULTI, local and online with the desktop builds.
-It is a homebrew title: it needs a console that runs homebrew, and is not affiliated with Sony.
+It is a homebrew title: it needs a console that runs homebrew.
 
 ## Installing
 
@@ -92,5 +92,5 @@ a `SOURCE.txt` naming the exact commit and dependency revisions it was built fro
 and the source of the PS5 libraries at the revisions the build pins.
 
 *Conker's Bad Fur Day* and its code, art and sound belong to Rare and Microsoft. This project is not
-affiliated with or endorsed by them or by Sony, contains none of the game's data, and needs your own
+affiliated with or endorsed by them, contains none of the game's data, and needs your own
 ROM.
