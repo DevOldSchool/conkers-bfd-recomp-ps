@@ -15,8 +15,24 @@ Needs Docker (Linux, or macOS with Docker Desktop; Apple silicon works) and the 
 tools/ps5/build.sh            # deps (first time: RADV, SDK, PacBrew), configure, build, package
 ```
 
-`CONKER_GENERATED=<dir>` uses another checkout's `build/us`. The dependencies and the build folder are
-Docker volumes (`conker-ps5-deps`, `conker-ps5-build`). The title folder is `dist/PPSA21064`.
+The steps can also be run one at a time: `tools/ps5/build.sh deps|configure|build|package`.
+
+- **deps**, once per dependency volume: Mihawk's [PS5_Vulkan](https://github.com/mihawk-99/PS5_Vulkan),
+  [PS5_Mesa](https://github.com/mihawk-99/PS5_Mesa) and
+  [PS5_PayloadSDK](https://github.com/mihawk-99/PS5_PayloadSDK) at the commits `tools/ps5/build.sh`
+  pins, and by PS5_Vulkan's own tools the payload SDK, the release build of RADV, `ps5-native-tool`
+  and `runtime/libc.prx`; then PacBrew's prebuilt ports (v0.40.2, SDL2 among them). Building RADV
+  takes the longest, the first time only.
+- **configure**: RT64's `file_to_c` for the build machine, then CMake with `tools/ps5/toolchain.cmake`.
+- **build**: the game, linked into the signed title by `tools/ps5/link-title.sh`.
+- **package**: `dist/PPSA21064` (below).
+
+The image is `conker-ps5-build` (`tools/ps5/Dockerfile`). `CONKER_GENERATED=<dir>` uses another
+checkout's `build/us`. The dependencies (and the compiler cache) and the build folder are Docker
+volumes, `conker-ps5-deps` and `conker-ps5-build`; `CONKER_PS5_DEPS_VOLUME` and
+`CONKER_PS5_BUILD_VOLUME` name others, for CI or a build from scratch. `CONKER_BUILD_ARGS` is passed on to
+Ninja. The title folder is `dist/PPSA21064`; `build/ps5/ConkersBadFurDayRecompiled.elf` in the build
+volume is the title unsigned and with its symbols, for reading a crash report.
 
 ## Updating from the main project
 
@@ -40,8 +56,20 @@ The PS5 port changes the main project's files only in a few places, each behind 
    start the game keeps its own copy; the file you added can then be removed.
 3. Register the title (ShadowMountPlus or etaHEN) and start it from the home screen.
 
-`conker.log` in the title folder is the log, crash reports included. Saves and settings are in
-`conker-recomp-data` there.
+`tools/ps5/upload.sh` does the first two steps over etaHEN's FTP server:
+
+```sh
+PS5_HOST=<console's address> PS5_ROM=<your ROM> tools/ps5/upload.sh   # the whole title folder
+PS5_HOST=<console's address> tools/ps5/upload.sh eboot.bin             # only what changed
+```
+
+The port is 2121 unless `PS5_HOST` names another (`<address>:<port>`); `PS5_DIR` changes
+`/data/homebrew`.
+
+`conker.log` in the title folder is the log, new each start, crash reports included: the signal, the
+address and the return addresses found from the frame pointers. Its first lines say how much memory
+the console gives the title and name any function the title imports that the console does not have
+(a call to one would end the game). Saves and settings are in `conker-recomp-data` there.
 
 ## Home screen
 
@@ -76,7 +104,8 @@ open-source encoder exists for that. The encoded file is in `tools/ps5/sce_sys/s
 | Memory | N64 memory is a kernel reservation backed by direct memory (`tools/patches/n64modernruntime-ps5.patch`); the RDRAM aliases are one direct allocation mapped three times (`src/runtime/memory.cpp`). |
 | Display | plume presents through `VK_KHR_display` (`tools/patches/plume-ps5.patch`); SDL uses its offscreen video driver. |
 | Shaders | RT64 compiles its ubershader pipelines on the calling thread: a thread that compiled with RADV crashes as it ends (`tools/patches/rt64-ps5.patch`). |
-| Files | No working directory: relative paths are resolved against the title folder (`tools/ps5/ps5_paths.c`). No file dialog: the ROM is found in the title folder. |
+| Files | No working directory: relative paths are resolved against one the title keeps, starting at the title folder (`tools/ps5/ps5_paths.c`). No file dialog: `nfd` is a stub (`tools/ps5/nfd_stub.c`) and the ROM is found in the title folder. |
+| Linking | RADV is linked into the title (PS5_Vulkan's recipe, `tools/ps5/link-title.sh`), with C library functions the SDK lacks (`tools/ps5/ps5_libc.c`) and a table of every import, so the start-up can name the missing ones. |
 | DualSense | Adaptive triggers through `scePadSetTriggerEffect`; haptics and rumble synthesised as sound on the pad's vibration port (`src/platform/dualsense_ps5.cpp`). The `ps5.` lines of `feel.cfg` shape them: pitch, punch, the thud's roughness and length. |
 | Players | The console lists every signed-in user as a controller: one whose pad is off holds no port, so players follow the order pads are switched on. |
 | Not on the console | Mods, router port mapping. |

@@ -1,0 +1,41 @@
+{
+  "ageLevel": {
+    "AU": 15,
+    "CA": 17,
+    "US": 17,
+    "default": 18
+  },
+  "applicationCategoryType": 0,
+  "applicationDrmType": "free",
+  "attribute": 0,
+  "attribute2": 0,
+  "attribute3": 0,
+  "conceptId": "21064",
+  "contentBadgeType": 1,
+  "contentId": "UP9000-PPSA21064_00-CBFDRECOMPPS5000",
+  "contentVersion": "00.001.000",
+  "downloadDataSize": 256,
+  "gameIntent": {
+    "permittedIntents": [
+      {
+        "intentType": "launchActivity"
+      }
+    ]
+  },
+  "localizedParameters": {
+    "defaultLanguage": "en-US",
+    "en-US": {
+      "titleName": "Conker's Bad Fur Day Recompiled"
+    }
+  },
+  "masterVersion": "01.00",
+  "pubtools": {
+    "creationDate": "2026-11-08 00:00:00",
+    "loudnessSnd0": "-28.00",
+    "toolVersion": "2.00"
+  },
+  "requiredSystemSoftwareVersion": "0x0000000000000000",
+  "sdkVersion": "0x0000000000000000",
+  "titleId": "PPSA21064",
+  "versionFileUri": ""
+}
