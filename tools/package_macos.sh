@@ -92,6 +92,9 @@ cp "$binary" "$app/Contents/MacOS/ConkersBadFurDayRecompiled"
 cp "$sdl2" "$app/Contents/Frameworks/libSDL2-2.0.0.dylib"
 cp "$sdl3" "$app/Contents/Frameworks/libSDL3.dylib"
 chmod u+w "$app/Contents/Frameworks/"*.dylib
+# The Steam artwork, for "Add to Steam.command" beside the app in the zip (tools/steam).
+mkdir -p "$app/Contents/Resources"
+cp -R "$here/assets/steam" "$app/Contents/Resources/steam"
 
 cat > "$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -160,5 +163,14 @@ codesign --verify --strict "$app"
 dsymutil "$binary" -o "$dist/ConkersBadFurDayRecompiled.dSYM"
 zip="$dist/Conkers-Bad-Fur-Day-Recompiled-$version-macos.zip"
 rm -f "$zip"
-ditto -c -k --keepParent "$app" "$zip"
+# The app and "Add to Steam.command" (tools/steam/add-to-steam.sh, which a double-click runs in
+# Terminal) side by side at the top of the zip.
+zip_stage="$dist/zip-stage"
+rm -rf "$zip_stage"
+mkdir -p "$zip_stage"
+ditto "$app" "$zip_stage/$(basename "$app")"
+cp "$here/tools/steam/add-to-steam.sh" "$zip_stage/Add to Steam.command"
+chmod +x "$zip_stage/Add to Steam.command"
+ditto -c -k "$zip_stage" "$zip"
+rm -rf "$zip_stage"
 echo "==> $zip ($(du -h "$zip" | cut -f1))"

@@ -77,6 +77,9 @@ for dll in "${dlls[@]}"; do
     cp "$build/$dll" "$stage/"
 done
 python3 "$here/tools/package_notices.py" "$build" "$stage/licenses" windows
+# Adding it to Steam as a non-Steam game, with its artwork (tools/steam).
+cp "$here/tools/steam/add-to-steam.ps1" "$here/tools/steam/Add to Steam.bat" "$stage/"
+cp -R "$here/assets/steam" "$stage/steam"
 # Windows tools open text files most reliably with CRLF line endings.
 cat > "$stage/README.txt" <<'EOF'
 Conker's Bad Fur Day Recompiled for Windows (@ARCH@)
@@ -90,6 +93,9 @@ Open ConkersBadFurDayRecompiled.exe. No ROM is included: the first time, it asks
 US ROM (.z64) and keeps a copy, so it only asks once. Settings, saves, the ROM copy and
 last-run.log are kept in %LOCALAPPDATA%\ConkersBadFurDayRecompiled\conker-recomp-data.
 
+To play it through Steam, quit Steam and double-click "Add to Steam.bat": the next time Steam
+starts the game is in its library, with its artwork. Run it again after moving this folder.
+
 If the game crashes or will not start, open it again: it says so and shows the log to attach
 to a bug report (crash-reports\crash-<date>_<time>.log, and the .dmp file of the same name).
 
@@ -102,7 +108,7 @@ else
     sed -i.bak -e 's/@ARCH@/x64, for Intel and AMD PCs; use the windows-arm64 zip on an ARM PC/' "$stage/README.txt"
 fi
 rm -f "$stage/README.txt.bak"
-for f in "$stage/README.txt" "$stage/licenses/"*.txt; do
+for f in "$stage/README.txt" "$stage/licenses/"*.txt "$stage/add-to-steam.ps1" "$stage/Add to Steam.bat"; do
     sed -i.bak $'s/\r*$/\r/' "$f" && rm -f "$f.bak"
 done
 

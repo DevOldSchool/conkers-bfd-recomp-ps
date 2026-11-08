@@ -60,6 +60,9 @@ else
     cp "$here/assets/app-icon.png" "$stage/conkers-bad-fur-day-recompiled.png"
 fi
 python3 "$here/tools/package_notices.py" "$here/$build" "$stage/licenses" linux
+# Adding it to Steam as a non-Steam game, with its artwork (tools/steam).
+cp "$here/tools/steam/add-to-steam.sh" "$stage/add-to-steam.sh"
+cp -R "$here/assets/steam" "$stage/steam"
 cat > "$stage/install.sh" <<'EOF'
 #!/bin/sh
 # Adds Conker's Bad Fur Day Recompiled to the desktop's applications, with its icon, run from this folder.
