@@ -506,7 +506,22 @@ public:
         // Not while the game thread holds the game's memory (hold_game_memory). A hold is a frame's
         // drawing at most; one never let go is waited out rather than stopping the picture for good.
         std::unique_lock memory_lock(g_game_memory_mutex, std::defer_lock);
-        (void)memory_lock.try_lock_for(std::chrono::milliseconds(250));
+        const auto lock_start = std::chrono::steady_clock::now();
+        const bool held = memory_lock.try_lock_for(std::chrono::milliseconds(250));
+        view_tasks_++;
+        // CONKER_MY_VIEW_RENDER_LOG=1: when the renderer waited for the game's memory, or drew without the online view's copy.
+        static const bool view_log = [] {
+            const char* value = std::getenv("CONKER_MY_VIEW_RENDER_LOG");
+            return value != nullptr && value[0] == '1';
+        }();
+        if (view_log) {
+            const long long waited = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                         std::chrono::steady_clock::now() - lock_start).count();
+            if (!held || waited >= 50) {
+                std::printf("[conker] my view: task %llu %s the game's memory after %lld ms\n",
+                            static_cast<unsigned long long>(view_tasks_), held ? "got" : "drawn WITHOUT", waited);
+            }
+        }
         // Online, nothing drawn is written back into game memory on any machine: each GPU draws a little
         // differently, and the game reads depth back for the camera (func_1512B1B8), so the games parted
         // at once between two Macs (rt64-online-writeback.patch). The frame buffers above stay written.
@@ -528,6 +543,16 @@ public:
         }
         if (!frame_memory.empty()) {
             frame_memory.resize(0x800000);
+        }
+        if (view_log) {
+            // Once the online view has drawn a copy, a task drawn without one shows the game's own
+            // (split-screen) picture.
+            if (!frame_memory.empty()) {
+                tasks_since_view_copy_ = 0;
+            } else if (tasks_since_view_copy_ >= 0 && ++tasks_since_view_copy_ <= 600) {
+                std::printf("[conker] my view: task %llu drawn from game memory (%d since the last copy)\n",
+                            static_cast<unsigned long long>(view_tasks_), tasks_since_view_copy_);
+            }
         }
         const uint32_t task_list = task->t.data_ptr;
         uint8_t* const memory = frame_memory.empty() ? app_->core.RDRAM : frame_memory.data();
@@ -840,6 +865,8 @@ private:
     int tasks_without_copy_ = 1 << 20;  // graphics tasks since the last frame copy
     uint32_t reported_skips_ = 0;  // write-backs kept out of game memory (online), once reported
     std::vector<uint8_t> drawn_before_;  // draw_from's copy before RT64 drew from it
+    int tasks_since_view_copy_ = -1;  // CONKER_MY_VIEW_RENDER_LOG: tasks since the online view's last copy (-1: none yet)
+    uint64_t view_tasks_ = 0;  // graphics tasks so far, for CONKER_MY_VIEW_RENDER_LOG
     static constexpr int kHoldTasks = 4;
 };
 
