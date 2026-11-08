@@ -69,6 +69,9 @@
 #include "platform/haptics_apple.hpp"
 #include "platform/adaptive_triggers_apple.hpp"
 #endif
+#if CONKER_PS5
+#include "platform/dualsense_ps5.hpp"
+#endif
 
 namespace conker::input {
 
@@ -306,7 +309,8 @@ std::atomic<PadKind> g_pad_kind{PadKind::None};
 std::atomic<bool> g_camera_swapped{true};  // C-left and C-right (camera_swapped)
 
 // How a pad plays haptic effects.
-enum class HapticsVia { CoreHaptics, Motors, Log };
+// Pad: the PS5's DualSense vibration port (src/platform/dualsense_ps5.cpp).
+enum class HapticsVia { CoreHaptics, Motors, Log, Pad };
 
 // An effect playing on the rumble motors, each strength in [0, 1], until end_ms (SDL_GetTicks64).
 struct MotorEffect {
@@ -455,6 +459,9 @@ void open_pad_extras(Port& port, int device_index) {
         apple::set_dualsense_rumble(port.number() - 1, false);
     }
 #endif
+#if CONKER_PS5
+    ps5::close_dualsense(port.number() - 1);
+#endif
     port.pak_rumble_applied = false;
     port.pad_virtual = SDL_JoystickIsVirtual(device_index) == SDL_TRUE;
     port.virtual_number = port.pad_virtual ? virtual_pad_number(port.id) : 0;
@@ -469,11 +476,18 @@ void open_pad_extras(Port& port, int device_index) {
         port.haptics_via = HapticsVia::CoreHaptics;
     }
 #endif
+#if CONKER_PS5
+    // The console's SDL names the pad after its user, which finds the pad's handle.
+    if (SDL_GameControllerGetType(port.pad) == SDL_CONTROLLER_TYPE_PS5 &&
+        ps5::open_dualsense(port.number() - 1, port.name) && !g_force_motors) {
+        port.haptics_via = HapticsVia::Pad;
+    }
+#endif
     if (port.pad_virtual && !g_force_motors) {
         port.haptics_via = HapticsVia::Log;
     }
     port.has_haptics.store(port.has_rumble.load() || port.pad_virtual);
-    static const char* const kVia[] = {"Core Haptics", "motors", "logged"};
+    static const char* const kVia[] = {"Core Haptics", "motors", "logged", "the vibration port"};
     port.adaptive_triggers.store(SDL_GameControllerGetType(port.pad) == SDL_CONTROLLER_TYPE_PS5 || port.pad_virtual);
     port.trigger_stale = true;
     const std::string which = port.virtual_number != 0 ? " (virtual pad " + std::to_string(port.virtual_number) + ")" : "";
@@ -489,6 +503,9 @@ void close_pad_extras(Port& port) {
     if (port.pak_rumble_applied) {
         apple::set_dualsense_rumble(port.number() - 1, false);
     }
+#endif
+#if CONKER_PS5
+    ps5::close_dualsense(port.number() - 1);
 #endif
     port.pak_rumble_applied = false;
     {
@@ -626,10 +643,17 @@ bool pad_present(SDL_GameController* pad) {
             return !virtual_pad.away;
         }
     }
+#if CONKER_PS5
+    // The console's SDL lists every signed-in user as a controller: only one whose pad is on counts.
+    const char* name = SDL_GameControllerName(pad);
+    if (!ps5::pad_connected(name != nullptr ? name : "")) {
+        return false;
+    }
+#endif
     return SDL_GameControllerGetAttached(pad) == SDL_TRUE;
 }
 
-// Once a second: a port whose pad has gone (switched off while still listed) is freed, and a
+// Once a second: a port whose pad has gone (its PS5 user's pad switched off) is freed, and a
 // controller SDL listed before its pad was there takes the lowest free port once it is, so ports
 // follow the order pads come.
 void check_pads() {
@@ -865,6 +889,8 @@ bool send_triggers(Port& port, const TriggerEffect& trigger) {
     }
 #ifdef __APPLE__
     return apple::set_dualsense_triggers(port.number() - 1, trigger);
+#elif CONKER_PS5
+    return ps5::set_dualsense_triggers(port.number() - 1, trigger);
 #else
     return false;
 #endif
@@ -1184,6 +1210,19 @@ void apply_rumble(Port& port, Uint64 now) {
         }
     }
 #endif
+#if CONKER_PS5
+    // On the PS5 a DualSense in advanced mode plays the pak on its vibration port: the motors SDL
+    // drives are silent then.
+    if (port.haptics_via == HapticsVia::Pad) {
+        if ((pak != port.pak_rumble_applied || feel_changed) && ps5::set_dualsense_rumble(port.number() - 1, pak, feel)) {
+            port.pak_rumble_applied = pak;
+            port.feel_applied = feel;
+        }
+        if (port.pak_rumble_applied == pak) {
+            pak = false;
+        }
+    }
+#endif
     // On motors, a sharper feel leans toward the light motor (the default feel is both at full).
     const Uint16 low_strength = pak ? motor_strength(feel.intensity * (1.0f - 0.8f * feel.sharpness)) : motor_strength(low);
     const Uint16 high_strength = pak ? motor_strength(feel.intensity) : motor_strength(high);
@@ -1240,6 +1279,11 @@ void play_haptics(Port& port, const std::vector<Haptic>& haptics, Uint64 now) {
         // No DualSense among the GameController framework's pads (SDL_JOYSTICK_HIDAPI_PS5=1 reads
         // it through SDL's own driver): the motors, which SDL rumbles.
         if (port.haptics_via == HapticsVia::CoreHaptics && apple::play_dualsense_haptic(port.number() - 1, haptic)) {
+            continue;
+        }
+#endif
+#if CONKER_PS5
+        if (port.haptics_via == HapticsVia::Pad && ps5::play_dualsense_haptic(port.number() - 1, haptic)) {
             continue;
         }
 #endif

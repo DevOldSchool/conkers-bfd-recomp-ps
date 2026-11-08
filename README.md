@@ -123,7 +123,8 @@ Up to four SDL game controllers are read, one per controller port in the
 order they connect, so local multiplayer works: each player presses Start on
 the MULTI join screen. Pads are hot-pluggable: one that disconnects frees its
 port and the others keep theirs, and the next pad to connect takes the lowest
-free port, so players follow the order pads are switched on. The keyboard plays controller 1 alongside its pad. The debug menu's
+free port, so players follow the order pads are switched on. (On a PS5, a
+signed-in user whose pad is off holds no port.) The keyboard plays controller 1 alongside its pad. The debug menu's
 CONTROLS page maps each controller's pad buttons and the keyboard's keys
 differently and inverts the aim (see
 [docs/enhancements.md](docs/enhancements.md#debug-menu)); below are the

@@ -5,10 +5,14 @@
 
 namespace conker {
 
-// In the working folder (a desktop launch enters its data location first, src/platform/launch.hpp).
-// Every part of the game finds it here, so a platform with no working folder changes only this.
+// In the working folder (a desktop launch enters its data location first, src/platform/launch.hpp). A PS5
+// title has no working folder, and std::filesystem::current_path() ends it: there the title folder.
 inline std::filesystem::path data_folder() {
+#if CONKER_PS5
+    return std::filesystem::path("/app0") / "conker-recomp-data";
+#else
     return std::filesystem::current_path() / "conker-recomp-data";
+#endif
 }
 
 }  // namespace conker

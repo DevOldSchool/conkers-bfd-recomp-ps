@@ -25,6 +25,9 @@
 #include <windows.h>
 #include <dbghelp.h>
 #include <io.h>
+#elif CONKER_PS5
+#include <unistd.h>
+#include "platform/ps5_platform.hpp"
 #else
 #include <execinfo.h>
 #include <unistd.h>
@@ -355,9 +358,11 @@ void crash_handler(int sig, siginfo_t* info, void* /*uctx*/) {
     char buf[128];
     const int len = std::snprintf(buf, sizeof(buf), "[conker] image slide 0x%llx (tools/symbolicate.sh)\n", static_cast<unsigned long long>(_dyld_get_image_vmaddr_slide(0)));
     write_stderr(buf, len);
+#if !CONKER_PS5
     void* frames[64];
     const int count = backtrace(frames, 64);
     backtrace_symbols_fd(frames, count, 2);
+#endif
     _exit(128 + sig);
 }
 #endif
@@ -401,7 +406,7 @@ void dump_trace_at_exit() {
     write_minidump(&pointers);
     print_backtrace(&context);
     TerminateProcess(GetCurrentProcess(), 128 + 6);  // the exit status a SIGABRT gives on POSIX
-#else
+#elif !CONKER_PS5
     void* frames[64];
     const int count = backtrace(frames, 64);
     backtrace_symbols_fd(frames, count, 2);
@@ -440,6 +445,12 @@ void NTAPI terminate_on_every_thread(PVOID, DWORD reason, PVOID) {
 
 void install_crash_handler() {
     std::atexit(dump_trace_at_exit);
+#if CONKER_PS5
+    // The log in the title folder and its own crash handlers: backtrace() is a system call a title may
+    // not make (ps5_platform.cpp).
+    conker::ps5::init();
+    return;
+#endif
     std::set_terminate(terminate_handler);
 #if defined(_WIN32)
     SetUnhandledExceptionFilter(crash_filter);
@@ -593,6 +604,9 @@ int run(int argc, char** argv) {
     const std::filesystem::path data_dir = conker::data_folder();
     std::filesystem::create_directories(data_dir);
     recomp::register_config_path(data_dir);
+#if CONKER_PS5
+    std::printf("[conker] PS5: data folder %s\n", data_dir.c_str());
+#endif
     recomp::register_game(conker::make_game_entry());
     conker::register_overlays();
 
@@ -602,6 +616,11 @@ int run(int argc, char** argv) {
         recomp::check_all_stored_roms();
     }
     if (rom_path.empty() && !recomp::is_rom_valid(conker::kGameId)) {
+#if CONKER_PS5
+        // No file dialog: the ROM the player put in the title folder (kept as the stored copy after this).
+        rom_path = conker::ps5::find_rom();
+        std::printf("[conker] ROM in the title folder: %s\n", rom_path.empty() ? "none" : rom_path.c_str());
+#endif
 #if CONKER_LAUNCH_UI
 #if defined(__APPLE__)
         if (SDL_InitSubSystem(SDL_INIT_VIDEO) == 0)
@@ -666,6 +685,9 @@ int run(int argc, char** argv) {
     cfg.error_handling_callbacks = {.message_box = message_box};
     cfg.threads_callbacks = {.get_game_thread_name = nullptr};
 
+#if CONKER_PS5
+    std::printf("[conker] PS5: ROM ready, starting the runtime\n");
+#endif
     recomp::start_game(conker::kGameId, "");
     recomp::start(cfg);
     g_quitting_normally.store(true);

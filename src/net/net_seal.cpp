@@ -46,6 +46,10 @@ void system_random(uint8_t* out, size_t size) {
     if (BCryptGenRandom(nullptr, out, static_cast<ULONG>(size), BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0) {
         return;
     }
+#elif CONKER_PS5
+    // The console's libc has no getentropy: FreeBSD's arc4random, seeded by the kernel.
+    arc4random_buf(out, size);
+    return;
 #else
     bool ok = true;
     for (size_t at = 0; at < size && ok; at += 256) {

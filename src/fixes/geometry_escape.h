@@ -14,6 +14,10 @@
 
 #if defined(_WIN32)
 #define CONKER_SETJMP(buf) setjmp(buf)
+#elif CONKER_PS5
+// The console's libc has no _setjmp: sigsetjmp without the signal mask is the same jump. Its buffer
+// has jmp_buf's layout under another name (FreeBSD: both _JBLEN longs).
+#define CONKER_SETJMP(buf) sigsetjmp((struct _sigjmp_buf*)(buf), 0)
 #else
 #define CONKER_SETJMP(buf) _setjmp(buf)  // no signal mask: func_150ADAF0 runs many times a frame
 #endif

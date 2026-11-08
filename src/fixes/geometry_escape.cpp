@@ -42,6 +42,8 @@ extern "C" void conker_geometry_escape(uint8_t* rdram, recomp_context* ctx) {
     ctx->r29 = kseg0(sp);
 #if defined(_WIN32)
     longjmp(t_geometry_escape.buffer, 1);
+#elif CONKER_PS5
+    siglongjmp(reinterpret_cast<struct _sigjmp_buf*>(t_geometry_escape.buffer), 1);
 #else
     _longjmp(t_geometry_escape.buffer, 1);
 #endif

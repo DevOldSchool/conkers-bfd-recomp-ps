@@ -89,7 +89,7 @@ bool rumble_on(int port);
 
 // How the pak's rumble feels on a port's pad while it is on: intensity and sharpness as a haptic's (the
 // default, full and 0, is the deep rumble a motor gives). Pads with haptics play it so (the DualSense on
-// macOS), motor pads lean it toward the light motor as it gets sharper. Any thread.
+// macOS and the PS5), motor pads lean it toward the light motor as it gets sharper. Any thread.
 struct RumbleFeel {
     float intensity = 1.0f;
     float sharpness = 0.0f;

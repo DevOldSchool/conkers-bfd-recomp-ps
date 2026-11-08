@@ -2,7 +2,7 @@
 // control numbers, from conker-recomp-data/feel.cfg, which the game writes with the built-in values on
 // first start and reads as it starts, on every platform (again within half a second of a change with
 // CONKER_FEEL_LIVE=1). Copying the file
-// to another machine gives it the same feel. See docs/enhancements.md.
+// to another machine (the PS5's title folder, say) gives it the same feel. See docs/enhancements.md.
 //
 // Online play keeps the built-in control numbers: they act on the game in the pad hook, on every
 // machine alike, and two machines must stay the same to the bit. Haptics, triggers and rumble only
@@ -73,7 +73,7 @@ bool pulse(const std::string& weapon, bool used, Pulse* out);
 // that sound is not one of them.
 std::vector<conker::input::Haptic> sound_haptic(const std::string& weapon, int sound);
 
-// A number ("controls.match_turn", "gun_round.alternate", "pee.from"...). 0 if there is none; online, a
+// A number ("controls.match_turn", "ps5.hz_deep", "pee.from"...). 0 if there is none; online, a
 // "controls." one is always the built-in value.
 float number(const char* name);
 

@@ -101,7 +101,7 @@ uzis.hold = off
 uzis.use = off
 uzis.use_button = z
 uzis.pulse = off
-uzis.use_pulse = 1 0.1 0.08 both every 0.09 alternate
+uzis.use_pulse = 1 0.2 0.03 both every 0.075 alternate
 uzis.use_linger = 0
 uzis.use_rumble_window = 0.3
 uzis.shot = off
@@ -419,6 +419,26 @@ controls.stick_step = 41       # how far (of 82) the left stick goes before it s
 controls.mouse_degrees = 0.15  # camera degrees per mouse pixel
 controls.mouse_aim = 0.05      # aim per mouse pixel (20 pixels in a frame is the stick pushed fully)
 controls.sight_zoom_frames = 6 # frames a wheel step holds zoom in the sight
+
+# --- the PS5's DualSense actuators (src/platform/dualsense_ps5.cpp) ---
+ps5.hz_deep = 38
+ps5.hz_sharp = 250
+ps5.curve = 0.6
+ps5.punch = 6
+ps5.tap_punch = 0
+ps5.tap_attack_ms = 20
+ps5.tap_ms_deep = 150
+ps5.tap_ms_sharp = 25
+ps5.tap_hold = 0.4
+ps5.octave = 0.35
+ps5.deep_below = 0.35
+ps5.tap_gain = 0.7
+ps5.buzz_gain = 1.6
+ps5.rumble_gain = 1.3
+ps5.rumble_noise = 0.4
+ps5.rumble_hz = 50
+ps5.deep_noise = 0.6
+ps5.deep_stretch = 1.4
 )";
 
 struct Values {
