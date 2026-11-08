@@ -334,6 +334,10 @@ struct State {
     bool raised = false;        // A was pressed for the barrel's face to come up
     bool lowering = false;      // B was pressed for it to go back to the skull
     int chosen = 0;
+    // The chosen row's action and index last frame: a row coming or going above it (a game found on the
+    // network) keeps the cursor on the same row, not the same place.
+    Action chosen_action = Action::None;
+    size_t chosen_index = 0;
     Mode last_mode = Mode::Idle;
     bool last_session = false;
     bool last_can_start = false;
@@ -487,11 +491,10 @@ Page build_page(const lobby::View& v) {
                                  "THE NAME THE OTHER PLAYERS SEE"});
             page.rows.push_back({"HOST A GAME", Action::Host, !mods, 0,
                                  "ON UDP PORT " + std::to_string(conker::net::kDefaultPort) + "  THE OTHERS JOIN YOU"});
-            page.rows.push_back({"JOIN  " + field_text(target, "ADDRESS OR CODE"), Action::Join, !mods, 0,
-                                 "THE HOST'S ADDRESS OR JOIN CODE"});
             if (v.games.empty()) {
                 page.lines.push_back({"", kGrey});
             }
+            // The games found on this network first: the likeliest choice, with nothing to type.
             for (size_t i = 0; i < std::min(v.games.size(), kLanShown); i++) {
                 const lobby::Game& game = v.games[i];
                 Row row{"JOIN " + upper(game.name) + "  " + std::to_string(game.players) + "P" + (game.playing ? "  PLAYING" : ""),
@@ -502,6 +505,8 @@ Page build_page(const lobby::View& v) {
                 }
                 page.rows.push_back(row);
             }
+            page.rows.push_back({"JOIN  " + field_text(target, "ADDRESS OR CODE"), Action::Join, !mods, 0,
+                                 "THE HOST'S ADDRESS OR JOIN CODE"});
             page.rows.push_back({"CLOSE", Action::Close, true, 0, "BACK TO THE BARREL"});
             if (v.games.empty()) {
                 page.info.push_back({"LOOKING FOR GAMES ON THIS NETWORK...", kGrey});
@@ -999,6 +1004,7 @@ void frame(uint8_t* rdram, recomp_context* ctx) {
     if (open && !g.was_open) {
         g.was_open = true;
         g.chosen = 0;
+        g.chosen_action = Action::None;
         g.field = Field::None;
         g_typing.store(false);
         g.lowering = false;
@@ -1051,6 +1057,7 @@ void frame(uint8_t* rdram, recomp_context* ctx) {
         g.last_session = now_session;
         g.last_can_start = v.can_start;
         g.chosen = 0;
+        g.chosen_action = Action::None;
     }
     const Page page = build_page(v);
     const int count = static_cast<int>(page.rows.size());
@@ -1072,6 +1079,15 @@ void frame(uint8_t* rdram, recomp_context* ctx) {
     }
     if (count > 0) {
         g.chosen = std::clamp(g.chosen, 0, count - 1);
+        const Row& was = page.rows[g.chosen];
+        if (g.chosen_action != Action::None && (was.action != g.chosen_action || was.index != g.chosen_index)) {
+            for (int r = 0; r < count; r++) {
+                if (page.rows[r].action == g.chosen_action && page.rows[r].index == g.chosen_index) {
+                    g.chosen = r;
+                    break;
+                }
+            }
+        }
         // A row that cannot be pressed (START before everyone is ready) is stepped over.
         const int step = vertical != 0 ? vertical : 1;
         int moved = vertical != 0 ? g.chosen + vertical : g.chosen;
@@ -1084,6 +1100,8 @@ void frame(uint8_t* rdram, recomp_context* ctx) {
             g.chosen = moved;
             sound = vertical != 0 ? 1 : sound;
         }
+        g.chosen_action = page.rows[g.chosen].action;
+        g.chosen_index = page.rows[g.chosen].index;
     }
     // Steering may close the page (CLOSE, BACK): it is drawn this frame all the same.
     if (select && count > 0) {

@@ -146,8 +146,19 @@ constexpr int kMaxDelay = 15;
 // and 128x no better). CONKER_NET_CATCH_UP_SPEED sets another, to measure.
 constexpr uint32_t kCatchUpSpeed = 32;
 constexpr uint32_t kCatchUpFrom = 60;   // further behind than this, a guest catches up
+constexpr uint32_t kSnapCatchUpFrom = 8; // or this, just after a snapshot is put in place
 constexpr uint32_t kLiveWithin = 90;
 constexpr uint32_t kLiveLead = 120;
+// From a snapshot a guest is only the few frames behind that the snapshot took to make and send, and
+// catches them up from the first (kSnapCatchUpFrom), so its lead is sized to that gap: at about 4.5x it
+// gains 3.5 frames a frame, so a third of the gap, two round trips for the word to reach it, and
+// kSnapLeadMargin to spare (on a LAN a gap of 23 frames was caught up in 0.2 s). After a snapshot it
+// catches up to within a frame of its input delay, so it is not left behind at the live frame.
+constexpr uint32_t kSnapLeadMargin = 8;
+uint32_t snap_live_lead(uint32_t gap, int rtt_ms) {
+    const uint32_t trips = static_cast<uint32_t>(std::max(rtt_ms, 0)) * 2 / 33 + 1;
+    return std::min(kLiveLead, kSnapLeadMargin + gap / 3 + trips);
+}
 // A frame number from the wire no session reaches (over a year at 60 a second), and far enough from
 // 2^32 that frame + kRing and the like never wrap: a snapshot's, the host's last merged frame or a drop
 // frame past it is refused. It was a day at 60 a second (48 hours at 30) until the hash history grew
@@ -524,7 +535,7 @@ uint32_t g_rejoin_from = 0;          // a rejoining guest: its port's drop frame
 // say) it replays from frame 1 as before; if its game then differs from the host's, the host has it
 // start again and replay (the port's snapshots are off from then on).
 constexpr size_t kSnapChunkSize = 1024;
-constexpr int kSnapChunksPerTick = 32;
+constexpr int kSnapChunksPerTick = 32;  // 3.2 MB/s
 constexpr int64_t kSnapWaitMs = 30000;
 bool g_snap_failed[kPorts] = {};              // the host: a snapshot did not work for this port
 std::atomic<bool> g_snap_requested{false};    // the host: mark the next frame merged for one
@@ -538,6 +549,7 @@ std::vector<bool> g_snap_have;
 size_t g_snap_have_count = 0;
 uint32_t g_snap_of = 0;                       // its frame
 std::atomic<bool> g_snap_waiting{false};      // a guest's game waits for it
+int64_t g_snap_first_at = 0;                  // a guest: when the snapshot's first chunk came
 int64_t g_join_start = 0;                     // a guest: when it began joining
 bool g_live_announced = false;                // a rejoining guest: said when it plays again
 std::atomic<bool> g_catching_up{false};
@@ -551,6 +563,7 @@ struct CatchUp {
     int64_t check_waited = 0;
     bool caught_up = false;
     int stalled = 0;
+    bool after_snapshot = false;  // a snapshot was just put in place: catch up from kSnapCatchUpFrom
 } g_catch_up;
 // How long frames waited for input, printed every 900 frames (30 s) for testing links: the waits of
 // 50 ms or more (stalls a player sees as a hitch), their total and the longest, the round trip.
@@ -1945,7 +1958,8 @@ void rejoin_tick(int64_t now) {
             send_to(peer, w);
         } else if (peer.started && g_peer_played[peer.port] + kLiveWithin >= g_merged_upto &&
                    (!peer.needs_snapshot || (peer.snap != nullptr && g_peer_played[peer.port] >= peer.snap_frame))) {
-            const uint32_t live = g_merged_upto + kLiveLead;
+            const uint32_t gap = g_merged_upto - std::min(g_merged_upto, g_peer_played[peer.port]);
+            const uint32_t live = g_merged_upto + (peer.used_snapshot ? snap_live_lead(gap, peer.rtt) : kLiveLead);
             g_live_frame[peer.port] = live;
             g_input_upto[peer.port] = live - 1;
             peer.dropped = false;
@@ -2010,6 +2024,9 @@ void on_snap_chunk(Reader& r) {
         g_snap_data.assign(total, 0);
         g_snap_have.assign((total + kSnapChunkSize - 1) / kSnapChunkSize, false);
         g_snap_have_count = 0;
+        g_snap_first_at = now_ms();
+        std::printf("[conker] net: the snapshot's first chunk came %.2f s after joining\n",
+                    (g_snap_first_at - g_join_start) / 1000.0);
     }
     const size_t index = offset / kSnapChunkSize;
     if (!g_snap_have[index]) {
@@ -2017,6 +2034,8 @@ void on_snap_chunk(Reader& r) {
         g_snap_have_count++;
         std::memcpy(g_snap_data.data() + offset, r.data + r.at, length);
         if (g_snap_have_count == g_snap_have.size()) {
+            std::printf("[conker] net: the snapshot's %zu chunks came in %lld ms\n", g_snap_have.size(),
+                        static_cast<long long>(now_ms() - g_snap_first_at));
             wake_game_thread();
         }
     }
@@ -2028,7 +2047,9 @@ void snapshot_tick() {
         if (!peer.rejoining || !peer.started) {
             continue;
         }
+        bool fresh = false;  // the snapshot was made ready for this peer this tick
         if (peer.snap == nullptr && peer.snap_wanted != 0 && g_snap_serial >= peer.snap_wanted && g_snap_blob != nullptr) {
+            fresh = true;
             peer.snap = g_snap_blob;
             peer.snap_frame = g_snap_frame;
             peer.snap_acked.assign((peer.snap->size() + kSnapChunkSize - 1) / kSnapChunkSize, false);
@@ -2040,6 +2061,10 @@ void snapshot_tick() {
             continue;
         }
         const size_t chunks = peer.snap_acked.size();
+        if (fresh) {
+            std::printf("[conker] net: sending player %d the snapshot of frame %u (%zu chunks)\n", peer.port + 1,
+                        peer.snap_frame, chunks);
+        }
         for (int sent = 0, looked = 0; sent < kSnapChunksPerTick && looked < static_cast<int>(chunks); looked++) {
             const size_t index = peer.snap_next;
             peer.snap_next = (peer.snap_next + 1) % chunks;
@@ -2365,6 +2390,11 @@ bool open_socket(int family, uint16_t bind_port) {
         return false;
     }
     socket_prepare(g_socket);
+    // A snapshot comes in bursts of kSnapChunksPerTick chunks every kSendEveryMs; some systems'
+    // default receive buffer (FreeBSD's is about 40 KiB) drops most of one. Best effort: a system that
+    // refuses keeps its own, and lost chunks are sent again.
+    socket_set_option(g_socket, SOL_SOCKET, SO_RCVBUF, 1 << 20);
+    socket_set_option(g_socket, SOL_SOCKET, SO_SNDBUF, 1 << 20);
     if (bind_port == 0) {
         return true;
     }
@@ -3831,9 +3861,9 @@ void take_snapshot(uint8_t* rdram, uint32_t frame) {
         std::vector<uint8_t> packed(4 + size);
         const uint32_t raw_size = static_cast<uint32_t>(raw.size());
         std::memcpy(packed.data(), &raw_size, 4);
-        // Level 6: 5% smaller than 1 (a MULTI match's: 1153 -> 1090 KiB) for ~50 ms more on this thread,
-        // while the guest waits a few hundred ms for it anyway; 9 saves nothing more for 4x the time.
-        if (compress2(packed.data() + 4, &size, raw.data(), static_cast<uLong>(raw.size()), 6) != Z_OK) {
+        // Level 1: level 6 is only 5% smaller (a MULTI match's: 1153 -> 1090 KiB) and takes ~50 ms more on
+        // a Mac, more on slower machines, while the guest waits for it.
+        if (compress2(packed.data() + 4, &size, raw.data(), static_cast<uLong>(raw.size()), 1) != Z_OK) {
             std::fprintf(stderr, "[conker] net: the snapshot of frame %u could not be compressed\n", frame);
             return;
         }
@@ -3949,6 +3979,7 @@ uint32_t load_snapshot(uint8_t* rdram, uint32_t frame) {
         hash = Hash{};
     }
     g_hashes_sent_upto = 0;
+    g_catch_up.after_snapshot = true;
     std::printf("[conker] net: snapshot of frame %u (%zu KiB) in place at frame %u, %.1f s after joining (%lld ms "
                 "waiting for it); on from frame %u\n", snap_frame, packed.size() / 1024, frame,
                 (received - g_join_start) / 1000.0, static_cast<long long>(received - wait_start), snap_frame);
@@ -4163,8 +4194,16 @@ void frame(uint8_t* rdram, Record* record) {
     note_wait(frame, waited);
     if (waited >= kStallCountsMs) {
         if (is_host()) {
-            std::printf("[conker] net: waited %lld ms at frame %u for player %d (heard from %lld ms before at most)\n",
-                        static_cast<long long>(waited), frame, g_stall_port.load() + 1, static_cast<long long>(quiet_longest));
+            // The port waited for is found only once a wait has gone on for kStallCountsMs with the game
+            // woken in it; a wait that ended at its first wake names no one.
+            const int stall_port = g_stall_port.load();
+            if (stall_port < 0) {
+                std::printf("[conker] net: waited %lld ms at frame %u for the guests' input\n", static_cast<long long>(waited),
+                            frame);
+            } else {
+                std::printf("[conker] net: waited %lld ms at frame %u for player %d (heard from %lld ms before at most)\n",
+                            static_cast<long long>(waited), frame, stall_port + 1, static_cast<long long>(quiet_longest));
+            }
         } else {
             std::printf("[conker] net: waited %lld ms at frame %u for the host\n", static_cast<long long>(waited), frame);
         }
@@ -4183,6 +4222,7 @@ void frame(uint8_t* rdram, Record* record) {
         const uint32_t live = g_live_frame[g_local_port];
         if (live != 0 && frame >= live) {
             g_live_announced = true;
+            g_catch_up.after_snapshot = false;  // playing: back to catching up only when far behind
             std::printf("[conker] net: playing again at frame %u, %.1f s after joining\n", frame,
                         (now_ms() - g_join_start) / 1000.0);
         }
@@ -4214,7 +4254,8 @@ void frame(uint8_t* rdram, Record* record) {
                 check_waited = 0;
             }
         }
-        if (!g_catching_up.load() && !caught_up && stalled_catch_ups < 3 && behind > kCatchUpFrom) {
+        const uint32_t catch_up_from = g_catch_up.after_snapshot ? kSnapCatchUpFrom : kCatchUpFrom;
+        if (!g_catching_up.load() && !caught_up && stalled_catch_ups < 3 && behind > catch_up_from) {
             g_catching_up.store(true);
             catch_up_start = now_ms();
             catch_up_first = frame;
@@ -4227,8 +4268,10 @@ void frame(uint8_t* rdram, Record* record) {
             }();
             ultramodern::set_speed_multiplier(speed);
             std::printf("[conker] net: %u frames behind the host at frame %u: catching up\n", behind, frame);
-        } else if (g_catching_up.load() && (behind <= static_cast<uint32_t>(g_delay) + 4 || not_catching_up)) {
+        } else if (g_catching_up.load() &&
+                   (behind <= static_cast<uint32_t>(g_delay) + (g_catch_up.after_snapshot ? 1 : 4) || not_catching_up)) {
             caught_up = caught_up || !not_catching_up;
+            g_catch_up.after_snapshot = false;
             stalled_catch_ups += not_catching_up ? 1 : 0;
             g_catching_up.store(false);
             ultramodern::set_speed_multiplier(1);
