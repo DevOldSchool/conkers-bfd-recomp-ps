@@ -46,8 +46,40 @@ git submodule update --init --recursive
 ```
 
 The PS5 port changes the main project's files only in a few places, each behind `CONKER_PS5` (or
-`if(PS5)` in CMake), so merges rarely conflict. A fresh clone adds the remote once:
+`if(PS5)` in CMake), so merges rarely conflict. Three files differ on purpose, and a conflict in them
+keeps this repository's side:
+
+* `README.md` is this repository's own (`git checkout --ours README.md`).
+* `.github/workflows/release.yml` and `rom-build.yml` (the desktop releases and the regression
+  build) are removed here: `git rm` them again. `.github/workflows/ps5.yml` builds the title instead.
+
+A fresh clone adds the remote once:
 `git remote add upstream git@github.com:DevOldSchool/conkers-bfd-recomp.git`.
+
+## CI and releases
+
+`.github/workflows/ps5.yml` regenerates the code from the ROM (from the private repository the
+`rom` environment names, as in the main project) and runs `tools/ps5/build.sh all` on every push to
+main, keeping the zipped title for three days. Nothing is cached between runs: the build's volumes
+hold code made from the ROM.
+
+A tag `NN.NNN.NNN` makes a draft release. The tag must be `contentVersion` in
+`tools/ps5/sce_sys/param.json` (the version the console shows, and the one the homebrew catalog
+takes), so a release raises that first. The draft carries:
+
+* `Conkers-Bad-Fur-Day-Recompiled-PS5-<version>.zip`: the title folder, `PPSA92064/` at its top,
+  licenses included;
+* `…-symbols.zip`: the unsigned program with its symbols, for reading a crash report's addresses;
+* the complete source, submodules included, and the PS5 libraries' source at the pinned revisions;
+* `SHA256SUMS.txt`.
+
+## Licenses
+
+The package step writes `licenses/` into the title folder (`tools/ps5/package_notices.py`): this
+project's MIT license, the GPL-3.0 (N64ModernRuntime, PS5_Vulkan, the payload SDK and `libc.prx`
+make the title GPL-3.0 as a whole), every library's notice, and `SOURCE.txt` with the exact commit
+and dependency revisions. Licenses the build does not keep are in `tools/ps5/licenses`; a library
+added to the title needs an entry in `tools/ps5/package_notices.py`.
 
 ## Install
 

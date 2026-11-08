@@ -321,6 +321,8 @@ on_host() {
     fi
     if [ "$step" = package ] || [ "$step" = all ]; then
         in_container package
+        # The licenses and the source notice, here: they describe the source with git.
+        python3 "$here/tools/ps5/package_notices.py" "$here/dist/$title_id/licenses"
     fi
 }
 
