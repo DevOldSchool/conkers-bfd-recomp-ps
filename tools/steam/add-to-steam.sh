@@ -213,7 +213,8 @@ if [[ -n $game ]]; then
     [[ $game == *.app || $game == *.app/ ]] && game="${game%/}/Contents/MacOS/$binary"
 else
     for candidate in "$here/$binary" "$here/$macos_app/Contents/MacOS/$binary" \
-                     "$here/../../dist/$macos_app/Contents/MacOS/$binary" "$here"/../../build*/"$binary"; do
+                     "$here/../../dist/$macos_app/Contents/MacOS/$binary" "$here"/../../build*/"$binary" \
+                     "$here"/../../build*/*/"$binary"; do
         [[ -f $candidate ]] && { game="$candidate"; break; }
     done
     [[ -n $game ]] || die "The game was not found next to this script: give --game <the game, or its .app>"

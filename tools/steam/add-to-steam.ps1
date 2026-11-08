@@ -187,8 +187,10 @@ if ($Remove) {
 if ($Game) {
     if (-not (Test-Path $Game -PathType Leaf)) { Fail "The game is not at $Game" }
 } else {
-    $candidates = @((Join-Path $Here $Binary)) + @(Get-ChildItem (Join-Path $Here "..\..") -Directory -Filter "build*" -ErrorAction SilentlyContinue |
-        ForEach-Object { Join-Path $_.FullName $Binary })
+    # Next to this script (a release), else a checkout's build folders (build\, build\<name>\).
+    $builds = @(Get-ChildItem (Join-Path $Here "..\..") -Directory -Filter "build*" -ErrorAction SilentlyContinue)
+    $candidates = @((Join-Path $Here $Binary)) + @($builds | ForEach-Object { Join-Path $_.FullName $Binary }) +
+        @($builds | ForEach-Object { Get-ChildItem $_.FullName -Directory -ErrorAction SilentlyContinue } | ForEach-Object { Join-Path $_.FullName $Binary })
     foreach ($candidate in $candidates) { if (Test-Path $candidate -PathType Leaf) { $Game = $candidate; break } }
     if (-not $Game) { Fail "The game was not found next to this script: give -Game <ConkersBadFurDayRecompiled.exe>" }
 }
