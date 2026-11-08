@@ -19,6 +19,7 @@
 // scene, logic delta (D_800BE9A4), Conker's position and the camera's eye, for comparing the two
 // rates.
 #include <atomic>
+#include "platform/data_folder.hpp"
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -68,7 +69,7 @@ struct Settings {
 std::mutex g_save_mutex;
 
 std::filesystem::path config_path() {
-    return std::filesystem::current_path() / "conker-recomp-data" / "frame_rate.cfg";
+    return conker::data_folder() / "frame_rate.cfg";
 }
 
 bool env_flag(const char* name, bool* value) {

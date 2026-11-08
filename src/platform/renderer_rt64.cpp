@@ -46,6 +46,7 @@
 #include <link.h>
 #endif
 #include "platform/renderer_rt64.hpp"
+#include "platform/data_folder.hpp"
 #include "platform/present_focus.hpp"
 #include "platform/render_debug.hpp"
 
@@ -275,7 +276,7 @@ Packs find_packs() {
     }
     const char* setting = std::getenv("CONKER_TEXTURE_PACKS");
     if (setting == nullptr || std::string(setting) != "0") {
-        const std::filesystem::path dir = std::filesystem::current_path() / "conker-recomp-data" / "texture_packs";
+        const std::filesystem::path dir = conker::data_folder() / "texture_packs";
         std::error_code error;
         for (const auto& entry : std::filesystem::directory_iterator(dir, error)) {
             const std::string name = entry.path().filename().string();

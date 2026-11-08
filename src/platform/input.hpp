@@ -84,6 +84,21 @@ bool take_debug_menu_press();
 // on or off; both are safe to call from any thread.
 bool has_rumble(int port = 0);
 void set_rumble(int port, bool on);
+// Whether the game has the port's pak motor on (as set_rumble left it). Any thread.
+bool rumble_on(int port);
+
+// How the pak's rumble feels on a port's pad while it is on: intensity and sharpness as a haptic's (the
+// default, full and 0, is the deep rumble a motor gives). Pads with haptics play it so (the DualSense on
+// macOS), motor pads lean it toward the light motor as it gets sharper. Any thread.
+struct RumbleFeel {
+    float intensity = 1.0f;
+    float sharpness = 0.0f;
+    bool operator==(const RumbleFeel&) const = default;
+};
+void set_rumble_feel(int port, const RumbleFeel& feel);
+// A rumble of the weapon's own while it is in hand (feel.cfg's <weapon>.hold), on whenever the game's
+// own rumble is not: the pak's rumble path plays it with `feel`. Any thread.
+void set_hold_rumble(int port, bool on, const RumbleFeel& feel);
 
 // A haptic effect on a port's pad, alongside the rumble pak's on and off: shaped on a DualSense on
 // macOS (Core Haptics), played on the rumble motors (and an Xbox pad's trigger motors) elsewhere.

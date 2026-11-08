@@ -20,7 +20,8 @@ struct Engines {
     CHHapticEngine* right = nil;
     id<CHHapticPatternPlayer> left_rumble = nil;  // the rumble pak's, while it plays
     id<CHHapticPatternPlayer> right_rumble = nil;
-    bool rumble_failed = false;  // Core Haptics refused the rumble: SDL rumbles the pad instead
+    bool rumble_failed = false;
+    RumbleFeel rumble_feel;  // the running rumble's  // Core Haptics refused the rumble: SDL rumbles the pad instead
 };
 Engines g_engines[kPorts];
 bool g_reported = false;  // a failure is printed once, not for every effect
@@ -132,10 +133,10 @@ void play_on(CHHapticEngine* engine, CHHapticPattern* pattern) {
 // The rumble pak's motor: the lowest sharpness, a deep rumble like a motor's, held until stopped.
 constexpr float kRumbleSharpness = 0.0f;
 
-id<CHHapticPatternPlayer> start_rumble(CHHapticEngine* engine, float intensity) {
+id<CHHapticPatternPlayer> start_rumble(CHHapticEngine* engine, float intensity, float sharpness) {
     NSArray<CHHapticEventParameter*>* parameters = @[
         [[CHHapticEventParameter alloc] initWithParameterID:CHHapticEventParameterIDHapticIntensity value:intensity],
-        [[CHHapticEventParameter alloc] initWithParameterID:CHHapticEventParameterIDHapticSharpness value:kRumbleSharpness],
+        [[CHHapticEventParameter alloc] initWithParameterID:CHHapticEventParameterIDHapticSharpness value:sharpness],
     ];
     CHHapticEvent* event = [[CHHapticEvent alloc] initWithEventType:CHHapticEventTypeHapticContinuous
                                                          parameters:parameters relativeTime:0
@@ -196,7 +197,7 @@ GCController* port_dualsense(int port) {
     return port == 0 && count == 1 && named_count == 0 && name.empty() ? only : nil;
 }
 
-bool set_dualsense_rumble(int port, bool on) {
+bool set_dualsense_rumble(int port, bool on, const RumbleFeel& feel) {
     if (port < 0 || port >= kPorts) {
         return false;
     }
@@ -204,19 +205,23 @@ bool set_dualsense_rumble(int port, bool on) {
     // Core Haptics raises an exception for what it can't do on a pad's engine (an advanced player,
     // for one); a rumble that won't play must not take the game down.
     @try {
-        if (!on) {
+        if (!on || !(feel == engines.rumble_feel)) {
+            // Off, or another feel: a running rumble stops, to start again as asked.
             stop_rumble(engines.left_rumble);
             stop_rumble(engines.right_rumble);
-            return true;
+            engines.rumble_feel = feel;
+            if (!on) {
+                return true;
+            }
         }
         if (engines.rumble_failed || engines_ready(port) == nullptr) {
             return false;
         }
         if (engines.left_rumble == nil) {
-            engines.left_rumble = start_rumble(engines.left, 1.0f);
+            engines.left_rumble = start_rumble(engines.left, feel.intensity, feel.sharpness);
         }
         if (engines.right_rumble == nil) {
-            engines.right_rumble = start_rumble(engines.right, 1.0f);
+            engines.right_rumble = start_rumble(engines.right, feel.intensity, feel.sharpness);
         }
         engines.rumble_failed = engines.left_rumble == nil && engines.right_rumble == nil;
         return !engines.rumble_failed;

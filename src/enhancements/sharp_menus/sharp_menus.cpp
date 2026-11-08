@@ -5,7 +5,7 @@
 // keyed by the hash RT64 computes for each tile as the game loads it (TMEMHasher). Tiles drawn
 // side by side are enlarged together, so no seams show between them. The button prompts and the
 // multiplayer heads, player pieces and skulls are enlarged too, with the multiplayer menus' other icons
-// and three of the small statistics icons; the rest are left as they are: they lose their detail when
+// and two of the small statistics icons; the rest are left as they are: they lose their detail when
 // enlarged.
 //
 // The speech and thought bubbles are not menu art but come from the same resources, and are
@@ -105,7 +105,8 @@ constexpr Title kTitles[] = {
 // The small statistics icons are the 16x16 corners of two tiles, top left, top right, bottom left,
 // bottom right: 2183 the stopwatch, money bag, gravestone and roll; 2184 the skull, crosshair,
 // projectile and purple head. Each chosen corner is enlarged on its own, so its neighbours do not
-// bleed in; the others are enlarged by repeating pixels, which draws as it did.
+// bleed in; the others are enlarged by repeating pixels, which draws as it did. The skull (over the
+// kills on a match's pause stats row) is left as Rare drew it: it looks better unsmoothed.
 struct SmallIcons {
     int resource;
     bool sharp[4];
@@ -113,7 +114,7 @@ struct SmallIcons {
 };
 constexpr SmallIcons kSmallIcons[] = {
     {2183, {false, true, false, false}, "small_stats_1"},
-    {2184, {true, true, false, false}, "small_stats_2"},
+    {2184, {false, true, false, false}, "small_stats_2"},
 };
 
 // The Rare logo, a 16x16 RGBA32 tile of its own.

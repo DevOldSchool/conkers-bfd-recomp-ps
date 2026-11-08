@@ -1,9 +1,10 @@
 // The four controller ports from SDL game controllers, and controller 1 from the keyboard too.
 // update() samples them on the main thread after the window pumps events; the game thread reads
 // the result through read() when the game polls the controllers. A pad takes the lowest free port
-// when it connects and frees it when it disconnects; the others keep theirs. Controller 1 combines
-// its pad and the keyboard: buttons are OR-ed, and the pad's stick wins over the keyboard's
-// whenever it is outside the deadzone.
+// when it connects and frees it when it disconnects; the others keep theirs. A controller SDL lists
+// with no pad behind it (pad_present) holds no port, so ports follow the order pads come.
+// Controller 1 combines its pad and the keyboard: buttons are OR-ed, and the pad's stick wins over
+// the keyboard's whenever it is outside the deadzone.
 //
 // Pad (SDL's Xbox-style names), by default: south A, west and east B, both triggers Z, LB L, RB R,
 // Start Start, D-pad D-pad, Y the grenade in a match, left stick the analog stick, right stick the
@@ -38,9 +39,10 @@
 // hardware. Each line is "<vi> <length in VIs> <control>...", where a control is an SDL button
 // name (a, b, x, start, leftshoulder, dpup, ...) or "<axis>=<value>" (leftx, lefty, rightx, righty:
 // -1 to 1, SDL's +y is down; lefttrigger, righttrigger: 0 released to 1), or "plug <vi>" /
-// "unplug <vi>". '#' starts a comment. Real pads are then ignored. The first pad's script can also
-// play controller 1's mouse: mousex=<pixels> and mousey=<pixels> move it that much every VI,
-// wheel=<steps> turns the wheel once (+ away from you), lmb and rmb hold its buttons; a scripted
+// "unplug <vi>", or "away <vi>" / "back <vi>" (SDL still lists the pad but no pad is there;
+// "away 0" from the start). '#' starts a comment. Real pads
+// are then ignored. The first pad's script can also play controller 1's mouse: mousex=<pixels> and
+// mousey=<pixels> move it that much every VI, wheel=<steps> turns the wheel once (+ away from you), lmb and rmb hold its buttons; a scripted
 // run's mouse counts as captured whenever the game is being played.
 // The virtual pad can rumble and logs each change, logs each haptic effect (or, with
 // CONKER_HAPTICS_MOTORS=1, the motor strengths it plays as), and has adaptive triggers, logging
@@ -342,6 +344,12 @@ struct Port {
     std::atomic<PadKind> kind{PadKind::None};  // for its controls' names
     std::atomic<bool> has_rumble{false};  // the pad can rumble
     std::atomic<bool> rumble_on{false};   // the game's motor state, applied by update()
+    std::atomic<float> feel_intensity{1.0f};  // set_rumble_feel's, applied by update()
+    std::atomic<float> feel_sharpness{0.0f};
+    std::atomic<bool> hold_on{false};           // set_hold_rumble's
+    std::atomic<float> hold_intensity{0.0f};
+    std::atomic<float> hold_sharpness{0.0f};
+    RumbleFeel feel_applied;               // the feel the pad's rumble plays with
     std::string name;                     // under g_pad_name_mutex: the pad's, for controller_name()
     std::string model;                    // under g_pad_name_mutex: its make and model, for controller_model()
     int virtual_number = 0;               // main thread only: its CONKER_VIRTUAL_PAD number, or 0
@@ -501,7 +509,10 @@ void close_pad_extras(Port& port) {
     }
 }
 
-// Gives the pad the lowest free port, unless it already has one or all four are taken.
+bool pad_present(SDL_GameController* pad);
+
+// Gives the pad the lowest free port, unless it already has one, all four are taken or no pad is
+// really there yet (pad_present; check_pads tries again).
 void open_pad(int device_index) {
     if (!SDL_IsGameController(device_index)) {
         return;
@@ -529,6 +540,11 @@ void open_pad(int device_index) {
     port.pad = SDL_GameControllerOpen(device_index);
     if (port.pad == nullptr) {
         std::fprintf(stderr, "[conker] could not open controller %d: %s\n", device_index, SDL_GetError());
+        return;
+    }
+    if (!pad_present(port.pad)) {
+        SDL_GameControllerClose(port.pad);
+        port.pad = nullptr;
         return;
     }
     port.id = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(port.pad));
@@ -580,10 +596,12 @@ struct ScriptStep {
     bool reported;
 };
 
-// A plug or unplug line: the pad connects or disconnects at that VI.
+// A plug, unplug, away or back line: at that VI the pad connects or disconnects, or stays listed by
+// SDL with no pad there (away) until a back line.
 struct PlugStep {
+    enum class Kind { Plug, Unplug, Away, Back };
     uint64_t vi;
-    bool plug;
+    Kind kind;
     bool done;
 };
 
@@ -592,10 +610,42 @@ struct VirtualPad {
     std::vector<ScriptStep> script;
     std::vector<PlugStep> plugs;
     SDL_Joystick* joystick;
+    bool away;  // listed by SDL with no pad there
     Uint16 last_low, last_high, last_left, last_right;  // rumble, as last logged
 };
 
 std::vector<VirtualPad> g_virtual_pads;
+
+// Whether a pad is really there behind a controller SDL lists. A pad holds a port only while it is:
+// a controller listed with no pad behind it (one SDL still lists after its pad went) would otherwise
+// take a port, so the next pad connected got a later one.
+bool pad_present(SDL_GameController* pad) {
+    const SDL_JoystickID id = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad));
+    for (const VirtualPad& virtual_pad : g_virtual_pads) {
+        if (virtual_pad.joystick != nullptr && SDL_JoystickInstanceID(virtual_pad.joystick) == id) {
+            return !virtual_pad.away;
+        }
+    }
+    return SDL_GameControllerGetAttached(pad) == SDL_TRUE;
+}
+
+// Once a second: a port whose pad has gone (switched off while still listed) is freed, and a
+// controller SDL listed before its pad was there takes the lowest free port once it is, so ports
+// follow the order pads come.
+void check_pads() {
+    static Uint64 last_ms = 0;
+    const Uint64 now = SDL_GetTicks64();
+    if (now - last_ms < 1000) {
+        return;
+    }
+    last_ms = now;
+    for (Port& port : g_ports) {
+        if (port.pad != nullptr && !pad_present(port.pad)) {
+            close_pad(port);
+        }
+    }
+    open_all_pads();
+}
 
 // The virtual pad with that joystick, numbered from 1, or 0.
 int virtual_pad_number(SDL_JoystickID id) {
@@ -621,8 +671,12 @@ bool load_script(const std::string& path, VirtualPad& pad) {
         if (!(in >> first)) {
             continue;
         }
-        if (first == "plug" || first == "unplug") {
-            PlugStep plug{0, first == "plug", false};
+        if (first == "plug" || first == "unplug" || first == "away" || first == "back") {
+            const PlugStep::Kind kind = first == "plug"     ? PlugStep::Kind::Plug
+                                        : first == "unplug" ? PlugStep::Kind::Unplug
+                                        : first == "away"   ? PlugStep::Kind::Away
+                                                            : PlugStep::Kind::Back;
+            PlugStep plug{0, kind, false};
             if (!(in >> plug.vi)) {
                 std::fprintf(stderr, "[conker] CONKER_VIRTUAL_PAD line %d: %s needs a VI\n", number, first.c_str());
                 return false;
@@ -890,8 +944,13 @@ void attach_virtual_pad() {
         g_virtual_pads.push_back(std::move(pad));
     }
     for (VirtualPad& pad : g_virtual_pads) {
-        if (pad.plugs.empty() || !pad.plugs.front().plug) {
+        if (pad.plugs.empty() || pad.plugs.front().kind != PlugStep::Kind::Plug) {
             plug_virtual_pad(pad);
+        }
+        // "away 0": listed from the start with no pad there.
+        if (!pad.plugs.empty() && pad.plugs.front().kind == PlugStep::Kind::Away && pad.plugs.front().vi == 0) {
+            pad.away = true;
+            pad.plugs.front().done = true;
         }
     }
     g_scripted = !g_virtual_pads.empty();
@@ -906,12 +965,15 @@ void drive_virtual_pad() {
                 continue;
             }
             plug.done = true;
+            static const char* const kDone[] = {"plugged in", "unplugged", "away (listed, no pad)", "back"};
             std::printf("[conker] %s: VI %llu: %s\n", virtual_pad_name(pad).c_str(), static_cast<unsigned long long>(now),
-                        plug.plug ? "plugged in" : "unplugged");
-            if (plug.plug && pad.joystick == nullptr) {
+                        kDone[static_cast<int>(plug.kind)]);
+            if (plug.kind == PlugStep::Kind::Plug && pad.joystick == nullptr) {
                 plug_virtual_pad(pad);
-            } else if (!plug.plug && pad.joystick != nullptr) {
+            } else if (plug.kind == PlugStep::Kind::Unplug && pad.joystick != nullptr) {
                 unplug_virtual_pad(pad);
+            } else if (plug.kind == PlugStep::Kind::Away || plug.kind == PlugStep::Kind::Back) {
+                pad.away = plug.kind == PlugStep::Kind::Away;  // check_pads acts on it
             }
         }
         if (pad.joystick == nullptr) {
@@ -1099,21 +1161,32 @@ void apply_rumble(Port& port, Uint64 now) {
         if (effect.low > 0.0f || effect.high > 0.0f) next_end = std::min(next_end, effect.end_ms);
         if (effect.left_trigger > 0.0f || effect.right_trigger > 0.0f) next_trigger_end = std::min(next_trigger_end, effect.end_ms);
     }
-    bool pak = port.rumble_on.load(std::memory_order_relaxed);
+    const bool game_rumble = port.rumble_on.load(std::memory_order_relaxed);
+    const bool weapon_hold = port.hold_on.load(std::memory_order_relaxed);
+    // The game's own rumble, with the weapon's feel; else the weapon's own hold rumble, if it has one.
+    bool pak = game_rumble || weapon_hold;
+    const RumbleFeel feel = game_rumble ? RumbleFeel{port.feel_intensity.load(std::memory_order_relaxed),
+                                                     port.feel_sharpness.load(std::memory_order_relaxed)}
+                                        : RumbleFeel{port.hold_intensity.load(std::memory_order_relaxed),
+                                                     port.hold_sharpness.load(std::memory_order_relaxed)};
+    // A new feel while the pak rumbles starts its rumble again with it.
+    const bool feel_changed = pak && port.pak_rumble_applied && !(feel == port.feel_applied);
 #ifdef __APPLE__
     // A DualSense played through Core Haptics takes the pak as a deep rumble in both grips: SDL's
     // own rumble on it is a thin buzz.
     if (port.haptics_via == HapticsVia::CoreHaptics) {
-        if (pak != port.pak_rumble_applied && apple::set_dualsense_rumble(port.number() - 1, pak)) {
+        if ((pak != port.pak_rumble_applied || feel_changed) && apple::set_dualsense_rumble(port.number() - 1, pak, feel)) {
             port.pak_rumble_applied = pak;
+            port.feel_applied = feel;
         }
         if (port.pak_rumble_applied == pak) {
             pak = false;
         }
     }
 #endif
-    const Uint16 low_strength = pak ? kRumbleStrength : motor_strength(low);
-    const Uint16 high_strength = pak ? kRumbleStrength : motor_strength(high);
+    // On motors, a sharper feel leans toward the light motor (the default feel is both at full).
+    const Uint16 low_strength = pak ? motor_strength(feel.intensity * (1.0f - 0.8f * feel.sharpness)) : motor_strength(low);
+    const Uint16 high_strength = pak ? motor_strength(feel.intensity) : motor_strength(high);
     const Uint32 hold = pak ? kRumbleHoldMs : static_cast<Uint32>(next_end - now);
     const bool on = low_strength != 0 || high_strength != 0;
     int result = 0;
@@ -1489,6 +1562,7 @@ void handle_event(const SDL_Event& event) {
 
 void update() {
     drive_virtual_pad();
+    check_pads();
 
     uint16_t buttons = 0;
     float x = 0.0f;
@@ -1934,6 +2008,25 @@ bool has_rumble(int port) { return port >= 0 && port < kPorts && g_ports[port].h
 void set_rumble(int port, bool on) {
     if (port >= 0 && port < kPorts) {
         g_ports[port].rumble_on.store(on, std::memory_order_relaxed);
+    }
+}
+
+bool rumble_on(int port) {
+    return port >= 0 && port < kPorts && g_ports[port].rumble_on.load(std::memory_order_relaxed);
+}
+
+void set_hold_rumble(int port, bool on, const RumbleFeel& feel) {
+    if (port >= 0 && port < kPorts) {
+        g_ports[port].hold_intensity.store(feel.intensity, std::memory_order_relaxed);
+        g_ports[port].hold_sharpness.store(feel.sharpness, std::memory_order_relaxed);
+        g_ports[port].hold_on.store(on, std::memory_order_relaxed);
+    }
+}
+
+void set_rumble_feel(int port, const RumbleFeel& feel) {
+    if (port >= 0 && port < kPorts) {
+        g_ports[port].feel_intensity.store(feel.intensity, std::memory_order_relaxed);
+        g_ports[port].feel_sharpness.store(feel.sharpness, std::memory_order_relaxed);
     }
 }
 

@@ -80,7 +80,9 @@ recompiled functions that called it.
   comment. For example, `5400 10 start` then `7500 10 a` goes from the
   title scene to a new game. `unplug <vi>` and `plug <vi>` lines disconnect
   and reconnect the pad; a pad whose first such line is `plug` starts
-  unplugged. The first script can play controller 1's mouse too:
+  unplugged. `away <vi>` and `back <vi>` keep the pad listed by SDL but with
+  no pad behind it (`away 0` from the start): it holds no port while away, and takes the lowest free one when
+  it is back (checked once a second). The first script can play controller 1's mouse too:
   `mousex=<pixels>` and `mousey=<pixels>` move it that much every VI,
   `wheel=<steps>` turns the wheel once (+ away from you, zooming in), and
   `lmb` and `rmb` hold its buttons; the scripted mouse counts as captured
@@ -161,6 +163,9 @@ recompiled functions that called it.
   and a line for each change of Conker's animation with his health, for
   finding the sounds and moments to give haptic effects
   (src/enhancements/haptics/haptics.cpp).
+* `CONKER_FEEL_LIVE=1` reads `feel.cfg` again within half a second of each
+  save, and writes `weapon_survey.txt`: what each item held did (its sight
+  and aim states, sounds, buttons and the game's own rumble).
 * `CONKER_AUDIO=0` (RT64 build) disables the SDL device; `CONKER_AUDIO_LATENCY_MS`
   (default 60) sets the extra buffering kept on top of what the game asks for;
   `CONKER_SILENT_AUDIO=1` skips the audio microcode entirely.

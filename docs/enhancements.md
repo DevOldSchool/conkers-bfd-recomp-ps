@@ -259,7 +259,8 @@ button. Up and down choose a row, A or left and right change it, B goes back:
     above 100% it only gets there with less tilt; below, aiming is finer and
     slower. The right stick is scaled as it goes into the record while it aims,
     so online each player keeps their own and the games stay alike; where the
-    left stick aims (R's look, the slingshot and the story's mounted guns) it
+    left stick aims (R's look, the slingshot and the mounted guns, a match's
+    too, as in the story: the left stick aims and the right stick zooms) it
     applies offline only.
   * MOUSE AIM, from 25% to 400% (25, 50, 75, 100, 125, 150, 175, 200, 250,
     300, 400), left and right, stopping at either end: how fast the captured
@@ -446,6 +447,26 @@ page switches it.
 In a multiplayer match each player's pad has the triggers and thumps of
 that player's own mounted gun.
 
+Each weapon has a feel of its own: the Uzis, the tommy gun and the
+flamethrower pulse from grip to grip as they fire, the chainsaw idles with
+a dull rumble and bites harder as it cuts, and the guns' triggers resist.
+A fall that kills (flailing on the way down) ends in the deepest hit of
+all and a long rumble dying away.
+
+## feel.cfg
+
+Every weapon's and event's haptic effects, trigger effect, rumble
+character and control numbers are in `conker-recomp-data/feel.cfg`, which
+the game writes with its built-in values on first start and reads as it
+starts. Each line says what it is, and deleting a line (or the file)
+brings back the built-in value. A line the game cannot read is reported in
+the log and keeps its built-in value.
+
+Online play keeps the built-in `controls.` numbers whatever the file
+says, because they act on the game itself and every machine must stay the
+same. Haptics, triggers and rumble only touch your own pad, so they
+follow the file online too.
+
 ## Consistent controls
 
 The controls stay the same across the game, the way a modern pad's games
@@ -560,9 +581,10 @@ no seams show between its tiles, and so are the menus' joystick, the OPTIONS
 speakers, the button prompts, the multiplayer heads and player pieces and the
 pause menu's coloured digits and dollar sign. The small P1 to P4 badges use the
 large badges' artwork. The speech and thought bubbles, and their shadows,
-are enlarged the same way. Other pictures such as the small statistics icons are left
-as they are. `CONKER_SHARP_MENUS=0` keeps the original signs; the OPTIONS
-row turns the sharper text and menus off together.
+are enlarged the same way. Other pictures such as most of the small
+statistics icons, among them the skull over the kills on a match's pause
+screen, are left as they are. `CONKER_SHARP_MENUS=0` keeps the original
+signs; the OPTIONS row turns the sharper text and menus off together.
 
 ## Texture packs
 

@@ -35,6 +35,7 @@
 // The game socket also answers the lobby's PROBE (net/net_lobby.hpp), so that JOIN finds a
 // running session.
 #include "net/net_play.hpp"
+#include "platform/data_folder.hpp"
 
 
 #include <algorithm>
@@ -667,12 +668,22 @@ bool same_address(const sockaddr_storage& a, socklen_t a_len, const sockaddr_sto
     return a_len == b_len && std::memcmp(&a, &b, a_len) == 0;
 }
 
-std::string address_text(const sockaddr_storage& addr, socklen_t len) {
-    char host[NI_MAXHOST] = "?";
-    char service[NI_MAXSERV] = "?";
-    getnameinfo(reinterpret_cast<const sockaddr*>(&addr), len, host, sizeof(host), service, sizeof(service),
-                NI_NUMERICHOST | NI_NUMERICSERV);
-    return std::string(host) + ":" + service;
+// inet_ntop rather than getnameinfo, which not every libc has.
+std::string address_text(const sockaddr_storage& addr, socklen_t /*len*/) {
+    char host[INET6_ADDRSTRLEN] = "?";
+    uint16_t port = 0;
+    if (addr.ss_family == AF_INET) {
+        const auto& v4 = reinterpret_cast<const sockaddr_in&>(addr);
+        inet_ntop(AF_INET, &v4.sin_addr, host, sizeof(host));
+        port = ntohs(v4.sin_port);
+    } else if (addr.ss_family == AF_INET6) {
+        const auto& v6 = reinterpret_cast<const sockaddr_in6&>(addr);
+        inet_ntop(AF_INET6, &v6.sin6_addr, host, sizeof(host));
+        port = ntohs(v6.sin6_port);
+    } else {
+        return "?:?";
+    }
+    return std::string(host) + ":" + std::to_string(port);
 }
 
 // --- the network simulator ------------------------------------------------------------------------
@@ -1163,7 +1174,7 @@ void write_memory_dump(const std::filesystem::path& path) {
 // Under g_mutex: this machine's hashes of the last frames it played, to compare with the other
 // machine's when a player went out of sync (conker-recomp-data/net/desync-...).
 void write_hash_log(const char* role, int port, uint32_t frame) {
-    const std::filesystem::path folder = std::filesystem::current_path() / "conker-recomp-data" / "net";
+    const std::filesystem::path folder = conker::data_folder() / "net";
     std::error_code error;
     std::filesystem::create_directories(folder, error);
     prune_hash_logs(folder);
@@ -2317,7 +2328,7 @@ void network_thread() {
 
 // --- connecting ------------------------------------------------------------------------------------
 
-std::filesystem::path data_dir() { return std::filesystem::current_path() / "conker-recomp-data"; }
+std::filesystem::path data_dir() { return conker::data_folder(); }
 
 std::filesystem::path save_name() {
     const std::u8string id = conker::kGameId;
@@ -2358,7 +2369,14 @@ bool open_socket(int family, uint16_t bind_port) {
         return true;
     }
     if (family == AF_INET6) {
-        socket_set_option(g_socket, IPPROTO_IPV6, IPV6_V6ONLY, 0);
+        // An IPv6 socket the system keeps IPv6-only would drop every IPv4 player: the
+        // caller takes an IPv4 socket instead.
+        if (socket_set_option(g_socket, IPPROTO_IPV6, IPV6_V6ONLY, 0) != 0) {
+            std::printf("[conker] net: no dual-stack socket here (%s): IPv4 only\n", socket_error_text().c_str());
+            conker::net::socket_close(g_socket);
+            g_socket = -1;
+            return false;
+        }
         sockaddr_in6 addr{};
         addr.sin6_family = AF_INET6;
         addr.sin6_addr = in6addr_any;
@@ -2760,6 +2778,10 @@ bool resolve(const std::string& text, sockaddr_storage* addr, socklen_t* len) {
         const size_t colon = host.find(':');
         port = host.substr(colon + 1);
         host = host.substr(0, colon);
+    }
+    const int port_number = std::atoi(port.c_str());
+    if (port_number > 0 && port_number <= 65535 && conker::net::numeric_address(host, port_number, addr, len)) {
+        return true;
     }
     addrinfo hints{};
     hints.ai_socktype = SOCK_DGRAM;

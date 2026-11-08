@@ -1,4 +1,5 @@
 #include "platform/hang_watch.hpp"
+#include "platform/data_folder.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -37,7 +38,7 @@ std::string sample_path() {
     const std::time_t now = std::time(nullptr);
     char stamp[32];
     std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", std::localtime(&now));
-    const std::filesystem::path folder = std::filesystem::current_path() / "conker-recomp-data" / "debug_reports";
+    const std::filesystem::path folder = conker::data_folder() / "debug_reports";
     std::error_code error;
     std::filesystem::create_directories(folder, error);
     return (folder / ("hang-" + std::string(stamp) + ".txt")).string();

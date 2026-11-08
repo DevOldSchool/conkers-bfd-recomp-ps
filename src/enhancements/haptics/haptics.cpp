@@ -30,6 +30,8 @@
 #include <string>
 
 #include "net/net_play.hpp"
+#include "enhancements/feel/feel.hpp"
+#include "enhancements/feel/weapon_survey.hpp"
 #include "recomp.h"
 #include "enhancements/status.hpp"
 #include "enhancements/switches.hpp"
@@ -47,29 +49,29 @@ constexpr uint32_t kActorSize = 0x32C;
 constexpr uint32_t kActorAnimation = 0x84;    // u16
 constexpr uint32_t kActorHealth = 0x1CA;      // u8
 constexpr uint32_t kActorPlayer = 0x31C;      // the player's block
+constexpr uint32_t kPlayerItem = 0x78;         // u8: the item held
+constexpr uint32_t kPlayerItemState = 0x11A;   // u8: kItemHeld while it is in hand
+constexpr uint8_t kItemHeld = 2;
 
 using conker::input::Haptic;
 using Grip = Haptic::Grip;
 
 // The effect of the sounds first to last (variants of one sound are numbered together).
+// Each effect itself is in conker-recomp-data/feel.cfg, by name (src/enhancements/feel): the
+// built-in values are there too.
 struct SoundHaptic {
     uint16_t first;
     uint16_t last;
-    Haptic haptic;
+    const char* feel;
 };
-
-constexpr Haptic tap(float intensity, float sharpness, Grip grip) { return {intensity, sharpness, 0.0f, grip}; }
-constexpr Haptic buzz(float intensity, float sharpness, float duration, Grip grip) {
-    return {intensity, sharpness, duration, grip};
-}
 
 constexpr SoundHaptic kSounds[] = {
     // Slingshot: taken out with B in the right hand, then fired with either trigger, in whose
     // grip the shot is felt.
-    {1598, 1599, tap(0.5f, 0.6f, Grip::Right)},         // taken out from a B pad, put away
-    {1678, 1680, tap(1.0f, 0.9f, Grip::Trigger)},       // a shot (one of three, at random)
-    {54, 54, buzz(0.35f, 0.2f, 0.25f, Grip::Trigger)},  // the elastic stretched again
-    {17, 17, tap(0.4f, 1.0f, Grip::Trigger)},           // reloaded
+    {1598, 1599, "slingshot_out"},      // taken out from a B pad, put away
+    {1678, 1680, "slingshot_shot"},     // a shot (one of three, at random)
+    {54, 54, "slingshot_elastic"},      // the elastic stretched again
+    {17, 17, "slingshot_reload"},       // reloaded
     // Footsteps (588-599 on stone) were tried and felt too strong for something so frequent.
 };
 
@@ -84,18 +86,25 @@ bool shotgun_blast(uint16_t sound, uint16_t animation) {
     return blast && animation >= 0x221 && animation <= 0x237;
 }
 
-constexpr Haptic kShotgun[] = {tap(1.0f, 0.5f, Grip::Both), buzz(1.0f, 0.1f, 0.15f, Grip::Both)};
+constexpr const char* kShotgun = "shotgun";  // a hard hit in both grips and a short heavy rumble
 
 // Conker landing on his feet from a jump, on any ground.
 constexpr uint16_t kLandingAnimation = 0x36;
-constexpr Haptic kLanding = tap(0.8f, 0.2f, Grip::Both);
+constexpr const char* kLanding = "landing";
 
 // Conker hurt flat: splatting face down after a fall long enough to hurt him, after flailing on
 // the way down (0xCF), or squashed flat by something landing on him (the box in scene 12; 0xF2 is
 // him peeling himself up, 0xF6 dying if it was his last health). A hard hit, then a heavy rumble.
 constexpr uint16_t kSplatAnimation = 0x27;
 constexpr uint16_t kSquashAnimation = 0xF1;
-constexpr Haptic kSplat[] = {tap(1.0f, 0.1f, Grip::Both), buzz(0.7f, 0.05f, 0.4f, Grip::Both)};
+constexpr const char* kSplat = "splat";  // a hard hit, then a heavy rumble
+
+// Killed by a fall: flailing on the way down (0xCF), then 0x170 as the player hits the ground and their
+// health goes to 0 (seen in a match with CONKER_SOUND_LOG=1: health 6 to 0 at once). Heavier and
+// longer than a splat: the deepest hit there is, and a long rumble dying away.
+constexpr uint16_t kFlailAnimation = 0xCF;
+constexpr uint16_t kFallDeathAnimation = 0x170;
+constexpr const char* kFallDeath = "fall_death";
 
 std::atomic<bool> g_enabled{[] {
     const char* value = std::getenv("CONKER_HAPTICS");
@@ -139,9 +148,10 @@ void play_for(const Haptic& haptic, int port) {
     }
 }
 
-void play_all(const Haptic* haptics, size_t count, int port) {
-    for (size_t i = 0; i < count; i++) {
-        play_for(haptics[i], port);
+// An event's effects from feel.cfg, every part at once.
+void play_all(const char* feel, int port) {
+    for (const Haptic& haptic : conker::feel::haptic(feel)) {
+        play_for(haptic, port);
     }
 }
 
@@ -152,6 +162,7 @@ void play_all(const Haptic* haptics, size_t count, int port) {
 extern "C" void conker_sound_started(uint8_t* rdram, recomp_context* ctx) {
     const uint16_t sound = static_cast<uint16_t>(ctx->r5);
     const uint16_t volume = static_cast<uint16_t>(ctx->r6);
+    conker::survey::sound(rdram, sound);
     const bool match = multiplayer(rdram);
     if (g_log) {
         std::printf("[conker] VI %llu: sound %u volume %u (%s animation 0x%X", static_cast<unsigned long long>(conker::current_vi()),
@@ -169,7 +180,19 @@ extern "C" void conker_sound_started(uint8_t* rdram, recomp_context* ctx) {
         const uint32_t actor = player_actor(rdram, port);
         if (actor != 0 && shotgun_blast(sound, animation_of(rdram, actor))) {
             blast = true;
-            play_all(kShotgun, std::size(kShotgun), port);
+            play_all(kShotgun, port);
+        }
+    }
+    // A weapon whose sounds rumble (feel.cfg's <weapon>.sounds: the chainsaw's engine), for each player
+    // holding it. In a match a sound is heard by all, so another player's chainsaw can be felt too.
+    for (int port = 0; port < conker::input::kPorts; port++) {
+        const uint32_t actor = player_actor(rdram, port);
+        if (actor == 0) continue;
+        const uint32_t block = static_cast<uint32_t>(MEM_W(kActorPlayer, kseg0(actor)));
+        if (MEM_BU(kPlayerItemState, kseg0(block)) != kItemHeld) continue;
+        const std::string weapon = conker::feel::weapon_name(MEM_BU(kPlayerItem, kseg0(block)));
+        for (const Haptic& haptic : conker::feel::sound_haptic(weapon, sound)) {
+            play_for(haptic, port);
         }
     }
     if (blast || match) {
@@ -181,11 +204,16 @@ extern "C" void conker_sound_started(uint8_t* rdram, recomp_context* ctx) {
     if (it == std::end(kSounds)) {
         return;
     }
-    conker::input::play_haptic(it->haptic);
+    for (const Haptic& haptic : conker::feel::haptic(it->feel)) {
+        conker::input::play_haptic(haptic);
+    }
 }
 
 // Once a frame, from func_1501878C before it runs the world frame (or skips it while paused).
 extern "C" void conker_haptics_frame(uint8_t* rdram, recomp_context* /*ctx*/) {
+    // feel.cfg saved while playing is taken in now, even with nothing playing (it looks twice a second).
+    conker::feel::refresh();
+    conker::survey::frame(rdram);
     for (int port = 0; port < conker::input::kPorts; port++) {
         const uint32_t actor = player_actor(rdram, port);
         const uint16_t animation = animation_of(rdram, actor);
@@ -198,14 +226,17 @@ extern "C" void conker_haptics_frame(uint8_t* rdram, recomp_context* /*ctx*/) {
                         static_cast<unsigned long long>(conker::current_vi()), who.c_str(), animation,
                         actor != 0 ? MEM_BU(kActorHealth, kseg0(actor)) : 0u);
         }
+        const uint16_t previous = g_last_animation[port];
         g_last_animation[port] = animation;
         if (!haptics_enabled()) {
             continue;
         }
         if (animation == kLandingAnimation) {
-            play_for(kLanding, port);
+            play_all(kLanding, port);
         } else if (animation == kSplatAnimation || animation == kSquashAnimation) {
-            play_all(kSplat, std::size(kSplat), port);
+            play_all(kSplat, port);
+        } else if (animation == kFallDeathAnimation && previous == kFlailAnimation) {
+            play_all(kFallDeath, port);
         }
     }
 }

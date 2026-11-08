@@ -1,5 +1,6 @@
 // conker-recomp-data/input.cfg; see input_config.hpp.
 #include "platform/input_config.hpp"
+#include "platform/data_folder.hpp"
 
 #include <cstdio>
 #include <filesystem>
@@ -10,7 +11,7 @@
 namespace {
 
 std::filesystem::path config_path() {
-    return std::filesystem::current_path() / "conker-recomp-data" / "input.cfg";
+    return conker::data_folder() / "input.cfg";
 }
 
 // Other files' globals read the file as they are made (frame_input.cpp's mouse aim), maybe before

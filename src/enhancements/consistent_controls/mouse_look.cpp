@@ -26,6 +26,7 @@
 // A camera's controls block is *(actor + 0x318) of its player's actor (Conker's, D_80088720, for the
 // first; in a match player n is the actor at 0x800CC2D0 + n * 0x32C and reads pad D_80084060[n]).
 #include "enhancements/consistent_controls/mouse_look.hpp"
+#include "enhancements/feel/feel.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -70,8 +71,9 @@ constexpr uint32_t kMultiplayer = 0x800BE616;  // D_800BE616: nonzero during a m
 constexpr uint32_t kPlayerPads = 0x80084060;   // D_80084060: u8 per player, the pad it reads
 constexpr int kPorts = conker::input::kPorts;
 
-constexpr float kDegreesPerPixel = 0.15f;  // the camera
-constexpr float kStickPerPixel = 0.05f;    // aiming: 20 pixels in a frame is the stick pushed fully
+float degrees_per_pixel() { return conker::feel::number("controls.mouse_degrees"); }  // the camera (built-in 0.15)
+// aiming: 20 pixels in a frame is the stick pushed fully (built-in 0.05)
+float stick_per_pixel() { return conker::feel::number("controls.mouse_aim"); }
 
 // By port.
 bool g_captured[kPorts] = {};
@@ -83,7 +85,7 @@ bool g_aiming[kPorts] = {};  // take_aim was asked this pad hook (this machine's
 int g_zoom[kPorts] = {};  // steps waiting, + in
 // A sight's zoom (take_sight_zoom): frames C-up (+) or C-down (-) is still held for the last wheel step.
 int g_sight_hold[kPorts] = {};
-constexpr int kSightZoomFrames = 6;
+int sight_zoom_frames() { return static_cast<int>(conker::feel::number("controls.sight_zoom_frames")); }  // built-in 6
 // A tank's turret (take_turret_turn): degrees right the mouse has asked of it and the C buttons have
 // not yet turned it, and whether it was asked last frame (otherwise it is dropped).
 float g_turret[kPorts] = {};
@@ -125,7 +127,7 @@ const bool g_snapshot_fields = [] {
         for (int i = 0; i < kPorts; i++) {
             int v;
             std::memcpy(&v, bytes + i * sizeof(int), sizeof(v));
-            if (v < -kSightZoomFrames || v > kSightZoomFrames) return false;
+            if (v < -sight_zoom_frames() || v > sight_zoom_frames()) return false;
         }
         return true;
     });
@@ -208,7 +210,7 @@ int take_sight_zoom(int port) {
     }
     int& hold = g_sight_hold[port];
     if (hold == 0 && g_zoom[port] != 0) {
-        hold = g_zoom[port] > 0 ? kSightZoomFrames : -kSightZoomFrames;
+        hold = g_zoom[port] > 0 ? sight_zoom_frames() : -sight_zoom_frames();
         g_zoom[port] += g_zoom[port] > 0 ? -1 : 1;
     }
     if (hold == 0) {
@@ -226,8 +228,8 @@ bool take_aim(int port, float* x, float* y) {
         return false;
     }
     g_aiming[port] = true;
-    *x = g_dx[port] * kStickPerPixel;
-    *y = -g_dy[port] * kStickPerPixel;
+    *x = g_dx[port] * stick_per_pixel();
+    *y = -g_dy[port] * stick_per_pixel();
     g_dx[port] = 0.0f;
     g_dy[port] = 0.0f;
     return true;
@@ -241,7 +243,7 @@ float take_turn(int port) {
     if (port < 0 || port >= kPorts || !g_captured[port]) {
         return 0.0f;
     }
-    const float degrees = g_dx[port] * kDegreesPerPixel;
+    const float degrees = g_dx[port] * degrees_per_pixel();
     g_dx[port] = 0.0f;
     return degrees;
 }
@@ -252,7 +254,7 @@ int take_turret_turn(int port, float step) {
     }
     g_turret_taken[port] = true;
     float& owed = g_turret[port];
-    owed = std::clamp(owed + g_dx[port] * kDegreesPerPixel, -kTurretOwed, kTurretOwed);
+    owed = std::clamp(owed + g_dx[port] * degrees_per_pixel(), -kTurretOwed, kTurretOwed);
     g_dx[port] = 0.0f;
     // A press turns it a whole step, so one is pressed once at least half a step is owed.
     if (owed >= step * 0.5f) {
@@ -285,7 +287,7 @@ extern "C" void conker_mouse_camera(uint8_t* rdram, recomp_context* ctx) {
     float degrees = g_turn[port];
     g_turn[port] = 0.0f;
     if ((MEM_W(kCameraFlags, kseg0(camera)) & 0x200000) == 0) {
-        degrees += g_dx[port] * kDegreesPerPixel;
+        degrees += g_dx[port] * degrees_per_pixel();
     }
     g_dx[port] = 0.0f;
     if (degrees == 0.0f || MEM_W(kCameraFixed, kseg0(camera)) != 0) {

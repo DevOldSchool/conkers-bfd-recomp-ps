@@ -1,5 +1,6 @@
 // The keys this machine keeps for online play; see net_keys.hpp.
 #include "net/net_keys.hpp"
+#include "platform/data_folder.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -17,7 +18,7 @@ constexpr size_t kKnownHostsKept = 64;
 
 std::mutex g_mutex;
 
-std::filesystem::path folder() { return std::filesystem::current_path() / "conker-recomp-data" / "net"; }
+std::filesystem::path folder() { return conker::data_folder() / "net"; }
 
 // Writes a file only this user can read (on Windows the user's folder's own permissions).
 bool write_private(const std::filesystem::path& file, const std::string& text) {

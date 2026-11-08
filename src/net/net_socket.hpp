@@ -46,4 +46,9 @@ ssize_t socket_receive_from(int s, void* buffer, size_t size, sockaddr* from, so
 // The last socket call's error, as text.
 std::string socket_error_text();
 
+// An IPv4 or IPv6 address written as numbers ("192.0.2.7", "2001:db8::7") with `port`, into addr; false
+// for anything else, a host name included. Tried before getaddrinfo, which on some systems does not
+// read a numeric address.
+bool numeric_address(const std::string& host, int port, sockaddr_storage* addr, socklen_t* len);
+
 } // namespace conker::net

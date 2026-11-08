@@ -111,4 +111,24 @@ std::string socket_error_text() {
 #endif
 }
 
+bool numeric_address(const std::string& host, int port, sockaddr_storage* addr, socklen_t* len) {
+    std::memset(addr, 0, sizeof(*addr));
+    auto* v4 = reinterpret_cast<sockaddr_in*>(addr);
+    if (inet_pton(AF_INET, host.c_str(), &v4->sin_addr) == 1) {
+        v4->sin_family = AF_INET;
+        v4->sin_port = htons(static_cast<uint16_t>(port));
+        *len = sizeof(sockaddr_in);
+        return true;
+    }
+    std::memset(addr, 0, sizeof(*addr));
+    auto* v6 = reinterpret_cast<sockaddr_in6*>(addr);
+    if (inet_pton(AF_INET6, host.c_str(), &v6->sin6_addr) == 1) {
+        v6->sin6_family = AF_INET6;
+        v6->sin6_port = htons(static_cast<uint16_t>(port));
+        *len = sizeof(sockaddr_in6);
+        return true;
+    }
+    return false;
+}
+
 } // namespace conker::net

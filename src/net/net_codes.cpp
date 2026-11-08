@@ -248,17 +248,19 @@ bool read_join_target(const std::string& text_in, uint16_t default_port, sockadd
         *why = "the port after the : is not a number from 1 to 65535";
         return false;
     }
-    addrinfo hints{};
-    hints.ai_socktype = SOCK_DGRAM;
-    hints.ai_family = AF_UNSPEC;
-    addrinfo* found = nullptr;
-    if (getaddrinfo(host.c_str(), port.c_str(), &hints, &found) != 0 || found == nullptr) {
-        *why = "no such address or host name: " + host;
-        return false;
+    if (!numeric_address(host, port_number, addr, len)) {
+        addrinfo hints{};
+        hints.ai_socktype = SOCK_DGRAM;
+        hints.ai_family = AF_UNSPEC;
+        addrinfo* found = nullptr;
+        if (getaddrinfo(host.c_str(), port.c_str(), &hints, &found) != 0 || found == nullptr) {
+            *why = "no such address or host name: " + host;
+            return false;
+        }
+        std::memcpy(addr, found->ai_addr, found->ai_addrlen);
+        *len = static_cast<socklen_t>(found->ai_addrlen);
+        freeaddrinfo(found);
     }
-    std::memcpy(addr, found->ai_addr, found->ai_addrlen);
-    *len = static_cast<socklen_t>(found->ai_addrlen);
-    freeaddrinfo(found);
     if (!host_address(*addr)) {
         *why = host + " is not a host's address (a broadcast, multicast or empty one)";
         return false;
