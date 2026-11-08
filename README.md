@@ -220,6 +220,10 @@ and the quality assurance are mine: I decide what is worked on and how it
 should behave, test the changes in the game, and review them before they
 are merged.
 
+The Steam artwork (`assets/steam`) and `assets/background.webp` were made
+with AI image generation for this project. They are new pictures, not taken
+from the game.
+
 ## License
 
 The code written for this project (`src`, `tools`, `config` and the docs) is
