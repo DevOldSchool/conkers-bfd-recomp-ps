@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <system_error>
@@ -82,6 +83,38 @@ const char* signal_name(int sig) {
     }
 }
 
+// The console starts a title with no environment of its own, so the switches a desktop build takes as
+// environment variables (CONKER_..., docs/diagnostics.md) come from conker-env.txt in the title folder:
+// a NAME=value a line, # for a comment. Read before the C++ static initialisers, so every reader sees them.
+constexpr const char* kEnvPath = "/app0/conker-env.txt";
+
+void load_env() {
+    FILE* file = std::fopen(kEnvPath, "r");
+    if (file == nullptr) {
+        return;
+    }
+    char line[1024];
+    while (std::fgets(line, sizeof(line), file) != nullptr) {
+        size_t length = std::strcspn(line, "\r\n");
+        line[length] = '\0';
+        char* name = line;
+        while (*name == ' ' || *name == '\t') {
+            name++;
+        }
+        char* equals = std::strchr(name, '=');
+        if (*name == '\0' || *name == '#' || equals == nullptr || equals == name) {
+            continue;
+        }
+        *equals = '\0';
+        for (char* end = equals; end > name && (end[-1] == ' ' || end[-1] == '\t'); end--) {
+            end[-1] = '\0';
+        }
+        setenv(name, equals + 1, 1);
+        std::printf("[conker] PS5: conker-env.txt sets %s=%s\n", name, equals + 1);
+    }
+    std::fclose(file);
+}
+
 // The log, new each run, before main: stdout and stderr go to it unbuffered, so a crash loses
 // nothing, and a crash before main still leaves a line saying the title started. A constructor of
 // the first priority, ahead of the C++ static initialisers.
@@ -99,6 +132,7 @@ __attribute__((constructor(101))) void open_log() {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     std::setvbuf(stderr, nullptr, _IONBF, 0);
     write_text("[conker] PS5: Conker's Bad Fur Day Recompiled is starting\n");
+    load_env();
 }
 
 // A crash report: the signal, the address it was about, the registers and the return addresses

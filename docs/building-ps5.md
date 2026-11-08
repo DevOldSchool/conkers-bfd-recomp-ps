@@ -117,6 +117,18 @@ address and the return addresses found from the frame pointers. Its first lines 
 the console gives the title and name any function the title imports that the console does not have
 (a call to one would end the game). Saves and settings are in `conker-recomp-data` there.
 
+The console starts the title with no environment variables, so the diagnostic switches a desktop
+build takes from them ([diagnostics.md](diagnostics.md)) go in `conker-env.txt` in the title folder,
+one `NAME=value` a line (`#` starts a comment). The title reads it at start-up and the log names each
+one it set:
+
+```sh
+printf 'CONKER_MY_VIEW_ZOOM_LOG=1\n' > conker-env.txt
+curl -T conker-env.txt ftp://<console's address>:2121/data/homebrew/PPSA92064/conker-env.txt
+```
+
+Delete it to turn them off again.
+
 ## Home screen
 
 The package step writes the title's home-screen background (`sce_sys/pic0.dds` and `pic1.dds`,
