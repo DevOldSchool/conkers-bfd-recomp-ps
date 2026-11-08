@@ -85,17 +85,17 @@ const char* signal_name(int sig) {
 // The log, new each run, before main: stdout and stderr go to it unbuffered, so a crash loses
 // nothing, and a crash before main still leaves a line saying the title started. A constructor of
 // the first priority, ahead of the C++ static initialisers.
+// dup2 onto descriptors 1 and 2 leaves the file empty on the console, so the log keeps a descriptor
+// of its own (for the crash report's async-signal-safe writes) and stdout and stderr are reopened on
+// the same file. Everything appends, so the three never write over each other.
 __attribute__((constructor(101))) void open_log() {
-    const int fd = open(kLogPath, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    const int fd = open(kLogPath, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0666);
     if (fd < 0) {
         return;
     }
-    dup2(fd, 1);
-    dup2(fd, 2);
-    if (fd > 2) {
-        close(fd);
-    }
-    g_log_fd = 2;
+    g_log_fd = fd;
+    std::freopen(kLogPath, "a", stdout);
+    std::freopen(kLogPath, "a", stderr);
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     std::setvbuf(stderr, nullptr, _IONBF, 0);
     write_text("[conker] PS5: Conker's Bad Fur Day Recompiled is starting\n");

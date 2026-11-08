@@ -1657,6 +1657,12 @@ void update() {
 
     if (g_port1.pad != nullptr) {
         debug_menu = debug_menu || SDL_GameControllerGetButton(g_port1.pad, SDL_CONTROLLER_BUTTON_BACK);
+#if CONKER_PS5
+        // The console keeps the Create button for itself, so both sticks pressed together (L3 + R3) open the
+        // menu there.
+        debug_menu = debug_menu || (SDL_GameControllerGetButton(g_port1.pad, SDL_CONTROLLER_BUTTON_LEFTSTICK) &&
+                                    SDL_GameControllerGetButton(g_port1.pad, SDL_CONTROLLER_BUTTON_RIGHTSTICK));
+#endif
         const float key_x = x;
         const float key_y = y;
         uint16_t pad_menu = 0;

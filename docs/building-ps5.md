@@ -107,5 +107,6 @@ open-source encoder exists for that. The encoded file is in `tools/ps5/sce_sys/s
 | Files | No working directory: relative paths are resolved against one the title keeps, starting at the title folder (`tools/ps5/ps5_paths.c`). No file dialog: `nfd` is a stub (`tools/ps5/nfd_stub.c`) and the ROM is found in the title folder. |
 | Linking | RADV is linked into the title (PS5_Vulkan's recipe, `tools/ps5/link-title.sh`), with C library functions the SDK lacks (`tools/ps5/ps5_libc.c`) and a table of every import, so the start-up can name the missing ones. |
 | DualSense | Adaptive triggers through `scePadSetTriggerEffect`; haptics and rumble synthesised as sound on the pad's vibration port (`src/platform/dualsense_ps5.cpp`). The `ps5.` lines of `feel.cfg` shape them: pitch, punch, the thud's roughness and length. |
+| Debug menu | The console keeps the Create button for itself: L3 and R3 pressed together open the debug menu. |
 | Players | The console lists every signed-in user as a controller: one whose pad is off holds no port, so players follow the order pads are switched on. |
 | Not on the console | Mods, router port mapping. |

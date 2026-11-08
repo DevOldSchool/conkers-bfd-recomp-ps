@@ -202,7 +202,9 @@ def render() -> np.ndarray:
     t = np.arange(n) / RATE
     fade = np.minimum(1.0, t / FADE_IN) * np.clip((total_seconds - t) / FADE_OUT, 0.0, 1.0)
     mix *= fade[:, None]
-    mix *= 0.8 / np.abs(mix).max()
+    # A peak of -8 dBFS (about -28 dBFS RMS): as loud as other titles' home-screen music, which peaks
+    # around -6 to -19 dBFS. The rain is constant, so a louder peak made it the loudest on the console.
+    mix *= 0.4 / np.abs(mix).max()
     return mix
 
 

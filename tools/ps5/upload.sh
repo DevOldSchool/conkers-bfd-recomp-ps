@@ -36,6 +36,19 @@ put() {
         -Q "*DELE $remote" -Q "RNFR $remote.uploading" -Q "RNTO $remote"
 }
 
+# same <local file> <remote path>: whether the console already has this file there. The home screen
+# holds on to its copies, and one replaced, even by the same bytes, can go silent until the console restarts.
+same() {
+    local copy
+    copy="$(mktemp)"
+    if curl -sS --fail -o "$copy" "ftp://$host$2" 2>/dev/null && cmp -s "$1" "$copy"; then
+        rm -f "$copy"
+        return 0
+    fi
+    rm -f "$copy"
+    return 1
+}
+
 files=()
 if [ $# -gt 0 ]; then
     for path in "$@"; do
@@ -52,7 +65,11 @@ for path in "${files[@]}"; do
     put "$app/$path" "$remote_dir/$path"
     case "$path" in
         sce_sys/icon0.png|sce_sys/pic0.dds|sce_sys/pic1.dds|sce_sys/snd0.at9)
-            put "$app/$path" "$appmeta/${path#sce_sys/}" ;;
+            if same "$app/$path" "$appmeta/${path#sce_sys/}"; then
+                echo "==> $appmeta/${path#sce_sys/} is unchanged"
+            else
+                put "$app/$path" "$appmeta/${path#sce_sys/}"
+            fi ;;
     esac
 done
 
