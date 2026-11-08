@@ -197,12 +197,17 @@ in_configure() {
         -DPS5_PAYLOAD_SDK="$sdk" -DPACBREW="$pacbrew" -DPS5_VULKAN="$vulkan" -DCONKER_HOST_TOOLS="$build/host-tools" \
         -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         -DCONKER_RENDERER=rt64 -DCONKER_RECOMPILED_DIR=/gen/RecompiledFuncs -DCONKER_RSP_DIR=/gen/rsp \
-        -DCONKER_PORT_MAPPING=OFF -DCONKER_EMBEDDED_MODS=
+        -DCONKER_PORT_MAPPING=OFF -DCONKER_EMBEDDED_MODS= -DCONKER_NET_VERSION="${CONKER_NET_VERSION:-}"
 }
 
 in_build() {
     check_deps
     [ -f "$build/build.ninja" ] || { echo "$build is not configured: run tools/ps5/build.sh configure" >&2; exit 1; }
+    # The version online play compares comes from the host on every run (on_host), so a build after a
+    # merge from the main project plays as its new version without configuring again.
+    if [ "$(sed -n 's/^CONKER_NET_VERSION:STRING=//p' "$build/CMakeCache.txt")" != "${CONKER_NET_VERSION:-}" ]; then
+        cmake -DCONKER_NET_VERSION="${CONKER_NET_VERSION:-}" "$build" > /dev/null
+    fi
     # The recompiled code is large: a compile job per 2 GB of the container's memory.
     local memory_kb jobs
     memory_kb=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)
@@ -299,8 +304,23 @@ on_host() {
     # the version the game reports comes from here.
     version="$("$here/tools/version.sh")"
 
+    # The version online play compares: the main project's version this repository is level with
+    # (tools/ps5/main-version, which tools/ps5/merge-main.sh records), so the title plays with that
+    # version's desktop builds. CONKER_NET_VERSION names another.
+    net_version="${CONKER_NET_VERSION:-}"
+    if [ -z "$net_version" ] && [ -f "$here/tools/ps5/main-version" ]; then
+        local main_commit
+        read -r net_version main_commit < "$here/tools/ps5/main-version"
+        if ! git -C "$here" merge-base --is-ancestor "$main_commit" HEAD 2>/dev/null; then
+            echo "error: tools/ps5/main-version names $main_commit, which is not merged here:" \
+                "run tools/ps5/merge-main.sh --record" >&2
+            exit 1
+        fi
+    fi
+    echo "==> plays online as ${net_version:-$version (its own version)}"
+
     in_container() {
-        docker run --rm "${mounts[@]}" -w /src -e CONKER_BUILD_VERSION="$version" -e HOST_UID="$(id -u)" \
+        docker run --rm "${mounts[@]}" -w /src -e CONKER_BUILD_VERSION="$version" -e CONKER_NET_VERSION="$net_version" -e HOST_UID="$(id -u)" \
             -e HOST_GID="$(id -g)" -e CONKER_BUILD_ARGS="${CONKER_BUILD_ARGS:-}" -e CONKER_PS5_SND0="${CONKER_PS5_SND0:-}" \
             -e CONKER_PS5_BACKGROUND="${CONKER_PS5_BACKGROUND:-}" "$image" bash /src/tools/ps5/build.sh --in-container "$1"
     }

@@ -37,13 +37,21 @@ volume is the title unsigned and with its symbols, for reading a crash report.
 ## Updating from the main project
 
 This repository is the main project ([conkers-bfd-recomp](https://github.com/DevOldSchool/conkers-bfd-recomp))
-with the PS5 port on top, and tracks it as the remote `upstream`. To take in its latest changes:
+with the PS5 port on top, and tracks it as the remote `upstream`. `tools/ps5/merge-main.sh` takes in
+its changes and records which version of it this repository is level with:
 
 ```sh
-git fetch upstream
-git merge upstream/main
+tools/ps5/merge-main.sh v1.2.0     # the main project's release v1.2.0 (before a PS5 release)
+tools/ps5/merge-main.sh            # its main, between releases
 git submodule update --init --recursive
 ```
+
+The title plays online as that version: `tools/ps5/main-version` holds it (and the commit), and
+`tools/ps5/build.sh` builds with it as `CONKER_NET_VERSION`. Online play lets in only machines on
+the same version, so the title plays with the desktop builds of that version: a PS5 release merges
+the main project's release tag, and plays with that release. A merge that stops on conflicts is
+finished by hand, then recorded with `tools/ps5/merge-main.sh --record <the same tag or main>`. The
+build refuses a `main-version` whose commit is not merged.
 
 The PS5 port changes the main project's files only in a few places, each behind `CONKER_PS5` (or
 `if(PS5)` in CMake), so merges rarely conflict. Three files differ on purpose, and a conflict in them
@@ -65,7 +73,8 @@ hold code made from the ROM.
 
 A tag `NN.NNN.NNN` makes a draft release. The tag must be `contentVersion` in
 `tools/ps5/sce_sys/param.json` (the version the console shows, and the one the homebrew catalog
-takes), so a release raises that first. The draft carries:
+takes), so a release raises that first, after merging the main project's release it goes with
+(above). The draft carries:
 
 * `Conkers-Bad-Fur-Day-Recompiled-PS5-<version>.zip`: the title folder, `PPSA92064/` at its top,
   licenses included;
@@ -131,7 +140,7 @@ The age level (`ageLevel` in `param.json`) follows the original game's ratings: 
 The home screen's music is the port's own: `tools/ps5/make_home_music.py` renders it (a low
 drone and wind, soft rain and drips, two distant rolls of thunder; 42 s, 48 kHz stereo
 WAV; needs NumPy). The console wants it as `sce_sys/snd0.at9`, 48 kHz stereo ATRAC9, and no
-open-source encoder exists for that. The encoded file is in `tools/ps5/sce_sys/snd0.at9` (Sony's at9tool,
+open-source encoder exists for that. The encoded file is in `tools/ps5/sce_sys/snd0.at9` (at9tool,
 `-e -br 144 -wholeloop`: the console wants the loop chunk), and every package includes it;
 `CONKER_PS5_SND0=<file.at9>` uses another. Never put music made from your ROM in the repository or a release.
 
