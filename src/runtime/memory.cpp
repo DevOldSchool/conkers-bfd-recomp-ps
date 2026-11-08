@@ -4,7 +4,11 @@
 #include <cstring>
 #include <vector>
 
-#if defined(CONKER_PLATFORM_POSIX)
+#if CONKER_PS5
+#include <ps5platform/kernel.h>
+
+#include "librecomp/addresses.hpp"
+#elif defined(CONKER_PLATFORM_POSIX)
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -19,12 +23,62 @@ namespace conker::memory {
 namespace {
 
 size_t page_size() {
-#if defined(CONKER_PLATFORM_POSIX)
+#if CONKER_PS5
+    // Direct memory is mapped in its own 64 KiB units, larger than the kernel's pages.
+    return PS5_KERNEL_DIRECT_ALIGNMENT;
+#elif defined(CONKER_PLATFORM_POSIX)
     return static_cast<size_t>(sysconf(_SC_PAGESIZE));
 #else
     return 4096;
 #endif
 }
+
+#if CONKER_PS5
+// The console has no shared-memory objects to map at several addresses, but one direct-memory
+// allocation can be mapped at any number of them: that is the alias. librecomp backs rdram's first
+// 512 MiB with direct memory of its own (tools/patches/n64modernruntime-ps5.patch) and keeps the
+// rest of its 4 GiB reserved, so each mapping below replaces part of that reservation.
+
+void print_kernel_error(const char* what, int32_t result) {
+    std::fprintf(stderr, "[conker] %s failed (0x%08X)\n", what, static_cast<unsigned>(result));
+}
+
+// Maps `size` bytes of direct memory from `direct` at exactly `address`, readable and writable.
+bool map_direct_at(uint8_t* address, size_t size, int64_t direct, const char* what) {
+    void* mapped = address;
+    const int32_t result = sceKernelMapDirectMemory(&mapped, size, PS5_KERNEL_PROT_CPU_READ | PS5_KERNEL_PROT_CPU_WRITE,
+                                                    PS5_KERNEL_MAP_FIXED, direct, PS5_KERNEL_DIRECT_ALIGNMENT);
+    if (result != 0 || mapped != address) {
+        print_kernel_error(what, result);
+        return false;
+    }
+    return true;
+}
+
+bool allocate_direct(size_t size, int64_t* direct, const char* what) {
+    const int32_t result = sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), size, PS5_KERNEL_DIRECT_ALIGNMENT,
+                                                         PS5_KERNEL_DIRECT_TYPE_CPU, direct);
+    if (result != 0) {
+        print_kernel_error(what, result);
+        return false;
+    }
+    return true;
+}
+
+// The 64 KiB units, as offsets into the reservation, that already have memory behind them: rdram's
+// first 512 MiB (librecomp's), the two aliases, and every window made accessible so far. A window
+// sharing a unit with one before it must not replace that unit's memory.
+std::vector<std::pair<size_t, size_t>> g_backed;
+
+bool is_backed(size_t offset) {
+    for (const auto& [start, end] : g_backed) {
+        if (offset >= start && offset < end) {
+            return true;
+        }
+    }
+    return false;
+}
+#endif
 
 #if defined(_WIN32)
 // Windows cannot map a view over memory that is already reserved, so the 4 GiB librecomp reserved
@@ -138,7 +192,32 @@ const uint8_t* current_rdram() { return g_rdram; }
 
 bool install_rdram_alias(uint8_t* rdram) {
     g_rdram = rdram;
-#if defined(CONKER_PLATFORM_POSIX)
+#if CONKER_PS5
+    // One allocation at all three addresses. It is filled through the alias before it replaces the
+    // memory at rdram itself, so what the runtime already placed there (the initial 1 MiB ROM copy and
+    // the IPL3 variables) is kept, and direct memory, which is not cleared when it is allocated, holds
+    // nothing else.
+    int64_t direct = 0;
+    if (!allocate_direct(kRdramSize, &direct, "sceKernelAllocateDirectMemory (rdram alias)")) {
+        return false;
+    }
+    uint8_t* const alias = rdram + rdram_offset(kMainAliasBase);
+    uint8_t* const uncached = rdram + rdram_offset(kUncachedBase);
+    if (!map_direct_at(alias, kRdramSize, direct, "sceKernelMapDirectMemory (rdram alias)") ||
+        !map_direct_at(uncached, kRdramSize, direct, "sceKernelMapDirectMemory (uncached rdram)")) {
+        return false;
+    }
+    std::memcpy(alias, rdram, kRdramSize);
+    if (!map_direct_at(rdram, kRdramSize, direct, "sceKernelMapDirectMemory (rdram)")) {
+        return false;
+    }
+    g_backed = {
+        {0, recomp::mem_size},
+        {rdram_offset(kMainAliasBase), rdram_offset(kMainAliasBase) + kRdramSize},
+        {rdram_offset(kUncachedBase), rdram_offset(kUncachedBase) + kRdramSize},
+    };
+    return true;
+#elif defined(CONKER_PLATFORM_POSIX)
     // Preserve whatever the runtime already placed in RDRAM (the initial 1 MiB ROM copy and
     // the IPL3 variables) before swapping the backing memory out from under it.
     std::vector<uint8_t> saved(rdram, rdram + kRdramSize);
@@ -187,7 +266,33 @@ bool install_rdram_alias(uint8_t* rdram) {
 }
 
 bool make_window_accessible(uint8_t* rdram, uint32_t vram, size_t size) {
-#if defined(CONKER_PLATFORM_POSIX)
+#if CONKER_PS5
+    // Direct memory of its own for each run of units that has none yet, cleared, as the other
+    // platforms' newly accessible pages are.
+    const size_t page = page_size();
+    const size_t start = rdram_offset(vram) & ~(page - 1);
+    const size_t end = (rdram_offset(vram) + size + page - 1) & ~(page - 1);
+    size_t at = start;
+    while (at < end) {
+        if (is_backed(at)) {
+            at += page;
+            continue;
+        }
+        size_t run_end = at + page;
+        while (run_end < end && !is_backed(run_end)) {
+            run_end += page;
+        }
+        int64_t direct = 0;
+        if (!allocate_direct(run_end - at, &direct, "sceKernelAllocateDirectMemory (rdram window)") ||
+            !map_direct_at(rdram + at, run_end - at, direct, "sceKernelMapDirectMemory (rdram window)")) {
+            return false;
+        }
+        std::memset(rdram + at, 0, run_end - at);
+        g_backed.emplace_back(at, run_end);
+        at = run_end;
+    }
+    return true;
+#elif defined(CONKER_PLATFORM_POSIX)
     const size_t page = page_size();
     size_t start = rdram_offset(vram) & ~(page - 1);
     size_t end = (rdram_offset(vram) + size + page - 1) & ~(page - 1);

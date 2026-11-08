@@ -285,8 +285,9 @@ if(CONKER_RENDERER STREQUAL "rt64")
         endif()
     endif()
     set(RT64_STATIC ON CACHE BOOL "" FORCE)
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR PS5)
         # On Linux RT64 takes the SDL window and makes its Vulkan surface through SDL (X11 or Wayland).
+        # The PS5 takes the same SDL window, though plume presents to the display itself there.
         set(RT64_SDL_WINDOW_VULKAN ON CACHE BOOL "" FORCE)
     endif()
     if(WIN32 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64)$")
@@ -499,6 +500,18 @@ if(WIN32)
     target_link_libraries(ConkersBadFurDayRecompiled PRIVATE ws2_32 iphlpapi bcrypt dbghelp)
 elseif(APPLE)
     target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_PLATFORM_POSIX=1)
+elseif(PS5)
+    # The PS5 homebrew title (docs/building-ps5.md, tools/ps5): the console's start-up, log and crash
+    # reports, and the DualSense's triggers and haptics through the system's own pad library. The
+    # recompiled code is built with CONKER_PS5 too: it includes src/fixes/geometry_escape.h, whose jump
+    # differs there. RT64's and plume's headers want the SDL window for Vulkan, as on Linux. Its shared
+    # memory is not POSIX's (src/runtime/memory.cpp), and it has no librt.
+    target_sources(ConkersBadFurDayRecompiled PRIVATE src/platform/ps5_platform.cpp src/platform/dualsense_ps5.cpp)
+    target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_PS5=1 RT64_SDL_WINDOW_VULKAN PLUME_SDL_VULKAN_ENABLED)
+    target_compile_definitions(ConkerRecompiled PRIVATE CONKER_PS5=1)
+    # The title link (tools/ps5/toolchain.cmake) compiles these itself: linked again when they change.
+    set_property(TARGET ConkersBadFurDayRecompiled APPEND PROPERTY LINK_DEPENDS
+        "${CONKER_PS5_DIR}/link-title.sh" "${CONKER_PS5_DIR}/ps5_paths.c" "${CONKER_PS5_DIR}/ps5_libc.c")
 elseif(UNIX)
     target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_PLATFORM_POSIX=1)
     target_link_libraries(ConkersBadFurDayRecompiled PRIVATE rt)
