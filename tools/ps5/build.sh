@@ -225,9 +225,14 @@ in_package() {
     [ -f "$snd0" ] || { echo "no home-screen music ($snd0)" >&2; exit 1; }
 
     # The home-screen pictures, made again only when the script or its picture changed.
+    # The project's background (assets/background.webp, the one the desktop builds use), unless
+    # CONKER_PS5_BACKGROUND names another; the icon on a dark field if there is neither.
     local art="$build/home-art" picture=/src/assets/app-icon.png art_args=()
     if [ -n "${CONKER_PS5_BACKGROUND:-}" ]; then
         picture=/background
+        art_args=(--image "$picture")
+    elif [ -f /src/assets/background.webp ]; then
+        picture=/src/assets/background.webp
         art_args=(--image "$picture")
     fi
     local stamp

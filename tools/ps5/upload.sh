@@ -10,8 +10,9 @@
 #             .z64, .n64 or .v64 there)
 #
 # The server can refuse to overwrite a file, so each goes up under another name, the old one is deleted
-# and the new one renamed. The home screen's own copy of the icon, pictures and music,
-# /user/appmeta/PPSA21064, is updated with them.
+# and the new one renamed. The home screen's own copies of the icon, pictures and music,
+# /user/appmeta/PPSA21064 and the console's install copy /user/app/PPSA21064/sce_sys (where it reads the
+# background), are updated with them; the console shows the new ones after a restart.
 set -euo pipefail
 
 title_id=PPSA21064
@@ -23,6 +24,7 @@ host="$PS5_HOST"
 [[ "$host" == *:* ]] || host="$host:2121"
 remote_dir="${PS5_DIR:-/data/homebrew}/$title_id"
 appmeta="/user/appmeta/$title_id"
+installed="/user/app/$title_id"
 [ -d "$app" ] || { echo "no $app: run tools/ps5/build.sh" >&2; exit 1; }
 
 # put <local file> <remote path>: up as <remote path>.uploading, then into place.
@@ -65,11 +67,13 @@ for path in "${files[@]}"; do
     put "$app/$path" "$remote_dir/$path"
     case "$path" in
         sce_sys/icon0.png|sce_sys/pic0.dds|sce_sys/pic1.dds|sce_sys/snd0.at9)
-            if same "$app/$path" "$appmeta/${path#sce_sys/}"; then
-                echo "==> $appmeta/${path#sce_sys/} is unchanged"
-            else
-                put "$app/$path" "$appmeta/${path#sce_sys/}"
-            fi ;;
+            for copy in "$appmeta/${path#sce_sys/}" "$installed/$path"; do
+                if same "$app/$path" "$copy"; then
+                    echo "==> $copy is unchanged"
+                else
+                    put "$app/$path" "$copy"
+                fi
+            done ;;
     esac
 done
 

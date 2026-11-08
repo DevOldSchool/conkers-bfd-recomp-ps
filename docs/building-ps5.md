@@ -74,8 +74,9 @@ the console gives the title and name any function the title imports that the con
 ## Home screen
 
 The package step writes the title's home-screen background (`sce_sys/pic0.dds` and `pic1.dds`,
-3840x2160 BC7) from the port's own art, `assets/app-icon.png` (`tools/ps5/make_home_art.py`).
-`CONKER_PS5_BACKGROUND=<picture>` uses a 16:9 picture of your own instead. The game's own art is
+3840x2160 BC7) from the project's background, `assets/background.webp`
+(`tools/ps5/make_home_art.py`). `CONKER_PS5_BACKGROUND=<picture>` uses a 16:9 picture of your own
+instead. The game's own art is
 never used.
 
 The console reads the title's home-screen files, music and age level once, when ShadowMount registers
@@ -90,8 +91,8 @@ fields: register it again, or fill them in and restart the console. `tools/ps5/u
 The age level (`ageLevel` in `param.json`) follows the original game's ratings: 17 in the US and Canada
 (ESRB M), 15 in Australia (MA15+), 18 elsewhere (PEGI 18).
 
-The home screen's music is the port's own: `tools/ps5/make_home_music.py` composes and renders it (dark
-ambient pads and a low drone, soft rain and drips, two distant rolls of thunder; 42 s, 48 kHz stereo
+The home screen's music is the port's own: `tools/ps5/make_home_music.py` renders it (a low
+drone and wind, soft rain and drips, two distant rolls of thunder; 42 s, 48 kHz stereo
 WAV; needs NumPy). The console wants it as `sce_sys/snd0.at9`, 48 kHz stereo ATRAC9, and no
 open-source encoder exists for that. The encoded file is in `tools/ps5/sce_sys/snd0.at9` (Sony's at9tool,
 `-e -br 144 -wholeloop`: the console wants the loop chunk), and every package includes it;
