@@ -116,6 +116,10 @@ that with the runtime and the renderer.
 * `regenerate.sh` uses the committed `config/us.syms.toml`, so any decomp
   revision builds the same game. `CONKER_UPDATE_SYMS=1 tools/regenerate.sh`
   rewrites it from your decomp checkout instead.
+* Online play lets in only machines on the same version. A port built on this
+  project's code (for another platform) sets `-DCONKER_NET_VERSION=<version>`
+  to the version of this project it was made from, so it plays with that
+  version's builds.
 
 ## Controls
 

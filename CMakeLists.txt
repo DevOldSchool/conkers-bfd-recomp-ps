@@ -206,6 +206,13 @@ add_custom_target(build_version
             -P ${CMAKE_SOURCE_DIR}/tools/build_version.cmake
     BYPRODUCTS ${CONKER_GENERATED_DIR}/build_version.h)
 add_dependencies(ConkersBadFurDayRecompiled build_version)
+# The version online play compares (src/net): this build's own unless set. A port built on this
+# project's code sets it to the version of this project it was made from, so it plays with that
+# version's builds.
+set(CONKER_NET_VERSION "" CACHE STRING "The version online play compares (default: the build's own)")
+if(CONKER_NET_VERSION)
+    target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_NET_VERSION="${CONKER_NET_VERSION}")
+endif()
 # The functions mods may not hook or replace, because config/us.toml changes them: mod_locks.h,
 # read by src/runtime/overlays.cpp (tools/gen_mod_locks.py; tomllib needs Python 3.11).
 find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
