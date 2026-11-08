@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build Conker's Bad Fur Day Recompiled as a PS5 homebrew title in a Docker container
-# (tools/ps5/Dockerfile), into dist/PPSA21064 (docs/building-ps5.md).
+# (tools/ps5/Dockerfile), into dist/PPSA92064 (docs/building-ps5.md).
 #
 #   tools/ps5/build.sh [deps|configure|build|package|all]    (default: all)
 #
@@ -8,7 +8,7 @@
 #              pins, the payload SDK, RADV (release), ps5-native-tool, libc.prx, PacBrew's sysroot
 #   configure  RT64's file_to_c for the build machine, then CMake with tools/ps5/toolchain.cmake
 #   build      the ConkersBadFurDayRecompiled target (the signed title, tools/ps5/link-title.sh)
-#   package    dist/PPSA21064: eboot.bin, sce_sys (param.json, icon, home-screen pictures and music),
+#   package    dist/PPSA92064: eboot.bin, sce_sys (param.json, icon, home-screen pictures and music),
 #              sce_module/libc.prx
 #
 # Runs on an Apple silicon Mac and on an x86-64 Linux machine alike. Environment:
@@ -23,7 +23,7 @@
 # way: the dependency volume at /deps, the build volume at build/ps5. Never packages a ROM.
 set -euo pipefail
 
-title_id=PPSA21064
+title_id=PPSA92064
 image=conker-ps5-build
 
 # Mihawk's repositories and PacBrew, at the revisions this port was built and tested with.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copy the PS5 title (dist/PPSA21064, tools/ps5/build.sh) to a console over FTP: etaHEN's FTP server.
+# Copy the PS5 title (dist/PPSA92064, tools/ps5/build.sh) to a console over FTP: etaHEN's FTP server.
 #
 #   PS5_HOST=<ip>[:port] tools/ps5/upload.sh [path inside the title folder ...]
 #
@@ -11,11 +11,11 @@
 #
 # The server can refuse to overwrite a file, so each goes up under another name, the old one is deleted
 # and the new one renamed. The home screen's own copies of the icon, pictures and music,
-# /user/appmeta/PPSA21064 and the console's install copy /user/app/PPSA21064/sce_sys (where it reads the
+# /user/appmeta/PPSA92064 and the console's install copy /user/app/PPSA92064/sce_sys (where it reads the
 # background), are updated with them; the console shows the new ones after a restart.
 set -euo pipefail
 
-title_id=PPSA21064
+title_id=PPSA92064
 here="$(cd "$(dirname "$0")/../.." && pwd)"
 app="$here/dist/$title_id"
 
@@ -63,8 +63,18 @@ else
     done < <(find "$app" -type f | sort)
 fi
 
+# The home screen's folders exist once the title is registered (ShadowMountPlus or etaHEN); made before
+# that, they could get in the way of the registration, which copies the files itself.
+registered=0
+if curl -sS --fail -o /dev/null "ftp://$host$installed/sce_sys/" 2>/dev/null; then
+    registered=1
+else
+    echo "==> $title_id is not registered on the console yet: the home screen's copies are left to the registration"
+fi
+
 for path in "${files[@]}"; do
     put "$app/$path" "$remote_dir/$path"
+    [ "$registered" = 1 ] || continue
     case "$path" in
         sce_sys/icon0.png|sce_sys/pic0.dds|sce_sys/pic1.dds|sce_sys/snd0.at9)
             for copy in "$appmeta/${path#sce_sys/}" "$installed/$path"; do

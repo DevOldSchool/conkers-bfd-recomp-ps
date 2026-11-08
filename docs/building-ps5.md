@@ -25,13 +25,13 @@ The steps can also be run one at a time: `tools/ps5/build.sh deps|configure|buil
   takes the longest, the first time only.
 - **configure**: RT64's `file_to_c` for the build machine, then CMake with `tools/ps5/toolchain.cmake`.
 - **build**: the game, linked into the signed title by `tools/ps5/link-title.sh`.
-- **package**: `dist/PPSA21064` (below).
+- **package**: `dist/PPSA92064` (below).
 
 The image is `conker-ps5-build` (`tools/ps5/Dockerfile`). `CONKER_GENERATED=<dir>` uses another
 checkout's `build/us`. The dependencies (and the compiler cache) and the build folder are Docker
 volumes, `conker-ps5-deps` and `conker-ps5-build`; `CONKER_PS5_DEPS_VOLUME` and
 `CONKER_PS5_BUILD_VOLUME` name others, for CI or a build from scratch. `CONKER_BUILD_ARGS` is passed on to
-Ninja. The title folder is `dist/PPSA21064`; `build/ps5/ConkersBadFurDayRecompiled.elf` in the build
+Ninja. The title folder is `dist/PPSA92064`; `build/ps5/ConkersBadFurDayRecompiled.elf` in the build
 volume is the title unsigned and with its symbols, for reading a crash report.
 
 ## Updating from the main project
@@ -51,7 +51,7 @@ The PS5 port changes the main project's files only in a few places, each behind 
 
 ## Install
 
-1. Copy `dist/PPSA21064` to `/data/homebrew/` on the console (FTP).
+1. Copy `dist/PPSA92064` to `/data/homebrew/` on the console (FTP).
 2. Put your own US ROM in that folder, with a lower-case `.z64`, `.n64` or `.v64` extension. On the first
    start the game keeps its own copy; the file you added can then be removed.
 3. Register the title (ShadowMountPlus or etaHEN) and start it from the home screen.
@@ -80,7 +80,7 @@ instead. The game's own art is
 never used.
 
 The console reads the title's home-screen files, music and age level once, when ShadowMount registers
-the title: copies in `/user/app/PPSA21064/sce_sys/` and `/user/appmeta/PPSA21064/`, and rows in
+the title: copies in `/user/app/PPSA92064/sce_sys/` and `/user/appmeta/PPSA92064/`, and rows in
 `/system_data/priv/mms/app.db` (`tbl_contentinfo`: `snd0Info`, `pic0Info`, `pprAgeLevel`) and
 `appinfo.db` (`tbl_appinfo` keys `AGE_LEVEL`, `_path_pic0_info`, `_path_pic0_info_time_stamp`,
 `_path_snd0_info_time_stamp`). The shell rebuilds the `app.db` row from `appinfo.db` when the game

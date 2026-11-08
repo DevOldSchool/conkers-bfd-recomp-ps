@@ -10,9 +10,9 @@
   "attribute": 0,
   "attribute2": 0,
   "attribute3": 0,
-  "conceptId": "21064",
+  "conceptId": "92064",
   "contentBadgeType": 1,
-  "contentId": "UP9000-PPSA21064_00-CBFDRECOMPPS5000",
+  "contentId": "UP9000-PPSA92064_00-CBFDRECOMPPS5000",
   "contentVersion": "00.001.000",
   "downloadDataSize": 256,
   "gameIntent": {
@@ -36,6 +36,6 @@
   },
   "requiredSystemSoftwareVersion": "0x0000000000000000",
   "sdkVersion": "0x0000000000000000",
-  "titleId": "PPSA21064",
+  "titleId": "PPSA92064",
   "versionFileUri": ""
 }
