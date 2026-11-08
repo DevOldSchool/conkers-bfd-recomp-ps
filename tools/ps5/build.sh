@@ -65,6 +65,33 @@ fetch_at() {
     git -C "$dir" checkout -q --force "$rev"
 }
 
+# Mesa's wrap files fetch their meson patches from WrapDB's server, which answers with errors for hours
+# at a time. The same files are release assets of WrapDB's GitHub repository: put there into the
+# package cache (which tools/build-radv.sh keeps), checked against the wrap's hash, meson does not ask.
+fetch_wrap_patches() {
+    local subprojects=$1 wrap name version file hash
+    [ -d "$subprojects" ] || return 0
+    mkdir -p "$subprojects/packagecache"
+    for wrap in "$subprojects"/*.wrap; do
+        [ -f "$wrap" ] || continue
+        name=$(basename "$wrap" .wrap)
+        version=$(awk -F' *= *' '$1 == "wrapdb_version" { print $2 }' "$wrap")
+        file=$(awk -F' *= *' '$1 == "patch_filename" { print $2 }' "$wrap")
+        hash=$(awk -F' *= *' '$1 == "patch_hash" { print $2 }' "$wrap")
+        if [ -z "$version" ] || [ -z "$file" ] || [ -z "$hash" ] || [ -f "$subprojects/packagecache/$file" ]; then
+            continue
+        fi
+        echo "==> [deps] $file from WrapDB's GitHub releases"
+        if curl -fsSL --retry 3 "https://github.com/mesonbuild/wrapdb/releases/download/${name}_$version/$file" \
+                -o "$subprojects/packagecache/$file.download" &&
+            echo "$hash  $subprojects/packagecache/$file.download" | sha256sum --check --strict --status; then
+            mv "$subprojects/packagecache/$file.download" "$subprojects/packagecache/$file"
+        else
+            rm -f "$subprojects/packagecache/$file.download"
+        fi
+    done
+}
+
 radv_built() {
     grep -qx "revision: $ps5_mesa_rev" "$radv/PROVENANCE.txt" 2>/dev/null &&
         grep -qx "sdk: $ps5_sdk_rev" "$radv/PROVENANCE.txt" 2>/dev/null &&
@@ -104,6 +131,7 @@ in_deps() {
             [ "$attempt" -lt 3 ] || { echo "RADV did not build" >&2; exit 1; }
             [ -f "$vulkan/.deps/work/radv-build-ps5-release/build.ninja" ] ||
                 rm -rf "$vulkan/.deps/work/radv-build-ps5-release"
+            fetch_wrap_patches "$vulkan/.deps/work/radv-src/subprojects"
             echo "==> [deps] RADV's build failed; again in 60 s"
             sleep 60
         done
