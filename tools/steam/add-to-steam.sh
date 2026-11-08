@@ -212,9 +212,12 @@ macos_app="Conker's Bad Fur Day Recompiled.app"
 if [[ -n $game ]]; then
     [[ $game == *.app || $game == *.app/ ]] && game="${game%/}/Contents/MacOS/$binary"
 else
+    # Next to this script (a release; on a Mac the app beside "Add to Steam.command"), a checkout's,
+    # else on a Mac the app moved to Applications.
     for candidate in "$here/$binary" "$here/$macos_app/Contents/MacOS/$binary" \
                      "$here/../../dist/$macos_app/Contents/MacOS/$binary" "$here"/../../build*/"$binary" \
-                     "$here"/../../build*/*/"$binary"; do
+                     "$here"/../../build*/*/"$binary" \
+                     "/Applications/$macos_app/Contents/MacOS/$binary" "$HOME/Applications/$macos_app/Contents/MacOS/$binary"; do
         [[ -f $candidate ]] && { game="$candidate"; break; }
     done
     [[ -n $game ]] || die "The game was not found next to this script: give --game <the game, or its .app>"
