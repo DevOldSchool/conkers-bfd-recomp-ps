@@ -1,0 +1,170 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -28,6 +28,12 @@
+                 COMMAND ${CMAKE_CXX_COMPILER} /Zs /EP ${INFILE} ${OPTIONS} > ${OUTFILE}
+                 DEPENDS ${INFILE})
+         endif()
++    elseif (PS5)
++        # The SDK's compiler driver adds the console's start files and libraries to any command that is
++        # not a compile, a preprocessing included: the build machine's clang preprocesses instead.
++        add_custom_command(OUTPUT ${OUTFILE}
++            COMMAND clang -x c -E -P ${INFILE} -o ${OUTFILE} ${OPTIONS}
++            DEPENDS ${INFILE})
+     else()
+         add_custom_command(OUTPUT ${OUTFILE}
+             COMMAND ${CMAKE_CXX_COMPILER} -x c -E -P ${INFILE} -o ${OUTFILE} ${OPTIONS}
+@@ -89,6 +95,14 @@
+         set (DXC "DYLD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/src/contrib/dxc/lib/arm64:${ZLIB_PATH}" "${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/arm64/dxc-macos")
+         set (SPIRVCROSS "DYLD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/src/contrib/spirv-cross/lib/arm64:$ENV{DYLD_LIBRARY_PATH}" "${PROJECT_SOURCE_DIR}/src/contrib/spirv-cross/bin/arm64/spirv-cross")
+     endif()
++elseif (PS5)
++    # The console is x86-64 but the shaders are compiled on the build machine, which may be arm64:
++    # its DXC, chosen by its own processor.
++    if (CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
++        set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/src/contrib/dxc/lib/arm64" "${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/arm64/dxc-linux")
++    else()
++        set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/src/contrib/dxc/lib/x64" "${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/x64/dxc-linux")
++    endif()
+ else()
+     if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+         set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/src/contrib/dxc/lib/x64" "${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/x64/dxc-linux")
+@@ -101,12 +115,25 @@
+ set(ZSTD_BUILD_STATIC ON)
+ set(ZSTD_BUILD_SHARED OFF)
+ 
+-add_subdirectory(src/tools/file_to_c)
++if (PS5)
++    # A cross build cannot run the file_to_c it builds: the build machine's own, built beforehand into
++    # CONKER_HOST_TOOLS (tools/ps5/build.sh).
++    add_executable(file_to_c IMPORTED)
++    set_target_properties(file_to_c PROPERTIES IMPORTED_LOCATION "${CONKER_HOST_TOOLS}/file_to_c")
++else()
++    add_subdirectory(src/tools/file_to_c)
++endif()
+ add_subdirectory(src/contrib/re-spirv)
+-add_subdirectory(src/contrib/nativefiledialog-extended)
++if (PS5)
++    # A title has no file dialogs: nfd is a stub with the same API (tools/ps5).
++    add_library(nfd STATIC "${CONKER_PS5_DIR}/nfd_stub.c")
++    target_include_directories(nfd PUBLIC "${PROJECT_SOURCE_DIR}/src/contrib/nativefiledialog-extended/src/include")
++else()
++    add_subdirectory(src/contrib/nativefiledialog-extended)
++endif()
+ add_subdirectory(src/contrib/zstd/build/cmake)
+ 
+-if (CMAKE_SYSTEM_NAME MATCHES "Linux" AND RT64_SDL_WINDOW_VULKAN)
++if ((CMAKE_SYSTEM_NAME MATCHES "Linux" OR PS5) AND RT64_SDL_WINDOW_VULKAN)
+     set(PLUME_SDL_VULKAN_ENABLED TRUE)
+ elseif (APPLE)
+     set(PLUME_APPLE_RETINA_ENABLED OFF)
+@@ -335,7 +362,7 @@
+     IMGUI_IMPL_VULKAN_NO_PROTOTYPES
+ )
+ 
+-if (CMAKE_SYSTEM_NAME MATCHES "Linux" AND RT64_SDL_WINDOW_VULKAN)
++if ((CMAKE_SYSTEM_NAME MATCHES "Linux" OR PS5) AND RT64_SDL_WINDOW_VULKAN)
+     add_compile_definitions("PLUME_SDL_VULKAN_ENABLED")
+     add_compile_definitions("RT64_SDL_WINDOW_VULKAN")
+ endif()
+@@ -480,9 +507,11 @@
+ target_link_libraries(rt64 libzstd_static)
+ target_link_libraries(rt64 plume)
+ 
+-# Add tools.
+-add_subdirectory(src/tools/texture_hasher)
+-add_subdirectory(src/tools/texture_packer)
++# Add tools (desktop programs: none on the console).
++if (NOT PS5)
++    add_subdirectory(src/tools/texture_hasher)
++    add_subdirectory(src/tools/texture_packer)
++endif()
+ 
+ # Add any Apple-specific source files and libraries
+ if (APPLE)
+--- a/src/common/rt64_thread.cpp
++++ b/src/common/rt64_thread.cpp
+@@ -12,6 +12,9 @@
+ #   include "utf8conv/utf8conv.h"
+ #elif defined(__linux__)
+ #   include <pthread.h>
++#elif defined(__PROSPERO__)
++#   include <pthread.h>
++#   include <pthread_np.h>
+ #endif
+ 
+ namespace RT64 {
+@@ -47,6 +50,9 @@
+         pthread_setname_np(pthread_self(), str.c_str());
+ #   elif defined(__APPLE__)
+         pthread_setname_np(str.c_str());
++#   elif defined(__PROSPERO__)
++        // FreeBSD's name for the call.
++        pthread_set_name_np(pthread_self(), str.c_str());
+ #   else
+         static_assert(false, "Unimplemented");
+ #   endif
+@@ -55,7 +61,7 @@
+     void Thread::setCurrentThreadPriority(Priority priority) {
+ #   if defined(_WIN32)
+         SetThreadPriority(GetCurrentThread(), toWindowsPriority(priority));
+-#   elif defined(__linux__) || defined(__APPLE__)
++#   elif defined(__linux__) || defined(__APPLE__) || defined(__PROSPERO__)
+         // On Linux, thread priorities can't be changed under the default scheduler policy (SCHED_OTHER) and the other policies
+         // that are available without root privileges are lower priority. Instead you can set the thread's "nice" value, which ranges
+         // from -20 to 19 (lower being higher priority). However, by strict POSIX spec "nice" is meant to be per-process instead of
+--- a/src/hle/rt64_application_window.cpp
++++ b/src/hle/rt64_application_window.cpp
+@@ -105,7 +105,8 @@
+         bounds.height = rect.bottom - rect.top;
+ #   elif defined(__ANDROID__)
+         static_assert(false && "Android unimplemented");
+-#   elif defined(__linux__) || defined(__APPLE__)
++#   elif defined(__linux__) || defined(__APPLE__) || defined(__PROSPERO__)
++        // The console takes the Linux path: an SDL window, with Vulkan.
+         if (SDL_VideoInit(nullptr) != 0) {
+             printf("Failed to init SDL2 video: %s\n", SDL_GetError());
+             assert(false && "Failed to init SDL2 video");
+@@ -166,6 +167,9 @@
+         uint64_t tid;
+         pthread_threadid_np(nullptr, &tid);
+         setup(windowHandle, listener, tid);
++#   elif defined(__PROSPERO__)
++        // FreeBSD's pthread_t is a pointer; the thread id is only used for Windows' message hook.
++        setup(windowHandle, listener, 0);
+ #   else
+         setup(windowHandle, listener, pthread_self());
+ #   endif
+--- a/src/render/rt64_raster_shader.cpp
++++ b/src/render/rt64_raster_shader.cpp
+@@ -456,6 +456,13 @@
+         layoutBuilder.addDescriptorSet(descriptorFramebufferSet);
+         layoutBuilder.end();
+         pipelineLayout = layoutBuilder.create(device);
++
++#   if defined(__PROSPERO__)
++        // On the console a thread that compiled pipelines with RADV crashes as it ends (its thread-local
++        // destructors free memory of the per-thread heap arena), so no short-lived thread compiles
++        // them: one list, compiled below by the calling thread, in order.
++        threadCount = 1;
++#   endif
+ 
+         // Generate all possible combinations of pipeline creations and assign them to each thread. Skip the ones that are invalid.
+         uint32_t pipelineCount = uint32_t(std::size(pipelines));
+@@ -483,12 +490,17 @@
+             threadIndex = (threadIndex + 1) % threadCount;
+         }
+ 
++#   if defined(__PROSPERO__)
++        pipelineThreads.clear();
++        threadCreatePipelines(0);
++#   else
+         // Spawn the threads that will compile all the pipelines.
+         pipelineThreads.clear();
+         pipelineThreads.resize(pipelineThreadCreations.size());
+         for (uint32_t i = 0; i < uint32_t(pipelineThreads.size()); i++) {
+             pipelineThreads[i] = std::make_unique<std::thread>(&RasterShaderUber::threadCreatePipelines, this, i);
+         }
++#   endif
+ 
+         // Create the pipelines for post blend operations.
+         std::unique_ptr<RenderShader> postBlendAddPixelShader;

@@ -1,0 +1,120 @@
+--- a/librecomp/src/recomp.cpp
++++ b/librecomp/src/recomp.cpp
+@@ -28,6 +28,8 @@
+ #ifdef _WIN32
+ #    define WIN32_LEAN_AND_MEAN
+ #    include <Windows.h>
++#elif defined(__PROSPERO__)
++#    include <ps5platform/kernel.h>
+ #else
+ #    include <sys/mman.h>
+ #endif
+@@ -36,6 +38,63 @@
+ #define PATHFMT "%ls"
+ #else
+ #define PATHFMT "%s"
++#endif
++
++#if defined(__PROSPERO__)
++// rdram's address space on the console (see recomp::start): the layout the other platforms make with
++// mmap, as a kernel reservation backed by direct memory. Returns rdram, the reservation past its
++// first guard, or nullptr with everything it did undone.
++static uint8_t* ps5_reserve_rdram() {
++    using namespace recomp;
++    const size_t total = allocation_size + 2 * rdram_guard_size;
++    // Clear of the Vulkan driver's two regions (its GPU ring at 0x200000000-0x2FFFFFFFF, its device
++    // memory from 0x4000000000): without them it has no device.
++    static const uintptr_t candidates[] = {
++        0x300000000ull, 0x400000000ull, 0x800000000ull, 0x1000000000ull,
++        0x2000000000ull, 0x8000000000ull, 0x10000000000ull, 0x40000000000ull,
++    };
++    void* reservation = nullptr;
++    for (uintptr_t candidate : candidates) {
++        // The address is a hint: a range the kernel put elsewhere could be in the driver's way, so it
++        // is given back and the next address tried.
++        void* placed = reinterpret_cast<void*>(candidate);
++        if (sceKernelReserveVirtualRange(&placed, total, 0, PS5_KERNEL_DIRECT_ALIGNMENT) != 0) {
++            continue;
++        }
++        if (placed == reinterpret_cast<void*>(candidate)) {
++            reservation = placed;
++            break;
++        }
++        sceKernelMunmap(placed, total);
++    }
++    if (reservation == nullptr) {
++        fprintf(stderr, "[Recomp] No address range for rdram could be reserved\n");
++        return nullptr;
++    }
++
++    int64_t direct = 0;
++    int32_t result = sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), mem_size,
++        PS5_KERNEL_DIRECT_ALIGNMENT, PS5_KERNEL_DIRECT_TYPE_CPU, &direct);
++    if (result != 0) {
++        fprintf(stderr, "[Recomp] Allocating rdram's direct memory failed (0x%08X)\n", (unsigned)result);
++        sceKernelMunmap(reservation, total);
++        return nullptr;
++    }
++    uint8_t* const rdram = static_cast<uint8_t*>(reservation) + rdram_guard_size;
++    void* mapped = rdram;
++    result = sceKernelMapDirectMemory(&mapped, mem_size, PS5_KERNEL_PROT_CPU_READ | PS5_KERNEL_PROT_CPU_WRITE,
++        PS5_KERNEL_MAP_FIXED, direct, PS5_KERNEL_DIRECT_ALIGNMENT);
++    if (result != 0 || mapped != rdram) {
++        fprintf(stderr, "[Recomp] Mapping rdram's direct memory failed (0x%08X)\n", (unsigned)result);
++        sceKernelMunmap(reservation, total);  // takes any part of it that was mapped too
++        sceKernelReleaseDirectMemory(direct, mem_size);
++        return nullptr;
++    }
++    // Direct memory is not cleared when it is allocated, and rdram starts zeroed everywhere else.
++    memset(rdram, 0, mem_size);
++    printf("[Recomp] rdram at %p, %zu MiB of direct memory\n", static_cast<void*>(rdram), mem_size >> 20);
++    return rdram;
++}
+ #endif
+ 
+ enum GameStatus {
+@@ -950,6 +1009,11 @@
+             VirtualFree(reservation, 0, MEM_RELEASE);
+         }
+     }
++#elif defined(__PROSPERO__)
++    // The same layout with the guards, from the kernel's own calls: the console refuses an anonymous
++    // reservation this large (ps5_reserve_rdram above).
++    rdram = ps5_reserve_rdram();
++    alloc_failed = (rdram == nullptr);
+ #else
+     // A recompiled access adds a signed 16-bit offset to a sign-extended 32-bit pointer without
+     // wrapping, so it can land up to 32 KiB past either end of the 4 GiB. Inaccessible guards
+--- a/ultramodern/include/ultramodern/renderer_context.hpp
++++ b/ultramodern/include/ultramodern/renderer_context.hpp
+@@ -54,7 +54,9 @@
+             auto operator<=>(const WindowHandle&) const = default;
+         };
+ // TODO add a native window handle option here (Display/Window for x11 and ANativeWindow for Android) as a compile-time option.
+-#elif defined(__linux__) || defined(__ANDROID__)
++#elif defined(__linux__) || defined(__ANDROID__) || defined(__PROSPERO__)
++        // The console as on Linux: the renderer takes the SDL window (an offscreen one there, since
++        // Vulkan presents to the display directly).
+         using WindowHandle = SDL_Window*;
+ #elif defined(__APPLE__)
+         struct WindowHandle {
+--- a/ultramodern/src/threads.cpp
++++ b/ultramodern/src/threads.cpp
+@@ -150,6 +150,17 @@
+ }
+ 
+ void ultramodern::set_native_thread_priority(ThreadPriority pri) {}
++#elif defined(__PROSPERO__)
++#include <pthread.h>
++#include <pthread_np.h>
++
++void ultramodern::set_native_thread_name(const std::string& name) {
++    // FreeBSD's call, which the console's libkernel has.
++    pthread_set_name_np(pthread_self(), name.c_str());
++}
++
++// Left at the default, as on Linux.
++void ultramodern::set_native_thread_priority(ThreadPriority pri) {}
+ #endif
+ 
+ // Optional libultra-compatible `__osRunningThread` mirror. Some games (e.g. Rare's) read the

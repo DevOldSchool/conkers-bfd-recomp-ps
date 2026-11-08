@@ -1,0 +1,149 @@
+--- a/plume_vulkan.cpp
++++ b/plume_vulkan.cpp
+@@ -24,6 +24,12 @@
+ #   define VULKAN_OBJECT_NAMES_ENABLED
+ #endif
+ 
++#if defined(__PROSPERO__)
++// The console has no Vulkan loader: RADV is linked into the title, and its own ICD entry point is
++// where every Vulkan function comes from.
++extern "C" VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(VkInstance instance, const char *pName);
++#endif
++
+ // TODO:
+ // - Fix resource pools.
+ 
+@@ -58,6 +64,9 @@
+ #   endif
+ #   elif defined(__APPLE__)
+         VK_EXT_METAL_SURFACE_EXTENSION_NAME,
++#   elif defined(__PROSPERO__)
++        // No windows: the swap chain presents to the display plane.
++        VK_KHR_DISPLAY_EXTENSION_NAME,
+ #   endif
+     };
+ 
+@@ -2095,6 +2104,59 @@
+             fprintf(stderr, "vkCreateWin32SurfaceKHR failed with error code 0x%X.\n", res);
+             return;
+         }
++#   elif defined(__PROSPERO__)
++        // The console's display through VK_KHR_display: its first display, and that display's first
++        // mode, which is the output the system set. A display-plane surface must have that mode's
++        // extent, and the swap chain takes the same (getWindowSize).
++        VulkanInterface *renderInterface = commandQueue->device->renderInterface;
++        VkPhysicalDevice displayDevice = commandQueue->device->physicalDevice;
++        uint32_t displayCount = 0;
++        res = vkGetPhysicalDeviceDisplayPropertiesKHR(displayDevice, &displayCount, nullptr);
++        if ((res != VK_SUCCESS) || (displayCount == 0)) {
++            fprintf(stderr, "vkGetPhysicalDeviceDisplayPropertiesKHR found no display (error code 0x%X).\n", res);
++            return;
++        }
++
++        std::vector<VkDisplayPropertiesKHR> displays(displayCount);
++        res = vkGetPhysicalDeviceDisplayPropertiesKHR(displayDevice, &displayCount, displays.data());
++        if (((res != VK_SUCCESS) && (res != VK_INCOMPLETE)) || (displayCount == 0)) {
++            fprintf(stderr, "vkGetPhysicalDeviceDisplayPropertiesKHR failed with error code 0x%X.\n", res);
++            return;
++        }
++
++        uint32_t modeCount = 0;
++        res = vkGetDisplayModePropertiesKHR(displayDevice, displays[0].display, &modeCount, nullptr);
++        if ((res != VK_SUCCESS) || (modeCount == 0)) {
++            fprintf(stderr, "vkGetDisplayModePropertiesKHR found no mode (error code 0x%X).\n", res);
++            return;
++        }
++
++        std::vector<VkDisplayModePropertiesKHR> modes(modeCount);
++        res = vkGetDisplayModePropertiesKHR(displayDevice, displays[0].display, &modeCount, modes.data());
++        if (((res != VK_SUCCESS) && (res != VK_INCOMPLETE)) || (modeCount == 0)) {
++            fprintf(stderr, "vkGetDisplayModePropertiesKHR failed with error code 0x%X.\n", res);
++            return;
++        }
++
++        displayExtent = modes[0].parameters.visibleRegion;
++        displayRefreshRate = modes[0].parameters.refreshRate;
++        fprintf(stdout, "plume: display %s, %ux%u at %.3f Hz\n", (displays[0].displayName != nullptr) ? displays[0].displayName : "(unnamed)",
++            displayExtent.width, displayExtent.height, displayRefreshRate / 1000.0);
++
++        VkDisplaySurfaceCreateInfoKHR surfaceCreateInfo = {};
++        surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR;
++        surfaceCreateInfo.displayMode = modes[0].displayMode;
++        surfaceCreateInfo.planeIndex = 0;
++        surfaceCreateInfo.planeStackIndex = 0;
++        surfaceCreateInfo.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
++        surfaceCreateInfo.globalAlpha = 1.0f;
++        surfaceCreateInfo.alphaMode = VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR;
++        surfaceCreateInfo.imageExtent = displayExtent;
++        res = vkCreateDisplayPlaneSurfaceKHR(renderInterface->instance, &surfaceCreateInfo, nullptr, &surface);
++        if (res != VK_SUCCESS) {
++            fprintf(stderr, "vkCreateDisplayPlaneSurfaceKHR failed with error code 0x%X.\n", res);
++            return;
++        }
+ #   elif defined(PLUME_SDL_VULKAN_ENABLED)
+         VulkanInterface *renderInterface = commandQueue->device->renderInterface;
+         SDL_bool sdlRes = SDL_Vulkan_CreateSurface(desc.renderWindow, renderInterface->instance, &surface);
+@@ -2447,6 +2509,10 @@
+     }
+ 
+     uint32_t VulkanSwapChain::getRefreshRate() const {
++#   if defined(__PROSPERO__)
++        // The display mode's (kept in millihertz): there is no display timing extension to ask.
++        return uint32_t(std::lround(displayRefreshRate / 1000.0));
++#   endif
+         VkRefreshCycleDurationGOOGLE refreshCycle = {};
+         VkResult res = vkGetRefreshCycleDurationGOOGLE(commandQueue->device->vk, vk, &refreshCycle);
+         if (res != VK_SUCCESS) {
+@@ -2463,6 +2529,10 @@
+         GetClientRect(desc.renderWindow, &rect);
+         dstWidth = rect.right - rect.left;
+         dstHeight = rect.bottom - rect.top;
++#   elif defined(__PROSPERO__)
++        // The display mode's extent (the SDL window on the console is an offscreen one).
++        dstWidth = displayExtent.width;
++        dstHeight = displayExtent.height;
+ #   elif defined(PLUME_SDL_VULKAN_ENABLED)
+         SDL_GetWindowSizeInPixels(desc.renderWindow, (int *)(&dstWidth), (int *)(&dstHeight));
+ #   elif defined(__ANDROID__)
+@@ -4475,11 +4545,16 @@
+ #else
+     VulkanInterface::VulkanInterface() {
+ #endif
++#   if defined(__PROSPERO__)
++        volkInitializeCustom(vk_icdGetInstanceProcAddr);
++        VkResult res = VK_SUCCESS;
++#   else
+         VkResult res = volkInitialize();
+         if (res != VK_SUCCESS) {
+             fprintf(stderr, "volkInitialize failed with error code 0x%X.\n", res);
+             return;
+         }
++#   endif
+ 
+         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+         appInfo.pApplicationName = "plume";
+@@ -4511,8 +4586,8 @@
+         const std::unordered_set<std::string> dlssExtensions = DLSS::getRequiredInstanceExtensionsVulkan();
+ #   endif
+ 
+-#   if PLUME_SDL_VULKAN_ENABLED
+-        // Push the extensions specified by SDL as required.
++#   if PLUME_SDL_VULKAN_ENABLED && !defined(__PROSPERO__)
++        // Push the extensions specified by SDL as required (none on the console: no SDL Vulkan there).
+         // SDL2 has this awkward requirement for the window to pull the extensions from. 
+         // This can be removed when upgrading to SDL3.
+         if (sdlWindow != nullptr) {
+--- a/plume_vulkan.h
++++ b/plume_vulkan.h
+@@ -229,6 +229,11 @@
+ #if defined(__APPLE__)
+         std::unique_ptr<CocoaWindow> windowWrapper;
+ #endif
++#if defined(__PROSPERO__)
++        // The display mode the surface was made for: its extent, and its refresh rate in millihertz.
++        VkExtent2D displayExtent = {};
++        uint32_t displayRefreshRate = 0;
++#endif
+         uint64_t presentCount = 0;
+         uint32_t width = 0;
+         uint32_t height = 0;
