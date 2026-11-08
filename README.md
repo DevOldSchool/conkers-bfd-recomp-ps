@@ -56,6 +56,24 @@ step more:
   info, then Run anyway.
 * Linux: run `install.sh` in the folder to add the game to your applications.
 
+### Through Steam
+
+The game can sit in your Steam library as a non-Steam game, with its own
+artwork, which suits the Steam Deck and Big Picture. Quit Steam, then run the
+script next to the game:
+
+* macOS: `Add to Steam.command` beside the app (the first time, right-click it
+  and choose Open, as for the app).
+* Windows: `Add to Steam.bat`.
+* Linux and the Steam Deck (in Desktop Mode): `./add-to-steam.sh` in the
+  game's folder.
+
+The next time Steam starts the game is in the library. Run the script again
+after moving the game; `--remove` (`-Remove` on Windows) takes it out. It
+changes only its own entry in Steam's list of non-Steam games and keeps a copy
+of the list as it was (`shortcuts.vdf.bak`). From a checkout the scripts are
+in `tools/steam`, and the artwork in `assets/steam`.
+
 The debug menu (View, Create or Share on a pad, `` ` `` on the keyboard) holds
 the settings that are not in the game's own OPTIONS, the MODS page (the
 Speedrun timer comes built in, off until you turn it on) and SAVE DEBUG
