@@ -64,6 +64,9 @@ bool take_debug_menu_press() { return false; }
 
 bool has_rumble(int /*port*/) { return false; }
 void set_rumble(int /*port*/, bool /*on*/) {}
+bool rumble_on(int /*port*/) { return false; }
+void set_hold_rumble(int /*port*/, bool /*on*/, const RumbleFeel& /*feel*/) {}
+void set_rumble_feel(int /*port*/, const RumbleFeel& /*feel*/) {}
 
 bool has_haptics(int /*port*/) { return false; }
 void play_haptic(const Haptic& /*haptic*/, int /*port*/) {}

@@ -105,7 +105,7 @@ Up to four SDL game controllers are read, one per controller port in the
 order they connect, so local multiplayer works: each player presses Start on
 the MULTI join screen. Pads are hot-pluggable: one that disconnects frees its
 port and the others keep theirs, and the next pad to connect takes the lowest
-free port. The keyboard plays controller 1 alongside its pad. The debug menu's
+free port, so players follow the order pads are switched on. The keyboard plays controller 1 alongside its pad. The debug menu's
 CONTROLS page maps each controller's pad buttons and the keyboard's keys
 differently and inverts the aim (see
 [docs/enhancements.md](docs/enhancements.md#debug-menu)); below are the
@@ -165,8 +165,8 @@ says how to turn it off. The details, and every setting, are in
 | [Every multiplayer character](docs/enhancements.md#every-multiplayer-character) | MULTI has every character the cheat codes unlock (the Caveman, Neo Conker, Gregg and the rest), without the codes | `CONKER_MP_CHARACTERS=0` |
 | [Characters at full detail](docs/enhancements.md#characters-at-full-detail) | Conker and others keep their most detailed model at any distance | `CONKER_MAX_DETAIL=0` |
 | [Everything seen from farther](docs/enhancements.md#everything-seen-from-farther) | Characters, props, bees, grass and flowers drawn two and a half times as far before they are left out | `CONKER_DRAW_DISTANCE=0` |
-| [Pad haptics](docs/enhancements.md#pad-haptics) | Taps and buzzes in the pad's grips (and an Xbox pad's triggers) for some of Conker's sounds (slingshot, landing) | `CONKER_HAPTICS=0` |
-| [Peeing and the machine gun in the triggers](docs/enhancements.md#peeing-and-the-machine-gun-in-the-triggers) | A DualSense's triggers push back harder the further Z sends Conker's pee; at the mounted gun they pull heavy and every round thumps in both grips | `CONKER_ADAPTIVE_TRIGGERS=0` |
+| [Pad haptics](docs/enhancements.md#pad-haptics) | Taps and buzzes in the pad's grips (and an Xbox pad's triggers) for Conker's landings, falls and slingshot, and a feel for each weapon in hand, the mounted gun's rounds included | `CONKER_HAPTICS=0` |
+| [Adaptive triggers](docs/enhancements.md#adaptive-triggers) | A DualSense's triggers push back harder the further Z sends Conker's pee, pull heavy at the mounted gun and resist for each gun in hand | `CONKER_ADAPTIVE_TRIGGERS=0` |
 | [Consistent controls](docs/enhancements.md#consistent-controls) | The same controls across the game, as modern pads have them: the left stick moves, the right stick turns the view (left turns it left) or aims (the shotgun, the rocket launcher's scope), and up looks up | `CONKER_CONSISTENT_CONTROLS=0` |
 | [Your pad's buttons](docs/enhancements.md#your-pads-buttons) | The game's N64 button pictures (menus, tutorial bubbles, B pads) drawn as an Xbox or PlayStation pad's, as keys with the keyboard and mouse alone, or redrawn sharper | `CONKER_PAD_ICONS=0`; the debug menu can switch it |
 | [Sharper text](docs/enhancements.md#sharper-text) | The font enlarged with Super-xBR from your ROM | `CONKER_SHARP_FONT=0` |

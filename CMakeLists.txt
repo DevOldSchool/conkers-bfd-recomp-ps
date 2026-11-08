@@ -182,6 +182,8 @@ add_executable(ConkersBadFurDayRecompiled
     src/enhancements/pause_save/save_check.cpp
     src/enhancements/quit_game/quit_game.cpp
     src/enhancements/haptics/haptics.cpp
+    src/enhancements/feel/feel.cpp
+    src/enhancements/feel/weapon_survey.cpp
     src/enhancements/adaptive_triggers/adaptive_triggers.cpp
     src/enhancements/consistent_controls/consistent_controls.cpp
     src/enhancements/consistent_controls/mouse_look.cpp

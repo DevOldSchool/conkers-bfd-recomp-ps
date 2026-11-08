@@ -95,6 +95,7 @@
 #include <cstring>
 
 #include "enhancements/consistent_controls/consistent_controls.hpp"
+#include "enhancements/feel/feel.hpp"
 #include "net/net_play.hpp"
 #include "recomp.h"
 #include "enhancements/consistent_controls/mouse_look.hpp"
@@ -140,16 +141,18 @@ constexpr uint32_t kFrameDelta = 0x800BE9A4;   // D_800BE9A4: this frame's logic
 constexpr uint32_t kActorFacing = 0x40;        // f32: degrees from +Z towards +X
 constexpr uint32_t kActorFacingAngle = 0x76;   // s16: the facing it is made from, and the one it
 constexpr uint32_t kActorFacingTarget = 0x7A;  // turns towards (0x10000 a turn, 90 degrees behind)
-constexpr float kMatchTurn = 6.0f;             // degrees a 1/30 s step, the right stick pushed fully
+// degrees a 1/30 s step, the right stick pushed fully (feel.cfg, built-in 6)
+float match_turn() { return conker::feel::number("controls.match_turn"); }
 // A tank's turret (TANK's: f32 +0x1BC of the player block, 0 to 360, which func_150ED748 copies to
 // the actor's s16 +0x2E4) turns this many degrees a 1/30 s step while C-left or C-right is held
 // (logged in a match).
-constexpr float kTurretStep = 3.0f;
+float turret_step() { return conker::feel::number("controls.turret_step"); }  // built-in 3
 
 constexpr int kPad = 0x38;  // func_1501BBB8's frame: controller 1's OSContPad
 constexpr int kPadSize = 6;  // OSContPad, four of them
 constexpr float kStickRange = 82.0f;  // the N64 stick's reach on an axis
-constexpr int kStepAt = 41;           // the left stick, half way, steps as a C button would
+// the left stick, half way, steps as a C button would (feel.cfg, built-in 41)
+int step_at() { return static_cast<int>(conker::feel::number("controls.stick_step")); }
 
 using namespace conker::input;
 
@@ -291,14 +294,14 @@ bool twin_stick_aim(uint8_t* rdram, recomp_context* ctx, int pad, int at, uint16
     // C-down narrows a sight (zooms in), C-up widens it: the wheel turned away from you zooms in.
     const int zoom = sight ? conker::mouse_look::take_sight_zoom(pad) : 0;
     if (walk_with_c) {
-        if (walk_y > kStepAt || zoom < 0) buttons |= kCUp;
-        if (walk_y < -kStepAt || zoom > 0) buttons |= kCDown;
+        if (walk_y > step_at() || zoom < 0) buttons |= kCUp;
+        if (walk_y < -step_at() || zoom > 0) buttons |= kCDown;
     } else {
         if ((buttons & kDUp) || zoom < 0) buttons |= kCUp;
         if ((buttons & kDDown) || zoom > 0) buttons |= kCDown;
     }
-    if (walk_x < -kStepAt) buttons |= kCLeft;
-    if (walk_x > kStepAt) buttons |= kCRight;
+    if (walk_x < -step_at()) buttons |= kCLeft;
+    if (walk_x > step_at()) buttons |= kCRight;
     MEM_B(at + 2, ctx->r29) = stick_axis(aim_x);
     MEM_B(at + 3, ctx->r29) = stick_axis(-aim_y);
     return true;
@@ -381,12 +384,12 @@ bool match_look(uint8_t* rdram, recomp_context* ctx, uint32_t actor, int pad, in
     // in a shooter; on a pad the left stick moves the player as the game has it.
     if (conker::frame_input::mouse_captured(pad)) {
         const int walk_x = MEM_B(at + 2, ctx->r29);
-        if (walk_x < -kStepAt) buttons |= kCLeft;
-        if (walk_x > kStepAt) buttons |= kCRight;
+        if (walk_x < -step_at()) buttons |= kCLeft;
+        if (walk_x > step_at()) buttons |= kCRight;
         MEM_B(at + 2, ctx->r29) = 0;
     }
     // Squared, for small turns near the middle.
-    const float turn = right_x * std::fabs(right_x) * kMatchTurn * read_float(rdram, kFrameDelta) +
+    const float turn = right_x * std::fabs(right_x) * match_turn() * read_float(rdram, kFrameDelta) +
                        conker::mouse_look::take_turn(pad);
     if (turn == 0.0f) {
         return true;
@@ -441,7 +444,7 @@ uint16_t turret_with_mouse(uint8_t* rdram, int pad, uint16_t buttons) {
     if (!conker::mouse_look::playing() || (buttons & (kCLeft | kCRight)) != 0) {
         return buttons;
     }
-    const int turn = conker::mouse_look::take_turret_turn(pad, kTurretStep * read_float(rdram, kFrameDelta));
+    const int turn = conker::mouse_look::take_turret_turn(pad, turret_step() * read_float(rdram, kFrameDelta));
     if (turn > 0) buttons |= kCRight;
     if (turn < 0) buttons |= kCLeft;
     return buttons;
@@ -459,14 +462,25 @@ void remap(uint8_t* rdram, recomp_context* ctx, uint32_t actor, uint32_t player,
         return;
     }
     // In a match whatever aims with a sight (the knives, item 0x14, as much as the launcher) aims
-    // as the launcher's scope does, a match's mounted gun (item 0x1B) too; tanks never get here.
+    // as the launcher's scope does (a match's mounted gun, item 0x1B, aims as the story's, below, unless
+    // feel.cfg asks otherwise); tanks never get here.
     if (launcher_scoped(rdram, player) || (match && sighted(rdram, player))) {
         // The left stick's up and down give C-up and C-down through the launcher's scope (walking)
         // and on a match's mounted gun (zooming, as it always did); through the knife sight they
         // would zoom, so there the D-pad zooms instead.
         // On the gun the item is 0x1B but not held (+0x11A is 0, logged in COLORS), so only the item.
-        const bool on_mounted_gun = MEM_BU(kPlayerItem, kseg0(player)) == kMountedGun;
-        const bool stick_gives_c = launcher_scoped(rdram, player) || on_mounted_gun;
+        // Which weapons get it is feel.cfg's controls.<weapon>.stick_c, built in for the launchers' and
+        // the sniper's scopes and a mounted gun (as it always was), and the revolver's sight (its zoom).
+        const std::string weapon = conker::feel::weapon_key(MEM_BU(kPlayerItem, kseg0(player)));
+        // A match's mounted gun as the story's: the left stick aims (up aiming up, the mouse too) and the
+        // right stick's C buttons zoom, unless feel.cfg's controls.mounted_gun_item.twin_stick asks for
+        // the right stick aiming and the left stick zooming.
+        if (MEM_BU(kPlayerItem, kseg0(player)) == kMountedGun && mounted(rdram, player) &&
+            conker::feel::number("controls.mounted_gun_item.twin_stick") == 0.0f) {
+            aim_upright(rdram, ctx, pad, at);
+            return;
+        }
+        const bool stick_gives_c = conker::feel::number(("controls." + weapon + ".stick_c").c_str()) != 0.0f;
         if (twin_stick_aim(rdram, ctx, pad, at, buttons, stick_gives_c, true)) {
             MEM_H(at, ctx->r29) = static_cast<int16_t>(step_with_dpad(buttons));
         }

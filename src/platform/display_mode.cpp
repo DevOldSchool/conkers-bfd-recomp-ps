@@ -1,4 +1,5 @@
 #include "platform/display_mode.hpp"
+#include "platform/data_folder.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -45,7 +46,7 @@ bool g_saved_sharp = true;
 
 // Next to the saves, under the working directory (see main.cpp).
 std::filesystem::path config_path() {
-    return std::filesystem::current_path() / "conker-recomp-data" / "display.cfg";
+    return conker::data_folder() / "display.cfg";
 }
 
 bool parse_mode(const std::string& text, Mode* mode) {

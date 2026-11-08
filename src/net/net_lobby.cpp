@@ -1,5 +1,6 @@
 // The online lobby's network side; see net_lobby.hpp.
 #include "enhancements/switches.hpp"
+#include "platform/data_folder.hpp"
 #include "net/net_lobby.hpp"
 
 #include <algorithm>
@@ -160,8 +161,14 @@ bool same_address(const sockaddr_storage& a, socklen_t, const sockaddr_storage& 
 // A dual-stack UDP socket on `port` (0: any); -1 if it cannot be had.
 int open_socket(uint16_t port) {
     int s = static_cast<int>(socket(AF_INET6, SOCK_DGRAM, 0));
+    // Dual-stack only where the system lets the IPv6 socket take IPv4 too: one that stays IPv6-only
+    // would drop every IPv4 JOIN, so an IPv4 socket instead.
+    if (s >= 0 && socket_set_option(s, IPPROTO_IPV6, IPV6_V6ONLY, 0) != 0) {
+        std::printf("[conker] net: no dual-stack socket here (%s): IPv4 only\n", socket_error_text().c_str());
+        socket_close(s);
+        s = -1;
+    }
     if (s >= 0) {
-        socket_set_option(s, IPPROTO_IPV6, IPV6_V6ONLY, 0);
         sockaddr_in6 addr{};
         addr.sin6_family = AF_INET6;
         addr.sin6_addr = in6addr_any;
@@ -404,7 +411,7 @@ int g_start_players = 0;
 int64_t g_go_at = 0;
 
 std::filesystem::path settings_file() {
-    return std::filesystem::current_path() / "conker-recomp-data" / "online.txt";
+    return conker::data_folder() / "online.txt";
 }
 
 std::string read_setting(const std::string& key) {

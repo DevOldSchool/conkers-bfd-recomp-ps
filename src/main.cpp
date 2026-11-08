@@ -36,6 +36,7 @@ static long _dyld_get_image_vmaddr_slide(int) { return 0; }
 #endif
 
 #include "runtime/memory.hpp"
+#include "platform/data_folder.hpp"
 
 #include "librecomp/addresses.hpp"
 #include "librecomp/game.hpp"
@@ -589,7 +590,7 @@ int run(int argc, char** argv) {
 #endif
 
     // Stored ROM copy, saves and mod folders live here.
-    const std::filesystem::path data_dir = std::filesystem::current_path() / "conker-recomp-data";
+    const std::filesystem::path data_dir = conker::data_folder();
     std::filesystem::create_directories(data_dir);
     recomp::register_config_path(data_dir);
     recomp::register_game(conker::make_game_entry());

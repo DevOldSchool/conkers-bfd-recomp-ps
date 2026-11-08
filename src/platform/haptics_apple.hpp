@@ -15,7 +15,7 @@ bool play_dualsense_haptic(int port, const Haptic& haptic);
 
 // Starts or stops the rumble pak's rumble on both grips of a port's DualSense: a deep, steady
 // rumble rather than SDL's buzz. false when it has no DualSense to play it. Main thread.
-bool set_dualsense_rumble(int port, bool on);
+bool set_dualsense_rumble(int port, bool on, const RumbleFeel& feel = {});
 
 #ifdef __OBJC__
 // A port's pad among the GameController framework's DualSense pads, or nil: the one named as SDL

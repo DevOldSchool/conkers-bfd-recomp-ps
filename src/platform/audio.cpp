@@ -1,4 +1,5 @@
 #include "platform/audio.hpp"
+#include "platform/data_folder.hpp"
 
 #include "runtime/memory.hpp"
 
@@ -43,7 +44,7 @@ std::atomic<int> g_volume{kMaxVolume};
 std::mutex g_save_mutex;
 
 std::filesystem::path config_path() {
-    return std::filesystem::current_path() / "conker-recomp-data" / "audio.cfg";
+    return conker::data_folder() / "audio.cfg";
 }
 
 // audio.cfg holds a "volume=<0-10>" line.
