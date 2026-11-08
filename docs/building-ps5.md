@@ -73,6 +73,11 @@ takes), so a release raises that first. The draft carries:
 * the complete source, submodules included, and the PS5 libraries' source at the pinned revisions;
 * `SHA256SUMS.txt`.
 
+The draft's text starts from `tools/ps5/release-notes.md`: fill in its first lines (what the version
+brings) before publishing. The homebrew catalog shows a release's text as the app's notes, on its
+page and in ProsperoStore, as plain text and cut after about 1,800 characters, so what changed comes
+first and the install steps (where the ROM goes) last.
+
 ## Licenses
 
 The package step writes `licenses/` into the title folder (`tools/ps5/package_notices.py`): this

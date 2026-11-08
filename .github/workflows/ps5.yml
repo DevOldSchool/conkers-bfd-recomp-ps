@@ -134,6 +134,13 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The release's text is the catalog's release notes (on the app's page and in ProsperoStore): the
+      # draft starts from tools/ps5/release-notes.md, whose first lines a person fills in before
+      # publishing. GitHub's generated notes count as none there.
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: tools/ps5/release-notes.md
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v8
         with:
           path: packages
@@ -144,4 +151,4 @@ jobs:
         run: |
           ls -l packages
           gh release create "$GITHUB_REF_NAME" packages/* --repo "$GITHUB_REPOSITORY" --draft \
-            --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+            --title "$GITHUB_REF_NAME" --notes-file tools/ps5/release-notes.md --verify-tag

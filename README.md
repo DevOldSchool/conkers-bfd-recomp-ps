@@ -18,8 +18,7 @@ This repository contains no ROM data. You need your own US ROM
 ## Status
 
 Tested on a console on firmware 13.60: the story and MULTI, local and online with the desktop builds.
-It has not yet been played through from start to finish on the console. It is a homebrew title: it
-needs a console that runs homebrew, and is not affiliated with Sony.
+It is a homebrew title: it needs a console that runs homebrew, and is not affiliated with Sony.
 
 ## Installing
 
