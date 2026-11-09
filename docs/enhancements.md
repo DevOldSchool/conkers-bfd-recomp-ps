@@ -193,8 +193,6 @@ after it closes until they are let go. It closes with B, Start or the same
 button. Up and down choose a row, A or left and right change it, B goes back:
 
 * DEBUG VIEW: a page of what is drawn to look into the game:
-  * WIREFRAME: the game's 3D triangles drawn as their edges on black; text,
-    sprites and the HUD stay solid. Metal only for now.
   * SHOW FPS: the frames the game draws per second, in the top left corner
     (`CONKER_SHOW_FPS=1` starts with it on).
   * SHOW POSITION: the scene, Conker's X, Y and Z and his facing, and the
