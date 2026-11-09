@@ -103,9 +103,9 @@ recompiled functions that called it.
   even with the pak in, is left out when controller 1's pad can rumble;
   `CONKER_RUMBLE_BANNER=1` shows it. The log shows the pak probe for each
   connected controller (`controller <n> rumble pak inserted` or `not
-  inserted`) and every change of the motor the game asks for (`VI <n>: rumble
-  on/off, port <n>`); a rumble is a run of on/off lines, since the game pulses
-  the motor to set its strength. `CONKER_RUMBLE_TEST=1` (RT64 build) buzzes
+  inserted`). `CONKER_RUMBLE_LOG=1` adds every change of the motor the game
+  asks for (`VI <n>: rumble on/off, port <n>`); a rumble is a run of on/off
+  lines, since the game pulses the motor to set its strength. `CONKER_RUMBLE_TEST=1` (RT64 build) buzzes
   the pad for a second when it connects, to check the pad without the game.
 * **Skipping the opening.** Saves persist in
   `conker-recomp-data/saves/conker_us.bin` under the working directory, so
@@ -163,6 +163,9 @@ recompiled functions that called it.
   and a line for each change of Conker's animation with his health, for
   finding the sounds and moments to give haptic effects
   (src/enhancements/haptics/haptics.cpp).
+* `CONKER_FEEL_LOG=1` prints the item each player picks up (its id and its
+  name in `feel.cfg`) and the buttons pressed with it in hand, for finding
+  an item's use button.
 * `CONKER_FEEL_LIVE=1` reads `feel.cfg` again within half a second of each
   save, and writes `weapon_survey.txt`: what each item held did (its sight
   and aim states, sounds, buttons and the game's own rumble).

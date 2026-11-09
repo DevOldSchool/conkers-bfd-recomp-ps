@@ -124,6 +124,12 @@ const bool g_log = [] {
     return value != nullptr && value[0] == '1';
 }();
 
+// CONKER_FEEL_LOG=1: the item each player picks up, and the buttons pressed with it in hand.
+const bool g_feel_log = [] {
+    const char* value = std::getenv("CONKER_FEEL_LOG");
+    return value != nullptr && value[0] == '1';
+}();
+
 uint16_t conker_animation(uint8_t* rdram) { return players::animation(rdram, players::actor(rdram, 0)); }
 
 // Player `port`'s haptic on the controller they play with here: online that is this machine's
@@ -231,7 +237,7 @@ void weapon_in_hand(const std::string& weapon, int port, RumbleFeel* rumble, boo
     const uint16_t pressed = buttons & (conker::input::kA | conker::input::kB | conker::input::kZ | conker::input::kR);
     if (pressed != w.buttons) {
         w.buttons = pressed;
-        std::printf("[conker] feel: player %d, %s in hand, presses%s%s%s%s%s (use: %s)\n", port + 1, weapon.c_str(),
+        if (g_feel_log) std::printf("[conker] feel: player %d, %s in hand, presses%s%s%s%s%s (use: %s)\n", port + 1, weapon.c_str(),
                     pressed & conker::input::kA ? " A" : "", pressed & conker::input::kB ? " B" : "",
                     pressed & conker::input::kZ ? " Z" : "", pressed & conker::input::kR ? " R" : "",
                     pressed == 0 ? " nothing" : "", (pressed & mask) != 0 ? "yes" : "no");
@@ -268,7 +274,7 @@ void weapons(uint8_t* rdram) {
         const std::string weapon = mounted ? std::string{} : players::held_weapon(rdram, block);
         if (weapon != w.name) {
             w.name = weapon;
-            if (!weapon.empty()) {
+            if (!weapon.empty() && g_feel_log) {
                 std::printf("[conker] feel: player %d holds item 0x%02X (%s in feel.cfg)\n", port + 1,
                             MEM_BU(players::kPlayerItem, kseg0(block)), weapon.c_str());
             }
