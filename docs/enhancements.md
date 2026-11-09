@@ -597,9 +597,13 @@ run). The game starts a frame on every retrace instead of every second one. Its
 logic already steps by elapsed time, so movement, jumps, the camera, animation
 and cutscenes keep their speed. Code that counted frames instead (easing,
 timers, menu repeat, a few effects) is corrected in
-`src/enhancements/frame_rate/frame_rate.cpp`. What still assumes 30 fps: the
-game's random chances rolled once a frame (about 2,000 places) come up twice
-as often, so some random idles and ambient effects happen more often. Online, every
+`src/enhancements/frame_rate/frame_rate.cpp`. So are the random chances the
+game rolls once a frame, which would otherwise come up twice as often: Conker's
+idle fidgets, scene 28's lightning and ambient events, flickering lights, the
+effects spawned ahead of the camera and a few more roll once every 30 Hz step,
+as at 30 fps, and the scene 6 swarm keeps its pace. They were found by counting
+each random call's rolls at both rates in the regression scenes, so a chance
+in a place those scenes do not reach may still come up more often. Online, every
 player plays at the host's setting.
 
 ## Smooth motion

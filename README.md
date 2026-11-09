@@ -38,9 +38,9 @@ Platforms:
 
 ### Known issues
 
-* At 60 fps, the game's random chances, rolled once a frame, come up twice as
-  often, so some random idles and ambient effects happen more often than at
-  30 fps ([60 fps](docs/enhancements.md#60-fps)).
+* At 60 fps, a random event in a place the 60 fps checks did not reach may
+  still happen more often than at 30 fps
+  ([60 fps](docs/enhancements.md#60-fps)).
 * Online play needs the same version of the game on every machine.
 
 ## Playing
