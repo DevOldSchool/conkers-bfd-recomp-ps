@@ -194,9 +194,8 @@ and so your saves. Beyond that the game limits it:
   mod template builds MIPS II code, which never has them.
 * **Save files stay in the saves folder.** `recomp_change_save_file` only
   takes a name of letters, digits, `_` and `-` (at most 64); any other name
-  leaves the save file as it is.
-
-  Both are checked by `tests/mod_sandbox` on every pull request (see
+  leaves the save file as it is. This and the address limit above are
+  checked by `tests/mod_sandbox` on every pull request (see
   [recompilation.md](recompilation.md)).
 * **New mods start off.** Dropping a file in `mods` is not enough: it has to
   be turned on on the MODS page, which says to trust where it came from.

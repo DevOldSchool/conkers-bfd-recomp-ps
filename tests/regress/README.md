@@ -1,5 +1,9 @@
 # Game regression cases
 
+*For maintainers.* Most cases start from debug reports (pause saves from play), which are kept in a
+private folder, so only `boot-title` and `runtime-guards` run with nothing but your ROM; CI runs the
+whole set on `main`. A pull request does not need them to pass locally.
+
 `tools/regress.py` runs the headless (null) build through the cases in `cases/` and checks that our
 fixes to the game still hold. It needs the ROM, so CI runs it only in the ROM build
 (`.github/workflows/rom-build.yml`, on pushes to main), which gets the ROM and the reports from a

@@ -31,9 +31,18 @@ attached (see the issue form) is the quickest to fix.
 
 Platforms:
 
-* macOS on Apple silicon
+* macOS on Apple silicon (Intel Macs are not supported)
 * Windows 10 (version 1803 or later) and 11, x64 and ARM64
-* Linux: Ubuntu 24.04 or newer with a Vulkan driver
+* Linux, x64 and ARM64: Ubuntu 24.04 or newer, or SteamOS (the Steam Deck),
+  with a Vulkan driver
+
+### Known issues
+
+* At 60 fps, the game's random chances, rolled once a frame, come up twice as
+  often, so some random idles and ambient effects happen more often than at
+  30 fps ([60 fps](docs/enhancements.md#60-fps)).
+* The debug menu's WIREFRAME view works on macOS only for now.
+* Online play needs the same version of the game on every machine.
 
 ## Playing
 
@@ -56,23 +65,8 @@ step more:
   info, then Run anyway.
 * Linux: run `install.sh` in the folder to add the game to your applications.
 
-### Through Steam
-
-The game can sit in your Steam library as a non-Steam game, with its own
-artwork, which suits the Steam Deck and Big Picture. Quit Steam, then run the
-script next to the game:
-
-* macOS: `Add to Steam.command` beside the app (the first time, right-click it
-  and choose Open, as for the app).
-* Windows: `Add to Steam.bat`.
-* Linux and the Steam Deck (in Desktop Mode): `./add-to-steam.sh` in the
-  game's folder.
-
-The next time Steam starts the game is in the library. Run the script again
-after moving the game; `--remove` (`-Remove` on Windows) takes it out. It
-changes only its own entry in Steam's list of non-Steam games and keeps a copy
-of the list as it was (`shortcuts.vdf.bak`). From a checkout the scripts are
-in `tools/steam`, and the artwork in `assets/steam`.
+To play it from your Steam library (Steam Deck, Big Picture), run the Add to
+Steam script that comes with the game: see [docs/steam.md](docs/steam.md).
 
 The debug menu (View, Create or Share on a pad, `` ` `` on the keyboard) holds
 the settings that are not in the game's own OPTIONS, the MODS page (the
@@ -116,6 +110,15 @@ that with the runtime and the renderer.
 * `regenerate.sh` uses the committed `config/us.syms.toml`, so any decomp
   revision builds the same game. `CONKER_UPDATE_SYMS=1 tools/regenerate.sh`
   rewrites it from your decomp checkout instead.
+* `-DCONKER_PORT_MAPPING=OFF` leaves out UPnP and NAT-PMP, so a host never
+  asks the router to open its port (players then forward it by hand, see
+  [docs/online-play.md](docs/online-play.md)).
+* `-DCONKER_TRACE=OFF` leaves out the record of game functions entered that a
+  crash report shows; the game runs a little faster, but its crash reports
+  say less.
+* `-DCONKER_ALLOW_STALE_RECOMPILED=ON` builds even when `config/us.toml` changed
+  since `regenerate.sh` last ran; hooks added since are then
+  missing.
 * Online play lets in only machines on the same version. A port built on this
   project's code (for another platform) sets `-DCONKER_NET_VERSION=<version>`
   to the version of this project it was made from, so it plays with that
@@ -210,6 +213,9 @@ says how to turn it off. The details, and every setting, are in
 * [docs/rsp-microcode.md](docs/rsp-microcode.md): graphics and audio microcode
 * [docs/online-play.md](docs/online-play.md): playing MULTI online: hosting,
   joining, join codes, port forwarding and firewalls
+* [docs/steam.md](docs/steam.md): adding the game to your Steam library
+* [docs/releasing.md](docs/releasing.md): making the release packages
+  (maintainers)
 
 ## Contributing
 

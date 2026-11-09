@@ -7,7 +7,7 @@
 # Without a build dir, the newer of build/rt64 and cmake-build-relwithdebinfo-rt64 is packaged.
 # Build the RT64 renderer first. The app carries SDL2 (sdl2-compat) and the SDL3 it loads in
 # Contents/Frameworks and is signed ad hoc, not notarised: the first time, the tester opens it with
-# right click > Open, or clears the quarantine with `xattr -dr com.apple.quarantine "Conker's Bad Fur Day Recompiled.app"`.
+# Open Anyway in System Settings > Privacy & Security after a first try, or clears the quarantine with `xattr -dr com.apple.quarantine "Conker's Bad Fur Day Recompiled.app"`.
 # No ROM is packaged. Opened from Finder the app asks for the tester's own ROM once and keeps its data
 # and last-run.log in ~/Library/Application Support/ConkersBadFurDayRecompiled (src/platform/launch.hpp).
 # Contents/Resources/Licenses holds the licenses and SOURCE.txt (tools/package_notices.py); attach

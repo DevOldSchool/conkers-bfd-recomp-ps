@@ -56,6 +56,11 @@ recompiled functions that called it.
   pack (`rt64.json` and `font/glyph_NN.png`), to edit and load from
   `conker-recomp-data/texture_packs`. `CONKER_DUMP_SHARP_MENUS=<dir>` does the
   same for the built-in sharper menus (`menus/<name>_N.png`, one per tile).
+* `CONKER_LEVEL_VISIBILITY=0` draws the level with the game's own visibility
+  table, as the camera's cell alone decides it, instead of also checking the
+  player's cell (and, in widescreen, the cells around the camera), to compare
+  with the original when a wall or corridor goes missing
+  (`src/fixes/level_visibility.cpp`).
 
 ## Scripted input
 
@@ -118,12 +123,16 @@ recompiled functions that called it.
   (`docs/enhancements.md`, Debug menu).
 * **Reaching OPTIONS by script.** With `CONKER_SKIP_INTRO=1`, the pad lines
   `400 8 leftx=1`, `640 8 leftx=1` and `900 8 a` go from GAME 1 past MULTI to
-  OPTIONS and open it on the VOLUME row (under the sound row); `1300 8 lefty=1`
-  then selects SHARP TEXT (each further `lefty=1` the display mode row,
-  4:3/WIDESCREEN, the resolution row, then FILL SCREEN/CENTERED), and
-  `leftx=1` or `leftx=-1` steps its value. `CONKER_ORIGINAL_SIZE=1` keeps the
+  OPTIONS and open it on the VOLUME row (under the sound row). Two more
+  `lefty=1` lines (CONTROLS, then GRAPHICS) and an `a` open the GRAPHICS page
+  on SHARP TEXT; each further `lefty=1` selects the next row (the display
+  mode, 4:3/WIDESCREEN, the resolution, FILL SCREEN/CENTERED, then FRAME
+  RATE), `leftx=1` or `leftx=-1` steps its value and `b` goes back to OPTIONS. `CONKER_ORIGINAL_SIZE=1` keeps the
   window at 960x720, so test window sizes without it. `rightx` is the right
   stick (the C buttons), not the left stick pushed right.
+* `CONKER_TEST_NO_RIGHT_STICK=1` treats every pad as having no right stick,
+  as when playing with the keyboard alone, to test what the game does
+  without one.
 
 ## Window and display
 
@@ -295,6 +304,11 @@ guards hold.
   (`f<frame>.game`) and with the "my view" pass's list (`f<frame>.mine`),
   big-endian, keeping the last 8; the log gives each list's start. Walking
   both lists shows what the pass draws differently.
+  `CONKER_MY_VIEW_ZOOM_LOG=1` prints the local view's camera zoom whenever it
+  changes, for checking that the view drawn matches the game's.
+* `CONKER_NET_CATCH_UP_SPEED=<n>` sets how many times normal speed a machine
+  runs while it catches up with the host (32 unless set), for example after
+  joining or a stall.
 * `CONKER_NET_SIM=latency=<ms>,jitter=<ms>,loss=<%>,dup=<%>,reorder=<%>,outage=<from>-<to>`
   simulates a bad link for one online peer (src/net/net_play.cpp): half
   the round-trip latency on each of its sends and receives plus up to
@@ -491,7 +505,9 @@ resume file's format with the running scripts' keys added, then makes a debug
 report (a save made by the game from the restored scene) and quits
 (`CONKER_SAVE_CHECK_OUT`, `_AT`, `_REPORT=1` and `_CHECKPOINT=1`, which starts
 the save at its checkpoint instead, drive it by hand; `result.json` says how it
-ended). `--no-run` only compares what an earlier run left.
+ended). `CONKER_EVENT_LOG=1` prints every change to the game's event flags, event
+statuses and cutscene slots, with the scene and frame, to see what a save
+should have kept. `--no-run` only compares what an earlier run left.
 
 The comparison, in `<out>/summary.md` (details in `details.json`), pairs each
 saved character with the one the restore found for it (by model and id, as
