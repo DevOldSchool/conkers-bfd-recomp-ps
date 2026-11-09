@@ -49,6 +49,7 @@
 #include "platform/data_folder.hpp"
 #include "platform/present_focus.hpp"
 #include "platform/render_debug.hpp"
+#include "runtime/perf_log.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -503,10 +504,14 @@ public:
     }
 
     void send_dl(const OSTask* task) override {
+        conker::perf::Timer task_timer(conker::perf::Part::RendererTask);
         // Not while the game thread holds the game's memory (hold_game_memory). A hold is a frame's
         // drawing at most; one never let go is waited out rather than stopping the picture for good.
         std::unique_lock memory_lock(g_game_memory_mutex, std::defer_lock);
-        (void)memory_lock.try_lock_for(std::chrono::milliseconds(250));
+        {
+            conker::perf::Timer wait_timer(conker::perf::Part::RendererWait);
+            (void)memory_lock.try_lock_for(std::chrono::milliseconds(250));
+        }
         // Online, nothing drawn is written back into game memory on any machine: each GPU draws a little
         // differently, and the game reads depth back for the camera (func_1512B1B8), so the games parted
         // at once between two Macs (rt64-online-writeback.patch). The frame buffers above stay written.
@@ -594,10 +599,13 @@ public:
         if (conker::latency::enabled()) {
             app_->state->nextWorkloadTag.store(conker::latency::take_task_sample(), std::memory_order_relaxed);
         }
-        if (frame_memory.empty()) {
-            app_->processDisplayLists(app_->core.RDRAM, list, 0, true);
-        } else {
-            draw_from(frame_memory, list);
+        {
+            conker::perf::Timer draw_timer(conker::perf::Part::RendererDraw);
+            if (frame_memory.empty()) {
+                app_->processDisplayLists(app_->core.RDRAM, list, 0, true);
+            } else {
+                draw_from(frame_memory, list);
+            }
         }
         if (widen_font_rects_) {
             put_back_font_rects(memory);

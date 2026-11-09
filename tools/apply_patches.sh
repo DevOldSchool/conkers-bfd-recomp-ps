@@ -37,7 +37,8 @@ patches_for() {
                 rt64-frame-effects.patch rt64-dl-command-limit.patch rt64-thread-exit.patch rt64-hidden-rows.patch rt64-forget-framebuffers.patch \
                 rt64-vertex-slots.patch rt64-extended-gbi.patch rt64-dl-stack.patch rt64-texture-loads.patch \
                 rt64-vi-copy.patch rt64-rsp-indices.patch rt64-online-writeback.patch rt64-metal-version.patch \
-                rt64-cross-dxc.patch rt64-present-focus.patch rt64-windows-arm64.patch rt64-interpolation.patch ;;
+                rt64-cross-dxc.patch rt64-present-focus.patch rt64-windows-arm64.patch rt64-interpolation.patch \
+                rt64-empty-projection.patch ;;
         lib/N64ModernRuntime/N64Recomp) echo n64modernruntime-n64recomp-jump-tables.patch \
             n64modernruntime-n64recomp-address-window.patch n64modernruntime-n64recomp-float-determinism.patch ;;
         lib/rt64/src/contrib/plume) echo plume-wireframe.patch plume-gpu-errors.patch plume-moltenvk-robustness.patch ;;

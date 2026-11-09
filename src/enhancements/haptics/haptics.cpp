@@ -315,6 +315,11 @@ extern "C" void conker_sound_started(uint8_t* rdram, recomp_context* ctx) {
     bool blast = false;
     for (int port = 0; port < conker::input::kPorts; port++) {
         const uint32_t actor = players::actor(rdram, port);
+        // In a match every player's shots are heard by all, and other guns' animations can share the
+        // shotgun's range: only a player holding the shotgun feels its blast.
+        if (match && players::held_weapon(rdram, players::block(rdram, players::armed_actor(rdram, port))) != kShotgun) {
+            continue;
+        }
         if (actor != 0 && shotgun_blast(sound, players::animation(rdram, actor))) {
             blast = true;
             play_all(kShotgun, port);

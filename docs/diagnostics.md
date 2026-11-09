@@ -316,6 +316,12 @@ guards hold.
   f2, f3; seeded, so the same every time) that play the MULTI match with
   sticks that move every frame, as a person's do, so the traffic is a fair
   one to measure: `P1=hu1.pad P2=hu2.pad runsim.sh ...`.
+* `CONKER_PERF_LOG=1` prints, once a second, where a frame's time went
+  (src/runtime/perf_log.hpp): the renderer waiting for game memory, RT64
+  drawing a task, the renderer's whole task, the online view's pass and the
+  online hashing on the game thread, and the game's frame to frame, each as
+  a count, an average and the longest. For finding what holds a slower
+  machine under 30 fps; the printing itself is one burst a second.
 * **Forcing trouble.** `CONKER_NET_TEST_DESYNC=<frame>` changes the byte at
   0x80200000 then (the host drops that peer as out of sync).
   `CONKER_NET_TEST_HANG=<frame>[:<seconds>]` stops a peer's game for a while
