@@ -1,7 +1,8 @@
-# Builds the PS5 title from the ROM and packages it, on pushes to main, by hand, and on a version tag
-# (00.001.000, the title's contentVersion), where it makes a draft release for a person to check and
-# publish. The desktop builds and releases are the main project's (conkers-bfd-recomp); this
-# repository builds only the PS5 title.
+# Builds the PS5 title from the ROM and packages it, by hand and on a version tag (00.001.000, the
+# title's contentVersion), where it makes a draft release for a person to check and publish. Not on
+# every push: a first build takes hours, so changes are built and checked locally (tools/ps5/build.sh).
+# The desktop builds and releases are the main project's (conkers-bfd-recomp); this repository builds
+# only the PS5 title.
 #
 # The ROM comes from a private repository through a read-only deploy key, as in the main project: the
 # `rom` environment holds the key and where the ROM is (ASSETS_REPO, ASSETS_ROM, ASSETS_DEPLOY_KEY)
@@ -12,7 +13,6 @@ name: PS5
 
 on:
   push:
-    branches: [main]
     tags: ['[0-9][0-9].[0-9][0-9][0-9].[0-9][0-9][0-9]']
   workflow_dispatch:
 
