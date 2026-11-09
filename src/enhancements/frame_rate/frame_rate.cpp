@@ -338,6 +338,28 @@ extern "C" void conker_60fps_emitter_rate(uint8_t* rdram, float* rate) {
     }
 }
 
+// A particle stepped once a frame with no time step: func_1517A1EC (the water drops
+// func_150C79BC lets fall off Conker while he is wet, scene 11) adds its velocity (s16 +0xA0/+0xA2/+0xA4, +0xA2 subtracted from
+// +0x92) and spin (s8 +0x9C..+0x9E) to its position and angles (s16 +0x90..+0x9A), and adds 1 to
+// +0xA2 (gravity) when +0xAC is 5. Its lifetime (+0xA6) already counts retraces. On a frame that
+// takes no 30 Hz step, the step is taken back here before the function adds it again, so the
+// particle moves once a step; its random slowdowns roll 0 on those frames (conker_60fps_chance).
+extern "C" void conker_60fps_particle_step(uint8_t* rdram, recomp_context* ctx) {
+    if (conker::frame_rate::thirty_hz_step(rdram)) {
+        return;
+    }
+    const gpr particle = ctx->r4;
+    MEM_H(0x90, particle) = static_cast<int16_t>(MEM_H(0x90, particle) - MEM_H(0xA0, particle));
+    MEM_H(0x94, particle) = static_cast<int16_t>(MEM_H(0x94, particle) - MEM_H(0xA4, particle));
+    MEM_H(0x96, particle) = static_cast<int16_t>(MEM_H(0x96, particle) - MEM_B(0x9C, particle));
+    MEM_H(0x98, particle) = static_cast<int16_t>(MEM_H(0x98, particle) - MEM_B(0x9D, particle));
+    MEM_H(0x9A, particle) = static_cast<int16_t>(MEM_H(0x9A, particle) - MEM_B(0x9E, particle));
+    if (MEM_HU(0xAC, particle) == 5) {
+        MEM_H(0xA2, particle) = static_cast<int16_t>(MEM_H(0xA2, particle) - 1);
+    }
+    MEM_H(0x92, particle) = static_cast<int16_t>(MEM_H(0x92, particle) + MEM_H(0xA2, particle));
+}
+
 // func_80004DB0 starts a frame only if its framebuffer is neither the one the VI shows now
 // (osViGetCurrentFramebuffer, $v0 here) nor the one it will show next. There are two framebuffers,
 // so a frame that starts in the retrace its predecessor was swapped in draws into the one still on

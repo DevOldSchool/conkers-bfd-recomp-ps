@@ -601,7 +601,8 @@ timers, menu repeat, a few effects) is corrected in
 game rolls once a frame, which would otherwise come up twice as often: Conker's
 idle fidgets, scene 28's lightning and ambient events, flickering lights, the
 effects spawned ahead of the camera and a few more roll once every 30 Hz step,
-as at 30 fps, and the scene 6 swarm keeps its pace. They were found by counting
+as at 30 fps, and the scene 6 swarm and the water
+drops falling off a wet Conker keep their pace. They were found by counting
 each random call's rolls at both rates in the regression scenes, so a chance
 in a place those scenes do not reach may still come up more often. Online, every
 player plays at the host's setting.

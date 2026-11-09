@@ -1241,6 +1241,23 @@ func = "func_15178268"
 before_vram = 0x15178738
 text = "{ void conker_60fps_toggle(uint8_t*, gpr*, gpr); conker_60fps_toggle(rdram, &ctx->r14, ctx->r13); }"
 
+# water drops falling off Conker while he is wet (func_150C79BC, scene 11): moved once a 30 Hz step, its random slowdowns
+# (rand % +0xAE taken off its speeds) roll 0 between steps.
+[[patches.hook]]
+func = "func_1517A1EC"
+before_vram = 0x1517A1EC
+text = "{ void conker_60fps_particle_step(uint8_t*, recomp_context*); conker_60fps_particle_step(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1517A1EC"
+before_vram = 0x1517A284
+text = "{ void conker_60fps_chance(uint8_t*, recomp_context*, uint32_t); conker_60fps_chance(rdram, ctx, 0); }"
+
+[[patches.hook]]
+func = "func_1517A1EC"
+before_vram = 0x1517A2D4
+text = "{ void conker_60fps_chance(uint8_t*, recomp_context*, uint32_t); conker_60fps_chance(rdram, ctx, 0); }"
+
 # An emitter's rate added once a frame without the frame's delta: see conker_60fps_emitter_rate.
 [[patches.hook]]
 func = "func_1515D130"
