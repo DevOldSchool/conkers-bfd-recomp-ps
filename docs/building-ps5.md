@@ -98,7 +98,7 @@ added to the title needs an entry in `tools/ps5/package_notices.py`.
 ## Install
 
 1. Copy `dist/PPSA92064` to `/data/homebrew/` on the console (FTP).
-2. Put your own US ROM in that folder, with a lower-case `.z64`, `.n64` or `.v64` extension. On the first
+2. Put your own US ROM in that folder, as a `.z64` file (lower case). On the first
    start the game keeps its own copy; the file you added can then be removed.
 3. Register the title (ShadowMountPlus or etaHEN) and start it from the home screen.
 

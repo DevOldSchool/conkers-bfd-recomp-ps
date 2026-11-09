@@ -8,7 +8,7 @@ REPLACE THIS LINE: one or two sentences on what this version brings.
 
 - You need your own copy of Conker's Bad Fur Day (Nintendo 64, US); it is not included. Its SHA-1 is 4cbadd3c4e0729dec46af64ad018050eada4f47a.
 - Install the title with ProsperoStore, or unzip PPSA92064.zip and copy the PPSA92064 folder to /data/homebrew/ on the console (FTP).
-- Put your ROM in /data/homebrew/PPSA92064/, with a lower-case .z64, .n64 or .v64 extension.
+- Put your ROM in /data/homebrew/PPSA92064/, as a .z64 file (lower case).
 - Register the title (ShadowMountPlus does it by itself; or etaHEN) and start it from the home screen.
 - On the first start the game keeps its own copy of the ROM, so the file you added can then be removed.
 
