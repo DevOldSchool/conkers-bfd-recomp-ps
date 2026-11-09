@@ -35,6 +35,7 @@
 // The game socket also answers the lobby's PROBE (net/net_lobby.hpp), so that JOIN finds a
 // running session.
 #include "net/net_play.hpp"
+#include "runtime/perf_log.hpp"
 #include "platform/data_folder.hpp"
 
 
@@ -953,6 +954,30 @@ constexpr uint32_t kDepthBuffer = 0x000BE9C4;  // D_800BE9C4: the depth buffer
 constexpr uint32_t kScreenWidth = 0x000BE620;  // D_800BE620
 constexpr uint32_t kScreenHeight = 0x000BE624; // D_800BE624
 constexpr uint32_t kViewDepthRows = 0x000BE2B0; // D_800BE2B0: per view, its row of depth (camera +0x8BC)
+constexpr uint32_t kLastView = 0x00082FA0;      // D_80082FA0: the scene's views less one
+// Whether `row` is the data of a heap block in use (12-byte header {next, prev, tag << 24 | size}
+// before it; a free block has tag 0) that the row fits in, as func_15005290 allocates them (size
+// rounded up to 16, plus up to 0x13 bytes of a split it did not leave as a free block).
+bool row_block(const uint8_t* rdram, uint32_t row, uint32_t bytes) {
+    uint32_t header[3];
+    std::memcpy(header, rdram + row - 0xC, sizeof(header));
+    const uint32_t tag = header[2] >> 24;
+    const uint32_t size = header[2] & 0xFFFFFF;
+    const uint32_t block = 0x80000000u | (row - 0xC);
+    if (tag == 0 || size < bytes || size > bytes + 0x30 || (header[0] != 0 && header[0] != block + 0xC + size)) {
+        return false;
+    }
+    const uint32_t previous = header[1] & 0x1FFFFFFF;
+    if (previous == 0) {
+        return true;
+    }
+    if (previous < kHashStart || previous + 4 > kHashEnd) {
+        return false;
+    }
+    uint32_t previous_next;
+    std::memcpy(&previous_next, rdram + previous, 4);
+    return previous_next == block;
+}
 void clear_depth(uint8_t* rdram) {
     uint32_t depth;
     uint32_t width;
@@ -973,11 +998,18 @@ void clear_depth(uint8_t* rdram) {
     // screen's X, so a view right of the first column (a 3- or 4-player split screen) reads past what
     // the game copies in, which held stale words: the camera took them for scenery close by and
     // swung round its idle player.
-    for (uint32_t view = 0; view < 4; view++) {
+    // Only the views the scene has (D_80082FA0 + 1), and only a row that is still its own heap
+    // block: func_15005290 sets a row for each view when a scene starts and nothing clears the rest,
+    // so after a 2-player match the second view's pointer stays behind, into memory the heap has
+    // since given to something else (quitting a match to the title wrote 0xFFFC over a display list
+    // and the next block's header, and the per-frame heap walk then crashed).
+    uint32_t last_view;
+    std::memcpy(&last_view, rdram + kLastView, 4);
+    for (uint32_t view = 0; view <= last_view && view < 4; view++) {
         uint32_t row;
         std::memcpy(&row, rdram + kViewDepthRows + view * 4, 4);
         row &= 0x1FFFFFFF;
-        if (row < kHashStart || row + width * 2 > kHashEnd) {
+        if (row < kHashStart + 0xC || row + width * 2 > kHashEnd || !row_block(rdram, row, width * 2)) {
             continue;
         }
         for (uint32_t at = row; at + 2 <= row + width * 2; at += 2) {
@@ -3783,6 +3815,18 @@ void say_goodbye_now() {
 
 int local_port() { return g_local_port; }
 
+int view_port() {
+    if (g_active) {
+        return g_local_port;
+    }
+    // Connecting again to rejoin in place: the match goes on here meanwhile, shown as before.
+    const int place = g_place.load();
+    if (g_in_place && g_rejoin_port != 0 && (place == kConnecting || place == kConnected || place == kEntering)) {
+        return g_rejoin_port - 1;
+    }
+    return -1;
+}
+
 int local_controller(int port) {
     if (!g_active) {
         return port;
@@ -4077,12 +4121,16 @@ void frame(uint8_t* rdram, Record* record) {
         std::printf("[conker] net: CONKER_NET_TEST_HANG: the game stops for %d s at frame %u\n", test_hang.second, frame);
         std::this_thread::sleep_for(std::chrono::seconds(test_hang.second));
     }
-    clear_depth(rdram);
-    const uint64_t hash = hash_game(rdram);
-    keep_memory(rdram, frame);
+    uint64_t hash;
     Detail detail;
-    detail.frame = frame;
-    hash_blocks(rdram, detail.blocks);
+    {
+        conker::perf::Timer hash_timer(conker::perf::Part::NetHash);
+        clear_depth(rdram);
+        hash = hash_game(rdram);
+        keep_memory(rdram, frame);
+        detail.frame = frame;
+        hash_blocks(rdram, detail.blocks);
+    }
     {
         std::lock_guard lock(g_mutex);
         g_details[frame % kDetailFrames] = detail;
