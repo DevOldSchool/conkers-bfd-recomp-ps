@@ -64,6 +64,7 @@
 #include "platform/present_focus.hpp"
 #include "net/net_play.hpp"
 #include "runtime/frame_input.hpp"
+#include "runtime/perf_log.hpp"
 
 extern "C" void func_800114D0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8000F6B8(uint8_t* rdram, recomp_context* ctx);
@@ -162,11 +163,11 @@ const bool g_log = [] {
 
 bool enabled() { return g_enabled.load(std::memory_order_relaxed); }
 
+// The view shown: online, this machine's port, kept while it connects again to rejoin (the match goes
+// on meanwhile and showed the split screen for a moment); the sounds still follow the session alone.
 int local_port() {
-    if (conker::net::active()) {
-        return conker::net::local_port();
-    }
-    return g_test_port;
+    const int port = conker::net::view_port();
+    return port >= 0 ? port : g_test_port;
 }
 
 float read_float(uint8_t* rdram, uint32_t address) {
@@ -322,6 +323,14 @@ Pending g_marked;     // the sound a caller of func_80010BE8 is about to start
 Pending g_start;      // the sound func_80010BE8 is starting
 Pending g_play;       // the sound func_80010BE8 hands sndp_play_sound
 bool g_posting = false;  // the refresh's own events
+// The game's own arguments of a sound call whose volume or pan the local view's replaced, put back
+// in the stack slots the call saved them in when it returns (conker_my_view_play_exit, _post_exit).
+struct Spill {
+    uint32_t caller_sp = 0;
+    uint32_t values[2] = {};
+    bool set = false;
+};
+Spill g_play_spill, g_post_spill;
 int g_view = -1;      // the local view while a match runs, for the hooks (-1: none, or MY VIEW off)
 // The match's views while sounds are followed, the same on every machine of a session whatever its
 // own MY VIEW switch or port: 0 for none.
@@ -802,6 +811,44 @@ void write_float(uint8_t* rdram, uint32_t address, float value) {
     MEM_W(0, kseg0(address)) = static_cast<int32_t>(bits);
 }
 
+// The death wipe (the black circle closing on a player, func_15180580) is centred at the view
+// record's half size (+0xC/+0x10) plus D_800DDDE8[view], which func_1517F814 works out before the
+// views draw, from the split-screen view: the view's left/top plus its half size times the point's
+// projected x/y. A view drawn again over the whole screen moves it to that layout.
+constexpr uint32_t kWipeCentres = 0x800DDDE8;  // D_800DDDE8: f32 x, y a view
+constexpr uint32_t kViewHalfWidth = 0xC, kViewHalfHeight = 0x10;  // f32
+constexpr uint32_t kViewProjection = 0x100;    // the record's projection Mtx, 0x40 a list buffer
+
+struct WipeLayout {
+    float half_w = 0.0f, half_h = 0.0f, left = 0.0f, top = 0.0f, scale_x = 0.0f, scale_y = 0.0f;
+};
+
+// Element `index` (row-major) of an N64 fixed-point Mtx: integer halves first, fractions at +0x20.
+float mtx_element(uint8_t* rdram, uint32_t mtx, int index) {
+    const int32_t whole = MEM_H(index * 2, kseg0(mtx));
+    const uint32_t fraction = static_cast<uint16_t>(MEM_HU(0x20 + index * 2, kseg0(mtx)));
+    return static_cast<float>(static_cast<int32_t>((static_cast<uint32_t>(whole) << 16) | fraction)) / 65536.0f;
+}
+
+WipeLayout wipe_layout(uint8_t* rdram, uint32_t record) {
+    const uint32_t mtx = record + kViewProjection + (static_cast<uint32_t>(MEM_BU(0, kseg0(kListIndex))) << 6);
+    return {read_float(rdram, record + kViewHalfWidth), read_float(rdram, record + kViewHalfHeight),
+            read_float(rdram, record + kViewLeft),      read_float(rdram, record + kViewTop),
+            mtx_element(rdram, mtx, 0),                 mtx_element(rdram, mtx, 5)};
+}
+
+void move_wipe_centre(uint8_t* rdram, int view, const WipeLayout& from, const WipeLayout& to) {
+    if (from.half_w == 0.0f || from.half_h == 0.0f || from.scale_x == 0.0f || from.scale_y == 0.0f ||
+        to.scale_x == 0.0f || to.scale_y == 0.0f) {
+        return;
+    }
+    const uint32_t at = kWipeCentres + static_cast<uint32_t>(view) * 8;
+    const float dx = read_float(rdram, at) - from.left;     // half width times projected x
+    const float dy = read_float(rdram, at + 4) - from.top;  // half height times projected y, negated
+    write_float(rdram, at, to.left + dx * (to.half_w / from.half_w) * (to.scale_x / from.scale_x));
+    write_float(rdram, at + 4, to.top + dy * (to.half_h / from.half_h) * (to.scale_y / from.scale_y));
+}
+
 struct Rect {
     float left = 0.0f, top = 0.0f, right = 0.0f, bottom = 0.0f;
     bool holds(float x, float y) const { return x >= left && x < right && y >= top && y < bottom; }
@@ -958,6 +1005,8 @@ void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
             std::fflush(stdout);
         }
     }
+    const WipeLayout split_wipe =
+        wipe_layout(rdram, static_cast<uint32_t>(MEM_W(0, kseg0(kViews))) + static_cast<uint32_t>(local) * kViewSize);
     call(rdram, ctx, func_1501A8C0, view, 0, 0x3FF, 0);  // the local view's record over the whole screen
     if (zoom.zoomed) {
         apply_zoom(rdram, ctx, local, full_screen_zoom(rdram, local, zoom));
@@ -1087,6 +1136,7 @@ void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
     MEM_W(0, kseg0(kLastView)) = local;
     if (MEM_BU(0, kseg0(kPaused)) == 0) {
         MEM_W(0, kseg0(kCurrentView)) = local;
+        move_wipe_centre(rdram, local, split_wipe, wipe_layout(rdram, own));
         draw(rdram, ctx, func_15019BB8, word(local));
     }
     draw(rdram, ctx, func_151E84B0);
@@ -1257,6 +1307,7 @@ extern "C" void conker_my_view_play(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     const Local& local = locals.view[local_index()];
+    g_play_spill = {static_cast<uint32_t>(ctx->r29), {static_cast<uint32_t>(ctx->r6), static_cast<uint32_t>(ctx->r7)}, true};
     ctx->r6 = word(local.volume);
     if (local.pan >= 0) {
         ctx->r7 = word(local.pan);
@@ -1304,12 +1355,50 @@ extern "C" void conker_my_view_post(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     const Local& local = locals.view[local_index()];
+    g_post_spill = {static_cast<uint32_t>(ctx->r29), {static_cast<uint32_t>(ctx->r6), 0}, true};
     if (type == 8) {
         ctx->r6 = word(local.volume);
     } else if (local.pan >= 0) {
         ctx->r6 = word(local.pan);
     }
     record_sent(source, locals, type == 8, type == 4, game_pan);
+}
+
+// sndp_play_sound's exit (lw $ra, every path; its frame is 0x38 bytes): its entry saved the volume
+// and pan it was given at sp+0x40/+0x44, in its caller's frame. With the local view's values there,
+// the game's stack differed between machines, and the game copies stale stack into its heap (a bullet
+// hole's decal took one word of it): the game's own values go back. The stack is not hashed, so
+// nothing else showed the difference until then.
+extern "C" void conker_my_view_play_exit(uint8_t* rdram, recomp_context* ctx) {
+    if (!g_play_spill.set || static_cast<uint32_t>(ctx->r29) + 0x38 != g_play_spill.caller_sp) {
+        return;
+    }
+    g_play_spill.set = false;
+    static bool reported = false;
+    if (!reported) {
+        reported = true;
+        std::printf("[conker] my view: a started sound's own volume and pan go back on the game's stack\n");
+    }
+    MEM_W(0x40, ctx->r29) = static_cast<int32_t>(g_play_spill.values[0]);
+    MEM_W(0x44, ctx->r29) = static_cast<int32_t>(g_play_spill.values[1]);
+}
+
+// sndp_post_event's exit (lw $ra, every path; a 0x28-byte frame): the value it was given went to
+// sp+0x30 (its caller's frame) and, with a sound state, into the event it built at sp+0x18 (+8).
+extern "C" void conker_my_view_post_exit(uint8_t* rdram, recomp_context* ctx) {
+    if (!g_post_spill.set || static_cast<uint32_t>(ctx->r29) + 0x28 != g_post_spill.caller_sp) {
+        return;
+    }
+    g_post_spill.set = false;
+    static bool reported = false;
+    if (!reported) {
+        reported = true;
+        std::printf("[conker] my view: a changed sound's own volume or pan goes back on the game's stack\n");
+    }
+    MEM_W(0x30, ctx->r29) = static_cast<int32_t>(g_post_spill.values[0]);
+    if (MEM_W(0x28, ctx->r29) != 0) {
+        MEM_W(0x20, ctx->r29) = static_cast<int32_t>(g_post_spill.values[0]);
+    }
 }
 
 // CONKER_MY_VIEW_DUMP=<folder>: every 150 frames, the game's memory with its own split-screen list
@@ -1362,6 +1451,7 @@ void dump_pass(const uint8_t* game, const uint8_t* mine) {
 // func_1501878C at 0x15018938, where it starts drawing the views: the display list pointer's
 // address ($s1), where the views' commands start, and the game's memory as it is then.
 extern "C" void conker_my_view_draw_start(uint8_t* rdram, recomp_context* ctx) {
+    conker::perf::tick(conker::perf::Part::GameFrame);
     g_list_pointer = ctx->r17;
     g_list_start = list_pointer(rdram);
     g_before_views.clear();
@@ -1389,6 +1479,7 @@ extern "C" void conker_my_view_draw_start(uint8_t* rdram, recomp_context* ctx) {
 // no other thread runs and nothing from outside is delivered (ultramodern_isolated; a ROM read
 // completes at once), so the game goes on exactly as on every other machine.
 extern "C" void conker_my_view_draw_end(uint8_t* rdram, recomp_context* ctx) {
+    conker::perf::Timer pass_timer(conker::perf::Part::ViewPass);
     if (g_drawing) {
         return;
     }

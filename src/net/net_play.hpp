@@ -129,6 +129,10 @@ bool connect();
 // The session's port held by this machine's controller 1 (0 to 3).
 int local_port();
 
+// The port whose view this machine shows: its own in a session, and while it connects again to
+// rejoin one in place (the match goes on here meanwhile, and the online view stays); -1 otherwise.
+int view_port();
+
 // The local controller for a game port: this machine's controller 1 for its own port, -1 for a
 // port another machine holds. Outside a session, the port itself.
 int local_controller(int port);

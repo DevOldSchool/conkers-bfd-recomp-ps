@@ -35,6 +35,7 @@
 // The game socket also answers the lobby's PROBE (net/net_lobby.hpp), so that JOIN finds a
 // running session.
 #include "net/net_play.hpp"
+#include "runtime/perf_log.hpp"
 #include "platform/data_folder.hpp"
 
 
@@ -3783,6 +3784,18 @@ void say_goodbye_now() {
 
 int local_port() { return g_local_port; }
 
+int view_port() {
+    if (g_active) {
+        return g_local_port;
+    }
+    // Connecting again to rejoin in place: the match goes on here meanwhile, shown as before.
+    const int place = g_place.load();
+    if (g_in_place && g_rejoin_port != 0 && (place == kConnecting || place == kConnected || place == kEntering)) {
+        return g_rejoin_port - 1;
+    }
+    return -1;
+}
+
 int local_controller(int port) {
     if (!g_active) {
         return port;
@@ -4077,12 +4090,16 @@ void frame(uint8_t* rdram, Record* record) {
         std::printf("[conker] net: CONKER_NET_TEST_HANG: the game stops for %d s at frame %u\n", test_hang.second, frame);
         std::this_thread::sleep_for(std::chrono::seconds(test_hang.second));
     }
-    clear_depth(rdram);
-    const uint64_t hash = hash_game(rdram);
-    keep_memory(rdram, frame);
+    uint64_t hash;
     Detail detail;
-    detail.frame = frame;
-    hash_blocks(rdram, detail.blocks);
+    {
+        conker::perf::Timer hash_timer(conker::perf::Part::NetHash);
+        clear_depth(rdram);
+        hash = hash_game(rdram);
+        keep_memory(rdram, frame);
+        detail.frame = frame;
+        hash_blocks(rdram, detail.blocks);
+    }
     {
         std::lock_guard lock(g_mutex);
         g_details[frame % kDetailFrames] = detail;

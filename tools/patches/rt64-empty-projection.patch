@@ -1,0 +1,16 @@
+--- a/src/render/rt64_projection_processor.cpp
++++ b/src/render/rt64_projection_processor.cpp
+@@ -98,6 +98,13 @@
+                     const bool splitView = (proj.type == Projection::Type::Perspective);
+                     adjustAspectRatio = (viewportOrigin == G_EX_ORIGIN_NONE) && (coversWholeWidth || splitView) && horizontalRatio;
+                 }
++                else {
++                    // Nothing it draws can be seen (its scissor misses its viewport). Its transforms are shared with
++                    // every projection drawn with the same index, possibly in another frame buffer pair, and the last
++                    // one processed sets them: it is left out like a null scissor, so it cannot undo another's
++                    // widening (an online guest's view stretched by the earlier players' items drawn off screen).
++                    continue;
++                }
+             }
+  
+             float projRatioScale = adjustAspectRatio ? (1.0f / p.aspectRatioScale) : 1.0f;
