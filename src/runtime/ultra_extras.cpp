@@ -9,6 +9,7 @@
 #include <limits>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <set>
@@ -471,14 +472,18 @@ void func_800057E0(uint8_t* rdram, recomp_context* ctx) {
     RET(status);
 }
 
-// Logs each change of the motor the game asks for. The game pulses the motor on and off to set
-// its strength, so a rumble shows up as a run of on/off lines.
+// CONKER_RUMBLE_LOG=1 logs each change of the motor the game asks for. The game pulses the motor on
+// and off to set its strength, so a rumble shows up as a run of on/off lines.
 static void motor_access(uint8_t* rdram, recomp_context* ctx, bool on) {
+    static const bool log = [] {
+        const char* value = std::getenv("CONKER_RUMBLE_LOG");
+        return value != nullptr && value[0] == '1';
+    }();
     const int32_t channel = MEM_W(0x8, ARG0);
     const int32_t status = rumble_pak_status(channel);
     static std::atomic<int> last[4] = {-1, -1, -1, -1};
     const int state = (on ? 1 : 0) | (status == 0 ? 0 : 2);
-    if (channel >= 0 && channel < 4 && last[channel].exchange(state) != state) {
+    if (log && channel >= 0 && channel < 4 && last[channel].exchange(state) != state) {
         std::printf("[conker] VI %llu: rumble %s, port %d%s\n", static_cast<unsigned long long>(conker::current_vi()),
                     on ? "on" : "off", channel + 1, status == 0 ? "" : " (no pak, ignored)");
     }
