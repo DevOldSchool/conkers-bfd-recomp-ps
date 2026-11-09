@@ -8,7 +8,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <chrono>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 #include <fcntl.h>
@@ -249,6 +251,20 @@ void report_missing_imports() {
 
 void init() {
     install_crash_handlers();
+    // A write to the title folder takes tens of milliseconds on the console, so an unbuffered log
+    // stalled whichever thread printed: the game hitched each second under CONKER_PERF_LOG, and ran
+    // at a few frames a second while something logged every frame. From here the log is buffered and
+    // a thread of its own writes it out four times a second; the crash report still writes straight
+    // to the file (the last quarter second before a crash can be missing).
+    std::setvbuf(stdout, nullptr, _IOFBF, 1 << 18);
+    std::setvbuf(stderr, nullptr, _IOFBF, 1 << 16);
+    std::thread([] {
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            std::fflush(stdout);
+            std::fflush(stderr);
+        }
+    }).detach();
     report_memory();
     report_missing_imports();
     // SDL has no display driver for the console; Vulkan presents to the display without it
