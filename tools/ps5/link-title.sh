@@ -120,6 +120,11 @@ radv_link_recipe "$vulkan" "$sdk" "$radv_archive"
 # The path layer's wraps, and a version script keeping everything this port defines local: a symbol
 # a system module's stub names would otherwise become an export.
 flags=("${radv_link_flags[@]}")
+# A weak reference nothing in the link defines stays 0 rather than becoming an import: RADV names
+# its annotate layer's entry points weakly (hundreds, none of them built in), and the conversion
+# below refuses an import no system module's stub exports. lld leaves undefined weak symbols out of
+# the dynamic symbols only without a dynamic linker, which the console's loader never uses.
+flags+=(--no-dynamic-linker)
 local_names=(___mb_cur_max posix_madvise timegm conker_ps5_import_addrs conker_ps5_import_names conker_ps5_import_count)
 for name in "${path_functions[@]}"; do
     flags+=("--wrap=$name")
