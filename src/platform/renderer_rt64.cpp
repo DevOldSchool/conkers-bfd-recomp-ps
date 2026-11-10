@@ -853,8 +853,6 @@ private:
 
 } // namespace
 
-void set_wireframe(bool on) { RT64::SetRenderWireframe(on); }
-
 void set_present_focus(float x, float y, float width, float height) { RT64::SetPresentFocus({x, y, width, height}); }
 
 void draw_next_frame_from(std::vector<uint8_t> image) {

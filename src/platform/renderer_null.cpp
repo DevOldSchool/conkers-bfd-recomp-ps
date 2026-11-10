@@ -310,8 +310,6 @@ private:
 
 } // namespace
 
-void set_wireframe(bool /*on*/) {}
-
 void set_present_focus(float /*x*/, float /*y*/, float /*width*/, float /*height*/) {}
 
 void draw_next_frame_from(std::vector<uint8_t> /*image*/) {}

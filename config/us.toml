@@ -1166,6 +1166,104 @@ func = "func_1501B320"
 before_vram = 0x1501B420
 text = "{ void conker_60fps_heading_easing(uint8_t*, recomp_context*); conker_60fps_heading_easing(rdram, ctx); }"
 
+# Random chances rolled once a frame, rolled once a 30 Hz step at 60 fps: see conker_60fps_chance.
+# an area effect: (rand & 0xFFFF) < 0x2000 spawns one.
+[[patches.hook]]
+func = "func_150C79BC"
+before_vram = 0x150C7B58
+text = "{ void conker_60fps_chance(uint8_t*, recomp_context*, uint32_t); conker_60fps_chance(rdram, ctx, 0xFFFF); }"
+
+# a random steering drift: (rand & 0x3F) == 0 picks a new one.
+[[patches.hook]]
+func = "func_1504BE2C"
+before_vram = 0x1504BFD0
+text = "{ void conker_60fps_chance(uint8_t*, recomp_context*, uint32_t); conker_60fps_chance(rdram, ctx, 1); }"
+
+# a wobbling size: rand % 1000 < 500 picks a new target.
+[[patches.hook]]
+func = "func_1511AF30"
+before_vram = 0x1511AFE8
+text = "{ void conker_60fps_chance(uint8_t*, recomp_context*, uint32_t); conker_60fps_chance(rdram, ctx, 999); }"
+
+# a texture scroll's wobble: rand % 1000 < 300 picks a new step.
+[[patches.hook]]
+func = "func_15061B4C"
+before_vram = 0x15061D14
+text = "{ void conker_60fps_chance(uint8_t*, recomp_context*, uint32_t); conker_60fps_chance(rdram, ctx, 999); }"
+
+# an effect near the camera: (rand & 0xF) == 0 spawns one.
+[[patches.hook]]
+func = "func_1515AF90"
+before_vram = 0x1515AFA4
+text = "{ void conker_60fps_chance(uint8_t*, recomp_context*, uint32_t); conker_60fps_chance(rdram, ctx, 1); }"
+
+# Conker's idle fidget: rand % 120 + 180 < the idle timer plays one.
+[[patches.hook]]
+func = "func_15065A5C"
+before_vram = 0x150699B0
+text = "{ void conker_60fps_chance(uint8_t*, recomp_context*, uint32_t); conker_60fps_chance(rdram, ctx, 119); }"
+
+# The float roll (func_150ADA68) at chances `roll < p` rolled once a frame: see
+# conker_60fps_chance_float.
+# Scene 28's lightning: roll < 0.0042 (D_800A1340) strikes.
+[[patches.hook]]
+func = "func_150E7290"
+before_vram = 0x150E72AC
+text = "{ void conker_60fps_chance_float(uint8_t*, recomp_context*); conker_60fps_chance_float(rdram, ctx); }"
+
+# A scene's ambient events (scene event type 3): roll < the kind's chance (D_800A1190) runs one.
+[[patches.hook]]
+func = "func_150E68B0"
+before_vram = 0x150E6900
+text = "{ void conker_60fps_chance_float(uint8_t*, recomp_context*); conker_60fps_chance_float(rdram, ctx); }"
+
+# Short-lived effects ahead of the camera: roll < 0.222 (D_800AB020) spawns one.
+[[patches.hook]]
+func = "func_151CF898"
+before_vram = 0x151CF8BC
+text = "{ void conker_60fps_chance_float(uint8_t*, recomp_context*); conker_60fps_chance_float(rdram, ctx); }"
+
+# A flickering light: roll < 0.005 (D_800A6AD4) starts a run of flickers.
+[[patches.hook]]
+func = "func_151607A4"
+before_vram = 0x15160864
+text = "{ void conker_60fps_chance_float(uint8_t*, recomp_context*); conker_60fps_chance_float(rdram, ctx); }"
+
+# A swarm insect's course countdown and wing flip, once a frame: see conker_60fps_countdown and
+# conker_60fps_toggle.
+[[patches.hook]]
+func = "func_15178268"
+before_vram = 0x151783FC
+text = "{ void conker_60fps_countdown(uint8_t*, gpr*); conker_60fps_countdown(rdram, &ctx->r3); }"
+
+[[patches.hook]]
+func = "func_15178268"
+before_vram = 0x15178738
+text = "{ void conker_60fps_toggle(uint8_t*, gpr*, gpr); conker_60fps_toggle(rdram, &ctx->r14, ctx->r13); }"
+
+# water drops falling off Conker while he is wet (func_150C79BC, scene 11): moved once a 30 Hz step, its random slowdowns
+# (rand % +0xAE taken off its speeds) roll 0 between steps.
+[[patches.hook]]
+func = "func_1517A1EC"
+before_vram = 0x1517A1EC
+text = "{ void conker_60fps_particle_step(uint8_t*, recomp_context*); conker_60fps_particle_step(rdram, ctx); }"
+
+[[patches.hook]]
+func = "func_1517A1EC"
+before_vram = 0x1517A284
+text = "{ void conker_60fps_chance(uint8_t*, recomp_context*, uint32_t); conker_60fps_chance(rdram, ctx, 0); }"
+
+[[patches.hook]]
+func = "func_1517A1EC"
+before_vram = 0x1517A2D4
+text = "{ void conker_60fps_chance(uint8_t*, recomp_context*, uint32_t); conker_60fps_chance(rdram, ctx, 0); }"
+
+# An emitter's rate added once a frame without the frame's delta: see conker_60fps_emitter_rate.
+[[patches.hook]]
+func = "func_1515D130"
+before_vram = 0x1515D1B4
+text = "{ void conker_60fps_emitter_rate(uint8_t*, float*); conker_60fps_emitter_rate(rdram, &ctx->f10.fl); }"
+
 # HUD text a mod queues with flag 0x20 is placed from the left edge of the widened picture: RT64's
 # rect alignment is set around each run of such nodes as func_15043384 draws them ($s0 the node,
 # $s2 the display list; $v0 after func_150417AC). See src/enhancements/display_options/edge_text.cpp.

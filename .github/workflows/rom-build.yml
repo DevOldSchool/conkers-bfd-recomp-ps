@@ -32,6 +32,8 @@ env:
 jobs:
   build:
     name: Build from the ROM, regression cases
+    # Forks have no ROM secrets: skip there instead of failing.
+    if: github.repository == 'DevOldSchool/conkers-bfd-recomp'
     runs-on: ubuntu-24.04
     environment: rom
     timeout-minutes: 90

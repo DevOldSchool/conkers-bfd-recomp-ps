@@ -80,22 +80,9 @@ the zip, right-click it, choose **Properties** and tick **Unblock**.
 A crash prints the faulting N64 address and a backtrace to the console (or the
 log), named from `ConkersBadFurDayRecompiled.pdb` when it is next to the game.
 
-## Packaging for another PC
+## Packaging
 
-```sh
-tools/windows/package.sh
-```
-
-makes `dist/Conkers-Bad-Fur-Day-Recompiled-<version>-windows-x64.zip` (or
-`windows-arm64`, for an ARM64 build): the game, its DLLs, a README and
-`licenses` (the licenses and a `SOURCE.txt` naming the commit it was built
-from). Package from a clean, committed checkout, and attach
-`tools/source_archive.sh`'s source tarball to the release beside it.
-
-The `.pdb` (debug information) goes in a zip of its own, `...-pdb.zip`. Keep it
-with the release: a crash report from a player's copy is only addresses until
-the `.pdb` is next to the game, where the crash reporter names each frame from
-it.
+Making the packages for a release is in [releasing.md](releasing.md).
 
 ## Windows on ARM
 
@@ -152,7 +139,5 @@ The game lands in `build/windows-rt64` (ARM64: `build/windows-rt64-arm64`, with
 the ARM64 runtime and SDK downloaded on its first run); `tools/windows/cross_build.sh null`
 builds the headless one into `build/windows-null`.
 
-Wine runs both. The headless build needs nothing else; the RT64 one needs a
-Vulkan driver, which a machine without a GPU has in Mesa's lavapipe (Wine,
-`xvfb`, `mesa-vulkan-drivers` in an x86-64 Ubuntu 24.04 container did it,
-slowly).
+Wine runs both; the RT64 one needs a Vulkan driver (Mesa's lavapipe works,
+slowly, on a machine without a GPU).

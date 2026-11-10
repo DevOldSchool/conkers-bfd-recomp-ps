@@ -22,7 +22,6 @@
 // pad (func_1501BBB8's pads are emptied), so its buttons do nothing in the game underneath.
 //
 //     DEBUG VIEW       a page of what is drawn to look into the game:
-//       WIREFRAME      the game's 3D triangles drawn as their edges (src/platform/render_debug.hpp)
 //       SHOW FPS       the frames the game draws per second, in the corner, on every screen
 //       SHOW POSITION  Conker's scene, position and facing, and the camera's yaw and pitch, under
 //                      it, during play
@@ -163,7 +162,7 @@ using Clock = std::chrono::steady_clock;
 
 enum class Page { Main, DebugView, Enhancements, Controls, Mods, Teleport, Spots, Snapshots, Reports };
 enum MainRow { kDebugView, kEnhancements, kControls, kMods, kTeleport, kLoadSnapshot, kSaveReport, kLoadReport, kMainRows };
-enum DebugViewRow { kWireframe, kShowFps, kShowPosition, kInspect, kDebugViewRows };
+enum DebugViewRow { kShowFps, kShowPosition, kInspect, kDebugViewRows };
 // The controls page's rows: these, then a row for each of the mapped buttons (for the keyboard, then
 // its stick, walk and zoom keys), then RESET BUTTONS.
 enum ControlsRow { kController, kInvertAim, kStickAim, kMouseAim, kInvertMouseAim, kFirstMappedRow };
@@ -222,7 +221,6 @@ std::string g_message;
 std::string g_message_detail;  // a smaller line under it
 Clock::time_point g_message_until;
 
-bool g_wireframe = false;
 bool g_show_fps = [] {  // CONKER_SHOW_FPS=1 starts with it on
     const char* value = std::getenv("CONKER_SHOW_FPS");
     return value != nullptr && value[0] == '1';
@@ -757,7 +755,7 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
         case Page::DebugView:
             draw_title(rdram, ctx, "DEBUG VIEW");
             draw_rows(rdram, ctx,
-                      {std::string("WIREFRAME  ") + on_off(g_wireframe), std::string("SHOW FPS  ") + on_off(g_show_fps),
+                      {std::string("SHOW FPS  ") + on_off(g_show_fps),
                        std::string("SHOW POSITION  ") + on_off(g_show_position),
                        std::string("INSPECT  ") + on_off(conker::inspector::active())},
                       g_view_row, 0, kDebugViewRows);
@@ -969,12 +967,6 @@ void play_sound(uint8_t* rdram, recomp_context* ctx, int32_t sound) {
     MEM_W(kOutgoingArg, ctx->r29) = 0;
     func_80010F30(rdram, ctx);
     *ctx = saved;
-}
-
-void set_wireframe(bool on) {
-    g_wireframe = on;
-    conker::renderer::set_wireframe(on);
-    std::printf("[conker] debug menu: wireframe %s\n", on ? "on" : "off");
 }
 
 // Moves the list selection by `step` and keeps it in view.
@@ -1216,9 +1208,6 @@ int32_t debug_view_page(int vertical, int horizontal, bool fresh_horizontal, uin
         return 0;
     }
     switch (g_view_row) {
-        case kWireframe:
-            set_wireframe(!g_wireframe);
-            break;
         case kShowFps:
             g_show_fps = !g_show_fps;
             break;
@@ -1823,7 +1812,7 @@ extern "C" void conker_debug_menu_frame(uint8_t* rdram, recomp_context* ctx) {
 
 nlohmann::json conker::status::debug_menu() {
     return enhancement("debug_menu", "Debug menu", debug_menu_enabled(), "CONKER_DEBUG_MENU",
-                       {{"wireframe", g_wireframe}, {"show_fps", g_show_fps}, {"show_position", g_show_position},
+                       {{"show_fps", g_show_fps}, {"show_position", g_show_position},
                         {"inspect", conker::inspector::active()}});
 }
 
