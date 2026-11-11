@@ -27,7 +27,13 @@ extern "C" recomp_func_t* recomp_get_function_redirect(recomp_func_t* func);
 
 // A recompiled function that finds the generation changed asks here, by its own name, what a mod
 // put in its place (src/runtime/trace.h).
+extern "C" recomp_func_t* conker_roll_log_redirect(const char* name);  // src/enhancements/frame_rate/roll_log.cpp
+
 extern "C" recomp_func_t* conker_find_redirect(const char* name) {
+    // CONKER_ROLL_LOG counts the random functions' callers from a redirect of its own.
+    if (recomp_func_t* counted = conker_roll_log_redirect(name)) {
+        return counted;
+    }
     static const std::unordered_map<std::string_view, recomp_func_t*> functions_by_name{
 #include "func_names.inl"
     };
