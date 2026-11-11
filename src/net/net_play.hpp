@@ -45,16 +45,22 @@
 // port again about 7 s after joining. Without a snapshot (one refused, or CONKER_NET_NO_SNAPSHOT=1)
 // it gets the records from frame 1 and replays them with the game's time running fast and no sound
 // (about 4x here). Either way, within 90 frames of the host it plays its port again from a frame a
-// little ahead. A player out of
-// sync twice, or dropped four times, is turned away. Out of sync, both machines write their hash
-// of every frame to conker-recomp-data/net/desync-*.txt.
+// little ahead. The host does not wait for it there: a guest not at that frame in time plays from a
+// later one, and one not there three times over is dropped (CONKER_NET_TEST_LATE=<ms> stops a guest
+// for that long when it is told the frame). A player out of sync twice, dropped four times, or back
+// eight times, is turned away.
+// Out of sync, both machines write their hash of every frame to conker-recomp-data/net/desync-*.txt.
 //
 // The bottom left corner of the picture shows the ping and delay, a stall's "WAITING FOR P2", a
 // dropped player, or why this machine's game stopped (drawn by the renderer only, see
 // overlay_display_list); the window's title shows the same. CONKER_NET_TEST_DESYNC=<frame> makes a
 // peer change a byte of game memory at that frame, to see a drop; CONKER_NET_TEST_HANG=<frame>[:<s>]
-// stops a peer's game for a while (30 s by default) with its network going on; both are cleared
-// when a game starts again to rejoin, unless CONKER_NET_TEST_KEEP=1. CONKER_NET_NO_REJOIN=1 keeps a
+// stops a peer's game for a while (30 s by default) with its network going on, and
+// CONKER_NET_TEST_SLOW=<frame>[:<ms>] makes every frame from then on take that much longer (400 ms by
+// default); these and CONKER_NET_TEST_LATE are cleared when a game starts again to rejoin, unless
+// CONKER_NET_TEST_KEEP=1.
+// A guest whose link needs more input delay than the session's uses more for its own input, for as
+// long as it does (CONKER_NET_OWN_DELAY=0: never). CONKER_NET_NO_REJOIN=1 keeps a
 // dropped guest stopped; CONKER_NET_TEST_GUEST_PAUSE=1 (every peer) lets a guest pause a match.
 #pragma once
 
@@ -80,6 +86,10 @@ bool active();
 bool lobby_at_boot();
 
 // Whether this run loads no mods: a session from the command line, or --net-no-mods (game.cpp).
+// The input delay, in the session's frames, that covers `ms` of round trip and slack (at least 2 frames,
+// at most half a second): the host's, whose frame rate is the session's.
+int session_delay_frames(int ms);
+
 bool mods_skipped();
 
 // Whether this run loaded mods (the build text has "+mods-", which a lobby game without them refuses).

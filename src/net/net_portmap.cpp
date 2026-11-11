@@ -301,17 +301,22 @@ void worker(uint64_t generation) {
     }
     std::printf("[conker] net: UDP port %u opened on the router with %s (outside address %s)\n", g_port,
                 method.c_str(), external.empty() ? "not given" : external.c_str());
+    // The router is talked to without the lock (the mapping is this worker's alone while it runs):
+    // status(), which the lobby's page asks every frame, waited out each renewal and the removal.
     while (generation == g_generation) {
         if (g_wake.wait_for(lock, kRenewEvery, [generation] { return generation != g_generation; })) {
             break;
         }
-        std::string ignored;
+        lock.unlock();
         const bool renewed = g_method == Method::Upnp ? upnp_add() == UPNPCOMMAND_SUCCESS
                                                       : natpmp_map(kLeaseSeconds, nullptr) == 0;
         std::printf("[conker] net: renewing UDP port %u on the router: %s\n", g_port, renewed ? "done" : "failed");
+        lock.lock();
     }
     // close() came: the mapping goes (close() leaves it to this worker, which owns it).
+    lock.unlock();
     remove_mapping();
+    lock.lock();
     g_worker_running = false;
     g_wake.notify_all();
 }

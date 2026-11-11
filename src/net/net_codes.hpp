@@ -104,6 +104,13 @@ inline bool same_secret(uint64_t a, uint64_t b) {
 // `newlines`), at most `max` characters.
 std::string printable(const std::string& text, size_t max, bool newlines = false);
 
+// Whether a host does the key exchange for one more FIRST from this address now (net_seal.hpp). A FIRST
+// with a good cookie costs the host an X25519 before it knows anything else of the sender, on the
+// thread that serves the match: a machine that only kept sending them took that thread's time, and
+// the game's with it. Each address gets a few a second (a joining guest sends four until it is in)
+// and all of them together a few more; the rest are dropped unopened.
+bool key_exchange_allowed(const sockaddr_storage& from);
+
 // Whether to log one more machine turned away: at most a few a minute, so that a machine that keeps
 // asking (past the cookie, which any machine on the LAN gets) cannot grow last-run.log without end.
 // The first one logged after a quiet spell says how many were left out.

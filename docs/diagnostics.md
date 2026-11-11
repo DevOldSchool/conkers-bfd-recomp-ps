@@ -252,6 +252,15 @@ recompiled functions that called it.
   restart when a session starts in place: compare the last run of the frames.
   A guest that is dropped starts itself again and the restart truncates its
   logs: `CONKER_NET_REJOIN_COUNT=99` keeps it stopped so they survive.
+* `CONKER_ROLL_LOG=<file>:<first VI>:<last VI>` (macOS and Linux) counts the
+  calls of the game's two random functions between those retraces, by the
+  place that called, and writes them once the last has passed. Run the same
+  pad script twice, at 30 fps and at 60 (`CONKER_60FPS=1`), and
+  `tools/roll_compare.py <game> <30 fps log> <60 fps log>` (macOS) lists the
+  places that rolled about twice as often at 60, each with the MIPS address
+  of its call and whether `config/us.toml` already corrects it: those roll
+  once a frame, and one that is a chance needs a 60 fps hook
+  ([enhancements.md](enhancements.md#60-fps)).
 * `CONKER_CALL_HASH_LOG=<file>` hashes the game thread's sequence of
   recompiled function entries (a line each 4096 calls and at the end of each
   frame), and `CONKER_CALL_HASH_REF=<log of another run>` compares as it
@@ -289,8 +298,11 @@ guards hold.
   the runtime must stop the game.
 * `CONKER_RENDER_SELFTEST=<task>:<kind>` does the same for the renderer at
   that graphics task: `ucode` (a task naming microcode that is not the
-  game's: the game stops), and `vertex`, `extended`, `dlstack` and
-  `loadtile` (a display list RT64 must refuse, printing a PASS line).
+  game's: the game stops), `vertex`, `extended`, `dlstack` and `loadtile`
+  (a display list RT64 must refuse, printing a PASS line), and `image` (a
+  list drawn as the online "my view" draws, from a copy of the game's memory,
+  with addresses at the top of the 16 MiB RT64 takes: they must be the
+  copy's own memory).
 
 ## Online play
 
@@ -312,12 +324,17 @@ guards hold.
 * `CONKER_NET_CATCH_UP_SPEED=<n>` sets how many times normal speed a machine
   runs while it catches up with the host (32 unless set), for example after
   joining or a stall.
-* `CONKER_NET_SIM=latency=<ms>,jitter=<ms>,loss=<%>,dup=<%>,reorder=<%>,outage=<from>-<to>`
+* `CONKER_NET_SIM=latency=<ms>,jitter=<ms>,loss=<%>,dup=<%>,reorder=<%>,outage=<from>-<to>,slow=<from>-<to>:<ms>`
   simulates a bad link for one online peer (src/net/net_play.cpp): half
   the round-trip latency on each of its sends and receives plus up to
   `jitter`, then loss, duplicates and reordering (by 40 ms) on its sends,
-  and no traffic either way from `from` to `to` seconds after the session
-  starts. Every 900 frames each peer prints its fps, its waits and stalls of
+  no traffic either way from `from` to `to` seconds after the session
+  starts (`outage`), and a round trip of `ms` instead of `latency` between
+  two such times (`slow`: a link that gets worse for a while).
+* `CONKER_NET_OWN_DELAY=0` keeps a guest's input delay at the session's. A
+  guest otherwise raises its own while its round trip needs more (and says
+  so: "this machine's input delay goes from 2 to 6 frames"), and lowers it
+  again a frame a second once it does not; the corner's DELAY shows it. Every 900 frames each peer prints its fps, its waits and stalls of
   50 ms or more and the round trip. The host logs every wait of 100 ms or
   more ("waited N ms at frame F for player P", with how long that player had
   been quiet).
@@ -343,7 +360,15 @@ guards hold.
   0x80200000 then (the host drops that peer as out of sync).
   `CONKER_NET_TEST_HANG=<frame>[:<seconds>]` stops a peer's game for a while
   (30 s by default) with its network going on (it is dropped after 3 s of
-  holding the host up). `CONKER_NET_TEST_FORGED_LEAVE=<frame>` on the host
+  holding the host up). `CONKER_NET_TEST_SLOW=<frame>[:<ms>]` makes every
+  frame of a peer's game take that much longer from then on (400 ms by
+  default): a guest the others wait for more than two thirds of the time is
+  dropped after about ten seconds of it. `CONKER_NET_TEST_LATE=<ms>` stops a
+  guest coming back for that long when it is told the frame it plays again
+  from: the host moves that frame on instead of waiting for it (it prints
+  "was not at frame ... to play again"), three times at most, then drops the
+  guest. `CONKER_NET_CATCH_UP_SPEED=1` makes a guest that never catches up,
+  to see that. `CONKER_NET_TEST_FORGED_LEAVE=<frame>` on the host
   feeds itself a guest's LEAVE with a wrong secret, with none and with the
   right one: only the last may drop the guest (it prints PASS).
   `tools/net-test/rejoinrun.sh` takes `FAULT=term` (the guest quits normally)

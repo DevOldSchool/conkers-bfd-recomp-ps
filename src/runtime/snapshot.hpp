@@ -6,8 +6,9 @@
 // osRecvMesg one level down its own loop function (the scheduler func_800049E0, audio func_80009400,
 // func_80002E50, func_80003658, func_100052A0; the idle thread spins in func_800010F8), the same on a
 // machine that has just started as in the middle of a match. A thread's place is its native stack,
-// which a snapshot cannot carry, so a snapshot only goes where every thread waits at the same call
-// (return address and queue) as where it was taken; then the game's memory (the first 4 MiB of
+// which a snapshot cannot carry, so a snapshot only goes where every thread waits on the same queue in
+// the same state as where it was taken (and with the same $ra, which says little: the recompiled code
+// sets it on no call, so two calls in one function, or in two, read alike); then the game's memory (the first 4 MiB of
 // RDRAM), each thread's registers, the timers set, the save and the native state the game's memory
 // depends on (registered with add) make the two runs the same.
 #pragma once
@@ -33,8 +34,11 @@ void add(const char* name, void* data, size_t size);
 void add(const char* name, void* data, size_t size, std::function<bool(const uint8_t*)> valid);
 // An array of bools: each byte 0 or 1.
 void add_bools(const char* name, bool* data, size_t count);
-// Or saved and loaded by the module (load returns false if it cannot).
-void add(const char* name, std::function<std::vector<uint8_t>()> save, std::function<bool(const std::vector<uint8_t>&)> load);
+// Or saved and loaded by the module. `valid` says whether a snapshot's bytes are ones `load` takes, and
+// is asked of every field before anything is put in place: once the game's memory is the snapshot's
+// there is no going back, so `load` must not be where a snapshot is refused.
+void add(const char* name, std::function<std::vector<uint8_t>()> save, std::function<bool(const std::vector<uint8_t>&)> valid,
+         std::function<bool(const std::vector<uint8_t>&)> load);
 
 // A condition a snapshot needs, the same where it is taken and where it is put: the reason it does
 // not hold (a task still out, say), or nullptr.

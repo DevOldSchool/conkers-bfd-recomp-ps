@@ -44,6 +44,7 @@ static long _dyld_get_image_vmaddr_slide(int) { return 0; }
 
 #include "platform/audio.hpp"
 #include "platform/input.hpp"
+#include "platform/input_config.hpp"
 #include "platform/window.hpp"
 #include "runtime/frame_input.hpp"
 #include "runtime/game.hpp"
@@ -536,8 +537,16 @@ int run(int argc, char** argv) {
     if (!conker::net::parse_args(&argc, argv)) {
         return 2;
     }
+    // Where the game was started: a ROM named on the command line is a path from here, not from the
+    // data folder a launch may enter next.
+    std::error_code launch_error;
+    const std::filesystem::path launch_folder = std::filesystem::current_path(launch_error);
 #if CONKER_LAUNCH_UI
     conker::launch::enter_data_folder();
+    if (std::filesystem::current_path(launch_error) != launch_folder) {
+        conker::input_config::reload();
+        conker::frame_input::reload_input_settings();
+    }
     conker::crash_log::log_system_info();
     conker::launch::warn_if_emulated();
 #if defined(_WIN32)
@@ -598,6 +607,9 @@ int run(int argc, char** argv) {
 
     // A ROM given on the command line replaces the stored copy; without one the stored copy is used.
     std::filesystem::path rom_path = argc >= 2 ? std::filesystem::path(argv[1]) : std::filesystem::path();
+    if (!rom_path.empty() && rom_path.is_relative() && !launch_folder.empty()) {
+        rom_path = launch_folder / rom_path;
+    }
     if (rom_path.empty()) {
         recomp::check_all_stored_roms();
     }

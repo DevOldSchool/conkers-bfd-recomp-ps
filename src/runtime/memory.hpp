@@ -43,6 +43,18 @@ bool install_rdram_alias(uint8_t* rdram);
 // of address space but only commits the first 512 MiB.
 bool make_window_accessible(uint8_t* rdram, uint32_t vram, size_t size);
 
+// Memory the renderer can draw a frame from in place of RDRAM (the online "my view"): the first
+// kDrawImageSize bytes readable and writable, zero at first, at the start of a reservation shaped as
+// RDRAM's own, 4 GiB with nothing else in it and no access past those bytes. RT64 takes a display
+// list's addresses as offsets from the start of the memory it draws from, up to 16 MiB of them and
+// unchecked, and a list can be another machine's (a host's snapshot): in RDRAM any such offset is
+// RDRAM's own reservation, and so it must be here. A buffer of RDRAM's 8 MiB from the heap had other
+// allocations right after it, which such a list read and, as a colour image, wrote.
+// kDrawImageSize covers the 16 MiB of offsets and a frame buffer written at the last of them.
+// Never freed. nullptr (after printing why) if the system gives none.
+constexpr size_t kDrawImageSize = 32 * 1024 * 1024;
+uint8_t* reserve_draw_image();
+
 // Copies a big-endian byte image into rdram at `vram`, honouring the runtime's word-swapped
 // byte layout (the same thing a PI DMA from ROM does).
 void write_image(uint8_t* rdram, uint32_t vram, std::span<const uint8_t> image);

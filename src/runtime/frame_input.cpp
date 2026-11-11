@@ -72,7 +72,8 @@ int clamp_mouse_speed(int percent) {
 
 constexpr int kDefaultMouseAim = 200;  // percent, when input.cfg has none
 
-std::atomic<int> g_mouse_speed{[] {
+// As input.cfg has it now (asked again by reload_input_settings).
+int kept_mouse_speed() {
     if (const char* value = std::getenv("CONKER_MOUSE_SENSITIVITY"); value != nullptr && value[0] != '\0') {
         const float scale = std::strtof(value, nullptr);
         if (scale > 0.0f) {
@@ -81,7 +82,9 @@ std::atomic<int> g_mouse_speed{[] {
     }
     const std::string kept = conker::input_config::get("mouse_aim");
     return kept.empty() ? kDefaultMouseAim : clamp_mouse_speed(std::atoi(kept.c_str()));
-}()};
+}
+
+std::atomic<int> g_mouse_speed{kept_mouse_speed()};
 
 // The CONTROLS page's INVERT AIM, per port ("invert_aim<port 1 to 4>=1"), goes into the port's
 // record as Port::kInvertAim, which consistent controls reads, so another machine running the same
@@ -92,13 +95,14 @@ std::string invert_aim_key(int port) { return "invert_aim" + std::to_string(port
 std::atomic<bool> g_invert_aim[conker::input::kPorts] = {};
 std::atomic<bool> g_invert_mouse_aim{false};
 
-const bool g_invert_loaded = [] {
+bool load_inverts() {
     for (int port = 0; port < conker::input::kPorts; port++) {
         g_invert_aim[port].store(conker::input_config::get(invert_aim_key(port)) == "1");
     }
     g_invert_mouse_aim.store(conker::input_config::get("invert_mouse_aim") == "1");
     return true;
-}();
+}
+const bool g_invert_loaded = load_inverts();
 
 // The CONTROLS page's STICK AIM, per port ("stick_aim<port 1 to 4>=<percent>", 100 unless set),
 // scales the right stick as it goes into the record, so another machine running the same records
@@ -111,7 +115,7 @@ constexpr int kDefaultStickAim = 100;
 
 std::atomic<int> g_stick_aim[conker::input::kPorts] = {};
 
-const bool g_stick_aim_loaded = [] {
+bool load_stick_aims() {
     for (int port = 0; port < conker::input::kPorts; port++) {
         const std::string kept = conker::input_config::get(stick_aim_key(port));
         g_stick_aim[port].store(kept.empty() ? kDefaultStickAim
@@ -119,7 +123,8 @@ const bool g_stick_aim_loaded = [] {
                                                           conker::frame_input::kMaxStickAim));
     }
     return true;
-}();
+}
+const bool g_stick_aim_loaded = load_stick_aims();
 
 // The live mouse's motion since it was last taken, scaled by the aim speed while the port's mouse
 // aims.
@@ -327,6 +332,12 @@ void apply_header_line(const char* line, const char* source, bool from_another_m
     int fixed = 0;
     if (std::sscanf(line, "# conker-replay 1 build=%127s fixed_step=%d", build, &fixed) == 2) {
         if (std::strcmp(build, CONKER_BUILD_VERSION) != 0) {
+            // As the label above: the host's word, shown without a terminal's escapes.
+            for (char* c = build; *c != '\0'; c++) {
+                if (*c < 32 || *c >= 127) {
+                    *c = '?';
+                }
+            }
             std::printf("[conker] %s: made with build %s, this is %s; it may not match\n", source, build,
                         CONKER_BUILD_VERSION);
         }
@@ -429,6 +440,12 @@ const std::vector<Record>& replay() {
 namespace conker::frame_input {
 
 bool fixed_step() { return fixed_on(); }
+
+void reload_input_settings() {
+    g_mouse_speed.store(kept_mouse_speed());
+    load_inverts();
+    load_stick_aims();
+}
 
 uint32_t count_reads() { return g_count_calls; }
 void set_count_reads(uint32_t reads) { g_count_calls = reads; }

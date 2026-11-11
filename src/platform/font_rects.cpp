@@ -139,7 +139,10 @@ void widen_font_rects(uint8_t* rdram, uint32_t display_list) {
     for (int i = 0; i < kMaxFonts; i++) {
         const uint32_t glyphs = read32(rdram, kGlyphBuffers + 4 * i) & 0x00FFFFFF;
         const uint32_t metrics = read32(rdram, kGlyphMetrics + 4 * i) & 0x00FFFFFF;
-        if (glyphs == 0 || metrics == 0 || glyphs + kMaxGlyphs * kGlyphBytes > kRdramSize) continue;
+        if (glyphs == 0 || metrics == 0 || glyphs + kMaxGlyphs * kGlyphBytes > kRdramSize ||
+            metrics + kMaxGlyphs * 4 > kRdramSize) {
+            continue;
+        }
         fonts[font_count++] = {glyphs, metrics};
     }
     if (font_count == 0) return;

@@ -19,6 +19,7 @@
 // seconds, moving on to the next spot after each, so a scripted run reports them. Tags: an actor's index in the actor table, an
 // attachment's parent actor and node, or the drawing function. Actor model numbers are bank 1 model
 // entries, named from the decomp's model registry (model_names.inc, tools/gen_model_names.py).
+#include "net/net_play.hpp"
 #include "enhancements/object_inspector/object_inspector.hpp"
 #include "net/lobby_ui.hpp"
 
@@ -218,7 +219,10 @@ std::string actor_model(uint8_t* rdram, uint32_t index, std::string* full) {
 
 }  // namespace
 
-bool active() { return g_active.load(); }
+// Not online: its markers go into the frame's display list, in game memory, on this machine only (and
+// consistent controls read the pad another way while it is on), so a session it was left on for went
+// out of sync. The debug menu that switches it is off there too.
+bool active() { return g_active.load() && !conker::net::active() && !conker::net::in_place(); }
 
 void set_active(bool on) {
     g_active = on;
