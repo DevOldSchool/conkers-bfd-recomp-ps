@@ -75,7 +75,7 @@ fi
 cmake -S "$here" -B "$build" -G Ninja -Wno-dev \
     -DCMAKE_TOOLCHAIN_FILE="$here/tools/windows/clang-cl-xwin.cmake" \
     -DCMAKE_CROSSCOMPILING_EMULATOR="$here/tools/windows/host_tool.sh" \
-    -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER="$renderer" \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCONKER_RENDERER="$renderer" -DCONKER_HIDE_PATHS=ON \
     -DCMAKE_TRY_COMPILE_CONFIGURATION=Release "${signing[@]}"
 python3 "$here/tools/windows/case_links.py" "$XWIN_DIR" "$build/_deps"
 cmake --build "$build"

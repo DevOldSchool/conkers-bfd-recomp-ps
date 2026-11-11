@@ -37,6 +37,19 @@ if ! grep -q "Choose your Conker" "$binary"; then
     echo "$binary predates the packaged-app support (src/platform/launch_apple.mm): rebuild it" >&2
     exit 1
 fi
+# What is handed out names no folder of whoever built it: without its debug map (stripped below), the
+# game must not hold their home's path. A CI runner's is nobody's.
+if [ -z "${CI:-}" ]; then
+    probe="$(mktemp)"
+    cp "$binary" "$probe"
+    strip -S "$probe" 2> /dev/null
+    if strings -a "$probe" | grep -qF "$HOME/"; then
+        rm -f "$probe"
+        echo "$binary names $HOME: configure the build with -DCONKER_HIDE_PATHS=ON and build again (docs/releasing.md)" >&2
+        exit 1
+    fi
+    rm -f "$probe"
+fi
 # The built-in mods (tools/build_mods.sh, CONKER_EMBEDDED_MODS): a release always carries them.
 if ! grep -q '^CONKER_EMBEDDED_MOD_IDS:INTERNAL=.*conker_speedrun' "$build/CMakeCache.txt" 2>/dev/null; then
     echo "$build has no built-in speedrun mod: run tools/build_mods.sh, then build again" >&2
@@ -89,6 +102,9 @@ echo "==> $app ($version, $arch, macOS $minos or later)"
 rm -rf "$app" "$dist/ConkersBadFurDayRecompiled.dSYM" "$dist/Conker's Bad Fur Day.app" "$dist/ConkersBadFurDay.dSYM"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks"
 cp "$binary" "$app/Contents/MacOS/ConkersBadFurDayRecompiled"
+# Without the debug map: it lists every object file of the build by its full path, and the debug
+# information itself is in the dSYM made from the build's own binary below.
+strip -S "$app/Contents/MacOS/ConkersBadFurDayRecompiled"
 cp "$sdl2" "$app/Contents/Frameworks/libSDL2-2.0.0.dylib"
 cp "$sdl3" "$app/Contents/Frameworks/libSDL3.dylib"
 chmod u+w "$app/Contents/Frameworks/"*.dylib

@@ -49,6 +49,29 @@ if(CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
 else()
     add_compile_options(-ffp-contract=off -fno-strict-aliasing)
 endif()
+# A build to hand out names no folder of whoever built it (docs/releasing.md): with this, the checkout
+# is "." in the game and in its debug information. Off for an everyday build, whose debugger finds the
+# sources by their real paths. The package scripts refuse a game that still names the builder's home.
+option(CONKER_HIDE_PATHS "Write this checkout's path as . in the binary and its debug information" OFF)
+if(CONKER_HIDE_PATHS)
+    if(CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+        add_compile_options("/clang:-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.")
+        # The .exe names its .pdb by file name only. (The .pdb itself still lists the build's libraries
+        # and command lines by their full paths: tools/windows/package.sh says so when it holds a home.)
+        add_link_options("/pdbaltpath:%_PDB%")
+    else()
+        add_compile_options("-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.")
+    endif()
+endif()
+# The game takes what other machines send (online play), so the Linux build has the hardening a
+# distribution's own packages have and Ubuntu's clang, which builds it, leaves off: stack protectors,
+# checked libc calls, and a GOT that is read-only once loaded. (Apple's clang and clang-cl have their
+# own on by default.) None of it changes what the game computes.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_compile_options(-fstack-protector-strong)
+    add_compile_definitions($<$<NOT:$<CONFIG:Debug>>:_FORTIFY_SOURCE=2>)
+    add_link_options(-Wl,-z,relro -Wl,-z,now)
+endif()
 # N64ModernRuntime brings ultramodern (libultra reimplementation), librecomp (glue for N64Recomp
 # output, ROM/PI, saves), the N64Recomp library used for live recompilation, and miniz.
 add_subdirectory(lib/N64ModernRuntime)
