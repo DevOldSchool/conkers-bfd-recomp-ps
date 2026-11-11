@@ -57,8 +57,10 @@ both; press JOIN again once you have checked the new one on the host's screen.
 ## In a match
 
 The host's settings that change how the game plays (widescreen, draw distance,
-full detail, 60 fps, MP characters, the skips) are used by everyone, and the
-lobby shows which differ from yours. Your own controls, pad buttons, haptics,
+full detail, MP characters, the skips) are used by everyone, and the lobby
+shows which differ from yours. A match plays at 30 fps whatever FRAME RATE
+says: not every machine keeps 60, and every player waits for the slowest
+(SMOOTH MOTION stays each player's own). Your own controls, pad buttons, haptics,
 window and volume stay yours. The session plays on a copy of the host's save,
 so nobody's own save changes.
 
