@@ -125,7 +125,7 @@ flags=("${radv_link_flags[@]}")
 # below refuses an import no system module's stub exports. lld leaves undefined weak symbols out of
 # the dynamic symbols only without a dynamic linker, which the console's loader never uses.
 flags+=(--no-dynamic-linker)
-local_names=(___mb_cur_max posix_madvise timegm conker_ps5_import_addrs conker_ps5_import_names conker_ps5_import_count)
+local_names=(___mb_cur_max posix_madvise timegm pathconf conker_ps5_import_addrs conker_ps5_import_names conker_ps5_import_count)
 for name in "${path_functions[@]}"; do
     flags+=("--wrap=$name")
     local_names+=("__wrap_$name")

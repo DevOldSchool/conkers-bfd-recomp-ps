@@ -267,6 +267,9 @@ void init() {
     }).detach();
     report_memory();
     report_missing_imports();
+    // Written out now, not with the next quarter second: a missing import's first call can crash
+    // sooner, and the report naming it is the line that crash needs.
+    std::fflush(stdout);
     // SDL has no display driver for the console; Vulkan presents to the display without it
     // (tools/patches/plume-ps5.patch), so its offscreen driver is all the game's window needs.
     SDL_SetHint(SDL_HINT_VIDEODRIVER, "offscreen");

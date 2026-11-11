@@ -1,7 +1,10 @@
-// C library functions the SDK's C library does not have but the title references, linked in by
-// tools/ps5/link-title.sh. Each is local to the title (the link's version script), so none becomes
-// an export.
+// C library functions the title references that the SDK's C library does not have, or names but the
+// console resolves to 0, linked in by tools/ps5/link-title.sh. Each is local to the title (the link's
+// version script), so none becomes an export.
+#include <errno.h>
+#include <limits.h>
 #include <stddef.h>
+#include <unistd.h>
 #include <stdint.h>
 #include <time.h>
 
@@ -43,4 +46,19 @@ time_t timegm(struct tm* tm) {
     const time_t result = (time_t)seconds;
     gmtime_r(&result, tm);
     return result;
+}
+
+// The console resolves pathconf to 0. libc++'s std::filesystem::current_path asks it for _PC_PATH_MAX
+// to size its buffer; the limits are the same for every path here, so the path is not looked at.
+long pathconf(const char* path, int name) {
+    (void)path;
+    switch (name) {
+        case _PC_NAME_MAX:
+            return NAME_MAX;
+        case _PC_PATH_MAX:
+            return PATH_MAX;
+        default:
+            errno = EINVAL;
+            return -1;
+    }
 }
