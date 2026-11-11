@@ -12,6 +12,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <mutex>
 #include <random>
 #include <thread>
@@ -49,7 +50,8 @@ enum Type : uint8_t { kProbe = 1, kOffer, kJoin, kReject, kState, kHeartbeat, kS
 // 10: a packet's first record as changes from the frame acknowledged (session magic CKN9).
 // 11: every packet but PROBE and OFFER sealed (net_seal.hpp; magics CKL3, CKNA), join codes with the
 // host key's fingerprint.
-constexpr uint16_t kProtocol = 11;
+// 12: a session packet carries up to 32 records (session magic CKNB).
+constexpr uint16_t kProtocol = 12;
 // A PROBE is padded to this size and an OFFER is never bigger than the PROBE it answers, so that a
 // PROBE with a forged sender gets no more sent to that address than it took to send.
 constexpr size_t kProbeSize = 400;
@@ -414,15 +416,28 @@ std::filesystem::path settings_file() {
     return conker::data_folder() / "online.txt";
 }
 
+// The file's values as last read or written here (under g_mutex): the lobby's page asks for the name
+// every frame it is drawn, and the file was opened and read each time.
+std::map<std::string, std::string>& kept_settings() {
+    static std::map<std::string, std::string> kept;
+    return kept;
+}
+
 std::string read_setting(const std::string& key) {
+    if (const auto found = kept_settings().find(key); found != kept_settings().end()) {
+        return found->second;
+    }
+    std::string value;
     std::ifstream file(settings_file());
     std::string line;
     while (std::getline(file, line)) {
         if (line.rfind(key + "=", 0) == 0) {
-            return line.substr(key.size() + 1);
+            value = line.substr(key.size() + 1);
+            break;
         }
     }
-    return "";
+    kept_settings()[key] = value;
+    return value;
 }
 
 void write_setting(const std::string& key, const std::string& value) {
@@ -437,6 +452,7 @@ void write_setting(const std::string& key, const std::string& value) {
         }
     }
     lines.push_back(key + "=" + value);
+    kept_settings()[key] = value;
     std::error_code error;
     std::filesystem::create_directories(settings_file().parent_path(), error);
     std::ofstream file(settings_file());
@@ -641,7 +657,7 @@ int session_delay() {
         std::sort(pings.begin(), pings.end());
         ping = std::max(ping, pings[std::min(pings.size() - 1, pings.size() * 9 / 10)]);
     }
-    return std::clamp(static_cast<int>(std::ceil((ping + 15 + 30) / 33.3)), 2, 15);
+    return conker::net::session_delay_frames(ping + 15 + 30);
 }
 
 // Builds the session's options and starts it in place (net_play.hpp's start_in_place): the game goes on,
@@ -738,7 +754,8 @@ bool open_sealed(const uint8_t* data, size_t size, const sockaddr_storage& from,
                 return false;
             }
             if (first) {
-                *contact = seal::open_first(g_host_key, data, size, &g_contact, plain, capacity, plain_size);
+                *contact = key_exchange_allowed(from) &&
+                           seal::open_first(g_host_key, data, size, &g_contact, plain, capacity, plain_size);
                 return *contact;
             }
         }
@@ -1397,14 +1414,14 @@ void kick(size_t player) {
 }
 
 void leave() {
-    std::lock_guard lock(g_mutex);
+    std::unique_lock lock(g_mutex);
+    const bool hosted = g_mode == Mode::Hosting;
     if (g_mode == Mode::Hosting) {
         for (Member& m : g_members) {
             Writer w(kLeave);
             w.u64(m.secret);  // host -> member LEAVE carries the member's secret too (N2)
             send_sealed(g_socket, m.channel, m.addr, m.len, w);
         }
-        portmap::close();
     } else if (g_mode == Mode::Joined) {
         Writer w(kLeave);
         w.u64(g_member_secret);  // member -> host LEAVE carries the secret (J)
@@ -1418,6 +1435,12 @@ void leave() {
     g_joined_lobby = false;
     g_error.clear();
     g_notice.clear();
+    lock.unlock();
+    // The router's answer can take seconds: not with the lobby's lock held, which its thread and the
+    // page being drawn wait for.
+    if (hosted) {
+        portmap::close();
+    }
 }
 
 View view() {

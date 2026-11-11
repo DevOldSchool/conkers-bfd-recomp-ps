@@ -89,6 +89,9 @@ constexpr int kMinMouseSpeed = 25;
 constexpr int kMaxMouseSpeed = 400;
 int mouse_speed();
 void set_mouse_speed(int percent);
+// The aim speeds and inverts as input.cfg has them now: asked again once the data folder is the
+// launch's own (input_config::reload says why).
+void reload_input_settings();
 
 // How fast the right stick aims and turns the view, per port, as a percentage: the CONTROLS page's
 // STICK AIM row, kept in input.cfg. It scales the right stick as it goes into the record; the game

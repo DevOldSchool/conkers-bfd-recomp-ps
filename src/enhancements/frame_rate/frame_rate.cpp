@@ -4,7 +4,7 @@
 // func_80005020, the half steps in func_15116BAC, func_151169B4, func_151934B4 and func_8000BF60,
 // the frame counters in func_15043384 and func_151934B4, the menu repeat timers in func_151DE8F0,
 // the full steps in func_1508F9F4, the Doppler shift in func_80011624 and the heading easing in
-// func_1501B320, in config/us.toml.
+// func_1501B320, and the random chances, the swarm and the emitter below, in config/us.toml.
 //
 // The game logic already steps by the retraces its frame took: func_80004F00 copies the count since
 // the last frame started (D_8003B238) to D_800BE9E4, and the logic scales by it (D_800BE9A4 =
@@ -287,6 +287,77 @@ extern "C" void conker_60fps_step_ticks(uint8_t* rdram, gpr* ticks) {
     if (enabled() && static_cast<int32_t>(*ticks) == 1) {
         *ticks = static_cast<gpr>(2 * MEM_BU(0, kseg0(kHalfSteps)));
     }
+}
+
+// Random chances rolled once a frame: `if (rand() % 1000 < 300)` and the like, where rand is
+// func_150ADA20. At one retrace a frame they are rolled twice as often, so the event comes up twice
+// as often. Called right after the roll with its result in $v0: on a frame that takes no 30 Hz step,
+// the result becomes `miss`, a value the site's own test always reads as "not this time", so each
+// 30 Hz step rolls once, as at 30 fps. The sites (config/us.toml) were found by counting each call
+// site's rolls per retrace at both rates over the regression scenes, and their tests read from the
+// MIPS after the call.
+extern "C" void conker_60fps_chance(uint8_t* rdram, recomp_context* ctx, uint32_t miss) {
+    if (!conker::frame_rate::thirty_hz_step(rdram)) {
+        ctx->r2 = static_cast<gpr>(static_cast<int32_t>(miss));
+    }
+}
+
+// The same for func_150ADA68, the float roll in [0, 1] in $f0 (its 16 random bits times 1/65535),
+// at sites testing `roll < p` with p at most 1: 1.0, a roll it can return, never passes.
+extern "C" void conker_60fps_chance_float(uint8_t* rdram, recomp_context* ctx) {
+    if (!conker::frame_rate::thirty_hz_step(rdram)) {
+        ctx->f0.fl = 1.0f;
+    }
+}
+
+// A countdown in a register, lowered once a frame: it is put back on a frame that takes no 30 Hz
+// step, so it counts steps. func_15178268 (an insect of a swarm, scene 6) turns towards its target
+// when the low nibble of +0x18 reaches 0, then counts it down from 10 (2 near its target) by one a
+// frame, so at 60 fps it changed course twice as often.
+extern "C" void conker_60fps_countdown(uint8_t* rdram, gpr* count) {
+    if (!conker::frame_rate::thirty_hz_step(rdram)) {
+        *count = static_cast<gpr>(static_cast<int32_t>(*count) + 1);
+    }
+}
+
+// A bit flipped once a frame (an animation's two frames): kept as it was on a frame that takes no
+// 30 Hz step. func_15178268 flips bit 8 of the insect's +0x1C, its wings.
+extern "C" void conker_60fps_toggle(uint8_t* rdram, gpr* flipped, gpr before) {
+    if (!conker::frame_rate::thirty_hz_step(rdram)) {
+        *flipped = before;
+    }
+}
+
+// An emitter that adds its rate to a float accumulator once a frame, without the frame's delta, and
+// spawns a burst each time it passes 1: func_1515D130 (the emitters in the D_800A64A0 table, which
+// spawn through func_15152B38) adds rate + random * range in $f10. At 60 fps the addition is scaled
+// by the frame's delta (D_800BE9A4, 0.5 at one retrace a frame), so it spawns as often as at 30.
+extern "C" void conker_60fps_emitter_rate(uint8_t* rdram, float* rate) {
+    if (enabled()) {
+        *rate *= read_float(rdram, kFrameDelta);
+    }
+}
+
+// A particle stepped once a frame with no time step: func_1517A1EC (the water drops
+// func_150C79BC lets fall off Conker while he is wet, scene 11) adds its velocity (s16 +0xA0/+0xA2/+0xA4, +0xA2 subtracted from
+// +0x92) and spin (s8 +0x9C..+0x9E) to its position and angles (s16 +0x90..+0x9A), and adds 1 to
+// +0xA2 (gravity) when +0xAC is 5. Its lifetime (+0xA6) already counts retraces. On a frame that
+// takes no 30 Hz step, the step is taken back here before the function adds it again, so the
+// particle moves once a step; its random slowdowns roll 0 on those frames (conker_60fps_chance).
+extern "C" void conker_60fps_particle_step(uint8_t* rdram, recomp_context* ctx) {
+    if (conker::frame_rate::thirty_hz_step(rdram)) {
+        return;
+    }
+    const gpr particle = ctx->r4;
+    MEM_H(0x90, particle) = static_cast<int16_t>(MEM_H(0x90, particle) - MEM_H(0xA0, particle));
+    MEM_H(0x94, particle) = static_cast<int16_t>(MEM_H(0x94, particle) - MEM_H(0xA4, particle));
+    MEM_H(0x96, particle) = static_cast<int16_t>(MEM_H(0x96, particle) - MEM_B(0x9C, particle));
+    MEM_H(0x98, particle) = static_cast<int16_t>(MEM_H(0x98, particle) - MEM_B(0x9D, particle));
+    MEM_H(0x9A, particle) = static_cast<int16_t>(MEM_H(0x9A, particle) - MEM_B(0x9E, particle));
+    if (MEM_HU(0xAC, particle) == 5) {
+        MEM_H(0xA2, particle) = static_cast<int16_t>(MEM_H(0xA2, particle) - 1);
+    }
+    MEM_H(0x92, particle) = static_cast<int16_t>(MEM_H(0x92, particle) + MEM_H(0xA2, particle));
 }
 
 // func_80004DB0 starts a frame only if its framebuffer is neither the one the VI shows now

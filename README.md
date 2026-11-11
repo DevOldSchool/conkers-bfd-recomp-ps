@@ -52,9 +52,9 @@ cutscenes and the rest, listed in [docs/enhancements.md](docs/enhancements.md).
 ## Building
 
 [docs/building-ps5.md](docs/building-ps5.md) says how: Docker (Linux, or macOS on Apple silicon) and
-the code recompiled from your ROM by `tools/regenerate.sh`, then `tools/ps5/build.sh`. Every push to
-main builds the title in CI (`.github/workflows/ps5.yml`), and a version tag (`00.001.000`, the
-title's `contentVersion`) makes a draft release.
+the code recompiled from your ROM by `tools/regenerate.sh`, then `tools/ps5/build.sh`. CI
+(`.github/workflows/ps5.yml`) builds the title when started by hand, and a version tag (`00.001.000`,
+the title's `contentVersion`) builds it and makes a draft release.
 
 The home screen's background is the project's own picture (`assets/background.webp`) and its music
 is synthesised by `tools/ps5/make_home_music.py`; the game's own art and music are never used.

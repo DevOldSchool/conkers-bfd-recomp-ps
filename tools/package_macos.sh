@@ -7,7 +7,7 @@
 # Without a build dir, the newer of build/rt64 and cmake-build-relwithdebinfo-rt64 is packaged.
 # Build the RT64 renderer first. The app carries SDL2 (sdl2-compat) and the SDL3 it loads in
 # Contents/Frameworks and is signed ad hoc, not notarised: the first time, the tester opens it with
-# right click > Open, or clears the quarantine with `xattr -dr com.apple.quarantine "Conker's Bad Fur Day Recompiled.app"`.
+# Open Anyway in System Settings > Privacy & Security after a first try, or clears the quarantine with `xattr -dr com.apple.quarantine "Conker's Bad Fur Day Recompiled.app"`.
 # No ROM is packaged. Opened from Finder the app asks for the tester's own ROM once and keeps its data
 # and last-run.log in ~/Library/Application Support/ConkersBadFurDayRecompiled (src/platform/launch.hpp).
 # Contents/Resources/Licenses holds the licenses and SOURCE.txt (tools/package_notices.py); attach
@@ -36,6 +36,19 @@ fi
 if ! grep -q "Choose your Conker" "$binary"; then
     echo "$binary predates the packaged-app support (src/platform/launch_apple.mm): rebuild it" >&2
     exit 1
+fi
+# What is handed out names no folder of whoever built it: without its debug map (stripped below), the
+# game must not hold their home's path. A CI runner's is nobody's.
+if [ -z "${CI:-}" ]; then
+    probe="$(mktemp)"
+    cp "$binary" "$probe"
+    strip -S "$probe" 2> /dev/null
+    if strings -a "$probe" | grep -qF "$HOME/"; then
+        rm -f "$probe"
+        echo "$binary names $HOME: configure the build with -DCONKER_HIDE_PATHS=ON and build again (docs/releasing.md)" >&2
+        exit 1
+    fi
+    rm -f "$probe"
 fi
 # The built-in mods (tools/build_mods.sh, CONKER_EMBEDDED_MODS): a release always carries them.
 if ! grep -q '^CONKER_EMBEDDED_MOD_IDS:INTERNAL=.*conker_speedrun' "$build/CMakeCache.txt" 2>/dev/null; then
@@ -89,6 +102,9 @@ echo "==> $app ($version, $arch, macOS $minos or later)"
 rm -rf "$app" "$dist/ConkersBadFurDayRecompiled.dSYM" "$dist/Conker's Bad Fur Day.app" "$dist/ConkersBadFurDay.dSYM"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks"
 cp "$binary" "$app/Contents/MacOS/ConkersBadFurDayRecompiled"
+# Without the debug map: it lists every object file of the build by its full path, and the debug
+# information itself is in the dSYM made from the build's own binary below.
+strip -S "$app/Contents/MacOS/ConkersBadFurDayRecompiled"
 cp "$sdl2" "$app/Contents/Frameworks/libSDL2-2.0.0.dylib"
 cp "$sdl3" "$app/Contents/Frameworks/libSDL3.dylib"
 chmod u+w "$app/Contents/Frameworks/"*.dylib

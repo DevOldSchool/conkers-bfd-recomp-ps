@@ -2,14 +2,14 @@
 //
 // The wire: UDP datagrams, each sealed on the link between a guest and the host (net_seal.hpp: the
 // guest asks for the host's key first, and its HELLO comes in a FIRST). Inside, little-endian, the
-// handshake's packets have the magic "CKNA", a type, the session id (0 in a HELLO) and the guest's
+// handshake's packets have the magic "CKNB", a type, the session id (0 in a HELLO) and the guest's
 // secret: 64 random bits the guest picks and sends in its HELLO, then in every handshake packet either
 // way between it and the host. A datagram whose secret is not its sender's is ignored, and a dropped
 // player's port can be taken back only with its secret. INPUT and MERGED, a packet every frame, have
 // only their type and a flags byte: the link they open on is that peer's own (a guest's keys are
 // made for its join), which already says what the session and secret would. Inputs need no reliable
 // channel: every INPUT and MERGED carries every frame the other side has not acknowledged yet (up to
-// 16), one goes every frame, and the tick resends to a link with nothing sent for 100 ms (10 ms while
+// 32), one goes every frame, and the tick resends to a link with nothing sent for 100 ms (10 ms while
 // a game waits), so a lost datagram costs little. Records go as the fields that changed from the
 // record before; frame numbers as varints (CONKER_NET_STATS counts it all: net_stats.hpp). The
 // handshake (the session blob in chunks, START) is resent until answered.
@@ -59,6 +59,7 @@
 #include "build_version.h"
 #include "miniz.h"
 
+#include "enhancements/frame_rate/frame_rate.hpp"
 #include "platform/audio.hpp"
 #include "platform/display_mode.hpp"
 #include "platform/process.hpp"
@@ -92,11 +93,17 @@ using Clock = std::chrono::steady_clock;
 
 inline gpr kseg0(uint32_t address) { return static_cast<gpr>(static_cast<int32_t>(address)); }
 
-constexpr uint32_t kMagic = 0x414E4B43;     // "CKNA": inside sealed datagrams (net_seal.hpp)
+constexpr uint32_t kMagic = 0x424E4B43;     // "CKNB": inside sealed datagrams (net_seal.hpp)
 constexpr uint32_t kCookiePurpose = 0x4E;   // address_cookie's purpose for a session's HELLO
 constexpr int kPorts = conker::input::kPorts;
 constexpr uint32_t kRing = 1024;          // frames of inputs, merged records and hashes kept
-constexpr uint32_t kFramesPerPacket = 16;
+// A packet's records start at the first frame its receiver has not acknowledged, so a round trip longer
+// than a packet's frames kept the newest ones waiting for an acknowledgement: at 16, a 60 fps session
+// past a 266 ms round trip had its records late whatever the input delay (which goes to 500 ms). As many
+// as the delay's longest round trip takes, then, within kRecordBytes: what 16 whole MERGED records take
+// (a mask, four ports of 14 bytes and the tail), so the largest packet is no larger than it was.
+constexpr uint32_t kFramesPerPacket = 32;
+constexpr size_t kRecordBytes = 16 * 60;
 constexpr uint8_t kTailChanged = 0x10;  // a MERGED record mask bit: its held/dropped/snapshot bytes follow
 constexpr uint8_t kAfterBase = 0x20;    // the first record's mask bit: changes from frame first - 1, which
                                         // the receiver has (it acknowledged it), not the whole record
@@ -138,7 +145,19 @@ constexpr int64_t kStuckAfterMs = 3000;
 constexpr int64_t kHostStuckAfterMs = 2 * kStuckAfterMs;
 constexpr int64_t kStallShownMs = 1000;   // "waiting for" stays up this long after a stall
 constexpr int64_t kStallCountsMs = 100;   // shorter waits are not shown
-constexpr int kMaxDelay = 15;
+// The most frames of input delay: half a second at 30 fps, and the same half second at 60, where a
+// frame is half as long (session_delay_frames).
+constexpr int kMaxDelay = 30;
+// A guest's own input delay follows its link (own_delay): the round trip it is sized for is the middle
+// one of the last three measured (one a second), with kDelaySlackMs to spare; it comes down a frame at a
+// time, kDelayDownStepMs apart, once it has been more than the longest of the three needs for
+// kDelayDownAfterMs. The middle one,
+// because one late packet is not the link: sized for the longest of the last three, a guest on Wi-Fi
+// 4 ms from the host went up to 7 frames at 60 fps and back, over and over, on round trips of 20 to 86 ms
+// that came once each and held nobody up.
+constexpr int kDelaySlackMs = 15;
+constexpr int64_t kDelayDownAfterMs = 4000;
+constexpr int64_t kDelayDownStepMs = 1000;
 // A rejoining guest replays the host's merged records from frame 1 with the game's time running
 // this much faster, until it is within kLiveWithin frames of the host, which then has it play from
 // kLiveLead frames on. The game itself manages about 4.7x: every frame waits for RT64 to draw it and
@@ -151,14 +170,32 @@ constexpr uint32_t kSnapCatchUpFrom = 8; // or this, just after a snapshot is pu
 constexpr uint32_t kLiveWithin = 90;
 constexpr uint32_t kLiveLead = 120;
 // From a snapshot a guest is only the few frames behind that the snapshot took to make and send, and
-// catches them up from the first (kSnapCatchUpFrom), so its lead is sized to that gap: at about 4.5x it
-// gains 3.5 frames a frame, so a third of the gap, two round trips for the word to reach it, and
-// kSnapLeadMargin to spare (on a LAN a gap of 23 frames was caught up in 0.2 s). After a snapshot it
-// catches up to within a frame of its input delay, so it is not left behind at the live frame.
-constexpr uint32_t kSnapLeadMargin = 8;
+// catches them up from the first (kSnapCatchUpFrom), so its lead is sized to that gap (measured once it
+// has played, and so drawn, its first frame: rejoin_tick), with two round trips for the word to reach it
+// and kSnapLeadMargin to spare. After a snapshot it catches up to within a frame of its input delay, so
+// it is not left behind at the live frame.
+// The lead is what the host's game is spared: if the host reaches the live frame first, every player
+// waits for the one coming back. A lead longer than needed costs only the returning player, who
+// watches for that much longer before playing. So it is sized for a slow machine: a game catching up
+// runs about 115 frames a second on an M1 (one frame in kCatchUpDrawEvery drawn), and the lead here
+// is enough at 60 (the gap at 30 fps, where it then gains a frame a frame, and twice the gap at 60 fps,
+// which is enough from 90). A third of the gap at 30 fps and the whole gap at 60 were enough only for the
+// fast machine with nothing else to do: the host waited 0.25 to 0.65 s at most live frames.
+constexpr uint32_t kSnapLeadMargin = 8;  // in 30 fps frames
+// The host does not wait at a live frame. A guest that was not there (too slow to catch up in the lead,
+// or stopped for a moment on its way) held every player at it, for up to kStuckAfterMs when it could not
+// get there at all. Once the host's game has waited kLiveGraceMs at one (an input a few ms late is not a
+// guest left behind), the frame moves on instead, by a lead twice as long each time, the port still
+// dropped until it: only the returning player waits longer. A guest not there kMaxLiveMoves times over
+// is dropped as any other that does not keep up (it may come back, within kMaxDrops).
+// CONKER_NET_TEST_LATE=<ms> stops a guest for that long when it is told its live frame, to see it.
+constexpr int kMaxLiveMoves = 3;
+constexpr int64_t kLiveGraceMs = 30;
 uint32_t snap_live_lead(uint32_t gap, int rtt_ms) {
-    const uint32_t trips = static_cast<uint32_t>(std::max(rtt_ms, 0)) * 2 / 33 + 1;
-    return std::min(kLiveLead, kSnapLeadMargin + gap / 3 + trips);
+    const bool sixty = conker::frame_rate::sixty_fps();
+    // Two round trips in the session's frames (half as long at 60 fps).
+    const uint32_t trips = static_cast<uint32_t>(std::max(rtt_ms, 0)) * 2 / (sixty ? 16 : 33) + 1;
+    return std::min(sixty ? 2 * kLiveLead : kLiveLead, (sixty ? 2 : 1) * (kSnapLeadMargin + gap) + trips);
 }
 // A frame number from the wire no session reaches (over a year at 60 a second), and far enough from
 // 2^32 that frame + kRing and the like never wrap: a snapshot's, the host's last merged frame or a drop
@@ -174,6 +211,18 @@ constexpr uint32_t kSnapFrameSlack = 30 * 60;
 constexpr int64_t kCatchUpCheckMs = 4000;
 constexpr int kMaxDesyncs = 2;          // a player out of sync this often cannot rejoin
 constexpr int kMaxDrops = 4;            // nor one dropped this often for any reason (a loop of rejoins)
+// Nor a port whose machine has come back this often: coming back and going quiet is not a drop, and
+// each time had the host take and send a snapshot of its game (a HELLO, READY, STARTED and SNAPWANT
+// over and over, from a machine with the session's token).
+constexpr int kMaxRejoins = 2 * kMaxDrops;
+// A guest the host has waited for more than two thirds of the time, for this long in all, is dropped as
+// one whose game does not move on: an input frame every few seconds kept the wait below kStuckAfterMs
+// each time, and the whole session at that pace for as long as its sender liked. Counted while the
+// host's game waits for that port, and counted back down at twice the rate while it does not: a slow
+// level load is a second or two once, and a link that has just got slower is waited for until the
+// guest's own input delay has followed it (own_delay), a few seconds: neither reaches this. Below a
+// third of its speed the game is no one's. CONKER_NET_TEST_SLOW (frame) makes a guest that slow.
+constexpr int64_t kSlowAfterMs = 10000;
 constexpr size_t kEepromSize = 0x800;     // 16 kbit
 constexpr size_t kChunkSize = 1024;
 constexpr size_t kMaxPacket = 1500;
@@ -422,6 +471,10 @@ int g_local_port = 0;
 uint8_t g_ports = 0;         // the session's ports, a bit each (the host adds a newcomer's)
 uint8_t g_start_ports = 0;   // the ports held when the session started
 int g_delay = 2;
+// A guest, under g_mutex: its own input delay when its link needs more than the session's (own_delay),
+// and when it last changed. 0: the session's.
+int g_own_delay = 0;
+int64_t g_own_delay_at = 0;
 std::string g_settings;      // the host's replay header lines
 bool g_wide = false;         // the host's widescreen: the game's culling works to 16:9 for everyone
 std::vector<uint8_t> g_eeprom;
@@ -481,11 +534,16 @@ struct Peer {
                                // merged records), 0 before its first frame
     uint32_t blocking_frame = 0;  // the host: the frame it has waited for this guest's input of, if any,
     int64_t blocking_since = 0;   // and since when
+    int live_moves = 0;           // the host: how often this guest's live frame has moved on (kMaxLiveMoves)
+    int64_t live_wait_since = 0;  // the host: since when its game has waited at this guest's live frame
+    int64_t slow_ms = 0;          // the host: how long its game has waited for this guest (kSlowAfterMs),
+    int64_t slow_at = 0;          // and when that was last counted
     uint32_t acked = 0;        // the host: the merged frames this guest has; a guest: its inputs the host has
     uint32_t sent_upto = 0;    // the newest record sent to it (CONKER_NET_STATS counts the new ones)
     uint32_t echo = 0;         // the peer's last send time, to echo
     int64_t echo_at = 0;       // when it came
     int rtt = -1;
+    int rtt_recent[3] = {-1, -1, -1};  // the last round trips measured (one a second), newest first
     bool ready = false;        // the host: the guest has the whole blob
     bool started = false;      // the host: the guest saw START
     bool dropped = false;      // the host: the guest is dropped (g_drop_frame)
@@ -496,8 +554,14 @@ struct Peer {
     std::shared_ptr<const std::vector<uint8_t>> snap;
     uint32_t snap_frame = 0;
     std::vector<bool> snap_acked;
+    std::vector<int64_t> snap_sent_at;  // when each chunk last went (0: not yet)
     size_t snap_next = 0;
     int64_t snap_since = 0;
+    int snap_pace = 0;             // chunks a tick (kSnapChunksPerTick says how it moves)
+    bool snap_doubling = false;    // no chunk has been late yet
+    bool snap_late = false;        // since snap_pace_at: a chunk was sent again,
+    bool snap_held = false;        // and the pace kept some back
+    int64_t snap_pace_at = 0;
     bool used_snapshot = false;  // rejoined from one, not yet playing again
     // The host: a guest of a session started in place (the lobby's START), or one rejoining in place,
     // whose game becomes the host's only from a snapshot: it plays its port once it has played past
@@ -524,6 +588,11 @@ uint8_t g_drop_reason[kPorts] = {};
 uint32_t g_live_frame[kPorts] = {};
 int g_desyncs[kPorts] = {};          // the host: how often each port's player was out of sync
 int g_drops[kPorts] = {};            // the host: how often each port's player was dropped
+int g_rejoins[kPorts] = {};          // the host: how often a machine came back for each port
+// The host, under g_mutex: whether the port's player may still come back.
+bool may_return(int port) {
+    return g_desyncs[port] < kMaxDesyncs && g_drops[port] < kMaxDrops && g_rejoins[port] < kMaxRejoins;
+}
 uint32_t g_rejoin_from = 0;          // a rejoining guest: its port's drop frame when it came back
 
 // Rejoining from a snapshot of the host's game (runtime/snapshot.hpp) instead of replaying the
@@ -536,7 +605,18 @@ uint32_t g_rejoin_from = 0;          // a rejoining guest: its port's drop frame
 // say) it replays from frame 1 as before; if its game then differs from the host's, the host has it
 // start again and replay (the port's snapshots are off from then on).
 constexpr size_t kSnapChunkSize = 1024;
-constexpr int kSnapChunksPerTick = 32;  // 3.2 MB/s
+// The chunks go at a pace the link shows it takes, not all at once: 32 a tick to each guest was
+// 28 Mbit/s each, with nothing held back for what was already on its way, so over a home uplink a
+// join (and a lobby's START, every guest at once) crowded out everyone's input packets and sent most
+// chunks twice. A chunk is sent again only once it has had time to be acknowledged; the pace starts
+// low, doubles every kSnapPaceEveryMs while every chunk is acknowledged in time, halves when one is
+// not and then grows by one. A guest on this network may be sent up to the old 3.2 MB/s; one further
+// away about 5 Mbit/s (a snapshot in two seconds), which most uplinks carry beside the game.
+constexpr int kSnapChunksPerTick = 32;
+constexpr int kSnapChunksPerTickAway = 6;
+constexpr int kSnapChunksAtFirst = 4;
+constexpr int64_t kSnapPaceEveryMs = 100;
+constexpr int64_t kSnapAgainAfterMs = 250;  // or three round trips, if that is longer
 constexpr int64_t kSnapWaitMs = 30000;
 bool g_snap_failed[kPorts] = {};              // the host: a snapshot did not work for this port
 std::atomic<bool> g_snap_requested{false};    // the host: mark the next frame merged for one
@@ -553,6 +633,7 @@ std::atomic<bool> g_snap_waiting{false};      // a guest's game waits for it
 int64_t g_snap_first_at = 0;                  // a guest: when the snapshot's first chunk came
 int64_t g_join_start = 0;                     // a guest: when it began joining
 bool g_live_announced = false;                // a rejoining guest: said when it plays again
+bool g_live_moved = false;                    // a guest, under g_mutex: the host moved its live frame on
 std::atomic<bool> g_catching_up{false};
 // A guest catching up (frame(), game thread): when it began, from which frame, the current check of
 // whether it is catching up at all, whether it has caught up (once only: a guest catches up after
@@ -634,6 +715,7 @@ const bool g_snapshot_fields = (conker::snapshot::add_bools("net_play.unplugged"
 uint32_t g_stopped_frame = 0;        // under g_mutex: the frame it stopped from
 uint8_t g_host_waiting_for = 0;   // a guest: the ports the host's last MERGED said it waited for
 std::atomic<bool> g_waiting{false};
+std::atomic<uint32_t> g_waiting_frame{0};  // the frame the game waits (or last waited) for the record of
 std::atomic<bool> g_queue_made{false};
 std::atomic<int64_t> g_stall_seen{0};  // when a stall longer than kStallCountsMs was last seen
 std::atomic<int> g_stall_port{-1};
@@ -702,11 +784,12 @@ std::string address_text(const sockaddr_storage& addr, socklen_t /*len*/) {
 
 // --- the network simulator ------------------------------------------------------------------------
 //
-// CONKER_NET_SIM=latency=<ms>,jitter=<ms>,loss=<%>,dup=<%>,reorder=<%>,outage=<from>-<to> makes this
+// CONKER_NET_SIM=latency=<ms>,jitter=<ms>,loss=<%>,dup=<%>,reorder=<%>,outage=<from>-<to>,slow=<from>-<to>:<ms> makes this
 // peer's link worse, for testing: every datagram it sends and receives waits half the round trip
 // `latency` plus up to `jitter` (so the one peer with it has that round trip to everyone), `loss`
 // of those it sends are lost, `dup` sent twice and `reorder` held back 40 ms more, past the next
-// ones; from `from` to `to` seconds after the session starts nothing gets through either way.
+// ones; from `from` to `to` seconds after the session starts nothing gets through either way
+// (`outage`), or the round trip is `ms` instead of `latency` (`slow`: a link that gets worse for a while).
 
 struct Sim {
     bool on = false;
@@ -717,6 +800,9 @@ struct Sim {
     double reorder = 0;
     int64_t outage_from = -1;  // s after the session starts
     int64_t outage_to = -1;
+    int64_t slow_from = -1;    // s after the session starts: the round trip is slow_latency until slow_to
+    int64_t slow_to = -1;
+    int slow_latency = 0;
 };
 
 const Sim g_sim = [] {
@@ -744,12 +830,15 @@ const Sim g_sim = [] {
         else if (key == "reorder") sim.reorder = std::atof(number.c_str());
         else if (key == "outage") std::sscanf(number.c_str(), "%lld-%lld", reinterpret_cast<long long*>(&sim.outage_from),
                                               reinterpret_cast<long long*>(&sim.outage_to));
+        else if (key == "slow") std::sscanf(number.c_str(), "%lld-%lld:%d", reinterpret_cast<long long*>(&sim.slow_from),
+                                            reinterpret_cast<long long*>(&sim.slow_to), &sim.slow_latency);
         else std::fprintf(stderr, "[conker] CONKER_NET_SIM: unknown %s\n", key.c_str());
         at = end + 1;
     }
     std::printf("[conker] net: simulating a link: %d ms round trip, jitter %d ms, loss %.1f%%, dup %.1f%%, reorder "
-                "%.1f%%, outage %lld-%lld s\n", sim.latency, sim.jitter, sim.loss, sim.dup, sim.reorder,
-                static_cast<long long>(sim.outage_from), static_cast<long long>(sim.outage_to));
+                "%.1f%%, outage %lld-%lld s, %d ms round trip at %lld-%lld s\n", sim.latency, sim.jitter, sim.loss, sim.dup,
+                sim.reorder, static_cast<long long>(sim.outage_from), static_cast<long long>(sim.outage_to),
+                sim.slow_latency, static_cast<long long>(sim.slow_from), static_cast<long long>(sim.slow_to));
     return sim;
 }();
 
@@ -768,7 +857,10 @@ std::atomic<int64_t> g_session_start{0};
 bool sim_chance(double percent) { return percent > 0 && std::uniform_real_distribution<double>(0, 100)(g_sim_random) < percent; }
 
 int64_t sim_delay() {
-    int64_t delay = g_sim.latency / 2;
+    const int64_t start = g_session_start.load();
+    const int64_t seconds = start != 0 ? (now_ms() - start) / 1000 : -1;
+    const bool slow = g_sim.slow_from >= 0 && seconds >= g_sim.slow_from && seconds < g_sim.slow_to;
+    int64_t delay = (slow ? g_sim.slow_latency : g_sim.latency) / 2;
     if (g_sim.jitter > 0) {
         delay += std::uniform_int_distribution<int>(0, g_sim.jitter)(g_sim_random);
     }
@@ -893,6 +985,9 @@ void read_times(Reader& r, Peer& peer) {
         const int64_t rtt = static_cast<int64_t>(static_cast<uint32_t>(now) - echo) - held;
         if (rtt >= 0 && rtt < 10000) {
             peer.rtt = peer.rtt < 0 ? static_cast<int>(rtt) : (peer.rtt * 7 + static_cast<int>(rtt)) / 8;
+            peer.rtt_recent[2] = peer.rtt_recent[1];
+            peer.rtt_recent[1] = peer.rtt_recent[0];
+            peer.rtt_recent[0] = static_cast<int>(rtt);
         }
     }
 }
@@ -928,7 +1023,10 @@ struct Detail {
 };
 Detail g_details[kDetailFrames];  // under g_mutex
 
-void hash_blocks(const uint8_t* rdram, uint32_t* out) {
+// The game's hash, made of its blocks' so that the memory is read once a frame, not once for each
+// (the two passes were 1.6 ms of a frame's 33 on an M1 Pro, half of it this).
+uint64_t hash_game(const uint8_t* rdram, uint32_t* blocks) {
+    uint64_t game = 0x9E3779B97F4A7C15ull;
     for (uint32_t b = 0; b < kDetailBlocks; b++) {
         const uint32_t start = std::max(kDetailFirst + b * kDetailBlock, kHashStart);
         const uint32_t end = std::min(kDetailFirst + (b + 1) * kDetailBlock, kHashEnd);
@@ -942,8 +1040,11 @@ void hash_blocks(const uint8_t* rdram, uint32_t* out) {
             at = skip.end;
         }
         hash = hash_words(rdram, at, end, hash);
-        out[b] = static_cast<uint32_t>(hash ^ (hash >> 32));
+        blocks[b] = static_cast<uint32_t>(hash ^ (hash >> 32));
+        game = (game ^ hash) * 0xFF51AFD7ED558CCDull;
+        game ^= game >> 32;
     }
+    return game;
 }
 
 // Online the renderer writes nothing it drew into game memory (game_memory_end), the depth buffer
@@ -1016,16 +1117,6 @@ void clear_depth(uint8_t* rdram) {
             std::memcpy(rdram + at, &clear, 2);
         }
     }
-}
-
-uint64_t hash_game(const uint8_t* rdram) {
-    uint64_t hash = 0x9E3779B97F4A7C15ull;
-    uint32_t at = kHashStart;
-    for (const Range& skip : kHashSkips) {
-        hash = hash_words(rdram, at, skip.start, hash);
-        at = skip.end;
-    }
-    return hash_words(rdram, at, kHashEnd, hash);
 }
 
 void wake_game_thread();
@@ -1172,9 +1263,9 @@ void keep_memory(const uint8_t* rdram, uint32_t frame) {
     copy.frame = frame;
 }
 
-// The kept frames to path, on a thread of its own: "CKRAM1", the start address (physical), the size
-// and the count, then for each frame its number, the compressed size and zlib data, of the bytes
-// themselves for the first and of their XOR with the frame before for the others.
+// The kept frames to path (on the desync files' own thread): "CKRAM1", the start address (physical),
+// the size and the count, then for each frame its number, the compressed size and zlib data, of the
+// bytes themselves for the first and of their XOR with the frame before for the others.
 void write_memory_dump(const std::filesystem::path& path) {
     std::vector<MemoryCopy> frames;
     {
@@ -1186,72 +1277,82 @@ void write_memory_dump(const std::filesystem::path& path) {
         }
     }
     std::sort(frames.begin(), frames.end(), [](const MemoryCopy& a, const MemoryCopy& b) { return a.frame < b.frame; });
-    std::thread([frames = std::move(frames), path] {
-        FILE* file = std::fopen(path.string().c_str(), "wb");
-        if (file == nullptr) {
-            return;
-        }
-        const auto u32 = [&](uint32_t value) { std::fwrite(&value, 4, 1, file); };
-        std::fwrite("CKRAM1", 1, 6, file);
-        u32(kHashStart);
-        u32(kHashEnd - kHashStart);
-        u32(static_cast<uint32_t>(frames.size()));
-        std::vector<uint8_t> delta(kHashEnd - kHashStart);
-        std::vector<uint8_t> packed(compressBound(static_cast<uLong>(delta.size())));
-        for (size_t i = 0; i < frames.size(); i++) {
-            for (size_t b = 0; b < delta.size(); b++) {
-                delta[b] = i == 0 ? frames[i].bytes[b] : frames[i].bytes[b] ^ frames[i - 1].bytes[b];
-            }
-            uLongf size = static_cast<uLongf>(packed.size());
-            if (compress2(packed.data(), &size, delta.data(), static_cast<uLong>(delta.size()), 1) != Z_OK) {
-                break;
-            }
-            u32(frames[i].frame);
-            u32(static_cast<uint32_t>(size));
-            std::fwrite(packed.data(), 1, size, file);
-        }
-        std::fclose(file);
-        std::printf("[conker] net: this machine's game memory of its last %zu frames is in %s\n", frames.size(),
-                    path.filename().string().c_str());
-    }).detach();
-}
-
-// Under g_mutex: this machine's hashes of the last frames it played, to compare with the other
-// machine's when a player went out of sync (conker-recomp-data/net/desync-...).
-void write_hash_log(const char* role, int port, uint32_t frame) {
-    const std::filesystem::path folder = conker::data_folder() / "net";
-    std::error_code error;
-    std::filesystem::create_directories(folder, error);
-    prune_hash_logs(folder);
-    char name[96];
-    std::snprintf(name, sizeof(name), "desync-%08x-p%d-f%u-%s.txt", g_session, port + 1, frame, role);
-    FILE* file = std::fopen((folder / name).string().c_str(), "w");
+    FILE* file = std::fopen(path.string().c_str(), "wb");
     if (file == nullptr) {
         return;
     }
+    const auto u32 = [&](uint32_t value) { std::fwrite(&value, 4, 1, file); };
+    std::fwrite("CKRAM1", 1, 6, file);
+    u32(kHashStart);
+    u32(kHashEnd - kHashStart);
+    u32(static_cast<uint32_t>(frames.size()));
+    std::vector<uint8_t> delta(kHashEnd - kHashStart);
+    std::vector<uint8_t> packed(compressBound(static_cast<uLong>(delta.size())));
+    for (size_t i = 0; i < frames.size(); i++) {
+        for (size_t b = 0; b < delta.size(); b++) {
+            delta[b] = i == 0 ? frames[i].bytes[b] : frames[i].bytes[b] ^ frames[i - 1].bytes[b];
+        }
+        uLongf size = static_cast<uLongf>(packed.size());
+        if (compress2(packed.data(), &size, delta.data(), static_cast<uLong>(delta.size()), 1) != Z_OK) {
+            break;
+        }
+        u32(frames[i].frame);
+        u32(static_cast<uint32_t>(size));
+        std::fwrite(packed.data(), 1, size, file);
+    }
+    std::fclose(file);
+    std::printf("[conker] net: this machine's game memory of its last %zu frames is in %s\n", frames.size(),
+                path.filename().string().c_str());
+}
+
+// Under g_mutex: this machine's hashes of the last frames it played, to compare with the other
+// machine's when a player went out of sync (conker-recomp-data/net/desync-...). Only the text is made
+// here: the folder's old files, the file and the memory beside it are a thread's own work, since
+// every frame and every packet of the session waits for this lock.
+void write_hash_log(const char* role, int port, uint32_t frame) {
+    char name[96];
+    std::snprintf(name, sizeof(name), "desync-%08x-p%d-f%u-%s.txt", g_session, port + 1, frame, role);
+    std::string text;
+    char line[32];
     const uint32_t from = g_own_hash_upto > kHashLogFrames ? g_own_hash_upto - kHashLogFrames + 1 : 1;
     for (uint32_t f = from; f <= g_own_hash_upto; f++) {
         if (const uint64_t* hash = own_hash(f)) {
-            std::fprintf(file, "%u %016llx\n", f, static_cast<unsigned long long>(*hash));
+            std::snprintf(line, sizeof(line), "%u %016llx\n", f, static_cast<unsigned long long>(*hash));
+            text += line;
         }
     }
-    std::fprintf(file, "# 64 KiB block hashes from 0x%08x: b <frame> <block hashes> (tools/net-test/compare_desync.py)\n",
-                 0x80000000u + kDetailFirst);
+    std::snprintf(line, sizeof(line), "0x%08x", 0x80000000u + kDetailFirst);
+    text += "# 64 KiB block hashes from " + std::string(line) + ": b <frame> <block hashes> (tools/net-test/compare_desync.py)\n";
     for (uint32_t f = from; f <= g_own_hash_upto; f++) {
         const Detail& detail = g_details[f % kDetailFrames];
         if (detail.frame != f) {
             continue;
         }
-        std::fprintf(file, "b %u", f);
+        text += "b " + std::to_string(f);
         for (uint32_t block : detail.blocks) {
-            std::fprintf(file, " %08x", block);
+            std::snprintf(line, sizeof(line), " %08x", block);
+            text += line;
         }
-        std::fputc('\n', file);
+        text += '\n';
     }
-    std::fclose(file);
-    std::printf("[conker] net: this machine's hashes are in conker-recomp-data/net/%s\n", name);
-    prune_hash_logs(folder, ".ram", kMemoryDumpsKept);
-    write_memory_dump((folder / name).replace_extension(".ram"));
+    std::thread([text = std::move(text), name = std::string(name)] {
+        // One at a time: two drops close together would prune each other's files as they are written.
+        static std::mutex files;
+        std::lock_guard lock(files);
+        const std::filesystem::path folder = conker::data_folder() / "net";
+        std::error_code error;
+        std::filesystem::create_directories(folder, error);
+        prune_hash_logs(folder);
+        FILE* file = std::fopen((folder / name).string().c_str(), "w");
+        if (file == nullptr) {
+            return;
+        }
+        std::fwrite(text.data(), 1, text.size(), file);
+        std::fclose(file);
+        std::printf("[conker] net: this machine's hashes are in conker-recomp-data/net/%s\n", name.c_str());
+        prune_hash_logs(folder, ".ram", kMemoryDumpsKept);
+        write_memory_dump((folder / name).replace_extension(".ram"));
+    }).detach();
 }
 
 // The host: a guest's hashes.
@@ -1364,7 +1465,15 @@ void send_updates(bool whole = false, bool tick = false, int64_t every = 0) {
     const int64_t sent_at = now_ms();
     if (is_host()) {
         for (Peer& peer : g_peers) {
-            if (!peer.started || !update_due(peer, tick, every, sent_at)) {
+            // A dropped guest is told of its drop (below) on the tick only: at the tick's own pace for
+            // the second after it, then once a second while its machine still sends, then not at all.
+            // A packet went to it with every frame merged, for the rest of the session.
+            const bool gone = peer.dropped && !peer.rejoining;
+            if (gone && (!tick || (sent_at - peer.dropped_at >= kDropAfterMs && sent_at - peer.last_heard >= kDropAfterMs))) {
+                continue;
+            }
+            const int64_t pace = gone && sent_at - peer.dropped_at >= kDropsFreshMs ? kWholeEveryMs : every;
+            if (!peer.started || !update_due(peer, tick, pace, sent_at)) {
                 continue;
             }
             namespace stats = conker::net::stats;
@@ -1374,8 +1483,8 @@ void send_updates(bool whole = false, bool tick = false, int64_t every = 0) {
             const uint32_t first = std::max(peer.acked + 1, static_cast<uint32_t>(g_delay + 1));
             // A dropped guest gets no more records, only the drops, so that one out of sync learns it;
             // a rejoining one gets them from the start, from the history.
-            const uint32_t count = (!peer.dropped || peer.rejoining) && first <= g_merged_upto
-                                       ? std::min(g_merged_upto - first + 1, kFramesPerPacket) : 0;
+            const uint32_t wanted = (!peer.dropped || peer.rejoining) && first <= g_merged_upto
+                                        ? std::min(g_merged_upto - first + 1, kFramesPerPacket) : 0;
             // A playing guest has its own port's input (the host merged its frames from it), so its
             // port is left out unless it asks for it (it lacks a frame's, after a snapshot say).
             const bool omit_own = !peer.dropped && !peer.rejoining && !peer.wants_own_port;
@@ -1396,14 +1505,6 @@ void send_updates(bool whole = false, bool tick = false, int64_t every = 0) {
                 write_times(w, peer);
             }
             const size_t times_end = w.size;
-            w.uvar(first);
-            w.u8(static_cast<uint8_t>(count));
-            w.uvar(g_merged_upto + 1 - first - count);  // first + count - 1 <= g_merged_upto
-            w.svar(static_cast<int32_t>(g_input_upto[peer.port] - g_merged_upto));
-            if (missing != 0) {
-                w.u8(missing);
-            }
-            const size_t frames_end = w.size;
             // Each record as its changes from the one before: a mask (bit p for port p, bit 4 for the
             // held/dropped/snapshot bytes) then what it names; the first in the packet whole. A record
             // was 71 bytes and up to 16 went 100 times a second, repeated until acknowledged, ~1-2
@@ -1413,7 +1514,15 @@ void send_updates(bool whole = false, bool tick = false, int64_t every = 0) {
             Port before[kPorts] = {};
             Mouse before_mice[kPorts] = {};
             uint8_t before_tail[3] = {};
-            const bool after_base = !whole && first > static_cast<uint32_t>(g_delay) + 1;
+            // A guest coming back has no record to take changes from until its first one is in: the
+            // snapshot puts it at a frame whose record it never had, and as changes its first record was
+            // refused until the tick's whole packet, once a second, so its game (and then every
+            // player's, at the frame it was to play from) waited most of a second.
+            // It has caught up, by the host's count, as soon as its snapshot is in place when the host is
+            // near enough (rejoin_tick), which is before it has any record: so also until it has the
+            // record of its snapshot's frame.
+            const bool after_base = !whole && !peer.rejoining && first > peer.snap_frame &&
+                                    first > static_cast<uint32_t>(g_delay) + 1;
             if (after_base) {
                 const Merged& base = g_history[first - static_cast<uint32_t>(g_delay) - 2];
                 for (int port = 0; port < kPorts; port++) {
@@ -1424,7 +1533,11 @@ void send_updates(bool whole = false, bool tick = false, int64_t every = 0) {
                 before_tail[1] = base.dropped;
                 before_tail[2] = base.snapshot;
             }
-            for (uint32_t frame = first; frame < first + count; frame++) {
+            // The records first, apart: how many go is known once they are written (kRecordBytes).
+            Writer body;
+            uint32_t count = 0;
+            for (uint32_t frame = first; frame < first + wanted; frame++) {
+                const size_t record_start = body.size;
                 const Merged& record = g_history[frame - static_cast<uint32_t>(g_delay) - 1];
                 const uint8_t tail[3] = {record.held, record.dropped, record.snapshot};
                 const bool all = frame == first && !after_base;
@@ -1441,19 +1554,33 @@ void send_updates(bool whole = false, bool tick = false, int64_t every = 0) {
                 if (all || std::memcmp(tail, before_tail, 3) != 0) {
                     mask |= kTailChanged;
                 }
-                w.u8(mask);
+                body.u8(mask);
                 for (int port = 0; port < kPorts; port++) {
                     if ((mask & (1 << port)) != 0) {
-                        write_port(w, fields[port], record.ports[port], record.mice[port]);
+                        write_port(body, fields[port], record.ports[port], record.mice[port]);
                     }
                     before[port] = record.ports[port];
                     before_mice[port] = record.mice[port];
                 }
                 if ((mask & kTailChanged) != 0) {
-                    w.bytes(tail, 3);
+                    body.bytes(tail, 3);
                 }
                 std::memcpy(before_tail, tail, 3);
+                if (body.size > kRecordBytes && count != 0) {
+                    body.size = record_start;  // the next packet's
+                    break;
+                }
+                count++;
             }
+            w.uvar(first);
+            w.u8(static_cast<uint8_t>(count));
+            w.uvar(g_merged_upto + 1 - first - count);  // first + count - 1 <= g_merged_upto
+            w.svar(static_cast<int32_t>(g_input_upto[peer.port] - g_merged_upto));
+            if (missing != 0) {
+                w.u8(missing);
+            }
+            const size_t frames_end = w.size;
+            w.bytes(body.data, body.size);
             const size_t records_end = w.size;
             if (send_drops) {
                 // The ports with any, a bit each, then each one's drop frame, reason and live frame.
@@ -1503,13 +1630,18 @@ void send_updates(bool whole = false, bool tick = false, int64_t every = 0) {
     const size_t header_end = w.size;
     const uint32_t upto = g_input_upto[g_local_port];
     const uint32_t first = std::max(host.acked + 1, static_cast<uint32_t>(g_delay + 1));
-    const uint32_t count = first <= upto ? std::min(upto - first + 1, kFramesPerPacket) : 0;
+    const uint32_t wanted = first <= upto ? std::min(upto - first + 1, kFramesPerPacket) : 0;
     // The records: each as MERGED's ports, its changed fields (a mask of 0 when none), the first's
     // from frame first - 1 (which the host has acknowledged) unless whole, then from nothing pressed.
     Port before{};
     Mouse before_mouse{};
     const Input& base = g_inputs[g_local_port][(first - 1) % kRing];
-    const bool after_base = !whole && first > static_cast<uint32_t>(g_delay) + 1 && base.frame == first - 1;
+    // Not the frame this machine plays again from (after a drop, or as a newcomer): the host has taken
+    // none of its input before that one, so as changes it was refused until this machine's next whole
+    // packet, which goes once it waits for the host itself: the host, at the frame first, waited for a
+    // guest that was still on its way to it (a quarter of a second over a 150 ms link).
+    const bool after_base = !whole && first > static_cast<uint32_t>(g_delay) + 1 && base.frame == first - 1 &&
+                            first > g_live_frame[g_local_port];
     if (after_base) {
         before = base.port;
         before_mouse = base.mouse;
@@ -1519,16 +1651,25 @@ void send_updates(bool whole = false, bool tick = false, int64_t every = 0) {
         write_times(w, host);
     }
     const size_t times_end = w.size;
+    Writer body;  // as MERGED's: apart, within kRecordBytes
+    uint32_t count = 0;
+    for (uint32_t frame = first; frame < first + wanted; frame++) {
+        const size_t record_start = body.size;
+        const Input& input = g_inputs[g_local_port][frame % kRing];
+        write_port(body, changed_fields(before, before_mouse, input.port, input.mouse), input.port, input.mouse);
+        before = input.port;
+        before_mouse = input.mouse;
+        if (body.size > kRecordBytes && count != 0) {
+            body.size = record_start;
+            break;
+        }
+        count++;
+    }
     w.uvar(first);
     w.u8(static_cast<uint8_t>(count));
     w.svar(static_cast<int32_t>(g_merged_upto - first));  // the merged frames this machine has
     const size_t frames_end = w.size;
-    for (uint32_t frame = first; frame < first + count; frame++) {
-        const Input& input = g_inputs[g_local_port][frame % kRing];
-        write_port(w, changed_fields(before, before_mouse, input.port, input.mouse), input.port, input.mouse);
-        before = input.port;
-        before_mouse = input.mouse;
-    }
+    w.bytes(body.data, body.size);
     const size_t records_end = w.size;
     write_hashes(w, first);
     if (stats::enabled()) {
@@ -1583,7 +1724,9 @@ bool host_open(const uint8_t* data, size_t size, const sockaddr_storage& from, s
         send_key_offer(from, from_len);  // one too old: a new one
         return false;
     }
-    if (!seal::open_first(g_host_key, data, size, &g_contact, plain, capacity, plain_size)) {
+    // And no more key exchanges than a few joining guests need (key_exchange_allowed says why).
+    if (!conker::net::key_exchange_allowed(from) ||
+        !seal::open_first(g_host_key, data, size, &g_contact, plain, capacity, plain_size)) {
         return false;
     }
     *contact = true;
@@ -1759,6 +1902,7 @@ void on_merged(Peer& host, Reader& r) {
             g_drop_reason[port] = reason;  // the dropped player coming back, or not after all (for the note)
         }
         if (live != g_live_frame[port] && from == g_drop_frame[port]) {
+            g_live_moved = g_live_moved || (port == g_local_port && g_live_frame[port] != 0 && live > g_live_frame[port]);
             g_live_frame[port] = live;
             std::printf("[conker] net: player %d plays again from frame %u\n", port + 1, live);
         }
@@ -1843,12 +1987,18 @@ void on_rejoin_hello(const sockaddr_storage& from, socklen_t from_len, Reader& r
     const int64_t now = now_ms();
     Peer* chosen = nullptr;
     bool own = false;
+    bool banned = false;  // this machine's own port may not come back: nor does it get another
     for (Peer& peer : g_peers) {
-        if (peer.dropped && conker::net::same_secret(peer.secret, secret) && g_desyncs[peer.port] < kMaxDesyncs && g_drops[peer.port] < kMaxDrops) {
-            chosen = &peer;
-            own = true;
+        if (peer.dropped && conker::net::same_secret(peer.secret, secret)) {
+            if (may_return(peer.port)) {
+                chosen = &peer;
+                own = true;
+            } else {
+                banned = true;
+            }
         }
     }
+    banned = banned && chosen == nullptr;
     std::string problem;
     if (!r.ok) {
         problem = "a bad HELLO";
@@ -1863,13 +2013,17 @@ void on_rejoin_hello(const sockaddr_storage& from, socklen_t from_len, Reader& r
         // dropped port back in later sessions without the token. The machine starting
         // itself again to rejoin keeps its command line, token and all.
         problem = "this session lets in only its own players (its lobby's, or those given its --net-token)";
+    } else if (banned) {
+        // In a session with a place free (a host started with --net-open) the machine past its limit took
+        // that place as a newcomer, with a count of its own: eight more snapshots a port.
+        problem = "the session has started; that player was dropped or came back too often (out of sync "
+                  "twice, four drops, or eight returns), so cannot rejoin";
     }
     bool newcomer = false;
     if (problem.empty() && chosen == nullptr) {
         for (Peer& peer : g_peers) {
             if (peer.dropped && !peer.rejoining && now - peer.dropped_at >= kReclaimAfterMs &&
-                (chosen == nullptr || peer.port == wanted - 1) && g_desyncs[peer.port] < kMaxDesyncs &&
-                g_drops[peer.port] < kMaxDrops) {
+                (chosen == nullptr || peer.port == wanted - 1) && may_return(peer.port)) {
                 chosen = &peer;
             }
         }
@@ -1896,20 +2050,19 @@ void on_rejoin_hello(const sockaddr_storage& from, socklen_t from_len, Reader& r
     if (problem.empty() && chosen == nullptr) {
         // A dropped port whose player has not been gone long enough is held for that player's machine.
         for (Peer& peer : g_peers) {
-            if (peer.dropped && !peer.rejoining && now - peer.dropped_at < kReclaimAfterMs && g_desyncs[peer.port] < kMaxDesyncs &&
-                g_drops[peer.port] < kMaxDrops) {
+            if (peer.dropped && !peer.rejoining && now - peer.dropped_at < kReclaimAfterMs && may_return(peer.port)) {
                 problem = "the session is full; player " + std::to_string(peer.port + 1) + "'s place is kept for them for " +
                           std::to_string((kReclaimAfterMs - (now - peer.dropped_at)) / 1000 + 1) + " s more";
             }
         }
     }
     if (problem.empty() && chosen == nullptr) {
-        bool banned = false;
+        bool any_banned = false;
         for (const Peer& peer : g_peers) {
-            banned = banned || (peer.dropped && (g_desyncs[peer.port] >= kMaxDesyncs || g_drops[peer.port] >= kMaxDrops));
+            any_banned = any_banned || (peer.dropped && !may_return(peer.port));
         }
-        problem = banned ? "the session has started; that player was dropped too often (out of sync twice, or four "
-                           "drops), so cannot rejoin"
+        problem = any_banned ? "the session has started; that player was dropped or came back too often (out of sync "
+                           "twice, four drops, or eight returns), so cannot rejoin"
                          : "the session is full";
     }
     if (!problem.empty()) {
@@ -1923,6 +2076,7 @@ void on_rejoin_hello(const sockaddr_storage& from, socklen_t from_len, Reader& r
         return;
     }
     Peer& peer = *chosen;
+    g_rejoins[peer.port]++;
     peer.addr = from;
     peer.addr_len = from_len;
     peer.secret = secret;
@@ -1932,6 +2086,7 @@ void on_rejoin_hello(const sockaddr_storage& from, socklen_t from_len, Reader& r
     peer.acked = 0;
     peer.echo = 0;
     peer.rtt = -1;
+    std::fill(std::begin(peer.rtt_recent), std::end(peer.rtt_recent), -1);
     peer.ready = false;
     peer.started = false;
     peer.rejoining = true;
@@ -1945,6 +2100,7 @@ void on_rejoin_hello(const sockaddr_storage& from, socklen_t from_len, Reader& r
     peer.needs_snapshot = snapshot;
     peer.snap_wanted = 0;
     peer.snap = nullptr;
+    peer.snap_frame = 0;
     peer.used_snapshot = false;
     for (Hash& hash : g_peer_hashes[peer.port]) {
         hash = Hash{};
@@ -1959,7 +2115,9 @@ void on_rejoin_hello(const sockaddr_storage& from, socklen_t from_len, Reader& r
 }
 
 // The host, under g_mutex, every tick: a rejoining guest's session and START, and its live frame
-// once it has nearly caught up.
+// once it has nearly caught up. From a snapshot that is once it has played a frame past the snapshot's:
+// the first frame its renderer draws takes a quarter of a second (every texture and pipeline of the
+// scene is new to it), and the gap its lead is sized from must have that in it.
 int64_t g_rejoin_tick_chunks = 0;  // under g_mutex: when rejoin_tick last sent a session's chunks
 
 void rejoin_tick(int64_t now) {
@@ -1989,7 +2147,7 @@ void rejoin_tick(int64_t now) {
             w.u8(static_cast<uint8_t>(g_delay));
             send_to(peer, w);
         } else if (peer.started && g_peer_played[peer.port] + kLiveWithin >= g_merged_upto &&
-                   (!peer.needs_snapshot || (peer.snap != nullptr && g_peer_played[peer.port] >= peer.snap_frame))) {
+                   (!peer.needs_snapshot || (peer.snap != nullptr && g_peer_played[peer.port] > peer.snap_frame))) {
             const uint32_t gap = g_merged_upto - std::min(g_merged_upto, g_peer_played[peer.port]);
             const uint32_t live = g_merged_upto + (peer.used_snapshot ? snap_live_lead(gap, peer.rtt) : kLiveLead);
             g_live_frame[peer.port] = live;
@@ -2000,11 +2158,44 @@ void rejoin_tick(int64_t now) {
             peer.needs_snapshot = false;
             peer.snap = nullptr;
             peer.moved_on = now;
+            peer.slow_ms = 0;
+            peer.slow_at = 0;
+            peer.live_moves = 0;
+            peer.live_wait_since = 0;
             std::printf("[conker] net: player %d has caught up (frame %u of %u) and plays again from frame %u\n",
                         peer.port + 1, g_peer_played[peer.port], g_merged_upto, live);
             update_offer();
         }
     }
+}
+
+// The host, under g_mutex: its game is at a guest's live frame and the guest's input for it is not in.
+// The frame moves on (kMaxLiveMoves), so that only that guest waits.
+void move_live_on(Peer& peer, int64_t now) {
+    const int port = peer.port;
+    const uint32_t was = g_live_frame[port];
+    const uint32_t gap = g_merged_upto - std::min(g_merged_upto, g_peer_played[port]);
+    peer.live_wait_since = 0;
+    if (peer.live_moves >= kMaxLiveMoves) {
+        std::printf("[conker] net: player %d was not at frame %u to play again either (%u frames behind)\n", port + 1,
+                    was, gap);
+        drop(peer, kLeft, "its game did not catch up to play again");
+        return;
+    }
+    peer.live_moves++;
+    const uint32_t longest = conker::frame_rate::sixty_fps() ? 2 * kLiveLead : kLiveLead;
+    const uint32_t live = was + std::min(longest, snap_live_lead(gap, peer.rtt) << peer.live_moves);
+    g_live_frame[port] = live;
+    g_input_upto[port] = live - 1;
+    peer.moved_on = now;
+    peer.blocking_frame = 0;
+    std::printf("[conker] net: player %d was not at frame %u to play again (%u frames behind): the others play on "
+                "and it plays from frame %u\n", port + 1, was, gap, live);
+    if (merge()) {
+        send_updates();
+        wake_game_thread();
+    }
+    update_offer();
 }
 
 // The host, under g_mutex: which of its snapshot's chunks a rejoining guest has.
@@ -2085,8 +2276,14 @@ void snapshot_tick() {
             peer.snap = g_snap_blob;
             peer.snap_frame = g_snap_frame;
             peer.snap_acked.assign((peer.snap->size() + kSnapChunkSize - 1) / kSnapChunkSize, false);
+            peer.snap_sent_at.assign(peer.snap_acked.size(), 0);
             peer.snap_next = 0;
             peer.snap_since = now_ms();
+            peer.snap_pace = kSnapChunksAtFirst;
+            peer.snap_doubling = true;
+            peer.snap_late = false;
+            peer.snap_held = false;
+            peer.snap_pace_at = peer.snap_since;
             peer.used_snapshot = true;
         }
         if (peer.snap == nullptr) {
@@ -2097,12 +2294,34 @@ void snapshot_tick() {
             std::printf("[conker] net: sending player %d the snapshot of frame %u (%zu chunks)\n", peer.port + 1,
                         peer.snap_frame, chunks);
         }
-        for (int sent = 0, looked = 0; sent < kSnapChunksPerTick && looked < static_cast<int>(chunks); looked++) {
-            const size_t index = peer.snap_next;
-            peer.snap_next = (peer.snap_next + 1) % chunks;
-            if (peer.snap_acked[index]) {
-                continue;
+        const int64_t now = now_ms();
+        const int most = conker::net::lan_address(peer.addr) ? kSnapChunksPerTick : kSnapChunksPerTickAway;
+        if (now - peer.snap_pace_at >= kSnapPaceEveryMs) {
+            if (peer.snap_late) {
+                peer.snap_pace = std::max(peer.snap_pace / 2, 1);
+                peer.snap_doubling = false;
+            } else if (peer.snap_held) {
+                peer.snap_pace = peer.snap_doubling ? peer.snap_pace * 2 : peer.snap_pace + 1;
             }
+            peer.snap_late = false;
+            peer.snap_held = false;
+            peer.snap_pace_at = now;
+        }
+        peer.snap_pace = std::clamp(peer.snap_pace, 1, most);
+        const int64_t again_after = std::max<int64_t>(kSnapAgainAfterMs, 3 * int64_t{peer.rtt});
+        for (int sent = 0, looked = 0; looked < static_cast<int>(chunks); looked++) {
+            const size_t index = peer.snap_next;
+            if (peer.snap_acked[index] || (peer.snap_sent_at[index] != 0 && now - peer.snap_sent_at[index] < again_after)) {
+                peer.snap_next = (peer.snap_next + 1) % chunks;
+                continue;  // it has it, or has not had time to say so
+            }
+            if (sent >= peer.snap_pace) {
+                peer.snap_held = true;  // more to send than the pace lets go: the next tick starts here
+                break;
+            }
+            peer.snap_next = (peer.snap_next + 1) % chunks;
+            peer.snap_late = peer.snap_late || peer.snap_sent_at[index] != 0;
+            peer.snap_sent_at[index] = now;
             const size_t offset = index * kSnapChunkSize;
             const size_t length = std::min(kSnapChunkSize, peer.snap->size() - offset);
             Writer w;
@@ -2194,6 +2413,8 @@ void relaunch_to_rejoin() {
         if (std::getenv("CONKER_NET_TEST_KEEP") == nullptr) {
             process::unset_env("CONKER_NET_TEST_DESYNC");  // the forced trouble happened once; the replay plays clean
             process::unset_env("CONKER_NET_TEST_HANG");
+            process::unset_env("CONKER_NET_TEST_SLOW");
+            process::unset_env("CONKER_NET_TEST_LATE");
         }
         process::start_again(g_argv);
     }).detach();
@@ -2201,6 +2422,9 @@ void relaunch_to_rejoin() {
 
 // A datagram from the session's socket (not the lobby's PROBE), sealed (net_seal.hpp). Every type but
 // a HELLO from a new address needs the session id and the sender's secret.
+void handle_opened(const uint8_t* buffer, size_t got, size_t size, const sockaddr_storage& from, socklen_t from_len,
+                   bool contact);
+
 void handle_datagram(const uint8_t* data, size_t size, const sockaddr_storage& from, socklen_t from_len) {
     std::lock_guard lock(g_mutex);
     uint8_t buffer[kMaxPacket + 64];
@@ -2210,6 +2434,13 @@ void handle_datagram(const uint8_t* data, size_t size, const sockaddr_storage& f
                   : !guest_open(data, size, from, from_len, buffer, sizeof(buffer), &got)) {
         return;
     }
+    handle_opened(buffer, got, size, from, from_len, contact);
+}
+
+// Under g_mutex: a datagram as it opened on its sender's link (`size` its size on the wire, for the
+// counts); `contact` for a FIRST's HELLO from an address no peer has.
+void handle_opened(const uint8_t* buffer, size_t got, size_t size, const sockaddr_storage& from, socklen_t from_len,
+                   bool contact) {
     if (got >= 1 && (buffer[0] == kInput || buffer[0] == kMerged)) {
         // INPUT and MERGED: the type alone, then the packet. The link it opened on is this peer's own
         // (a guest's keys are made for its join), which is what the handshake's session and secret say.
@@ -2288,7 +2519,10 @@ void network_thread() {
     int64_t last_send = 0;
     uint8_t buffer[kMaxPacket + 64];
     while (!g_net_stop.load()) {
-        for (int wait = static_cast<int>(kSendEveryMs);; wait = 0) {
+        // No more datagrams a pass than a session's own peers send in many ticks: a machine that kept
+        // sending kept this loop from ever reaching the tick below (the resends, the drops).
+        constexpr int kDatagramsAPass = 256;
+        for (int wait = static_cast<int>(kSendEveryMs), taken = 0; taken < kDatagramsAPass; wait = 0, taken++) {
             sockaddr_storage from{};
             socklen_t from_len = sizeof(from);
             const ssize_t got = receive(buffer, sizeof(buffer), &from, &from_len, wait);
@@ -2347,13 +2581,31 @@ void network_thread() {
             }
             if (is_host()) {
                 const uint32_t next = g_merged_upto + 1;
-                if ((missing_for(next) & (1 << peer.port)) == 0) {
+                const bool blocking = (missing_for(next) & (1 << peer.port)) != 0;
+                if (blocking && next == g_live_frame[peer.port] && g_waiting.load() && g_waiting_frame.load() == next) {
+                    if (peer.live_wait_since == 0) {
+                        peer.live_wait_since = now;
+                    } else if (now - peer.live_wait_since >= kLiveGraceMs) {
+                        move_live_on(peer, now);
+                        continue;
+                    }
+                } else {
+                    peer.live_wait_since = 0;
+                }
+                // A tick late (a slow frame's lock) counts as one tick.
+                const int64_t since = peer.slow_at != 0 ? std::min<int64_t>(now - peer.slow_at, 10 * kSendEveryMs) : 0;
+                peer.slow_at = now;
+                peer.slow_ms = blocking && g_waiting.load() ? peer.slow_ms + since : std::max<int64_t>(peer.slow_ms - 2 * since, 0);
+                if (!blocking) {
                     peer.blocking_frame = 0;
                 } else if (peer.blocking_frame != next) {
                     peer.blocking_frame = next;
                     peer.blocking_since = now;
                 } else if (now - peer.blocking_since >= kStuckAfterMs) {
                     drop(peer, kLeft, "its game has not moved on");
+                }
+                if (!peer.dropped && peer.slow_ms >= kSlowAfterMs) {
+                    drop(peer, kLeft, "the others waited for it more than two thirds of the time");
                 }
                 continue;
             }
@@ -2605,8 +2857,7 @@ void update_offer() {
     bool joinable = g_options.token == 0 && g_ports != (1 << kPorts) - 1;
     for (const Peer& peer : g_peers) {
         players += peer.dropped ? 0 : 1;
-        joinable = joinable || (g_options.token == 0 && peer.dropped && g_desyncs[peer.port] < kMaxDesyncs &&
-                                g_drops[peer.port] < kMaxDrops);
+        joinable = joinable || (g_options.token == 0 && peer.dropped && may_return(peer.port));
     }
     g_offer_players.store(players);
     g_offer_joinable.store(joinable);
@@ -2791,7 +3042,7 @@ bool host_connect() {
             // A guest's input reaches the host and comes back in the merged record: a whole round trip,
             // plus the 10 ms send tick and a little frame timing. D = ceil((RTT + 15 ms) / 33.3 ms),
             // at least 2. Half the round trip (the plan's first rule) held 150 ms play to 27 fps.
-            g_options.delay = std::clamp(static_cast<int>(std::ceil((rtt + 15) / 33.3)), 2, kMaxDelay);
+            g_options.delay = conker::net::session_delay_frames(rtt + kDelaySlackMs);
         }
         if (all_ready && std::all_of(g_peers.begin(), g_peers.end(), [](const Peer& p) { return p.started; })) {
             break;
@@ -3551,6 +3802,15 @@ bool parse_args(int* argc, char** argv) {
 
 bool active() { return g_active; }
 
+int session_delay_frames(int ms) {
+    // In the host's frames, which are the session's: at 60 fps a frame is half as long. The delay was
+    // always worked out in 30 fps frames, so a 60 fps session over a 100 ms link had 4 frames (67 ms)
+    // to cover a round trip of 115: every frame waited, and the game ran at two thirds of its speed.
+    const bool sixty = conker::frame_rate::sixty_fps();
+    const double frame_ms = sixty ? 1000.0 / 60.0 : 1000.0 / 30.0;
+    return std::clamp(static_cast<int>(std::ceil(ms / frame_ms)), 2, sixty ? kMaxDelay : kMaxDelay / 2);
+}
+
 uint32_t game_memory_end() { return g_active ? kHashEnd : 0; }
 
 bool lobby_at_boot() { return g_options.lobby; }
@@ -3632,6 +3892,8 @@ void reset_session() {
     g_ports = 0;
     g_start_ports = 0;
     g_delay = 2;
+    g_own_delay = 0;
+    g_own_delay_at = 0;
     g_settings.clear();
     g_wide = false;
     g_eeprom.clear();
@@ -3658,6 +3920,7 @@ void reset_session() {
     std::fill(std::begin(g_live_frame), std::end(g_live_frame), 0u);
     std::fill(std::begin(g_desyncs), std::end(g_desyncs), 0);
     std::fill(std::begin(g_drops), std::end(g_drops), 0);
+    std::fill(std::begin(g_rejoins), std::end(g_rejoins), 0);
     g_rejoin_from = 0;
     std::fill(std::begin(g_snap_failed), std::end(g_snap_failed), false);
     g_snap_requested.store(false);
@@ -3673,6 +3936,7 @@ void reset_session() {
     g_snap_waiting.store(false);
     g_join_start = 0;
     g_live_announced = false;
+    g_live_moved = false;
     g_catching_up.store(false);
     g_stopped.store(kPlaying);
     std::fill(std::begin(g_unplugged), std::end(g_unplugged), false);
@@ -3715,6 +3979,9 @@ void stop_network() {
     }
 }
 
+// Held where a connect becomes a session, and where one is cancelled: one or the other.
+std::mutex g_connect_mutex;
+
 // The connect thread of a session started in place.
 void connect_in_place() {
     const bool connected = g_options.host ? host_connect() : guest_connect();
@@ -3730,6 +3997,18 @@ void connect_in_place() {
                 g_place_message = "Could not connect the session (the log says why).";
             }
         }
+        g_place.store(kNoPlace);
+        return;
+    }
+    // Cancelled as it connected (cancel_in_place holds this lock to say so): as a connect that failed,
+    // rather than a network thread started that nothing would ever stop.
+    std::lock_guard hand_over(g_connect_mutex);
+    if (g_net_stop.load()) {
+        if (g_socket >= 0) {
+            conker::net::socket_close(g_socket);
+            g_socket = -1;
+        }
+        conker::net::lobby::stop_discovery();
         g_place.store(kNoPlace);
         return;
     }
@@ -4038,6 +4317,65 @@ uint32_t load_snapshot(uint8_t* rdram, uint32_t frame) {
     return snap_frame;
 }
 
+// Under g_mutex, on the game thread, once a frame: how many frames ahead this machine's input is
+// stamped. The host's and the session's is g_delay, set from the round trips when the session starts.
+// A guest's own is more while its link needs more: the host has its input for a frame in time only if
+// the delay covers its round trip, and with a shorter one every frame waits for it (a guest back over a
+// link of 150 ms where the session's delay was set for a LAN held everyone's game to half its speed for
+// as long as it stayed). Only this machine's input is later for it: the others keep the session's delay,
+// and no machine needs telling, since the host takes a guest's frames in order whenever they come.
+// *skip: the delay came down a frame, so this frame's input has no frame of its own (the one before
+// has it); only done on a frame whose input is the same as the one before, so that nothing pressed is lost.
+// CONKER_NET_OWN_DELAY=0 keeps the session's delay, to compare.
+int own_delay(const Port& local, const Mouse& mouse, bool* skip) {
+    *skip = false;
+    static const bool follows = [] {
+        const char* value = std::getenv("CONKER_NET_OWN_DELAY");
+        return value == nullptr || value[0] != '0';
+    }();
+    const int delay = std::max(g_own_delay, g_delay);
+    if (is_host() || g_peers.empty() || g_peers[0].rtt < 0 || !follows) {
+        return delay;
+    }
+    // The middle of the last three round trips; the shorter of two; the only one.
+    const Peer& host = g_peers[0];
+    const int* recent = host.rtt_recent;
+    const int round_trip = recent[0] < 0   ? host.rtt
+                           : recent[1] < 0 ? recent[0]
+                           : recent[2] < 0 ? std::min(recent[0], recent[1])
+                                           : std::max(std::min(recent[0], recent[1]),
+                                                      std::min(std::max(recent[0], recent[1]), recent[2]));
+    const int wanted = std::max(g_delay, conker::net::session_delay_frames(round_trip + kDelaySlackMs));
+    const int64_t now = now_ms();
+    if (wanted > delay) {
+        std::printf("[conker] net: this machine's input delay goes from %d to %d frames (round trip %d ms)\n", delay,
+                    wanted, round_trip);
+        g_own_delay = wanted;
+        g_own_delay_at = now;
+        return wanted;
+    }
+    // Down only when a frame less would still cover the longest of the last three round trips with half a
+    // frame more to spare: sized from the middle one both ways, a link of 120 to 160 ms moved it between
+    // 10 and 11 frames every few seconds.
+    const int longest = std::max({round_trip, recent[0], recent[1], recent[2]});
+    const int roomy = std::max(g_delay, conker::net::session_delay_frames(
+                                            longest + kDelaySlackMs + (conker::frame_rate::sixty_fps() ? 8 : 17)));
+    if (roomy < delay && now - g_own_delay_at >= kDelayDownAfterMs) {
+        const uint32_t upto = g_input_upto[g_local_port];
+        const Input& last = g_inputs[g_local_port][upto % kRing];
+        if (last.frame == upto && changed_fields(last.port, last.mouse, local, mouse) == 0 && mouse.dx == 0.0f &&
+            mouse.dy == 0.0f && mouse.zoom == 0) {
+            std::printf("[conker] net: this machine's input delay goes from %d to %d frames (round trip %d ms)\n",
+                        delay, delay - 1, round_trip);
+            g_own_delay = delay - 1;
+            g_own_delay_at = now - kDelayDownAfterMs + kDelayDownStepMs;
+            *skip = true;
+            return delay - 1;
+        }
+    }
+    return delay;
+}
+
 }  // namespace
 
 void frame(uint8_t* rdram, Record* record) {
@@ -4079,7 +4417,8 @@ void frame(uint8_t* rdram, Record* record) {
         return value != nullptr && value[0] == '1';
     }();
     // CONKER_NET_TEST_FORGED_LEAVE=<frame> (the host): a LEAVE from a guest's address and session but
-    // without its secret must be ignored; the same with the secret drops the guest.
+    // without its secret must be ignored; the same with the secret drops the guest. Handed in as if it
+    // had opened on the guest's link (a forger has no key to seal one with: this is the check behind that).
     static const uint32_t test_forged_leave = [] {
         const char* value = std::getenv("CONKER_NET_TEST_FORGED_LEAVE");
         return value != nullptr ? static_cast<uint32_t>(std::strtoul(value, nullptr, 0)) : 0u;
@@ -4105,8 +4444,8 @@ void frame(uint8_t* rdram, Record* record) {
             auto leave = [&](uint64_t with) {
                 Writer w;
                 begin(w, kLeave, with);
-                handle_datagram(w.data, w.size, addr, addr_len);
                 std::lock_guard lock(g_mutex);
+                handle_opened(w.data, w.size, w.size, addr, addr_len, false);
                 return g_drop_frame[port] != 0 && dropped_at(port, g_merged_upto + 1);
             };
             const bool forged = leave(secret ^ 0x5A5A5A5A5A5A5A5Aull);
@@ -4115,6 +4454,44 @@ void frame(uint8_t* rdram, Record* record) {
             std::printf("[conker] net: forged LEAVE self-test: %s (a wrong secret %s, no secret %s, its own secret %s)\n",
                         !forged && !zero && real ? "PASS" : "FAIL", forged ? "dropped it" : "was ignored",
                         zero ? "dropped it" : "was ignored", real ? "dropped it" : "did not drop it");
+        }
+    }
+    // CONKER_NET_TEST_SLOW=<frame>:<ms>: from that frame on this peer's game takes that long more over
+    // every frame, its network going on, to see a guest that holds everyone up dropped (kSlowAfterMs).
+    static const std::pair<uint32_t, int> test_slow = [] {
+        const char* value = std::getenv("CONKER_NET_TEST_SLOW");
+        if (value == nullptr) {
+            return std::pair<uint32_t, int>{0, 0};
+        }
+        char* end;
+        const uint32_t at = static_cast<uint32_t>(std::strtoul(value, &end, 0));
+        return std::pair<uint32_t, int>{at, *end == ':' ? std::atoi(end + 1) : 400};
+    }();
+    if (test_slow.first != 0 && frame >= test_slow.first && g_stopped.load() == kPlaying) {
+        if (frame == test_slow.first) {
+            std::printf("[conker] net: CONKER_NET_TEST_SLOW: every frame takes %d ms more from frame %u\n",
+                        test_slow.second, frame);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(test_slow.second));
+    }
+    // CONKER_NET_TEST_LATE=<ms>: a guest coming back stops for that long, once, when it is told the frame
+    // it plays again from, its network going on: the host is at that frame first (move_live_on).
+    static const int test_late = [] {
+        const char* value = std::getenv("CONKER_NET_TEST_LATE");
+        return value != nullptr ? std::atoi(value) : 0;
+    }();
+    static bool late_done = false;
+    if (test_late > 0 && !late_done && !is_host()) {
+        uint32_t live;
+        {
+            std::lock_guard lock(g_mutex);
+            live = g_rejoin_from != 0 ? g_live_frame[g_local_port] : 0;
+        }
+        if (live != 0) {
+            late_done = true;
+            std::printf("[conker] net: CONKER_NET_TEST_LATE: the game stops for %d ms at frame %u (it plays again "
+                        "from frame %u)\n", test_late, frame, live);
+            std::this_thread::sleep_for(std::chrono::milliseconds(test_late));
         }
     }
     if (test_hang.first != 0 && frame == test_hang.first) {
@@ -4126,10 +4503,9 @@ void frame(uint8_t* rdram, Record* record) {
     {
         conker::perf::Timer hash_timer(conker::perf::Part::NetHash);
         clear_depth(rdram);
-        hash = hash_game(rdram);
+        hash = hash_game(rdram, detail.blocks);
         keep_memory(rdram, frame);
         detail.frame = frame;
-        hash_blocks(rdram, detail.blocks);
     }
     {
         std::lock_guard lock(g_mutex);
@@ -4148,9 +4524,28 @@ void frame(uint8_t* rdram, Record* record) {
         if (is_host()) {
             compare_hashes(frame);
         }
-        const uint32_t target = frame + static_cast<uint32_t>(g_delay);
-        g_inputs[g_local_port][target % kRing] = {target, local, local_mouse};
-        g_input_upto[g_local_port] = target;
+        bool skip;
+        const uint32_t target = frame + static_cast<uint32_t>(own_delay(local, local_mouse, &skip));
+        if (!skip) {
+            // A delay that went up leaves frames between the last input and this one: they hold what the
+            // last one held (the mouse's movement apart, which is a frame's own). After a snapshot the
+            // frames just before this one are filled the same way, with this input: the host may have this
+            // machine play from any of them.
+            const uint32_t upto = g_input_upto[g_local_port];
+            const Input& last = g_inputs[g_local_port][upto % kRing];
+            Input held = upto < target && target - upto <= static_cast<uint32_t>(kMaxDelay) + 1 && last.frame == upto
+                             ? last : Input{0, local, local_mouse};
+            held.mouse.dx = 0.0f;
+            held.mouse.dy = 0.0f;
+            held.mouse.zoom = 0;
+            const uint32_t from = std::max(upto < target ? upto + 1 : target, target - std::min<uint32_t>(target, kMaxDelay));
+            for (uint32_t between = from; between < target; between++) {
+                held.frame = between;
+                g_inputs[g_local_port][between % kRing] = held;
+            }
+            g_inputs[g_local_port][target % kRing] = {target, local, local_mouse};
+            g_input_upto[g_local_port] = target;
+        }
         // The host sends when a frame is merged (new records); a guest, its new input. The tick resends.
         if (!is_host() || merge()) {
             send_updates();
@@ -4167,6 +4562,7 @@ void frame(uint8_t* rdram, Record* record) {
     for (;;) {
         // Waiting is set, and old wake-ups taken, before looking: a record that comes after the look
         // wakes the wait below.
+        g_waiting_frame.store(frame);
         g_waiting.store(true);
         while (osRecvMesg(rdram, static_cast<int32_t>(kWaitQueue), NULLPTR, OS_MESG_NOBLOCK) == 0) {
         }
@@ -4273,10 +4669,18 @@ void frame(uint8_t* rdram, Record* record) {
             take_snapshot(rdram, frame);
         }
     }
-    if (g_rejoin_from != 0 && !g_live_announced) {
+    if (g_rejoin_from != 0) {
         std::lock_guard lock(g_mutex);
+        if (g_live_moved) {
+            // The host was at the frame before this machine was: it plays from a later one, and may catch
+            // up to it again (it does once only otherwise, and from further behind once it has played).
+            g_live_moved = false;
+            g_live_announced = false;
+            g_catch_up.caught_up = false;
+            g_catch_up.after_snapshot = true;
+        }
         const uint32_t live = g_live_frame[g_local_port];
-        if (live != 0 && frame >= live) {
+        if (!g_live_announced && live != 0 && frame >= live) {
             g_live_announced = true;
             g_catch_up.after_snapshot = false;  // playing: back to catching up only when far behind
             std::printf("[conker] net: playing again at frame %u, %.1f s after joining\n", frame,
@@ -4339,7 +4743,7 @@ void frame(uint8_t* rdram, Record* record) {
             } else {
                 std::printf("[conker] net: caught up at frame %u: %u frames in %.1f s, %.1f frames a second (%.1fx)\n",
                             frame, frame - catch_up_first, seconds, (frame - catch_up_first) / seconds,
-                            (frame - catch_up_first) / seconds / 30.0);
+                            (frame - catch_up_first) / seconds / (conker::frame_rate::sixty_fps() ? 60.0 : 30.0));
             }
         }
     }
@@ -4398,7 +4802,8 @@ std::string status_line() {
                                                         : " LEFT");
         }
     }
-    std::snprintf(text, sizeof(text), "P%d  PING %d  DELAY %d", g_local_port + 1, std::max(ping, 0), g_delay);
+    std::snprintf(text, sizeof(text), "P%d  PING %d  DELAY %d", g_local_port + 1, std::max(ping, 0),
+                  std::max(g_delay, g_own_delay));
     return text + left;
 }
 
@@ -4547,6 +4952,13 @@ bool start_in_place(const std::vector<std::string>& net_args) {
     if (g_connect_thread.joinable()) {
         g_connect_thread.join();  // a connect that failed before
     }
+    // Never with mods loaded, whatever asked (the lobby's page does not offer it): a mod's memory and
+    // the heap it allocates from are in RDRAM above the game's, which a session's game can write, and
+    // that heap keeps native pointers there.
+    if (mods_on()) {
+        set_place_message("Mods are on: start the game again without them to play online.");
+        return false;
+    }
     const bool internet = g_options.internet;
     g_options = Options{};
     g_options.internet = internet;
@@ -4568,6 +4980,7 @@ bool start_in_place(const std::vector<std::string>& net_args) {
     g_rejoin_port = 0;
     g_rejoin_secret_kept = 0;
     g_rejoin_count = 0;
+    g_leave_requested.store(false);
     g_place.store(kConnecting);
     std::printf("[conker] net: connecting the session in place (%s)\n", g_options.host ? "hosting" : "joining");
     register_goodbye();
@@ -4593,20 +5006,26 @@ InPlace in_place_state(std::string* message) {
 bool in_place() { return g_in_place && g_place.load() != kNoPlace; }
 
 void cancel_in_place() {
-    if (g_place.load() == kConnecting) {
-        g_net_stop.store(true);
-        if (g_connect_thread.joinable()) {
-            g_connect_thread.join();
+    {
+        std::unique_lock hand_over(g_connect_mutex);
+        if (g_place.load() == kConnecting) {
+            g_net_stop.store(true);
+            hand_over.unlock();
+            if (g_connect_thread.joinable()) {
+                g_connect_thread.join();
+            }
+            g_place.store(kNoPlace);
+            g_in_place = false;
+            return;
         }
-        g_place.store(kNoPlace);
-        g_in_place = false;
-        return;
     }
     request_leave();
 }
 
 void request_leave() {
-    if (g_in_place && g_place.load() == kInSession) {
+    // Connected but not in the session yet, too: the game thread leaves as soon as it is in.
+    const int place = g_place.load();
+    if (g_in_place && (place == kConnected || place == kEntering || place == kInSession)) {
         g_leave_requested.store(true);
         wake_game_thread();  // a game waiting for input notices
     }
@@ -4637,8 +5056,7 @@ void enter_session() {
     conker::display::set_logic_aspect(g_wide ? 16.0f / 9.0f : float(conker::display::kPictureWidth) / conker::display::kPictureHeight);
     conker::frame_input::set_frame(0);  // the session's frames count from 1, as on every peer
     g_stop_seen = 0;
-    g_leave_requested.store(false);
-    g_rejoin_requested.store(false);
+    g_rejoin_requested.store(false);  // (a leave asked for while this connected stands: request_leave)
     g_active.store(true);
     g_place.store(kInSession);
     std::printf("[conker] net: in the session as player %d (started in place, on a copy of the host's save)\n",

@@ -32,7 +32,7 @@ patches_for() {
                 n64modernruntime-ps5.patch ;;
         lib/rt64)
             echo rt64-f3dex2cbfd.patch rt64-native-size.patch rt64-edge-rects.patch \
-                rt64-memory-packs.patch rt64-wireframe.patch rt64-wide-draw-rect.patch \
+                rt64-memory-packs.patch rt64-wide-draw-rect.patch \
                 rt64-queue-names.patch rt64-metal-float-to-int.patch rt64-object-picking.patch \
                 rt64-near-draw-rect.patch rt64-split-screen-wide.patch rt64-grey-from-green.patch \
                 rt64-frame-effects.patch rt64-dl-command-limit.patch rt64-thread-exit.patch rt64-hidden-rows.patch rt64-forget-framebuffers.patch \
@@ -42,7 +42,7 @@ patches_for() {
                 rt64-empty-projection.patch rt64-ps5.patch ;;
         lib/N64ModernRuntime/N64Recomp) echo n64modernruntime-n64recomp-jump-tables.patch \
             n64modernruntime-n64recomp-address-window.patch n64modernruntime-n64recomp-float-determinism.patch ;;
-        lib/rt64/src/contrib/plume) echo plume-wireframe.patch plume-gpu-errors.patch plume-moltenvk-robustness.patch plume-ps5.patch ;;
+        lib/rt64/src/contrib/plume) echo plume-gpu-errors.patch plume-moltenvk-robustness.patch plume-ps5.patch ;;
     esac
 }
 

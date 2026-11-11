@@ -19,9 +19,11 @@ namespace conker::snapshot {
 namespace {
 
 constexpr uint32_t kMagic = 0x50414E53;     // "SNAP"
-constexpr uint32_t kVersion = 2;  // 2: a thread's place written field by field (no padding)
+constexpr uint32_t kVersion = 3;  // 2: a thread's place written field by field (no padding); 3: its registers too,
+                                  // and no native pointer in the game's memory
 constexpr uint32_t kGameMemory = 0x400000;  // the game's 4 MiB; above it is the runtime's scratch
-constexpr uint32_t kSaveScratch = 0x807F8000;  // 2 KiB of scratch RDRAM to pass the save through
+constexpr uint32_t kSaveScratch = 0x807F8800;  // 2 KiB of scratch RDRAM to pass the save through (its own:
+                                               // 0x807F8000 is the pause menu's strings, pause_save.cpp)
 constexpr uint32_t kSaveSize = 0x800;          // 16 kbit EEPROM
 constexpr uint32_t kOsTimerSize = 0x20;        // libultra's OSTimer (ultramodern keeps its layout to itself)
 
@@ -131,6 +133,10 @@ struct Writer {
     }
 };
 
+struct Reader;
+void put_registers(Writer& w, const Registers& regs);
+Registers get_registers(Reader& r);
+
 struct Reader {
     const std::vector<uint8_t>& data;
     size_t at = 0;
@@ -160,6 +166,27 @@ struct Reader {
         return v;
     }
 };
+
+// Field by field, as a thread's place: the struct's padding would carry whatever the stack held.
+void put_registers(Writer& w, const Registers& regs) {
+    w.bytes(regs.r, sizeof(regs.r));
+    w.bytes(regs.f, sizeof(regs.f));
+    w.put(regs.hi);
+    w.put(regs.lo);
+    w.put(regs.status_reg);
+    w.put(regs.mips3_float_mode);
+}
+
+Registers get_registers(Reader& r) {
+    Registers regs{};
+    r.bytes(regs.r, sizeof(regs.r));
+    r.bytes(regs.f, sizeof(regs.f));
+    regs.hi = r.get<uint64_t>();
+    regs.lo = r.get<uint64_t>();
+    regs.status_reg = r.get<uint32_t>();
+    regs.mips3_float_mode = r.get<uint8_t>();
+    return regs;
+}
 
 std::string hex(uint32_t v) {
     char text[16];
@@ -263,8 +290,9 @@ void add_bools(const char* name, bool* data, size_t count) {
     });
 }
 
-void add(const char* name, std::function<std::vector<uint8_t>()> save, std::function<bool(const std::vector<uint8_t>&)> load) {
-    registered_fields().push_back({name, std::move(save), std::move(load), nullptr});
+void add(const char* name, std::function<std::vector<uint8_t>()> save, std::function<bool(const std::vector<uint8_t>&)> valid,
+         std::function<bool(const std::vector<uint8_t>&)> load) {
+    registered_fields().push_back({name, std::move(save), std::move(load), std::move(valid)});
 }
 
 void add_check(std::function<const char*()> check) { checks().push_back(std::move(check)); }
@@ -328,9 +356,18 @@ std::vector<uint8_t> save(uint8_t* rdram, recomp_context* ctx, uint32_t frame, s
         w.put(place.queue);
         w.put(place.ra);
         w.put(static_cast<uint8_t>(running));
-        w.put(registers_of(running ? ctx : t.ctx));
+        put_registers(w, registers_of(running ? ctx : t.ctx));
     }
+    const size_t memory_at = w.data.size();
     w.bytes(rdram, kGameMemory);
+    // Each thread's native context is this process's pointer, kept in the game's memory (ultramodern):
+    // it tells another machine where this one's heap is, and load keeps its own anyway.
+    for (const Thread& t : threads) {
+        const uint64_t at = static_cast<uint64_t>(static_cast<uint32_t>(t.thread)) - 0x80000000u + offsetof(OSThread, context);
+        if (static_cast<uint32_t>(t.thread) >= 0x80000000u && at + sizeof(UltraThreadContext*) <= kGameMemory) {
+            std::memset(w.data.data() + memory_at + at, 0, sizeof(UltraThreadContext*));
+        }
+    }
     const auto timers = ultramodern::armed_timers_remaining(rdram);
     w.put(static_cast<uint32_t>(timers.size()));
     for (const auto& [timer, remaining] : timers) {
@@ -389,7 +426,7 @@ bool load(uint8_t* rdram, recomp_context* ctx, const std::vector<uint8_t>& snaps
         theirs.queue = r.get<uint32_t>();
         theirs.ra = r.get<uint32_t>();
         running[i] = r.get<uint8_t>() != 0;
-        regs[i] = r.get<Registers>();
+        regs[i] = get_registers(r);
         Place ours = place_of(rdram, threads[i]);
         const bool self_here = threads[i].thread == self;
         if (self_here) {
@@ -518,7 +555,9 @@ std::vector<std::string> self_test(uint8_t* rdram, recomp_context* ctx, uint32_t
         std::lock_guard lock(g_threads_mutex);
         threads = g_threads;
     }
-    const size_t memory_at = 16 + threads.size() * (4 + 2 + 4 + 4 + 1 + sizeof(Registers));
+    // As save writes them: a place and its registers, field by field (put_registers).
+    constexpr size_t kRegistersSize = sizeof(Registers::r) + sizeof(Registers::f) + 8 + 8 + 4 + 1;
+    const size_t memory_at = 16 + threads.size() * (4 + 2 + 4 + 4 + 1 + kRegistersSize);
     const PTR(OSThread) self = ultramodern::this_thread();
     uint32_t queue = 0;
     uint32_t waiting = 0;

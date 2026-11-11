@@ -75,54 +75,9 @@ build/rt64/ConkersBadFurDayRecompiled /path/to/conker-us.z64
 
 The ROM is kept in `conker-recomp-data`, so later runs can leave it out.
 
-## Packaging for another Mac
+## Packaging
 
-Run `tools/build_mods.sh` before building a release: it builds the speedrun
-mod the packaged game carries, off by default (it needs `brew install llvm lld`;
-see [modding.md](modding.md)), and `tools/package_macos.sh` refuses a build
-without it.
-
-`tools/package_macos.sh` turns the RT64 build into `dist/Conker's Bad Fur Day Recompiled.app` and
-a zip of it to send. The app carries its own SDL, so the other Mac needs no
-Homebrew, but it needs the same kind of chip (Apple silicon) and at least the
-macOS version the build was made for (see *For an older macOS* below). The app is not notarised: on the other
-Mac, right click it and choose Open the first time, or run
-`xattr -dr com.apple.quarantine "Conker's Bad Fur Day Recompiled.app"`.
-
-The app carries its licenses, and a `SOURCE.txt` naming the commit it was
-built from, in `Contents/Resources/Licenses`. Package from a clean, committed
-checkout, and attach `tools/source_archive.sh`'s source tarball to the release
-beside the zip.
-
-The app asks for the player's own ROM the first time it opens and keeps a
-copy, along with settings, saves and `last-run.log`, in
-`~/Library/Application Support/ConkersBadFurDayRecompiled/conker-recomp-data`.
-`dist/ConkersBadFurDayRecompiled.dSYM` stays with you, for `tools/symbolicate.sh` on a crash
-they send back.
-
-### For an older macOS
-
-Homebrew builds SDL for the macOS it runs on, so an app made with it needs that macOS too. For an
-older one (macOS 14 here), build SDL3 and sdl2-compat from their source releases (the versions
-`brew info sdl3 sdl2-compat` names) for it, then the game against them:
-
-```sh
-cmake -S SDL3-<version> -B build/sdl3 -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_INSTALL_PREFIX="$PWD/build/sdl14" -DSDL_TESTS=OFF
-cmake --build build/sdl3 && cmake --install build/sdl3
-cmake -S sdl2-compat-<version> -B build/sdl2c -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_INSTALL_PREFIX="$PWD/build/sdl14" \
-  -DCMAKE_PREFIX_PATH="$PWD/build/sdl14" -DSDL2COMPAT_TESTS=OFF
-cmake --build build/sdl2c && cmake --install build/sdl2c
-cmake -S . -B build/macos14 -G Ninja -DCMAKE_BUILD_TYPE=Release -DCONKER_RENDERER=rt64 \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DSDL2_DIR="$PWD/build/sdl14/lib/cmake/SDL2"
-cmake --build build/macos14
-tools/package_macos.sh build/macos14
-```
-
-`tools/package_macos.sh` bundles the SDL3 next to the SDL2 the game links, and stops if either
-needs a newer macOS than the game. Add `-ffile-prefix-map=$PWD=.` to the C and C++ flags so that
-no folder of yours ends up in the binary.
+Making the packages for a release is in [releasing.md](releasing.md).
 
 ## After pulling changes
 

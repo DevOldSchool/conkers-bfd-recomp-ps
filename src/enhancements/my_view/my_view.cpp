@@ -1516,7 +1516,7 @@ extern "C" void conker_my_view_draw_end(uint8_t* rdram, recomp_context* ctx) {
     recomp_dma_done_now = false;
     g_drawing = false;
     dump_pass(after.data(), rdram);
-    conker::renderer::draw_next_frame_from(std::vector<uint8_t>(rdram, rdram + kImageSize));
+    conker::renderer::draw_next_frame_from(rdram, kImageSize);
     std::memcpy(rdram, after.data(), kGameMemory);
     conker::frame_input::set_count_reads(count_reads);
     let_go_of_memory();

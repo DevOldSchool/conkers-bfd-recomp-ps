@@ -49,6 +49,7 @@
 #include "platform/data_folder.hpp"
 #include "platform/present_focus.hpp"
 #include "platform/render_debug.hpp"
+#include "runtime/memory.hpp"
 #include "runtime/perf_log.hpp"
 
 #include <algorithm>
@@ -134,6 +135,8 @@ void dummy_check_interrupts() {}
 //   extended  the extended GBI's RDRAM-extending and vertex-segment commands: ignored (Q5)
 //   dlstack   a list that calls itself: stopped at the depth limit, nothing left behind (Q6)
 //   loadtile  a texture load with its rows reversed: skipped at once (Q7)
+//   image     drawn as the online "my view" draws, from a copy of the game's memory: vertices and a
+//             texture at the last of the 16 MiB of offsets RT64 takes, which are the copy's own memory
 // The lists are written to RDRAM above the game's 4 MiB, which it does not use.
 struct RenderSelfTest {
     uint64_t task = 0;
@@ -233,6 +236,30 @@ void run_render_self_test(RT64::Application& app, const std::string& kind) {
         const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         report_self_test("loadtile", ms < 1000.0, "the list took " + std::to_string(static_cast<int>(ms)) + " ms");
     }
+    if (kind == "image") {
+        // conker::memory::reserve_draw_image says why: a heap buffer of RDRAM's size ended 8 MiB short
+        // of these offsets.
+        uint8_t* const image = conker::memory::reserve_draw_image();  // kept: the test runs once
+        if (image == nullptr) {
+            report_self_test("image", false, "no draw image");
+            return;
+        }
+        std::memcpy(image, rdram, 0x800000);
+        TestList in_image{image};
+        in_image.command(0x01010020u, 0x00FFFF00u);  // G_VTX: 16 vertices, the 16 MiB's last 256 bytes
+        in_image.command(0xFD100000u, 0x00FFFFF8u);  // G_SETTIMG: RGBA16, at its last word
+        in_image.command(0xF5100000u, 0x07000000u);  // G_SETTILE: the load tile
+        in_image.command(0xF3000000u, 0x073FF000u);  // G_LOADBLOCK: 1024 texels, on past the 16 MiB
+        in_image.command(0xE9000000u, 0);
+        in_image.command(0xDF000000u, 0);
+        uint8_t* const own = state.RDRAM;
+        state.RDRAM = image;
+        app.processDisplayLists(image, kTestList & 0x3FFFFFF, 0, true);
+        state.RDRAM = own;
+        const bool zero = std::all_of(image + 0x00FFFF00u, image + 0x01001000u, [](uint8_t b) { return b == 0; });
+        report_self_test("image", zero, "a list drawn from a copy of the game's memory read offsets 0xFFFF00 to 0x10007F8 "
+                                        "of the copy's own reservation");
+    }
 }
 
 // Graphics tasks run Conker's own microcode (F3DEX2CBFD) only. The task's microcode pointer is game
@@ -249,8 +276,28 @@ void require_conker_microcode(RT64::Application& app, const OSTask* task) {
 }
 
 std::mutex g_texture_packs_mutex;
+// draw_next_frame_from's images (conker::memory::reserve_draw_image, never a heap buffer: see there),
+// under g_frame_memory_mutex: the one filled for the next frame sent, and those free to fill again.
 std::mutex g_frame_memory_mutex;
-std::vector<uint8_t> g_frame_memory;  // draw_next_frame_from's
+uint8_t* g_frame_memory = nullptr;
+std::vector<uint8_t*> g_free_images;
+
+// The next frame's image, the renderer's while it draws from it and free to fill again after.
+struct TakenImage {
+    uint8_t* memory = nullptr;
+    TakenImage() {
+        std::lock_guard lock(g_frame_memory_mutex);
+        std::swap(memory, g_frame_memory);
+    }
+    ~TakenImage() {
+        if (memory != nullptr) {
+            std::lock_guard lock(g_frame_memory_mutex);
+            g_free_images.push_back(memory);
+        }
+    }
+    TakenImage(const TakenImage&) = delete;
+    TakenImage& operator=(const TakenImage&) = delete;
+};
 std::timed_mutex g_game_memory_mutex;  // hold_game_memory's
 std::vector<std::string> g_texture_packs;  // in use, for texture_packs()
 std::string g_gpu_name;                    // after setup, for gpu_name() and graphics_api()
@@ -542,13 +589,22 @@ public:
             app_->forgetFramebuffers();
         }
         // The online "my view" may have drawn this frame again in a copy of the game's memory.
-        std::vector<uint8_t> frame_memory;
-        {
-            std::lock_guard lock(g_frame_memory_mutex);
-            frame_memory.swap(g_frame_memory);
-        }
-        if (!frame_memory.empty()) {
-            frame_memory.resize(0x800000);
+        const TakenImage frame_memory;
+        // A guest catching up to a session draws one frame in kCatchUpDrawEvery. Online nothing drawn goes
+        // back into the game's memory (above), so its game needs no frame drawn, only to be told each is
+        // done; drawing them all held a game catching up in a match to about 60 frames a second, twice a
+        // 30 fps host's pace and no faster than a 60 fps host's, which it then never caught up with (the
+        // host waited a second or more for it at the frame it was to play from). Drawing none left
+        // every texture and pipeline of the scene for the first frame after: 225 ms on an M1, which
+        // every player then waited out at the frame the one coming back was to play from. The first is
+        // drawn, while only this machine waits, and the rest keep up with what comes into view.
+        if (conker::net::catching_up()) {
+            if (catch_up_tasks_++ % kCatchUpDrawEvery != 0) {
+                conker::frame_input::gfx_task_done();
+                return;
+            }
+        } else {
+            catch_up_tasks_ = 0;
         }
         if (view_log) {
             // Once the online view has drawn a copy, a task drawn without one shows the game's own
@@ -561,7 +617,7 @@ public:
             }
         }
         const uint32_t task_list = task->t.data_ptr;
-        uint8_t* const memory = frame_memory.empty() ? app_->core.RDRAM : frame_memory.data();
+        uint8_t* const memory = frame_memory.memory == nullptr ? app_->core.RDRAM : frame_memory.memory;
         // Whether the game drew a frame copy for this task (see apply_display_scale).
         const uint32_t copies = conker::display::frame_copy_count();
         tasks_without_copy_ = copies != seen_copies_ ? 0 : tasks_without_copy_ + 1;
@@ -627,10 +683,10 @@ public:
         }
         {
             conker::perf::Timer draw_timer(conker::perf::Part::RendererDraw);
-            if (frame_memory.empty()) {
+            if (frame_memory.memory == nullptr) {
                 app_->processDisplayLists(app_->core.RDRAM, list, 0, true);
             } else {
-                draw_from(frame_memory, list);
+                draw_from(frame_memory.memory, list);
             }
         }
         if (widen_font_rects_) {
@@ -648,17 +704,19 @@ public:
     // writes the copy instead, which has RDRAM's own memory above the game's 4 MiB (the status
     // overlay's list) put in first. What RT64 writes into the copy (frame buffers, and offline the depth
     // the game reads back) goes to RDRAM after, as it would have been written there.
-    void draw_from(std::vector<uint8_t>& memory, uint32_t list) {
+    // `memory` is one of draw_next_frame_from's images: RT64 takes any address in the list as an offset
+    // from it, unchecked.
+    void draw_from(uint8_t* memory, uint32_t list) {
         constexpr size_t kGame = 0x400000;          // the game's 4 MiB
         constexpr size_t kScratch = 0x7D0000;       // RDRAM's own lists up to 8 MiB (net_play's overlay from 0x7D0000)
-        std::memcpy(memory.data() + kScratch, app_->core.RDRAM + kScratch, 0x800000 - kScratch);
-        drawn_before_.assign(memory.begin(), memory.begin() + kGame);
+        std::memcpy(memory + kScratch, app_->core.RDRAM + kScratch, 0x800000 - kScratch);
+        drawn_before_.assign(memory, memory + kGame);
         uint8_t* const rdram = app_->state->RDRAM;
-        app_->state->RDRAM = memory.data();
-        app_->processDisplayLists(memory.data(), list, 0, true);
+        app_->state->RDRAM = memory;
+        app_->processDisplayLists(memory, list, 0, true);
         app_->state->RDRAM = rdram;
         const uint32_t* before = reinterpret_cast<const uint32_t*>(drawn_before_.data());
-        const uint32_t* after = reinterpret_cast<const uint32_t*>(memory.data());
+        const uint32_t* after = reinterpret_cast<const uint32_t*>(memory);
         uint32_t* out = reinterpret_cast<uint32_t*>(rdram);
         for (size_t i = 0; i < kGame / 4; i++) {
             if (after[i] != before[i]) {
@@ -865,6 +923,8 @@ private:
     mutable uint32_t reported_height_ = 0;
     int applied_scale_ = 0;
     std::chrono::steady_clock::time_point last_catch_up_present_{};
+    static constexpr uint32_t kCatchUpDrawEvery = 8;
+    uint32_t catch_up_tasks_ = 0;  // the tasks sent while catching up (send_dl)
     bool applied_native_ = false;
     bool applied_wide_ = false;
     static constexpr float kUndrawnColumns = 2.0f;
@@ -881,13 +941,30 @@ private:
 
 } // namespace
 
-void set_wireframe(bool on) { RT64::SetRenderWireframe(on); }
-
 void set_present_focus(float x, float y, float width, float height) { RT64::SetPresentFocus({x, y, width, height}); }
 
-void draw_next_frame_from(std::vector<uint8_t> image) {
+void draw_next_frame_from(const uint8_t* rdram, size_t size) {
     std::lock_guard lock(g_frame_memory_mutex);
-    g_frame_memory = std::move(image);
+    // The image a frame never sent was to be drawn from, one drawn from before, or a new one.
+    uint8_t* image = g_frame_memory;
+    if (image == nullptr && !g_free_images.empty()) {
+        image = g_free_images.back();
+        g_free_images.pop_back();
+    }
+    if (image == nullptr) {
+        image = conker::memory::reserve_draw_image();
+    }
+    if (image == nullptr) {
+        static bool told = false;
+        if (!told) {
+            told = true;
+            std::fprintf(stderr, "[conker] no memory to draw this player's own view from: the frames show the "
+                                 "game's own picture\n");
+        }
+        return;
+    }
+    std::memcpy(image, rdram, std::min(size, conker::memory::kDrawImageSize));
+    g_frame_memory = image;
 }
 
 void hold_game_memory() { g_game_memory_mutex.lock(); }

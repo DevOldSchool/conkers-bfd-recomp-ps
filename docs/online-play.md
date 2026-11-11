@@ -66,6 +66,13 @@ Each machine shows only its own player's view over the whole window, with
 sounds as that player hears them. MY VIEW in the debug menu's ENHANCEMENTS
 page (or `CONKER_MY_VIEW=0`) keeps the shared split screen instead.
 
+The bottom left corner shows your player, the ping and the input delay in
+frames. The delay is set from everyone's ping when the session starts. If your
+own link to the host gets slower, your own delay goes up to cover it, so that
+the others' game does not wait for you, and comes down again when the link
+recovers. The game does not stop for a player who is coming back either: they
+join in once their machine has caught up.
+
 To leave, press the debug menu's key (Back on a pad, `` ` `` on the keyboard)
 and choose **LEAVE THE SESSION**: your own game comes back as it was before
 the session.
@@ -116,8 +123,8 @@ join with the host's overlay address or the *This network* code.
 * `--net-host [port]`, `--net-players <n>`, `--net-join <address:port>`,
   `--net-token <hex>` and `--net-host-key <hex>` start a session without the
   lobby (a host started this way prints how to join it).
-* `--net-delay <frames>` sets the input delay by hand, if "WAITING FOR P2"
-  keeps showing.
+* `--net-delay <frames>` sets the session's input delay by hand, if
+  "WAITING FOR P2" keeps showing.
 * `--net-no-mods` loads no mods for that run.
 
 [diagnostics.md](diagnostics.md) lists the switches for testing.

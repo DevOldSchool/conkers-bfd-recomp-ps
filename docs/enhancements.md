@@ -29,10 +29,9 @@ OPTIONS.
 * SHARP TEXT or ORIGINAL TEXT: the [sharper text](#sharper-text) and
   [menus](#sharper-menus), or the game's own. It switches at once and is on
   by default.
-* WINDOWED, BORDERLESS or FULL SCREEN. Full screen (the default) is macOS
-  full screen in a Space of its own; borderless covers the screen in the
-  current Space, with the menu bar and Dock hidden while the game is in
-  front.
+* WINDOWED, BORDERLESS or FULL SCREEN. Full screen (the default) and
+  borderless both cover the screen; borderless is a window the size of the
+  screen, which switches to and from other windows more quickly.
 * 4:3 or WIDESCREEN. Widescreen widens the view to the shape of the window
   or screen instead of stretching the picture: the window becomes 16:9
   (384x216 for each multiple), and covering the screen the picture takes the
@@ -62,14 +61,12 @@ OPTIONS.
   resolution and shape apply once you carry on.
 * The resolution: how large the game's 292x216 picture is rendered, in whole
   multiples from 292x216 (1x). In a window it is the window's size, up to
-  the largest that fits the display (1460x1080, 5x, on a 2560x1440 display
-  with the Dock showing, which is also the default). Covering the screen it
-  goes up to the first multiple that covers the screen's height (2044x1512,
-  7x, on 1440 lines, the default). Widescreen widths are shown in
-  widescreen. Sizes are in pixels, also on a Retina screen, where the game
-  draws at the screen's full pixel density: on a 3024x1964 screen a
-  window goes up to 2044x1512 (7x, half that in points), and covering the
-  screen up to 2920x2160 (10x).
+  the largest that fits the display, which is also the default (1460x1080,
+  5x, on a 2560x1440 display). Covering the screen it goes up to the first
+  multiple that covers the screen's height (2044x1512, 7x, on 1440 lines, the
+  default). Widescreen widths are shown in widescreen. Sizes are in pixels,
+  also on a high-density (scaled) display, where the game draws at the
+  screen's full pixel density.
 * FILL SCREEN or CENTERED: the picture is scaled to fill the window or
   screen, or drawn at its own size in the middle with black bars, so that
   every game pixel is an even block. Covering the screen it fills by
@@ -196,9 +193,8 @@ after it closes until they are let go. It closes with B, Start or the same
 button. Up and down choose a row, A or left and right change it, B goes back:
 
 * DEBUG VIEW: a page of what is drawn to look into the game:
-  * WIREFRAME: the game's 3D triangles drawn as their edges on black; text,
-    sprites and the HUD stay solid. Metal only for now.
-  * SHOW FPS: the frames the game draws per second, in the top left corner.
+  * SHOW FPS: the frames the game draws per second, in the top left corner
+    (`CONKER_SHOW_FPS=1` starts with it on).
   * SHOW POSITION: the scene, Conker's X, Y and Z and his facing, and the
     camera's yaw and pitch, under the frame rate during play. Angles are in
     degrees, and facing and yaw share their zero (+Z) and direction (towards
@@ -230,8 +226,9 @@ button. Up and down choose a row, A or left and right change it, B goes back:
   runs, each ON or OFF, starting as its `CONKER_*` variable set it: SHARP
   TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
   WIDESCREEN CULLING, SKIP INTRO, SKIP CUTSCENES, PAUSE SAVE AND LOAD, EXIT
-  GAME, SAVE SNAPSHOTS, SURROUND DEFAULT, MP CHARACTERS, FULL DETAIL, DRAW DISTANCE,
-  CONSISTENT CONTROLS, PAD BUTTONS, 60 FPS and MY VIEW (online: only your own
+  GAME, SAVE SNAPSHOTS, SURROUND DEFAULT, MP CHARACTERS, FULL DETAIL, DRAW
+  DISTANCE, HAPTICS, ADAPTIVE TRIGGERS, CONSISTENT CONTROLS, PAD BUTTONS,
+  60 FPS, SMOOTH MOTION and MY VIEW (online: only your own
   view and sounds, see docs/online-play.md), in a list like LOAD REPORT's
   (nine rows at a time, scrolling). A or left and right switch the chosen one.
   SHARP TEXT and WIDESCREEN are the OPTIONS rows' settings and are kept in
@@ -598,8 +595,20 @@ font's glyphs with their hashes as a template for new art.
 Off by default (FRAME RATE on the GRAPHICS page; `CONKER_60FPS=0` or `1` for one
 run). The game starts a frame on every retrace instead of every second one. Its
 logic already steps by elapsed time, so movement, jumps, the camera, animation
-and cutscenes keep their speed; a few things still assume 30 fps. Online, every
-player plays at the host's setting.
+and cutscenes keep their speed. Code that counted frames instead (easing,
+timers, menu repeat, a few effects) is corrected in
+`src/enhancements/frame_rate/frame_rate.cpp`. So are the random chances the
+game rolls once a frame, which would otherwise come up twice as often: Conker's
+idle fidgets, scene 28's lightning and ambient events, flickering lights (a
+MULTI map's among them), the effects spawned ahead of the camera and a few
+more roll once every 30 Hz step, as at 30 fps, and the scene 6 swarm and the
+water drops falling off a wet Conker keep their pace. They were found by
+counting each random call's rolls at both rates in the regression scenes and
+in two-player matches of the MULTI modes (`CONKER_ROLL_LOG`,
+[diagnostics.md](diagnostics.md)), so a chance in a place those do not reach
+may still come up more often. Online, every player plays at the host's
+setting, and the input delay and a returning player's catch-up are worked out
+in its frames.
 
 ## Smooth motion
 

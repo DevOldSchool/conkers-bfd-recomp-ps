@@ -310,11 +310,9 @@ private:
 
 } // namespace
 
-void set_wireframe(bool /*on*/) {}
-
 void set_present_focus(float /*x*/, float /*y*/, float /*width*/, float /*height*/) {}
 
-void draw_next_frame_from(std::vector<uint8_t> /*image*/) {}
+void draw_next_frame_from(const uint8_t* /*rdram*/, size_t /*size*/) {}
 void hold_game_memory() {}
 void release_game_memory() {}
 

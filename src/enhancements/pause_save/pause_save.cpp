@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <cstdlib>
 
+#include "net/net_play.hpp"
 #include "recomp.h"
 #include "enhancements/pause_save/resume_point.hpp"
 #include "enhancements/sharp_menus/pause_signs.hpp"
@@ -99,7 +100,7 @@ bool pause_save_enabled() { return g_enabled.load(std::memory_order_relaxed); }
 
 // True while func_151DDC20 shows SAVE and LOAD (set up by conker_pause_save_layout).
 bool signs_shown(uint8_t* rdram, recomp_context* ctx) {
-    return pause_save_enabled() && MEM_W(kOptionCountSlot, ctx->r29) == 3 &&
+    return pause_save_enabled() && !conker::net::active() && MEM_W(kOptionCountSlot, ctx->r29) == 3 &&
            MEM_BU(0, kseg0(kMultiplayer)) == 0;
 }
 
@@ -231,8 +232,10 @@ extern "C" int conker_pause_save_skip_input = 0;
 
 // At 0x151DE00C, after the layout (option count and offset) is chosen from D_800BE616.
 extern "C" void conker_pause_save_layout(uint8_t* rdram, recomp_context* ctx) {
-    if (!pause_save_enabled() || MEM_BU(0, kseg0(kMultiplayer)) != 0 || MEM_B(0, kseg0(kSaveSlot)) < 0 ||
-        MEM_BU(kSpecialPauseSlot, ctx->r29) != 0) {
+    // Not in an online session (a host can take it into the story): SAVED and LOAD go by this machine's
+    // clock and its own files, which the others do not share.
+    if (!pause_save_enabled() || conker::net::active() || MEM_BU(0, kseg0(kMultiplayer)) != 0 ||
+        MEM_B(0, kseg0(kSaveSlot)) < 0 || MEM_BU(kSpecialPauseSlot, ctx->r29) != 0) {
         return;
     }
     MEM_W(kOptionCountSlot, ctx->r29) = 3;

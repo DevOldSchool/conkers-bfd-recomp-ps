@@ -189,19 +189,7 @@ of a folder or zip. The sharper text (`src/enhancements/sharp_font/sharp_font.cp
 is such a pack, made in memory from the ROM's glyphs, so it needs no files and
 loads before the packs in `conker-recomp-data/texture_packs`.
 
-`tools/patches/rt64-wireframe.patch` (apply in `lib/rt64` after the patches
-above) and `tools/patches/plume-wireframe.patch` (apply in
-`lib/rt64/src/contrib/plume`) add the debug menu's wireframe view
-(`src/enhancements/debug_menu/debug_menu.cpp`). plume's command lists get
-`setWireframe`, which Metal applies as the triangle fill mode of each draw;
-the other back ends ignore it. `RT64::SetRenderWireframe` turns it on for the
-game's 3D triangles (indexed draws) only, so rectangles (text, sprites) stay
-solid, and clears each color target to black the first time it is drawn to in
-a frame: Conker never clears its frame, since the scene covers it, so without
-that the lines would be drawn over an old picture.
-
-`tools/patches/plume-gpu-errors.patch` (apply in `lib/rt64/src/contrib/plume`
-after `plume-wireframe.patch`) and `tools/patches/rt64-queue-names.patch`
+`tools/patches/plume-gpu-errors.patch` (apply in `lib/rt64/src/contrib/plume`) and `tools/patches/rt64-queue-names.patch`
 (apply in `lib/rt64`) report command buffers the GPU fails. RT64 never looked
 at whether one succeeded, so on macOS a GPU fault only showed in the system
 log. plume's command queues get a name (`setName`, Metal only), which RT64 sets

@@ -31,6 +31,17 @@ if [ ! -f "$exe" ]; then
     echo "no $exe: build the RT64 renderer for Windows first" >&2
     exit 1
 fi
+# What is handed out names no folder of whoever built it (cross_build.sh builds with CONKER_HIDE_PATHS;
+# a build configured by hand needs it too). A CI runner's home is nobody's.
+if [ -z "${CI:-}" ]; then
+    if LC_ALL=C grep -qaF "$HOME/" "$exe"; then
+        echo "$exe names $HOME: configure the build with -DCONKER_HIDE_PATHS=ON and build again (docs/releasing.md)" >&2
+        exit 1
+    fi
+    if [ -f "$build/ConkersBadFurDayRecompiled.pdb" ] && LC_ALL=C grep -qaF "$HOME/" "$build/ConkersBadFurDayRecompiled.pdb"; then
+        echo "warning: the .pdb names $HOME: keep the -pdb.zip to yourself, or build with -DCONKER_HIDE_PATHS=ON" >&2
+    fi
+fi
 dlls=(SDL2.dll dxcompiler.dll dxil.dll)
 for dll in "${dlls[@]}"; do
     if [ ! -f "$build/$dll" ]; then

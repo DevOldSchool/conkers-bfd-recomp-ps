@@ -59,29 +59,12 @@ From the repository's folder, since settings, saves and texture packs live in
 build/rt64/ConkersBadFurDayRecompiled /path/to/conker-us.z64
 ```
 
-## Building in Docker
+The ROM is kept in `conker-recomp-data`, so later runs can leave it out.
 
-`tools/linux/build.sh` first builds the speedrun mod the packaged game carries
-(`tools/build_mods.sh`, on the host: clang with the MIPS target and `ld.lld`,
-see [modding.md](modding.md)), then builds in an Ubuntu 24.04 Docker container for the
-machine Docker runs on (arm64 on Apple silicon), into `build/linux-arm64`, and
-packages `dist/Conkers-Bad-Fur-Day-Recompiled-<version>-linux-arm64.tar.gz`. It carries
-its own SDL2 in `libs/` (built from source with `-DCONKER_BUNDLED_SDL2=ON`, so it
-needs only the C library and loads X11, Wayland and the sound system at run time),
-and runs on Ubuntu 24.04 or newer with a desktop, which brings GTK 3 and a
-Vulkan driver. It needs `tools/regenerate.sh` to have been run
-first.
+## Packaging
 
-The tarball's `licenses` folder holds the licenses and a `SOURCE.txt` naming
-the commit it was built from. Package from a clean, committed checkout, and
-attach `tools/source_archive.sh`'s source tarball to the release beside it.
-
-In the tarball, `install.sh` adds the game to the desktop's applications with
-its icon. Started from there, it asks for the player's own ROM the first time
-and keeps a copy, with settings, saves and `last-run.log`, in
-`~/.local/share/ConkersBadFurDayRecompiled/conker-recomp-data`. A run from a folder that
-already has a `conker-recomp-data` folder, such as this checkout, keeps using
-that one.
+The release tarballs are built in Docker (`tools/linux/build.sh`); see
+[releasing.md](releasing.md).
 
 ## After pulling changes
 

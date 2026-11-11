@@ -277,20 +277,20 @@ index c9602f6..4a6d4cf 100644
          p.commandList->setScissors(scissor);
  
 diff --git a/src/rhi/rt64_render_hooks.cpp b/src/rhi/rt64_render_hooks.cpp
-index 13e774d..2830a0f 100644
+index 2e60745..8278401 100644
 --- a/src/rhi/rt64_render_hooks.cpp
 +++ b/src/rhi/rt64_render_hooks.cpp
-@@ -5,12 +5,18 @@
+@@ -4,10 +4,18 @@
+ 
  #include "rt64_render_hooks.h"
  
- #include <atomic>
++#include <atomic>
 +#include <mutex>
- 
++
  namespace RT64 {
      static RenderHookInit *init = nullptr;
      static RenderHookDraw *draw = nullptr;
      static RenderHookDeinit *deinit = nullptr;
-     static std::atomic<bool> wireframe = false;
 +    static std::atomic<bool> drawTagging = false;
 +    static std::atomic<WorkloadHook *> workloadHook = nullptr;
 +    static std::mutex presentedPictureMutex;
@@ -299,10 +299,12 @@ index 13e774d..2830a0f 100644
  
      RenderHookInit *GetRenderHookInit() {
          return init;
-@@ -37,4 +43,32 @@ namespace RT64 {
-     bool GetRenderWireframe() {
-         return wireframe;
+@@ -26,4 +34,32 @@ namespace RT64 {
+         draw = draw_;
+         deinit = deinit_;
      }
+-};
+\ No newline at end of file
 +
 +    void SetDrawTagging(bool enable) {
 +        drawTagging = enable;
@@ -331,15 +333,15 @@ index 13e774d..2830a0f 100644
 +        picture = presentedPicture;
 +        return presentedPictureSet;
 +    }
- };
++};
 diff --git a/src/rhi/rt64_render_hooks.h b/src/rhi/rt64_render_hooks.h
-index eddf640..491c4b7 100644
+index be01701..3b5c9cf 100644
 --- a/src/rhi/rt64_render_hooks.h
 +++ b/src/rhi/rt64_render_hooks.h
-@@ -20,4 +20,39 @@ namespace RT64 {
-     // Draw the game's 3D triangles as their edges (Metal only). Safe to call from any thread.
-     void SetRenderWireframe(bool enable);
-     bool GetRenderWireframe();
+@@ -16,4 +16,39 @@ namespace RT64 {
+     RenderHookDeinit *GetRenderHookDeinit();
+ 
+     void SetRenderHooks(RenderHookInit *init, RenderHookDraw *draw, RenderHookDeinit *deinit);
 +
 +    // Draw tags: while on, a G_SPNOOP whose low 24 bits are RT64_DRAW_TAG_PUSH starts tagging the draw
 +    // calls that follow with its second word (DrawCall::drawTag) until the matching RT64_DRAW_TAG_POP,

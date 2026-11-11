@@ -56,6 +56,11 @@ recompiled functions that called it.
   pack (`rt64.json` and `font/glyph_NN.png`), to edit and load from
   `conker-recomp-data/texture_packs`. `CONKER_DUMP_SHARP_MENUS=<dir>` does the
   same for the built-in sharper menus (`menus/<name>_N.png`, one per tile).
+* `CONKER_LEVEL_VISIBILITY=0` draws the level with the game's own visibility
+  table, as the camera's cell alone decides it, instead of also checking the
+  player's cell (and, in widescreen, the cells around the camera), to compare
+  with the original when a wall or corridor goes missing
+  (`src/fixes/level_visibility.cpp`).
 
 ## Scripted input
 
@@ -103,9 +108,9 @@ recompiled functions that called it.
   even with the pak in, is left out when controller 1's pad can rumble;
   `CONKER_RUMBLE_BANNER=1` shows it. The log shows the pak probe for each
   connected controller (`controller <n> rumble pak inserted` or `not
-  inserted`) and every change of the motor the game asks for (`VI <n>: rumble
-  on/off, port <n>`); a rumble is a run of on/off lines, since the game pulses
-  the motor to set its strength. `CONKER_RUMBLE_TEST=1` (RT64 build) buzzes
+  inserted`). `CONKER_RUMBLE_LOG=1` adds every change of the motor the game
+  asks for (`VI <n>: rumble on/off, port <n>`); a rumble is a run of on/off
+  lines, since the game pulses the motor to set its strength. `CONKER_RUMBLE_TEST=1` (RT64 build) buzzes
   the pad for a second when it connects, to check the pad without the game.
 * **Skipping the opening.** Saves persist in
   `conker-recomp-data/saves/conker_us.bin` under the working directory, so
@@ -118,12 +123,16 @@ recompiled functions that called it.
   (`docs/enhancements.md`, Debug menu).
 * **Reaching OPTIONS by script.** With `CONKER_SKIP_INTRO=1`, the pad lines
   `400 8 leftx=1`, `640 8 leftx=1` and `900 8 a` go from GAME 1 past MULTI to
-  OPTIONS and open it on the VOLUME row (under the sound row); `1300 8 lefty=1`
-  then selects SHARP TEXT (each further `lefty=1` the display mode row,
-  4:3/WIDESCREEN, the resolution row, then FILL SCREEN/CENTERED), and
-  `leftx=1` or `leftx=-1` steps its value. `CONKER_ORIGINAL_SIZE=1` keeps the
+  OPTIONS and open it on the VOLUME row (under the sound row). Two more
+  `lefty=1` lines (CONTROLS, then GRAPHICS) and an `a` open the GRAPHICS page
+  on SHARP TEXT; each further `lefty=1` selects the next row (the display
+  mode, 4:3/WIDESCREEN, the resolution, FILL SCREEN/CENTERED, then FRAME
+  RATE), `leftx=1` or `leftx=-1` steps its value and `b` goes back to OPTIONS. `CONKER_ORIGINAL_SIZE=1` keeps the
   window at 960x720, so test window sizes without it. `rightx` is the right
   stick (the C buttons), not the left stick pushed right.
+* `CONKER_TEST_NO_RIGHT_STICK=1` treats every pad as having no right stick,
+  as when playing with the keyboard alone, to test what the game does
+  without one.
 
 ## Window and display
 
@@ -163,6 +172,9 @@ recompiled functions that called it.
   and a line for each change of Conker's animation with his health, for
   finding the sounds and moments to give haptic effects
   (src/enhancements/haptics/haptics.cpp).
+* `CONKER_FEEL_LOG=1` prints the item each player picks up (its id and its
+  name in `feel.cfg`) and the buttons pressed with it in hand, for finding
+  an item's use button.
 * `CONKER_FEEL_LIVE=1` reads `feel.cfg` again within half a second of each
   save, and writes `weapon_survey.txt`: what each item held did (its sight
   and aim states, sounds, buttons and the game's own rumble).
@@ -240,6 +252,15 @@ recompiled functions that called it.
   restart when a session starts in place: compare the last run of the frames.
   A guest that is dropped starts itself again and the restart truncates its
   logs: `CONKER_NET_REJOIN_COUNT=99` keeps it stopped so they survive.
+* `CONKER_ROLL_LOG=<file>:<first VI>:<last VI>` (macOS and Linux) counts the
+  calls of the game's two random functions between those retraces, by the
+  place that called, and writes them once the last has passed. Run the same
+  pad script twice, at 30 fps and at 60 (`CONKER_60FPS=1`), and
+  `tools/roll_compare.py <game> <30 fps log> <60 fps log>` (macOS) lists the
+  places that rolled about twice as often at 60, each with the MIPS address
+  of its call and whether `config/us.toml` already corrects it: those roll
+  once a frame, and one that is a chance needs a 60 fps hook
+  ([enhancements.md](enhancements.md#60-fps)).
 * `CONKER_CALL_HASH_LOG=<file>` hashes the game thread's sequence of
   recompiled function entries (a line each 4096 calls and at the end of each
   frame), and `CONKER_CALL_HASH_REF=<log of another run>` compares as it
@@ -277,8 +298,11 @@ guards hold.
   the runtime must stop the game.
 * `CONKER_RENDER_SELFTEST=<task>:<kind>` does the same for the renderer at
   that graphics task: `ucode` (a task naming microcode that is not the
-  game's: the game stops), and `vertex`, `extended`, `dlstack` and
-  `loadtile` (a display list RT64 must refuse, printing a PASS line).
+  game's: the game stops), `vertex`, `extended`, `dlstack` and `loadtile`
+  (a display list RT64 must refuse, printing a PASS line), and `image` (a
+  list drawn as the online "my view" draws, from a copy of the game's memory,
+  with addresses at the top of the 16 MiB RT64 takes: they must be the
+  copy's own memory).
 
 ## Online play
 
@@ -295,12 +319,22 @@ guards hold.
   (`f<frame>.game`) and with the "my view" pass's list (`f<frame>.mine`),
   big-endian, keeping the last 8; the log gives each list's start. Walking
   both lists shows what the pass draws differently.
-* `CONKER_NET_SIM=latency=<ms>,jitter=<ms>,loss=<%>,dup=<%>,reorder=<%>,outage=<from>-<to>`
+  `CONKER_MY_VIEW_ZOOM_LOG=1` prints the local view's camera zoom whenever it
+  changes, for checking that the view drawn matches the game's.
+* `CONKER_NET_CATCH_UP_SPEED=<n>` sets how many times normal speed a machine
+  runs while it catches up with the host (32 unless set), for example after
+  joining or a stall.
+* `CONKER_NET_SIM=latency=<ms>,jitter=<ms>,loss=<%>,dup=<%>,reorder=<%>,outage=<from>-<to>,slow=<from>-<to>:<ms>`
   simulates a bad link for one online peer (src/net/net_play.cpp): half
   the round-trip latency on each of its sends and receives plus up to
   `jitter`, then loss, duplicates and reordering (by 40 ms) on its sends,
-  and no traffic either way from `from` to `to` seconds after the session
-  starts. Every 900 frames each peer prints its fps, its waits and stalls of
+  no traffic either way from `from` to `to` seconds after the session
+  starts (`outage`), and a round trip of `ms` instead of `latency` between
+  two such times (`slow`: a link that gets worse for a while).
+* `CONKER_NET_OWN_DELAY=0` keeps a guest's input delay at the session's. A
+  guest otherwise raises its own while its round trip needs more (and says
+  so: "this machine's input delay goes from 2 to 6 frames"), and lowers it
+  again a frame a second once it does not; the corner's DELAY shows it. Every 900 frames each peer prints its fps, its waits and stalls of
   50 ms or more and the round trip. The host logs every wait of 100 ms or
   more ("waited N ms at frame F for player P", with how long that player had
   been quiet).
@@ -326,7 +360,15 @@ guards hold.
   0x80200000 then (the host drops that peer as out of sync).
   `CONKER_NET_TEST_HANG=<frame>[:<seconds>]` stops a peer's game for a while
   (30 s by default) with its network going on (it is dropped after 3 s of
-  holding the host up). `CONKER_NET_TEST_FORGED_LEAVE=<frame>` on the host
+  holding the host up). `CONKER_NET_TEST_SLOW=<frame>[:<ms>]` makes every
+  frame of a peer's game take that much longer from then on (400 ms by
+  default): a guest the others wait for more than two thirds of the time is
+  dropped after about ten seconds of it. `CONKER_NET_TEST_LATE=<ms>` stops a
+  guest coming back for that long when it is told the frame it plays again
+  from: the host moves that frame on instead of waiting for it (it prints
+  "was not at frame ... to play again"), three times at most, then drops the
+  guest. `CONKER_NET_CATCH_UP_SPEED=1` makes a guest that never catches up,
+  to see that. `CONKER_NET_TEST_FORGED_LEAVE=<frame>` on the host
   feeds itself a guest's LEAVE with a wrong secret, with none and with the
   right one: only the last may drop the guest (it prints PASS).
   `tools/net-test/rejoinrun.sh` takes `FAULT=term` (the guest quits normally)
@@ -491,7 +533,9 @@ resume file's format with the running scripts' keys added, then makes a debug
 report (a save made by the game from the restored scene) and quits
 (`CONKER_SAVE_CHECK_OUT`, `_AT`, `_REPORT=1` and `_CHECKPOINT=1`, which starts
 the save at its checkpoint instead, drive it by hand; `result.json` says how it
-ended). `--no-run` only compares what an earlier run left.
+ended). `CONKER_EVENT_LOG=1` prints every change to the game's event flags, event
+statuses and cutscene slots, with the scene and frame, to see what a save
+should have kept. `--no-run` only compares what an earlier run left.
 
 The comparison, in `<out>/summary.md` (details in `details.json`), pairs each
 saved character with the one the restore found for it (by model and id, as
