@@ -1197,6 +1197,13 @@ func = "func_1515AF90"
 before_vram = 0x1515AFA4
 text = "{ void conker_60fps_chance(uint8_t*, recomp_context*, uint32_t); conker_60fps_chance(rdram, ctx, 1); }"
 
+# five flickering lights of a MULTI map (scene 0x1A; found with CONKER_ROLL_LOG in a match): rand % 1000 < 35,
+# or 70 while one is lit, switches it.
+[[patches.hook]]
+func = "func_15100340"
+before_vram = 0x151003C4
+text = "{ void conker_60fps_chance(uint8_t*, recomp_context*, uint32_t); conker_60fps_chance(rdram, ctx, 999); }"
+
 # Conker's idle fidget: rand % 120 + 180 < the idle timer plays one.
 [[patches.hook]]
 func = "func_15065A5C"

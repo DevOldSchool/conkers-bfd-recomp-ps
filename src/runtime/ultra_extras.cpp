@@ -47,7 +47,12 @@ void report_once(const char* name, const char* detail = nullptr) {
 
 // A handful of native structures live at the top of the 8 MiB RDRAM, above anything Conker
 // (a 4 MiB game) touches.
-constexpr uint32_t kViContextScratch = 0x807F0000;
+// Zeroes, which is what Rare's VI manager (func_80003658) must find there: it reads the context's
+// retrace count at +2 and, when the word at +0x10 is not zero, sends a message to that word as a
+// queue. Not 0x807F0000, where it was: the pause menu's SAVE and LOAD signs keep their tiles from there
+// (src/enhancements/pause_save), so after the first story pause the "context" was a sign's first row
+// of pixels.
+constexpr uint32_t kViContextScratch = 0x807FD000;
 
 // --- PIF shim -------------------------------------------------------------------------------
 // Rare's EEPROM and controller-pak code bypasses libultra's high-level routines and talks to

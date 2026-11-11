@@ -29,6 +29,13 @@ env:
   XWIN_VERSION: 0.10.0
   SDL3_VERSION: 3.4.16
   SDL2_COMPAT_VERSION: 2.32.72
+  # What each download must be (its release's SHA-256, as GitHub lists it; change with the version):
+  # they are built into the game or run in the jobs that are then given the ROM.
+  XWIN_SHA256: d870eb4b2f390878af6da1ccd3cf321d22fcb72720984853b4be732ae597fc88
+  SDL3_SHA256: 7322236cd12090c3eb40b9728be4d49c76f66ad17d04369584d4ecad5cf77c68
+  SDL2_COMPAT_SHA256: a14d2f78dad8e83ef1039b6534ace4d14f11f5b11d023af989affd70ac1bb35e
+  # apt.llvm.org's llvm.sh as of this commit of its repository (opencollab/llvm-jenkins.debian.net).
+  LLVM_SH_COMMIT: 076c86e05ebae0ab66edeecd2f0f438ae15de0bb
   MACOS_TARGET: '14.0'
 
 jobs:
@@ -60,8 +67,12 @@ jobs:
       - name: Build SDL for macOS ${{ env.MACOS_TARGET }}
         run: |
           mkdir -p sdl && cd sdl
-          curl -fsSL "https://github.com/libsdl-org/SDL/releases/download/release-$SDL3_VERSION/SDL3-$SDL3_VERSION.tar.gz" | tar -xz
-          curl -fsSL "https://github.com/libsdl-org/sdl2-compat/releases/download/release-$SDL2_COMPAT_VERSION/sdl2-compat-$SDL2_COMPAT_VERSION.tar.gz" | tar -xz
+          curl -fsSLO "https://github.com/libsdl-org/SDL/releases/download/release-$SDL3_VERSION/SDL3-$SDL3_VERSION.tar.gz"
+          curl -fsSLO "https://github.com/libsdl-org/sdl2-compat/releases/download/release-$SDL2_COMPAT_VERSION/sdl2-compat-$SDL2_COMPAT_VERSION.tar.gz"
+          printf '%s  %s\n' "$SDL3_SHA256" "SDL3-$SDL3_VERSION.tar.gz" "$SDL2_COMPAT_SHA256" "sdl2-compat-$SDL2_COMPAT_VERSION.tar.gz" \
+            | shasum -a 256 -c -
+          tar -xzf "SDL3-$SDL3_VERSION.tar.gz"
+          tar -xzf "sdl2-compat-$SDL2_COMPAT_VERSION.tar.gz"
           cmake -S "SDL3-$SDL3_VERSION" -B build/sdl3 -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_TARGET" -DCMAKE_INSTALL_PREFIX="$PWD/prefix" -DSDL_TESTS=OFF
           cmake --build build/sdl3 && cmake --install build/sdl3
@@ -160,12 +171,14 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build zip
-          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          curl -fsSL "https://raw.githubusercontent.com/opencollab/llvm-jenkins.debian.net/$LLVM_SH_COMMIT/llvm.sh" -o llvm.sh
           sudo bash llvm.sh "$LLVM_VERSION"
           sudo apt-get install -y --no-install-recommends "llvm-$LLVM_VERSION" "lld-$LLVM_VERSION" "clang-tools-$LLVM_VERSION"
           echo "/usr/lib/llvm-$LLVM_VERSION/bin" >> "$GITHUB_PATH"
-          curl -fsSL "https://github.com/Jake-Shadle/xwin/releases/download/$XWIN_VERSION/xwin-$XWIN_VERSION-x86_64-unknown-linux-musl.tar.gz" \
-            | tar -xz --strip-components=1 -C /usr/local/bin "xwin-$XWIN_VERSION-x86_64-unknown-linux-musl/xwin"
+          curl -fsSLO "https://github.com/Jake-Shadle/xwin/releases/download/$XWIN_VERSION/xwin-$XWIN_VERSION-x86_64-unknown-linux-musl.tar.gz"
+          echo "$XWIN_SHA256  xwin-$XWIN_VERSION-x86_64-unknown-linux-musl.tar.gz" | sha256sum -c -
+          tar -xzf "xwin-$XWIN_VERSION-x86_64-unknown-linux-musl.tar.gz" --strip-components=1 -C /usr/local/bin \
+            "xwin-$XWIN_VERSION-x86_64-unknown-linux-musl/xwin"
 
       - uses: ./recomp/.github/actions/regenerate
         with:

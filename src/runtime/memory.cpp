@@ -212,6 +212,49 @@ bool make_window_accessible(uint8_t* rdram, uint32_t vram, size_t size) {
 #endif
 }
 
+uint8_t* reserve_draw_image() {
+    // Before the image, what RDRAM's reservation has (an address a little under 0); after its 4 GiB,
+    // room for the largest thing drawn from the last offset (a frame buffer, 16 MiB at most).
+    constexpr size_t kBefore = 64 * 1024;
+    constexpr size_t kOffsets = size_t{1} << 32;
+    constexpr size_t kAfter = 64 * 1024 * 1024;
+    constexpr size_t kTotal = kBefore + kOffsets + kAfter;
+#if defined(CONKER_PLATFORM_POSIX)
+    int flags = MAP_PRIVATE | MAP_ANON;
+#if defined(MAP_NORESERVE)
+    flags |= MAP_NORESERVE;
+#endif
+    void* const base = mmap(nullptr, kTotal, PROT_NONE, flags, -1, 0);
+    if (base == MAP_FAILED) {
+        std::perror("mmap (draw image)");
+        return nullptr;
+    }
+    uint8_t* const image = static_cast<uint8_t*>(base) + kBefore;
+    if (mprotect(image, kDrawImageSize, PROT_READ | PROT_WRITE) != 0) {
+        std::perror("mprotect (draw image)");
+        munmap(base, kTotal);
+        return nullptr;
+    }
+    return image;
+#elif defined(_WIN32)
+    void* const base = VirtualAlloc(nullptr, kTotal, MEM_RESERVE, PAGE_NOACCESS);
+    if (base == nullptr) {
+        print_windows_error("VirtualAlloc (draw image)");
+        return nullptr;
+    }
+    uint8_t* const image = static_cast<uint8_t*>(base) + kBefore;
+    if (VirtualAlloc(image, kDrawImageSize, MEM_COMMIT, PAGE_READWRITE) == nullptr) {
+        print_windows_error("VirtualAlloc (draw image commit)");
+        VirtualFree(base, 0, MEM_RELEASE);
+        return nullptr;
+    }
+    return image;
+#else
+    std::fprintf(stderr, "[conker] no draw image on this platform yet\n");
+    return nullptr;
+#endif
+}
+
 void write_image(uint8_t* rdram, uint32_t vram, std::span<const uint8_t> image) {
     // MEM_B(i, addr) is rdram[((addr + i) ^ 3) - 0xFFFFFFFF80000000]; the XOR commutes with the
     // base subtraction because the base has zero low bits.

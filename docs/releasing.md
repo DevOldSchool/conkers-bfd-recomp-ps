@@ -55,14 +55,16 @@ cmake -S sdl2-compat-<version> -B build/sdl2c -G Ninja -DCMAKE_BUILD_TYPE=Releas
   -DCMAKE_PREFIX_PATH="$PWD/build/sdl14" -DSDL2COMPAT_TESTS=OFF
 cmake --build build/sdl2c && cmake --install build/sdl2c
 cmake -S . -B build/macos14 -G Ninja -DCMAKE_BUILD_TYPE=Release -DCONKER_RENDERER=rt64 \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DSDL2_DIR="$PWD/build/sdl14/lib/cmake/SDL2"
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DSDL2_DIR="$PWD/build/sdl14/lib/cmake/SDL2" -DCONKER_HIDE_PATHS=ON
 cmake --build build/macos14
 tools/package_macos.sh build/macos14
 ```
 
 `tools/package_macos.sh` bundles the SDL3 next to the SDL2 the game links, and stops if either
-needs a newer macOS than the game. Add `-ffile-prefix-map=$PWD=.` to the C and C++ flags so that
-no folder of yours ends up in the binary.
+needs a newer macOS than the game. Configure with `-DCONKER_HIDE_PATHS=ON` so that no folder of
+yours ends up in the binary or its debug information: the script refuses a game that still names
+your home folder (`tools/windows/cross_build.sh` sets it itself, and `tools/windows/package.sh`
+checks the same).
 
 ## Windows
 

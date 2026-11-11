@@ -21,19 +21,21 @@ std::mutex& config_mutex() {
     return mutex;
 }
 
-// The file's values, read the first time; under config_mutex().
-std::map<std::string, std::string>& values() {
-    static std::map<std::string, std::string> kept = [] {
-        std::map<std::string, std::string> read;
-        std::ifstream file(config_path());
-        for (std::string line; std::getline(file, line);) {
-            const size_t equals = line.find('=');
-            if (equals != std::string::npos) {
-                read[line.substr(0, equals)] = line.substr(equals + 1);
-            }
+std::map<std::string, std::string> read_file() {
+    std::map<std::string, std::string> read;
+    std::ifstream file(config_path());
+    for (std::string line; std::getline(file, line);) {
+        const size_t equals = line.find('=');
+        if (equals != std::string::npos) {
+            read[line.substr(0, equals)] = line.substr(equals + 1);
         }
-        return read;
-    }();
+    }
+    return read;
+}
+
+// The file's values, read the first time (and by reload); under config_mutex().
+std::map<std::string, std::string>& values() {
+    static std::map<std::string, std::string> kept = read_file();
     return kept;
 }
 
@@ -63,6 +65,11 @@ void set(const std::string& key, const std::string& value) {
     if (!file) {
         std::fprintf(stderr, "[conker] could not write %s\n", config_path().string().c_str());
     }
+}
+
+void reload() {
+    std::lock_guard lock(config_mutex());
+    values() = read_file();
 }
 
 }  // namespace conker::input_config

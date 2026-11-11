@@ -384,6 +384,12 @@ int wrap(int index) {
 
 // Before func_151DF1BC's `jal func_151E3344` ($a0 = the options to show).
 extern "C" void conker_display_options_begin(uint8_t* rdram, recomp_context* ctx) {
+    // Not online, where the page is the game's own: every machine runs it with the host's pad, so these
+    // rows put each machine's own words (its volume, its window's sizes) into the frame's text, which is
+    // game memory, and the host's stick changed every guest's volume, window and resolution.
+    if (conker::net::active() || conker::net::in_place()) {
+        return;
+    }
     if (!display_options_enabled() || static_cast<uint32_t>(ctx->r4) != kOptionsPageMask ||
         !record_matches(rdram, g_mode_row) || !record_matches(rdram, g_scale_row) ||
         !record_matches(rdram, g_fill_row) || !record_matches(rdram, g_shape_row) ||

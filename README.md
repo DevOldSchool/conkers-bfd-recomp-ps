@@ -36,13 +36,6 @@ Platforms:
 * Linux, x64 and ARM64: Ubuntu 24.04 or newer, or SteamOS (the Steam Deck),
   with a Vulkan driver
 
-### Known issues
-
-* At 60 fps, a random event in a place the 60 fps checks did not reach may
-  still happen more often than at 30 fps
-  ([60 fps](docs/enhancements.md#60-fps)).
-* Online play needs the same version of the game on every machine.
-
 ## Playing
 
 Download the build for your system from the releases, or build it yourself

@@ -101,6 +101,9 @@ const bool g_snapshot_fields = [] {
                 std::memcpy(&v, &in[i], 4);
                 if (!in_rdram(v)) return false;
             }
+            return true;
+        },
+        [](const std::vector<uint8_t>& in) {
             g_finished.clear();
             for (size_t i = 0; i < in.size(); i += 4) {
                 uint32_t v;

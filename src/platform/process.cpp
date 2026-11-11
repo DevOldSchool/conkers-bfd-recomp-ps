@@ -6,7 +6,11 @@
 #if defined(_WIN32)
 #include <windows.h>
 #else
+#include <climits>
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 #endif
 
 namespace conker::process {
@@ -99,7 +103,23 @@ void start_again(const std::vector<std::string>& args) {
         argv.push_back(const_cast<char*>(arg.c_str()));
     }
     argv.push_back(nullptr);
-    execv(argv[0], argv.data());
+    // This program by its own path, not by the name it was started with: "./Game" names nothing once a
+    // launch has entered its data folder (the restart did nothing then, with only this line in the log).
+    char self[PATH_MAX] = {};
+#if defined(__APPLE__)
+    char raw[PATH_MAX] = {};
+    uint32_t raw_size = sizeof(raw);
+    if (_NSGetExecutablePath(raw, &raw_size) != 0 || realpath(raw, self) == nullptr) {
+        self[0] = '\0';
+    }
+#else
+    if (const ssize_t length = readlink("/proc/self/exe", self, sizeof(self) - 1); length > 0) {
+        self[length] = '\0';
+    } else {
+        self[0] = '\0';
+    }
+#endif
+    execv(self[0] != '\0' ? self : argv[0], argv.data());
     std::perror("[conker] could not start again");
 #endif
 }

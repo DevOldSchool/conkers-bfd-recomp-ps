@@ -2111,6 +2111,24 @@ bool check_report(const std::filesystem::path& folder, ReportFiles* files, std::
         *problem = "the report has no save";
         return false;
     }
+    // save.bin: a save of the report's slot the game would load (a record of the slot whose checksum
+    // holds, as note_records finds them). With none, a load had already moved the game onto the copy
+    // and noted its records again before it found nothing to start: the game then played on, saving
+    // into the copy.
+    bool has_record = false;
+    for (int record = 0; record < kRecords; record++) {
+        const uint8_t* const bytes =
+            reinterpret_cast<const uint8_t*>(save.data()) + (kFirstRecordBlock + static_cast<uint32_t>(record) * kRecordBlocks) * 8;
+        uint32_t sum = kRecordChecksumStart;
+        for (uint32_t i = 2; i < kRecordSize; i++) {
+            sum = (sum + (static_cast<uint32_t>(bytes[i]) << (i & 3))) & 0xFFFF;
+        }
+        has_record = has_record || (sum == ((static_cast<uint32_t>(bytes[0]) << 8) | bytes[1]) && bytes[2] == static_cast<int>(slot));
+    }
+    if (!has_record) {
+        *problem = "save.bin has no save of the report's slot";
+        return false;
+    }
 
     // save.resume: a valid points file (parse_points) starting with the report's slot, whose point
     // is the report's.
@@ -2549,7 +2567,9 @@ extern "C" void conker_resume_start(uint8_t* rdram, recomp_context* ctx) {
         std::printf("[conker] starting slot %d at its checkpoint\n", slot);
         return;
     }
-    if (slot < 0 || slot >= kSlots) {
+    // Online the save is a copy of the host's, and a point kept beside it here is this machine's alone
+    // (left by an earlier session): the game starts where the save says, as on every machine.
+    if (slot < 0 || slot >= kSlots || conker::net::active()) {
         return;
     }
     const Point point = read_points()[slot];

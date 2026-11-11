@@ -1,6 +1,6 @@
 // Sealed datagrams: the lobby's and the session's packets encrypted and authenticated, so that a machine
 // that sees the traffic (public Wi-Fi, a shared network) learns no secret or token from it and cannot
-// forge or replay a packet (docs/online-play.md, "Security").
+// forge or replay a packet (docs/online-play.md says what a player is told of it).
 //
 // Each host has a key pair (X25519). A guest makes one of its own for each join, and asks the host for
 // its public key before anything else:

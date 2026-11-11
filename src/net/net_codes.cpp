@@ -550,6 +550,46 @@ std::string printable(const std::string& text, size_t max, bool newlines) {
     return out;
 }
 
+bool key_exchange_allowed(const sockaddr_storage& from) {
+    constexpr double kEachPerSecond = 8, kEachMost = 16;  // two guests behind one address, joining at once
+    constexpr double kAllPerSecond = 32, kAllMost = 32;
+    constexpr size_t kKept = 64;
+    struct Bucket {
+        std::string address;
+        double left = 0;
+        int64_t at = 0;
+    };
+    static std::mutex mutex;
+    static std::vector<Bucket> each;
+    static Bucket all{"", kAllMost, 0};
+    const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch()).count();
+    const auto refill = [now](Bucket& bucket, double per_second, double most) {
+        bucket.left = std::min(most, bucket.left + static_cast<double>(now - bucket.at) * per_second / 1000.0);
+        bucket.at = now;
+    };
+    const std::string with_port = address_with_port(from, 0);
+    const std::string address = with_port.substr(0, with_port.rfind(':'));
+    std::lock_guard<std::mutex> lock(mutex);
+    auto found = std::find_if(each.begin(), each.end(), [&](const Bucket& b) { return b.address == address; });
+    if (found == each.end()) {
+        if (each.size() >= kKept) {
+            // The one not seen for longest gives its place.
+            each.erase(std::min_element(each.begin(), each.end(), [](const Bucket& a, const Bucket& b) { return a.at < b.at; }));
+        }
+        each.push_back({address, kEachMost, now});
+        found = each.end() - 1;
+    }
+    refill(*found, kEachPerSecond, kEachMost);
+    refill(all, kAllPerSecond, kAllMost);
+    if (found->left < 1.0 || all.left < 1.0) {
+        return false;
+    }
+    found->left -= 1.0;
+    all.left -= 1.0;
+    return true;
+}
+
 bool log_refusal() {
     constexpr int64_t kWindowMs = 60000;
     constexpr int kPerWindow = 8;
