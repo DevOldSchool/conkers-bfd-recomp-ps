@@ -324,7 +324,47 @@ uint8_t* reserve_draw_image() {
     constexpr size_t kOffsets = size_t{1} << 32;
     constexpr size_t kAfter = 64 * 1024 * 1024;
     constexpr size_t kTotal = kBefore + kOffsets + kAfter;
-#if defined(CONKER_PLATFORM_POSIX)
+#if CONKER_PS5
+    // A kernel reservation with direct memory behind its first kDrawImageSize bytes, as rdram's
+    // (tools/patches/n64modernruntime-ps5.patch). The address is a hint, and a range the kernel puts
+    // elsewhere could be in the Vulkan driver's way (its GPU ring at 0x200000000-0x2FFFFFFFF, its
+    // device memory from 0x4000000000), so only these are taken, 8 GiB apart: rdram has one of them,
+    // and each image drawn from takes another.
+    static_assert(kTotal <= 0x200000000ull);
+    void* base = nullptr;
+    for (uintptr_t candidate = 0x300000000ull; candidate + kTotal <= 0x4000000000ull && base == nullptr;
+         candidate += 0x200000000ull) {
+        void* placed = reinterpret_cast<void*>(candidate);
+        if (sceKernelReserveVirtualRange(&placed, kTotal, 0, PS5_KERNEL_DIRECT_ALIGNMENT) != 0) {
+            continue;
+        }
+        if (placed == reinterpret_cast<void*>(candidate)) {
+            base = placed;
+        } else {
+            sceKernelMunmap(placed, kTotal);
+        }
+    }
+    if (base == nullptr) {
+        std::fprintf(stderr, "[conker] no address range for a draw image could be reserved\n");
+        return nullptr;
+    }
+    // kBefore is one 64 KiB unit, so the image starts on one as direct memory must.
+    static_assert(kBefore % PS5_KERNEL_DIRECT_ALIGNMENT == 0 && kDrawImageSize % PS5_KERNEL_DIRECT_ALIGNMENT == 0);
+    uint8_t* const image = static_cast<uint8_t*>(base) + kBefore;
+    int64_t direct = 0;
+    if (!allocate_direct(kDrawImageSize, &direct, "sceKernelAllocateDirectMemory (draw image)")) {
+        sceKernelMunmap(base, kTotal);
+        return nullptr;
+    }
+    if (!map_direct_at(image, kDrawImageSize, direct, "sceKernelMapDirectMemory (draw image)")) {
+        sceKernelMunmap(base, kTotal);
+        sceKernelReleaseDirectMemory(direct, kDrawImageSize);
+        return nullptr;
+    }
+    // Direct memory is not cleared when it is allocated.
+    std::memset(image, 0, kDrawImageSize);
+    return image;
+#elif defined(CONKER_PLATFORM_POSIX)
     int flags = MAP_PRIVATE | MAP_ANON;
 #if defined(MAP_NORESERVE)
     flags |= MAP_NORESERVE;
