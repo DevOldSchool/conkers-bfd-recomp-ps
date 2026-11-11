@@ -609,7 +609,7 @@ public:
         if (view_log) {
             // Once the online view has drawn a copy, a task drawn without one shows the game's own
             // (split-screen) picture.
-            if (!frame_memory.empty()) {
+            if (frame_memory.memory != nullptr) {
                 tasks_since_view_copy_ = 0;
             } else if (tasks_since_view_copy_ >= 0 && ++tasks_since_view_copy_ <= 600) {
                 std::printf("[conker] my view: task %llu drawn from game memory (%d since the last copy)\n",
