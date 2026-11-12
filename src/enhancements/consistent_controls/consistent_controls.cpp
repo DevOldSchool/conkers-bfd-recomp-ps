@@ -141,6 +141,7 @@ constexpr uint32_t kFrameDelta = 0x800BE9A4;   // D_800BE9A4: this frame's logic
 constexpr uint32_t kActorFacing = 0x40;        // f32: degrees from +Z towards +X
 constexpr uint32_t kActorFacingAngle = 0x76;   // s16: the facing it is made from, and the one it
 constexpr uint32_t kActorFacingTarget = 0x7A;  // turns towards (0x10000 a turn, 90 degrees behind)
+constexpr uint32_t kActorHealth = 0x1CA;       // u8: 0 from a match player's death to the respawn
 // degrees a 1/30 s step, the right stick pushed fully (feel.cfg, built-in 6)
 float match_turn() { return conker::feel::number("controls.match_turn"); }
 // A tank's turret (TANK's: f32 +0x1BC of the player block, 0 to 360, which func_150ED748 copies to
@@ -371,6 +372,12 @@ bool match_look(uint8_t* rdram, recomp_context* ctx, uint32_t actor, int pad, in
     const bool stick = conker::frame_input::right_stick(&right_x, &right_y, pad);
     // Paused (or in a menu) the pad is left alone: the pause menu is steered with the stick.
     if ((!stick && !conker::frame_input::mouse_captured(pad)) || !conker::mouse_look::playing()) {
+        return false;
+    }
+    // Dead, the game turns neither the body nor the camera: the mouse's motion is dropped, not kept
+    // for the respawn.
+    if (MEM_BU(kActorHealth, kseg0(actor)) == 0) {
+        conker::mouse_look::take_turn(pad);
         return false;
     }
     if (stick) {
