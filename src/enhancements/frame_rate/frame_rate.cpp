@@ -19,6 +19,7 @@
 // scene, logic delta (D_800BE9A4), Conker's position and the camera's eye, for comparing the two
 // rates.
 #include <atomic>
+#include "net/net_play.hpp"
 #include "platform/data_folder.hpp"
 #include <cmath>
 #include <cstdint>
@@ -124,7 +125,9 @@ void save_settings() {
     }
 }
 
-bool enabled() { return settings().sixty.load(std::memory_order_relaxed); }
+// An online match plays at 30 fps whatever the setting: not every machine in one keeps 60, and every
+// player waits for the slowest. Every peer turns it off on the same frame, the session's first.
+bool enabled() { return settings().sixty.load(std::memory_order_relaxed) && !conker::net::active(); }
 
 void wake_scheduler(uint8_t* rdram) {
     osSendMesg(rdram, static_cast<int32_t>(kSchedulerQueue), kWakeMessage, OS_MESG_NOBLOCK);
@@ -400,8 +403,10 @@ nlohmann::json conker::status::smooth_motion() {
                        "CONKER_SMOOTH");
 }
 
+// Off in every online match (enabled), so never one of an online host's settings; a replay's header
+// still sets it.
 conker::switches::Switch conker::switches::frame_rate() {
-    return {"60 FPS", enabled, [](bool on) { settings().sixty.store(on); }};
+    return {"60 FPS", enabled, [](bool on) { settings().sixty.store(on); }, true};
 }
 
 // Only this machine's pictures: never part of an online host's settings.
