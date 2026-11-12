@@ -317,7 +317,9 @@ guards hold.
   `CONKER_MY_VIEW_DUMP=<folder>` (a guest in a match with MY VIEW on) writes,
   every 150 frames, game memory with the game's own split-screen list
   (`f<frame>.game`) and with the "my view" pass's list (`f<frame>.mine`),
-  big-endian, keeping the last 8; the log gives each list's start. Walking
+  big-endian, keeping the last 8; the log gives each list's start.
+  `CONKER_MY_VIEW_DUMP_EVERY=<frames>` and `CONKER_MY_VIEW_DUMP_KEEP=<dumps>`
+  change the 150 and the 8 (every few frames, to catch something brief). Walking
   both lists shows what the pass draws differently.
   `CONKER_MY_VIEW_ZOOM_LOG=1` prints the local view's camera zoom whenever it
   changes, for checking that the view drawn matches the game's.

@@ -113,6 +113,7 @@ constexpr uint32_t kViewSize = 0x180;
 constexpr uint32_t kViewWidth = 0x4, kViewHeight = 0x8;  // f32, the whole screen's: the frame buffer
 constexpr uint32_t kViewTop = 0x24, kViewBottom = 0x28, kViewLeft = 0x2C, kViewRight = 0x30;  // f32
 constexpr uint32_t kViewCentreX = 0x34;  // f32
+constexpr uint32_t kViewXScale = 0xBC;  // f32: cot of half the horizontal field of view
 constexpr uint32_t kCameras = 0x800DBFF0;       // D_800DBFF0: the views' camera records
 constexpr uint32_t kCameraSize = 0x9A0;
 constexpr uint32_t kViewMatrices = 0x800DC2A0;   // D_800DC2A0: two buffers of a matrix per view
@@ -805,6 +806,56 @@ void emit(uint8_t* rdram, uint32_t w0, uint32_t w1) {
     set_list_pointer(rdram, at + 8);
 }
 
+// The effects the game puts on the screen as texture rectangles in a view's world (a gun's muzzle
+// flash, sparks, smoke) are placed from offsets the game works out once a frame, outside the views'
+// drawing, with the split screen's view: its horizontal field of view, wider than the full-screen
+// view's. Drawn here they kept that x scale and came out about two thirds of the way from the middle
+// to the guns they belong to (a dump of both lists: x at 1.25 times the split view's offset where the
+// world went 1.89 times). Each rectangle in [from, to) narrower than half the view is moved so its
+// centre's distance from the view's centre is `widening` times as far; its size is kept.
+void place_effect_rects(uint8_t* rdram, uint32_t from, uint32_t to, float centre_x, float widening) {
+    if (!(widening > 0.0f) || std::fabs(widening - 1.0f) < 1e-3f) {
+        return;
+    }
+    for (uint32_t at = from; at + 24 <= to; at += 8) {
+        const uint32_t w0 = static_cast<uint32_t>(MEM_W(0, kseg0(at)));
+        if ((w0 >> 24) != 0xE4) {
+            continue;
+        }
+        const uint32_t w1 = static_cast<uint32_t>(MEM_W(4, kseg0(at)));
+        const uint32_t half1 = static_cast<uint32_t>(MEM_W(8, kseg0(at)));
+        const uint32_t half1_w1 = static_cast<uint32_t>(MEM_W(12, kseg0(at)));
+        const uint32_t half2_w1 = static_cast<uint32_t>(MEM_W(20, kseg0(at)));
+        if ((half1 >> 24) != 0xE1 || (static_cast<uint32_t>(MEM_W(16, kseg0(at))) >> 24) != 0xF1) {
+            continue;
+        }
+        // 10.2 fixed point: right/bottom in w0, left/top in w1.
+        int right = static_cast<int>((w0 >> 12) & 0xFFF);
+        int left = static_cast<int>((w1 >> 12) & 0xFFF);
+        if (right <= left || (right - left) > 146 * 4) {
+            continue;
+        }
+        const float centre = (left + right) / 8.0f;
+        const int shift = static_cast<int>(std::lround((centre_x + (centre - centre_x) * widening - centre) * 4.0f));
+        int s = static_cast<int16_t>(half1_w1 >> 16);  // s10.5
+        const int dsdx = static_cast<int16_t>(half2_w1 >> 16);  // s5.10
+        left += shift;
+        right += shift;
+        if (right <= 0) {
+            right = left = 0;
+        } else if (left < 0) {
+            s += (-left) * dsdx / 128;  // a quarter pixel of s10.5 for each s5.10 step
+            left = 0;
+        }
+        right = std::min(right, 0xFFF);
+        left = std::min(left, 0xFFF);
+        MEM_W(0, kseg0(at)) = static_cast<int32_t>((w0 & 0xFF000FFFu) | (static_cast<uint32_t>(right) << 12));
+        MEM_W(4, kseg0(at)) = static_cast<int32_t>((w1 & 0xFF000FFFu) | (static_cast<uint32_t>(left) << 12));
+        MEM_W(12, kseg0(at)) = static_cast<int32_t>((half1_w1 & 0xFFFFu) | (static_cast<uint32_t>(s & 0xFFFF) << 16));
+        at += 16;
+    }
+}
+
 void write_float(uint8_t* rdram, uint32_t address, float value) {
     uint32_t bits;
     std::memcpy(&bits, &value, sizeof(bits));
@@ -1007,6 +1058,8 @@ void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
     }
     const WipeLayout split_wipe =
         wipe_layout(rdram, static_cast<uint32_t>(MEM_W(0, kseg0(kViews))) + static_cast<uint32_t>(local) * kViewSize);
+    const uint32_t local_record = static_cast<uint32_t>(MEM_W(0, kseg0(kViews))) + static_cast<uint32_t>(local) * kViewSize;
+    const float split_x_scale = read_float(rdram, local_record + kViewXScale);
     call(rdram, ctx, func_1501A8C0, view, 0, 0x3FF, 0);  // the local view's record over the whole screen
     if (zoom.zoomed) {
         apply_zoom(rdram, ctx, local, full_screen_zoom(rdram, local, zoom));
@@ -1115,6 +1168,10 @@ void draw_local_view(uint8_t* rdram, recomp_context* ctx, int local) {
     MEM_W(0, kseg0(kCurrentView)) = local;
     draw(rdram, ctx, func_1515D6D0, word(local));
     draw(rdram, ctx, func_150195A0, view);
+    if (split_x_scale > 0.0f) {
+        place_effect_rects(rdram, local_world, list_pointer(rdram), read_float(rdram, own + kViewCentreX),
+                           read_float(rdram, own + kViewXScale) / split_x_scale);
+    }
 
     // The HUD draws a pie for each view up to the count: up to the local one, the ones before it off
     // the screen.
@@ -1410,9 +1467,18 @@ void dump_pass(const uint8_t* game, const uint8_t* mine) {
     if (folder == nullptr) {
         return;
     }
+    // CONKER_MY_VIEW_DUMP_EVERY=<frames> (150 unless set) and CONKER_MY_VIEW_DUMP_KEEP=<dumps> (8).
+    static const uint32_t every = [] {
+        const char* value = std::getenv("CONKER_MY_VIEW_DUMP_EVERY");
+        return value != nullptr && std::atoi(value) > 0 ? static_cast<uint32_t>(std::atoi(value)) : 150u;
+    }();
+    static const size_t keep = [] {
+        const char* value = std::getenv("CONKER_MY_VIEW_DUMP_KEEP");
+        return value != nullptr && std::atoi(value) > 0 ? static_cast<size_t>(std::atoi(value)) : size_t{8};
+    }();
     const uint32_t frame = conker::frame_input::current().frame;
     static uint32_t last = 0;
-    if (last != 0 && frame < last + 150) {
+    if (last != 0 && frame < last + every) {
         return;
     }
     last = frame;
@@ -1440,7 +1506,7 @@ void dump_pass(const uint8_t* game, const uint8_t* mine) {
     kept.push_back(frame);
     write(game, frame, ".game");
     write(mine, frame, ".mine");
-    while (kept.size() > 8) {
+    while (kept.size() > keep) {
         write(nullptr, kept.front(), ".game");
         write(nullptr, kept.front(), ".mine");
         kept.pop_front();

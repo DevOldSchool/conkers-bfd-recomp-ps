@@ -606,9 +606,8 @@ water drops falling off a wet Conker keep their pace. They were found by
 counting each random call's rolls at both rates in the regression scenes and
 in two-player matches of the MULTI modes (`CONKER_ROLL_LOG`,
 [diagnostics.md](diagnostics.md)), so a chance in a place those do not reach
-may still come up more often. Online, every player plays at the host's
-setting, and the input delay and a returning player's catch-up are worked out
-in its frames.
+may still come up more often. An online match plays at 30 fps whatever the
+setting ([online-play.md](online-play.md#in-a-match)).
 
 ## Smooth motion
 
