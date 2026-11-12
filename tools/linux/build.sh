@@ -112,6 +112,13 @@ uses that ROM (and keeps it in place of the stored copy).
 The licenses are in licenses/: the game as a whole is passed on under the GPL-3.0 (COPYING.txt),
 and licenses/SOURCE.txt says where its source code is.
 EOF
-tar -C "$here/dist" -czf "$stage.tar.gz" "$name"
+# macOS's tar puts each file's extended attributes and resource fork in the archive, and GNU tar on
+# Linux then warns about every file it unpacks. Neither belongs in the package.
+tar_flags=""
+if [ "$(uname)" = Darwin ] && tar --version 2> /dev/null | grep -q bsdtar; then
+    tar_flags="--no-xattrs --no-mac-metadata"
+fi
+# shellcheck disable=SC2086
+COPYFILE_DISABLE=1 tar $tar_flags -C "$here/dist" -czf "$stage.tar.gz" "$name"
 rm -rf "$stage"
 echo "==> dist/$name.tar.gz ($(du -h "$stage.tar.gz" | cut -f1))"

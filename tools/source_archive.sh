@@ -23,5 +23,12 @@ git -C "$here" submodule foreach --quiet --recursive 'echo "$displaypath $sha1"'
 done
 
 mkdir -p "$here/dist"
-tar -C "$work" -czf "$here/dist/$name.tar.gz" "$name"
+# macOS's tar puts each file's extended attributes and resource fork in the archive, and GNU tar on
+# Linux then warns about every file it unpacks. Neither belongs in the package.
+tar_flags=""
+if [ "$(uname)" = Darwin ] && tar --version 2> /dev/null | grep -q bsdtar; then
+    tar_flags="--no-xattrs --no-mac-metadata"
+fi
+# shellcheck disable=SC2086
+COPYFILE_DISABLE=1 tar $tar_flags -C "$work" -czf "$here/dist/$name.tar.gz" "$name"
 echo "==> dist/$name.tar.gz ($(du -h "$here/dist/$name.tar.gz" | cut -f1))"
