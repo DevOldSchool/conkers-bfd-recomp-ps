@@ -22,8 +22,8 @@ It is a homebrew title: it needs a console that runs homebrew.
 
 ## Installing
 
-1. Download `Conkers-Bad-Fur-Day-Recompiled-PS5-<version>.zip` from the releases and unzip it: it
-   holds the title folder, `PPSA92064`.
+1. Download `PPSA92064.zip` from the releases and unzip it: it holds the title folder,
+   `PPSA92064`.
 2. Copy `PPSA92064` to `/data/homebrew/` on the console (FTP).
 3. Put your own US ROM in that folder, as a `.z64` file (lower case). On the
    first start the game keeps its own copy; the file you added can then be removed.

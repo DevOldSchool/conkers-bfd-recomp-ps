@@ -72,18 +72,18 @@ jobs:
         working-directory: recomp
         run: tools/ps5/build.sh all
 
-      # The title folder, PPSA92064/ at the zip's top (what the catalog and an FTP copy want), and the
-      # unsigned program with its symbols, for reading a crash report's addresses.
+      # The title folder, PPSA92064/ at the top of PPSA92064.zip (what the catalog and an FTP copy
+      # want; the catalog suggests naming it after the title ID, and the release's tag gives its
+      # version), and the unsigned program with its symbols, for reading a crash report's addresses.
       - name: Package
         working-directory: recomp
         run: |
           version="$(tools/version.sh)"
-          name="Conkers-Bad-Fur-Day-Recompiled-PS5-$version"
           mkdir -p packages
-          (cd dist && zip -qrX "../packages/$name.zip" PPSA92064)
+          (cd dist && zip -qrX ../packages/PPSA92064.zip PPSA92064)
           docker run --rm -v conker-ps5-build:/b -v "$PWD/packages:/out" ubuntu:24.04 \
             cp /b/ConkersBadFurDayRecompiled.elf /out/ConkersBadFurDayRecompiled-PS5.elf
-          (cd packages && zip -qmX "$name-symbols.zip" ConkersBadFurDayRecompiled-PS5.elf)
+          (cd packages && zip -qmX "Conkers-Bad-Fur-Day-Recompiled-PS5-$version-symbols.zip" ConkersBadFurDayRecompiled-PS5.elf)
           (cd packages && sha256sum *.zip > SHA256SUMS.txt && cat SHA256SUMS.txt)
 
       - uses: actions/upload-artifact@v7

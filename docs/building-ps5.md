@@ -76,7 +76,7 @@ A tag `NN.NNN.NNN` makes a draft release. The tag must be `contentVersion` in
 takes), so a release raises that first, after merging the main project's release it goes with
 (above). The draft carries:
 
-* `Conkers-Bad-Fur-Day-Recompiled-PS5-<version>.zip`: the title folder, `PPSA92064/` at its top,
+* `PPSA92064.zip`: the title folder, `PPSA92064/` at its top,
   licenses included;
 * `…-symbols.zip`: the unsigned program with its symbols, for reading a crash report's addresses;
 * the complete source, submodules included, and the PS5 libraries' source at the pinned revisions;
