@@ -1,5 +1,5 @@
 # Checks that need no ROM, so they run on every push to main and every pull request, forks included.
-# The ROM build is rom-build.yml.
+# The ROM build is ps5.yml (the PS5 title, on a version tag or by hand).
 name: Checks
 
 on:
