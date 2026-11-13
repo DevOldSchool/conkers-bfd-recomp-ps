@@ -12,6 +12,12 @@ requests merged since the last one (`.github/release.yml` groups them by label).
 tick "Set as a pre-release" for a beta (a tag such as `v0.1.0-beta.1`), and publish it. Run by hand,
 the workflow only builds: the packages are the run's artifacts, kept for 3 days.
 
+The debug information (the macOS dSYM and the Windows `.pdb`s) is never attached to the release. It
+is kept with the run as the `debug-*` artifacts, which only the repository's collaborators can
+download, for 90 days. Copy them somewhere private and permanent for a release that goes out: a
+build's debug information matches only that build, and building the same commit again does not
+give it back.
+
 The steps below are what the workflow runs, for making a package by hand.
 
 ## Before packaging
@@ -37,8 +43,8 @@ needs no Homebrew, but it needs Apple silicon and at least the macOS version the
 The app is not notarised: on another Mac, open it once, then choose Open Anyway in System Settings >
 Privacy & Security, or run `xattr -dr com.apple.quarantine "Conker's Bad Fur Day Recompiled.app"`.
 
-Keep `dist/ConkersBadFurDayRecompiled.dSYM` with the release, for `tools/symbolicate.sh` on a crash
-report a player sends back.
+Keep `dist/ConkersBadFurDayRecompiled.dSYM` (privately, not in the release) for
+`tools/symbolicate.sh` on a crash report a player sends back.
 
 ### For an older macOS
 
@@ -76,9 +82,9 @@ makes `dist/Conkers-Bad-Fur-Day-Recompiled-<version>-windows-x64.zip` (or `windo
 ARM64 build): the game, its DLLs, a README, the Add to Steam scripts and `licenses`. The release
 builds are cross-compiled ([building-windows.md](building-windows.md#cross-compiling-from-macos-or-linux)).
 
-The `.pdb` (debug information) goes in a zip of its own, `...-pdb.zip`. Keep it with the release: a
-crash report from a player's copy is only addresses until the `.pdb` is next to the game, where the
-crash reporter names each frame from it.
+The `.pdb` (debug information) goes in a zip of its own, `...-pdb.zip`. Keep it privately, not in
+the release: a crash report from a player's copy is only addresses until the `.pdb` is next to the
+game, where the crash reporter names each frame from it.
 
 ## Linux
 
