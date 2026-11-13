@@ -1,6 +1,7 @@
 # Builds and packages the game for every platform, and on a v* tag makes a draft release with them
 # for a person to check and publish. Run by hand, it only builds: the packages are the run's
-# artifacts, kept for 3 days.
+# artifacts, kept for 3 days. The debug information (dSYM, .pdb) is never released: it stays with
+# the run as the debug-* artifacts, for 90 days.
 #
 # Every job regenerates the code from the ROM itself (.github/actions/regenerate): the recompiled
 # code is made from the ROM, so it is never passed between jobs as an artifact or cached. Only the
@@ -100,9 +101,19 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: macos
-          path: recomp/dist/*.zip
+          name: package-macos
+          path: |
+            recomp/dist/*.zip
+            !recomp/dist/*-dsym.zip
           retention-days: 3
+          if-no-files-found: error
+
+      # The debug information stays with the run, for collaborators only: never in the release.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: debug-macos
+          path: recomp/dist/*-dsym.zip
+          retention-days: 90
           if-no-files-found: error
 
   linux:
@@ -144,7 +155,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: linux-${{ matrix.arch }}
+          name: package-linux-${{ matrix.arch }}
           path: recomp/dist/*.tar.gz
           retention-days: 3
           if-no-files-found: error
@@ -201,9 +212,19 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: windows-${{ matrix.arch }}
-          path: recomp/dist/*.zip
+          name: package-windows-${{ matrix.arch }}
+          path: |
+            recomp/dist/*.zip
+            !recomp/dist/*-pdb.zip
           retention-days: 3
+          if-no-files-found: error
+
+      # The debug information stays with the run, for collaborators only: never in the release.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: debug-windows-${{ matrix.arch }}
+          path: recomp/dist/*-pdb.zip
+          retention-days: 90
           if-no-files-found: error
 
   source:
@@ -220,7 +241,7 @@ jobs:
         run: tools/source_archive.sh
       - uses: actions/upload-artifact@v7
         with:
-          name: source
+          name: package-source
           path: recomp/dist/*.tar.gz
           retention-days: 3
           if-no-files-found: error
@@ -236,6 +257,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: packages
+          pattern: package-*
           merge-multiple: true
       - name: Make the draft release
         env:
