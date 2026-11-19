@@ -7,9 +7,9 @@ off for a run. The summary is in the [README](../README.md#enhancements).
 ## Display options
 
 The OPTIONS page of the title menu has volume, controls and GRAPHICS rows
-under the sound setting. GRAPHICS (A, or left or right) opens a page of six
-rows, from SHARP TEXT to FRAME RATE, drawn the same way; B goes back to
-OPTIONS.
+under the sound setting. GRAPHICS (A, or left or right) opens a page of eight
+rows, from WINDOWED to FRAME RATE, drawn the same way in the order below; B
+goes back to OPTIONS.
 
 * VOLUME, from OFF to 100% in steps of 10%, stopping at either end. It turns
   down what the game plays (the sound effects, music and speech together),
@@ -26,9 +26,6 @@ OPTIONS.
   B goes back. Not online, where only your game would stop reading the pad
   and drawing OPTIONS while it is open.
 
-* SHARP TEXT or ORIGINAL TEXT: the [sharper text](#sharper-text) and
-  [menus](#sharper-menus), or the game's own. It switches at once and is on
-  by default.
 * WINDOWED, BORDERLESS or FULL SCREEN. Full screen (the default) and
   borderless both cover the screen; borderless is a window the size of the
   screen, which switches to and from other windows more quickly.
@@ -67,11 +64,52 @@ OPTIONS.
   default). Widescreen widths are shown in widescreen. Sizes are in pixels,
   also on a high-density (scaled) display, where the game draws at the
   screen's full pixel density.
-* FILL SCREEN or CENTERED: the picture is scaled to fill the window or
-  screen, or drawn at its own size in the middle with black bars, so that
-  every game pixel is an even block. Covering the screen it fills by
-  default; a lower resolution then fills it with larger pixels. A window is
-  centered by default, which only shows once it is resized by hand.
+  Covering the screen the picture is scaled to fill it, so a lower
+  resolution fills it with larger pixels; a window keeps the picture at its
+  own size in the middle, which only shows once it is resized by hand. (An
+  earlier FILL SCREEN / CENTERED row is gone; `window_fill` and
+  `screen_fill` lines in display.cfg are ignored.)
+* ANTIALIASING OFF, 2X, 4X or 8X, or SUPERSAMPLING. The first four are
+  multisample anti-aliasing, which softens the stair steps along the edges
+  of the level, characters and props at almost no cost; only the sample
+  counts the graphics card can draw with are offered (2X and 4X on Apple
+  silicon). The samples are spread over the whole pixel in the standard
+  pattern (tools/patches/rt64-wide-msaa.patch; RT64 bunched them in one
+  quarter of it, which left an edge one blended pixel per step), but with
+  four samples an edge still has only three shades between its two sides,
+  so it is subtle. SUPERSAMPLING renders at twice the resolution, with 4X
+  as well, and averages each 2x2 block down to the chosen size, which
+  smooths every edge, and shimmering texture detail too, far more. It costs
+  about four times the GPU work: in a 1920x1080 window on an M1 Pro at 60
+  FPS SMOOTH, 104 pictures a second were shown instead of 115 and input
+  took about 12 ms longer to show; three times the resolution was too much
+  (47 game frames a second). RT64 lined a downsampled picture up for its
+  native size, which moved a supersampled one up to a few pixels to the left
+  with a dark column at the right; tools/patches/rt64-supersampling.patch
+  leaves it in place. On Metal the multisample resolve skipped the GPU fences
+  the downsample waits on, so the downsample sometimes read the previous
+  frame in places (flicker, older pictures in blocks);
+  tools/patches/plume-metal-resolve-fence.patch makes it wait. Each choice
+  switches at once (a short pause while RT64 remakes its frame buffers).
+  Until a choice is made the default is 4X, or 2X on a GPU without 4X, and
+  OFF on a software renderer or one without programmable sample positions
+  (which RT64 needs for multisampling); display.cfg only gets an
+  `antialiasing=` line once one is chosen, and the terminal says which is in
+  use at the start (`anti-aliasing 4x (default 4x, ...)`).
+* SHARP TEXT or ORIGINAL TEXT: the [sharper text](#sharper-text) and
+  [menus](#sharper-menus), or the game's own. It switches at once and is on
+  by default.
+* SHARP DISTANCE (the default) or BLURRY DISTANCE: RT64 picks the smaller
+  copies Rare made of the ground and wall textures for the window's
+  resolution, not the N64's 240 lines, so the ground stays detailed into the
+  distance; BLURRY DISTANCE is how the console drew it. Saved in display.cfg
+  as `sharp_distance=`; the debug menu's DEBUG VIEW has the same switch.
+* TEXTURE PACKS (the default) or N64 TEXTURES: whether the
+  [texture packs](#texture-packs) in `conker-recomp-data/texture_packs` are
+  used, to compare a pack with the game's own textures in place. The
+  sharper text, menus and button pictures stay either way. Each switch loads
+  the packs again, so a big pack takes a moment. Saved in display.cfg as
+  `texture_packs=`; the debug menu's DEBUG VIEW PACKS row is the same switch.
 * FRAME RATE: 30 FPS (the original, and the default, since not every machine
   holds 60), 60 FPS ([60 fps](#60-fps)), or 60 FPS SMOOTH (60 fps with
   [smooth motion](#smooth-motion)). Kept in
@@ -222,6 +260,12 @@ button. Up and down choose a row, A or left and right change it, B goes back:
     under the cursor, front to back (shown as 2/3), until the mouse moves. Text
     is never picked. RT64 build only; see
     `src/enhancements/object_inspector/object_inspector.cpp`.
+  * AA: the GRAPHICS page's ANTIALIASING row (OFF, 2X, 4X, SUPERSAMPLING), to
+    compare them in play. A or left and right step it; the picture changes
+    when the menu closes, since the renderer keeps its settings while the
+    pause menu shows its copy of the last frame.
+  * PACKS: the GRAPHICS page's TEXTURE PACKS row, ON or OFF.
+  * SHARP DISTANCE: the GRAPHICS page's row of that name, ON or OFF.
 * ENHANCEMENTS: every enhancement that can be switched while the game
   runs, each ON or OFF, starting as its `CONKER_*` variable set it: SHARP
   TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
@@ -585,7 +629,11 @@ signs; the OPTIONS row turns the sharper text and menus off together.
 RT64 replacement packs (a folder, `.rtz` or `.zip` with an `rt64.json`) in
 `conker-recomp-data/texture_packs` are loaded at start, in name order; where
 two replace the same texture, the later name wins, and any of them wins over
-the sharper text and menus and your pad's buttons. `CONKER_TEXTURE_PACKS=0` loads none.
+the sharper text and menus and the redrawn N64 buttons. The Xbox, PlayStation
+and keyboard button pictures go after the packs, so they still show which
+button to press with an HD pack on. `CONKER_TEXTURE_PACKS=0` loads none;
+the GRAPHICS page's TEXTURE PACKS row (and the debug menu's PACKS) turns them
+off and on while playing.
 `CONKER_DUMP_SHARP_FONT=<dir>` and `CONKER_DUMP_SHARP_MENUS=<dir>` write the
 sharper text and menus out as packs to edit; `tools/font_pack.py` writes the
 font's glyphs with their hashes as a template for new art.

@@ -1,0 +1,36 @@
+--- a/src/hle/rt64_present_queue.cpp
++++ b/src/hle/rt64_present_queue.cpp
+@@ -282,7 +282,23 @@
+             }
+         }
+         
+-        for (int32_t i = 0; i < framesToPresent; i++) {
++        // A present for a workload whose pictures were already shown (the game presented again before the
++        // next workload came in, which happens whenever the GPU is behind) carries on from the first picture
++        // not shown yet. Starting again from the first one showed a picture from between the previous frame
++        // and this one after this one, a step back in time; and once all of them were shown, the next
++        // workload is free to draw over every interpolated target, so there is nothing safe to show again.
++        int32_t firstFrame = 0;
++        if (framesToPresent > 1) {
++            std::unique_lock<std::mutex> interpolatedLock(ext.sharedResources->interpolatedMutex);
++            firstFrame = int32_t(std::min(frameCounters.presented, uint32_t(framesToPresent)));
++        }
++
++        if (firstFrame >= framesToPresent) {
++            notifyPresentId(present);
++            return;
++        }
++
++        for (int32_t i = firstFrame; i < framesToPresent; i++) {
+             uint32_t frameCountersNextPresented = 0;
+             if ((framesToPresent > 1) && (usingMSAA || (i > 0))) {
+                 // Stall until the interpolated color target is available.
+@@ -403,7 +419,7 @@
+             }
+ 
+             // As soon as we're done with the first render target, we notify the workload queue it can proceed.
+-            if (i == 0) {
++            if (i == firstFrame) {
+                 notifyPresentId(present);
+             }
+ 

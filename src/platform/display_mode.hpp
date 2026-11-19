@@ -88,16 +88,16 @@ int screen_picture_width(int scale);
 int window_scale();
 int screen_scale();
 
-// Whether the picture is scaled to fill the window or screen, or drawn at its own size, centered.
-// Each mode remembers its own: a window is centered by default (it is the picture's size unless it
-// is resized by hand), covering the screen fills it by default.
+// Whether the picture is scaled to fill the window or screen, or drawn at its own size, centered:
+// a window is centered (it is the picture's size unless it is resized by hand), covering the screen
+// fills it. No longer a choice: the GRAPHICS page's FILL SCREEN / CENTERED row made no difference
+// at the sizes it offers, and old window_fill/screen_fill lines in display.cfg are ignored.
 bool fill(Mode mode);
 
 // Ask for another setting and save it; safe to call from any thread. Asking for the largest
 // multiple saves "the largest", which follows the display's limits.
 void request_window_scale(int scale);
 void request_screen_scale(int scale);
-void request_fill(Mode mode, bool fill);
 void request_widescreen(Mode mode, bool widescreen);
 
 // The pause menu's background is a copy of the last frame that RT64 keeps at its rendered size and
@@ -118,6 +118,39 @@ bool rendered_widescreen();
 // drops them when it changes.
 bool sharp();
 void request_sharp(bool sharp);
+
+// Multisample anti-aliasing: the samples RT64 draws each pixel with (1 = off, 2, 4 or 8), chosen
+// in the OPTIONS menu's GRAPHICS page. The renderer reports which counts the GPU can draw with (a
+// mask of them, 1 always); a saved count it cannot is drawn as off, and the menu offers only the
+// ones it can. Until the player chooses, the default is drawn: 4X, or the most below it the GPU
+// can draw with, off on a software renderer (set_antialiasing_default, by the renderer).
+int antialiasing();
+void request_antialiasing(int samples);
+void set_antialiasing_default(int samples);
+void set_antialiasing_supported(uint32_t counts);
+uint32_t antialiasing_supported();
+
+// Supersampling, the GRAPHICS page's SUPERSAMPLING: RT64 renders at twice the chosen resolution and
+// averages each 2x2 block down to it (with the anti-aliasing above as well), which smooths every edge
+// and texture far more than multisampling alone, at about four times the GPU work. Off by default.
+bool supersampling();
+void request_supersampling(bool on);
+
+// Sharp distance: RT64 picks the level of the game's mipmapped textures (the smaller copies Rare made of
+// the ground and walls) for the window's resolution rather than the N64's 240 lines, so the ground stays
+// detailed into the distance instead of turning blurry a few steps away. On by default; the GRAPHICS
+// page's SHARP DISTANCE row (and the debug menu's) turns it off, as the console drew it. Saved in
+// display.cfg.
+bool sharp_distance();
+void request_sharp_distance(bool on);
+
+// Texture packs: whether the packs in conker-recomp-data/texture_packs are used (the built-in sharp
+// text, menus and buttons stay). The GRAPHICS page's TEXTURE PACKS / N64 TEXTURES row and the debug
+// menu's PACKS, for comparing a pack with the game's own textures in place. On by default, saved in
+// display.cfg; turning it either way loads the packs again with the next graphics task, so a big
+// pack takes a moment.
+bool texture_packs();
+void request_texture_packs(bool on);
 
 // From now on, this run's widescreen and sharp settings are not saved: display.cfg keeps the
 // player's own as they are now. Online, a guest plays with the host's (net_play.hpp), for that

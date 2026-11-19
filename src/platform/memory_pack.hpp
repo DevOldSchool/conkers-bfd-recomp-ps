@@ -33,6 +33,7 @@ struct FileIterator : RT64::FileSystemIteratorImplementation {
 struct Pack : RT64::FileSystem {
     Files files;
     std::string textures;  // rt64.json's texture entries so far
+    std::map<std::string, uint64_t> hashes;  // each texture's RT64 hash, by its path
 
     Iterator begin() const override { return {std::make_shared<FileIterator>(files.begin())}; }
     Iterator end() const override { return {std::make_shared<FileIterator>(files.end())}; }
@@ -57,14 +58,15 @@ struct Pack : RT64::FileSystem {
     }
 
     // Adds `png` as the replacement for the texture with RT64 hash `hash`. Drawn without RT64's
-    // half-texel shift: Super-xBR keeps each original pixel at the top left of its block, where
-    // the N64 samples it.
-    void add(const std::string& path, uint64_t hash, std::vector<uint8_t> png) {
+    // half-texel shift by default: Super-xBR keeps each original pixel at the top left of its
+    // block, where the N64 samples it. Other pictures can ask for RT64's usual "half".
+    void add(const std::string& path, uint64_t hash, std::vector<uint8_t> png, const char* shift = "none") {
         files[path] = std::move(png);
+        hashes[path] = hash;
         char hash_text[17];
         std::snprintf(hash_text, sizeof(hash_text), "%016llx", static_cast<unsigned long long>(hash));
         textures += std::string(textures.empty() ? "" : ",") + "{\"path\":\"" + path + "\",\"hashes\":{\"rt64\":\"" +
-                    hash_text + "\",\"rice\":\"\"},\"operation\":\"preload\",\"shift\":\"none\"}";
+                    hash_text + "\",\"rice\":\"\"},\"operation\":\"preload\",\"shift\":\"" + shift + "\"}";
     }
 
     void add(const std::string& path, uint64_t hash, int width, int height, const uint8_t* rgba) {

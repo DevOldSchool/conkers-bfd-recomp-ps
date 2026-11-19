@@ -1,0 +1,105 @@
+--- a/src/hle/rt64_rdp.cpp
++++ b/src/hle/rt64_rdp.cpp
+@@ -271,7 +271,8 @@
+         uint32_t rdramStart, rowBytes;
+         if (loadOp.type == LoadOperation::Type::Block) {
+             rdramStart = loadOp.texture.address + ((loadOp.tile.uls >> 2) << loadOp.texture.siz >> 1) + (loadOp.texture.width << loadOp.texture.siz >> 1) * loadOp.tile.ult;
+-            rowBytes = uint32_t(renderTile.line) << 3;
++            // A 32-bit tile's line counts one of the two TMEM halves its texels are split across, half of a row in RDRAM.
++            rowBytes = uint32_t(renderTile.line) << ((renderTile.siz == G_IM_SIZ_32b) ? 4 : 3);
+         }
+         else if (loadOp.type == LoadOperation::Type::Tile) {
+             rowBytes = loadOp.texture.width << loadOp.texture.siz >> 1;
+@@ -1479,6 +1480,67 @@
+             dsdx >>= 2;
+             lrx |= 3;
+             lry |= 3;
++        }
++
++        // The RDP draws every pixel a rect touches, whole, however little of it the rect covers. Drawn at their
++        // fractional edges at a higher resolution, the edge pixels would show a sliver of the texture's outer rows and
++        // columns, so a sprite placed between pixels (Conker's world sprites, like the karaoke ball) looked cut flat
++        // on its sides. Its edges go out to whole pixels instead, the way the edge walker sets them out
++        // (Angrylion's edgewalker_for_prims): rows from the top of the row the top edge is in, with T as given there,
++        // and S carried on along the row from where the left edge really is. The console samples each pixel once, so
++        // its edge pixels never reach past the texture; here the part of a pixel past the tile's edge would clamp the
++        // edge texels into a spike, so the left, right and bottom edges only go out while the texture coordinate stays
++        // on the tile. Only 32-bit RGBA tiles, which Conker's world sprites all are: its speech bubbles (64x64 IA8)
++        // keep their exact edges. Extended GBI rects are placed by the application and keep theirs too.
++        const bool regularRect = (extAlignment.leftOrigin == G_EX_ORIGIN_NONE) && (extAlignment.rightOrigin == G_EX_ORIGIN_NONE);
++        const bool spriteTile = (tiles[tile].fmt == G_IM_FMT_RGBA) && (tiles[tile].siz == G_IM_SIZ_32b);
++        if (!usesCopyMode && regularRect && spriteTile && (lrx > ulx) && (lry > uly)) {
++            // Across the rect the coordinate is S (T when flipped), down it T (S when flipped); 10.5 fixed point, the
++            // steps 5.10 per pixel, so a step times quarter pixels is >> 7. The tile spans its low edge to past its last
++            // texel, in the same units.
++            const LoadTile &edgeTile = tiles[tile];
++            const int32_t acrossStep = flip ? dtdy : dsdx;
++            const int32_t downStep = flip ? dsdx : dtdy;
++            const int32_t acrossLow = int32_t(flip ? edgeTile.ult : edgeTile.uls) << 3;
++            const int32_t acrossHigh = (int32_t(flip ? edgeTile.lrt : edgeTile.lrs) + 4) << 3;
++            const int32_t downLow = int32_t(flip ? edgeTile.uls : edgeTile.ult) << 3;
++            const int32_t downHigh = (int32_t(flip ? edgeTile.lrs : edgeTile.lrt) + 4) << 3;
++            auto onTile = [](int32_t coord, int32_t low, int32_t high) {
++                return (coord >= low) && (coord <= high);
++            };
++
++            int32_t across = flip ? ult : uls;
++            const int32_t down = flip ? uls : ult;
++            for (int32_t q = ulx & 3; q > 0; q--) {
++                const int32_t coord = across - ((acrossStep * q) >> 7);
++                if (onTile(coord, acrossLow, acrossHigh)) {
++                    ulx -= q;
++                    across = coord;
++                    break;
++                }
++            }
++
++            for (int32_t q = (4 - (lrx & 3)) & 3; q > 0; q--) {
++                if (onTile(across + ((acrossStep * (lrx + q - ulx)) >> 7), acrossLow, acrossHigh)) {
++                    lrx += q;
++                    break;
++                }
++            }
++
++            uly &= ~3;
++            for (int32_t q = (4 - (lry & 3)) & 3; q > 0; q--) {
++                if (onTile(down + ((downStep * (lry + q - uly)) >> 7), downLow, downHigh)) {
++                    lry += q;
++                    break;
++                }
++            }
++
++            if (flip) {
++                ult = int16_t(across);
++            }
++            else {
++                uls = int16_t(across);
++            }
+         }
+ 
+         // A clamped texture rect (or one without a mask, which clamps too) that reaches one side of the scissor but not the other is drawn far past that side,
+@@ -1517,8 +1579,24 @@
+                     const int32_t pixels = mirrored ? extendPixels(tileHigh - leftS, lastColumn) : extendPixels(leftS - tileLow, firstColumn);
+                     const int32_t extendedUls = int32_t(uls) - ((int32_t(dsdx) * pixels) >> 5);
+                     if ((pixels > 0) && (extendedUls >= INT16_MIN) && (extendedUls <= INT16_MAX)) {
++                        const bool wasEmpty = (lrx <= ulx);
++                        const int32_t originalLrx = lrx;
+                         ulx -= pixels << 2;
+                         uls = int16_t(extendedUls);
++
++                        // A sprite wholly left of the scissor reaches it only as an empty rect, both sides clamped to the
++                        // edge by the game (Conker's karaoke ball flying in): drawn on, the tile's far column would be
++                        // clamped from the sprite to the scissor as a bar. It ends where its texture does instead, but
++                        // never short of what the console draws itself.
++                        const int32_t farColumn = mirrored ? firstColumn : lastColumn;
++                        if (!tileColumnOpaque(tile, farColumn)) {
++                            const float extendedS = float(uls) / 32.0f;
++                            const float texelsToFarEdge = mirrored ? (extendedS - tileLow) : (tileHigh - extendedS);
++                            const int32_t spritePixels = int32_t(std::ceil(std::max(texelsToFarEdge, 0.0f) * pixelsPerTexel));
++                            const int32_t spriteLrx = ulx + (spritePixels << 2);
++                            const int32_t trimmedLrx = wasEmpty ? spriteLrx : std::max(spriteLrx, originalLrx);
++                            lrx = std::min(lrx, trimmedLrx);
++                        }
+                     }
+                 }
+ 

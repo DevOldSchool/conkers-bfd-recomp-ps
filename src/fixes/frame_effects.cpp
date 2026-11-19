@@ -20,6 +20,9 @@
 // Here the renderer asks RT64 to run each on the frame's colour image after the last thing drawn to
 // it (GreyFromGreen in tools/patches/rt64-grey-from-green.patch, FrameMosaic and FrameLens in
 // tools/patches/rt64-frame-effects.patch), at full resolution, and the CPU passes are skipped.
+// With smooth motion RT64 presents each game frame from a private copy of its colour target; that
+// copy is taken after the effects (tools/patches/rt64-effects-before-present-copy.patch), or the
+// picture shown was the one without them whenever RT64 interpolated.
 // Which effects the game will run on a frame is decided when its display list is handed to RT64,
 // by the same rules func_1515FDA0 and the effects apply at the swap.
 #include "fixes/frame_effects.hpp"

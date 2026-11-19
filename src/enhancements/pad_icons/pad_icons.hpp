@@ -3,7 +3,9 @@
 #pragma once
 
 #include <array>
+#include <filesystem>
 #include <memory>
+#include <vector>
 
 #include "platform/input.hpp"
 
@@ -43,5 +45,11 @@ Shown shown(Style style, bool camera_swapped);
 // controls or keys (a 0 leaves Rare's picture). Null for Rare's own or if the ROM's tiles are not
 // where they should be.
 std::shared_ptr<RT64::FileSystem> make_pack(Style style, const Shown& shown);
+
+// The B pads of `buttons` (a make_pack pack) that the user's texture packs have their own
+// pictures of, under make_pack's names (CONKER_DUMP_PAD_ICONS writes them), as an RT64 pack to
+// load after `buttons`; the last pack with one wins. Null if none has any.
+std::shared_ptr<RT64::FileSystem> pack_pads(const std::shared_ptr<RT64::FileSystem>& buttons,
+                                          const std::vector<std::filesystem::path>& user_packs);
 
 } // namespace conker::pad_icons

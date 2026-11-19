@@ -1,0 +1,117 @@
+--- a/src/rhi/rt64_render_hooks.h
++++ b/src/rhi/rt64_render_hooks.h
+@@ -73,6 +73,12 @@
+     // which also stops blending when a transform speeds up from rest or turns back.
+     void SetInterpolationTeleportDistance(float distance);
+ 
++    // Frame interpolation: a camera (an untagged view matrix) whose eye moved more than this distance,
++    // or that turned more than this many degrees, between two of the game's frames has cut to another
++    // shot, and the pictures between those frames use the new camera instead of one blended halfway
++    // between the two shots. 0 for both (the default) blends every camera move, as RT64 does.
++    void SetInterpolationCameraCut(float distance, float degrees);
++
+     // Frame interpolation: also present each game frame's own picture from a private copy, as RT64
+     // does with MSAA, so drawing the next frames into the same frame buffer cannot change it while
+     // it is on screen.
+--- a/src/hle/rt64_rigid_body.h
++++ b/src/hle/rt64_rigid_body.h
+@@ -8,6 +8,9 @@
+ #include "common/rt64_math.h"
+ 
+ namespace RT64 {
++    // Whether a camera moved from one view matrix to the other by a cut (SetInterpolationCameraCut).
++    bool IsInterpolationCameraCut(const hlslpp::float4x4 &prevView, const hlslpp::float4x4 &curView);
++
+     struct RigidBody {
+         DecomposedTransform transforms[2];
+         hlslpp::float3 linearVelocity = {};
+--- a/src/hle/rt64_rigid_body.cpp
++++ b/src/hle/rt64_rigid_body.cpp
+@@ -4,7 +4,9 @@
+ 
+ #include "rt64_rigid_body.h"
+ 
++#include <algorithm>
+ #include <atomic>
++#include <cmath>
+ 
+ #include "../include/rt64_extended_gbi.h"
+ #include "common/rt64_math.h"
+@@ -16,6 +18,43 @@
+         interpolationTeleportDistance = distance;
+     }
+ 
++    static std::atomic<float> interpolationCutDistance{ 0.0f };
++    static std::atomic<float> interpolationCutDegrees{ 0.0f };
++
++    void SetInterpolationCameraCut(float distance, float degrees) {
++        interpolationCutDistance = distance;
++        interpolationCutDegrees = degrees;
++    }
++
++    bool IsInterpolationCameraCut(const hlslpp::float4x4 &prevView, const hlslpp::float4x4 &curView) {
++        const float cutDistance = interpolationCutDistance.load(std::memory_order_relaxed);
++        const float cutDegrees = interpolationCutDegrees.load(std::memory_order_relaxed);
++        if ((cutDistance <= 0.0f) && (cutDegrees <= 0.0f)) {
++            return false;
++        }
++
++        // The eye is where the view matrix takes the origin from: the translation of its inverse.
++        if (cutDistance > 0.0f) {
++            const hlslpp::float3 prevEye = hlslpp::inverse(prevView)[3].xyz;
++            const hlslpp::float3 curEye = hlslpp::inverse(curView)[3].xyz;
++            if (float(hlslpp::length(curEye - prevEye)) > cutDistance) {
++                return true;
++            }
++        }
++
++        if (cutDegrees > 0.0f) {
++            const hlslpp::float3x3 invPrevRotation = hlslpp::inverse(rotationFrom3x3(extract3x3(prevView)));
++            const hlslpp::float3x3 diffRotation = hlslpp::mul(invPrevRotation, rotationFrom3x3(extract3x3(curView)));
++            const float cosAngle = std::clamp((traceFrom3x3(diffRotation) - 1.0f) / 2.0f, -1.0f, 1.0f);
++            const float degrees = std::acos(cosAngle) * (180.0f / 3.14159265f);
++            if (degrees > cutDegrees) {
++                return true;
++            }
++        }
++
++        return false;
++    }
++
+     // RigidBody
+ 
+     RigidBody::RigidBody() {
+--- a/src/hle/rt64_game_frame.cpp
++++ b/src/hle/rt64_game_frame.cpp
+@@ -423,6 +423,31 @@
+             firstPrevWorkloadMap = &prevFrame.frameMap.workloads[firstPrevProjIndices.workloadIndex];
+         }
+ 
++        // A scene whose untagged camera cut to another shot is not matched at all: the pictures between
++        // the two frames are the new frame as it is, not a camera halfway between the two shots, nor
++        // characters halfway through the turns and jumps the game makes them do at the cut.
++        const size_t cutCheckCount = std::min(curScene.projections.size(), prevScene.projections.size());
++        for (size_t p = 0; p < cutCheckCount; p++) {
++            const GameIndices::Projection &curProjIndices = curScene.projections[p];
++            const GameIndices::Projection &prevProjIndices = prevScene.projections[p];
++            const Workload &curWorkload = workloadQueue.workloads[curProjIndices.workloadIndex];
++            const Workload &prevWorkload = workloadQueue.workloads[prevProjIndices.workloadIndex];
++            const Projection &curProj = curWorkload.fbPairs[curProjIndices.fbPairIndex].projections[curProjIndices.projectionIndex];
++            const Projection &prevProj = prevWorkload.fbPairs[prevProjIndices.fbPairIndex].projections[prevProjIndices.projectionIndex];
++            if ((curProj.type != Projection::Type::Perspective) || (prevProj.type != Projection::Type::Perspective)) {
++                continue;
++            }
++
++            const uint32_t curGroupIndex = curWorkload.drawData.viewProjTransformGroups[curProj.transformsIndex];
++            if (curWorkload.drawData.transformGroups[curGroupIndex].matrixId != G_EX_ID_AUTO) {
++                continue;
++            }
++
++            if (IsInterpolationCameraCut(prevWorkload.drawData.viewTransforms[prevProj.transformsIndex], curWorkload.drawData.viewTransforms[curProj.transformsIndex])) {
++                return;
++            }
++        }
++
+         // Build a multimap with all potential compatibilities between draw calls in the projections.
+         uint32_t mappedViewProjIndex = UINT32_MAX;
+         for (uint32_t p = 0; p < curScene.projections.size(); p++) {

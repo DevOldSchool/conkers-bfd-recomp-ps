@@ -27,9 +27,9 @@
 // CONKER_TEXTURE_PACKS=0 loads none. Before them come the built-in sharper font and menus, made from
 // the ROM (src/enhancements/sharp_font/sharp_font.cpp, src/enhancements/sharp_menus/sharp_menus.cpp),
 // so a pack can replace them. They load with the first graphics task, once the game has loaded the
-// ROM. With an Xbox or PlayStation pad, its button pictures come after them
-// (src/enhancements/pad_icons/pad_icons.cpp), whatever the OPTIONS menu's text choice; the packs are
-// handed over again when the pad changes. CONKER_DUMP_TEXTURES=<dir> writes each texture the game
+// ROM. With an Xbox or PlayStation pad or the keyboard, its button pictures come after the user's
+// packs too, so they win over a pack's N64 buttons (src/enhancements/pad_icons/pad_icons.cpp),
+// whatever the OPTIONS menu's text choice; the packs are handed over again when the pad changes. CONKER_DUMP_TEXTURES=<dir> writes each texture the game
 // loads to <dir> once, as RT64's <hash>.v5.png, .tmem and .tile.json files, to start a pack from.
 // With any of them loaded, the rectangles the game draws text glyphs with are widened so a replaced
 // glyph is not cut off (src/platform/font_rects.cpp).
@@ -53,6 +53,7 @@
 #include "runtime/perf_log.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <cstdio>
@@ -73,6 +74,7 @@
 #include "fixes/frame_effects.hpp"
 #include "gbi/rt64_gbi.h"
 #include "hle/rt64_application.h"
+#include "render/rt64_render_target.h"
 #include "hle/rt64_interpreter.h"
 #include "hle/rt64_state.h"
 #include "librecomp/game.hpp"
@@ -309,6 +311,8 @@ struct Packs {
     std::shared_ptr<RT64::FileSystem> menus;
     // By Style, camera swap and the controls shown (pad_icons::shown), made when first wanted.
     std::map<std::tuple<int, bool, conker::pad_icons::Shown>, std::shared_ptr<RT64::FileSystem>> buttons;
+    // The user's packs' pictures of the B pads in those, the same way (made while the packs are on).
+    std::map<std::tuple<int, bool, conker::pad_icons::Shown>, std::shared_ptr<RT64::FileSystem>> pack_pads;
     std::vector<std::filesystem::path> user;
 };
 
@@ -345,6 +349,7 @@ Packs find_packs() {
 // PlayStation pad's and the keyboard's always, as they say which button to press), and returns whether the font's
 // glyphs may be replaced: the built-in font or any user pack is in.
 bool use_packs(RT64::Application& app, Packs& packs, bool sharp, conker::pad_icons::Style pad, bool swapped, bool report) {
+    const bool user = conker::display::texture_packs();
     std::vector<RT64::ReplacementDirectory> directories;
     std::vector<std::string> names;
     if (sharp && packs.font) {
@@ -361,14 +366,36 @@ bool use_packs(RT64::Application& app, Packs& packs, bool sharp, conker::pad_ico
     const conker::pad_icons::Shown shown = conker::pad_icons::shown(pad, swapped);
     std::shared_ptr<RT64::FileSystem>& buttons = packs.buttons[{int(pad), swapped, shown}];
     if (!buttons) buttons = conker::pad_icons::make_pack(pad, shown);
-    if (buttons) {
-        const std::string name = std::string("built-in ") + conker::pad_icons::name(pad) + " buttons";
-        directories.emplace_back(buttons, name);
-        names.push_back(name);
+    const std::string buttons_name = std::string("built-in ") + conker::pad_icons::name(pad) + " buttons";
+    // An Xbox, PlayStation or keyboard set says which button to press, so it goes after the user's
+    // packs and wins over their redrawn N64 buttons (an HD pack replaces most of them); the redrawn
+    // N64 set goes before them, so a pack can restyle it.
+    const bool buttons_last = pad != conker::pad_icons::Style::N64;
+    if (buttons && !buttons_last) {
+        directories.emplace_back(buttons, buttons_name);
+        names.push_back(buttons_name);
     }
-    for (const std::filesystem::path& pack : packs.user) {
+    const std::vector<std::filesystem::path> no_packs;
+    const std::vector<std::filesystem::path>& user_list = user ? packs.user : no_packs;
+    for (const std::filesystem::path& pack : user_list) {
         directories.emplace_back(pack);
         names.push_back("texture pack " + pack.filename().string());
+    }
+    if (buttons && buttons_last) {
+        directories.emplace_back(buttons, buttons_name);
+        names.push_back(buttons_name);
+        // A pack's own pictures of those B pads, loaded after them (pad_icons::pack_pads).
+        std::shared_ptr<RT64::FileSystem> pads;
+        if (!user_list.empty()) {
+            std::shared_ptr<RT64::FileSystem>& made = packs.pack_pads[{int(pad), swapped, shown}];
+            if (!made) made = conker::pad_icons::pack_pads(buttons, user_list);
+            pads = made;
+        }
+        if (pads) {
+            const std::string pads_name = std::string("texture packs' ") + conker::pad_icons::name(pad) + " B pads";
+            directories.emplace_back(pads, pads_name);
+            names.push_back(pads_name);
+        }
     }
     if (directories.empty()) {
         app.textureCache->clearReplacementDirectories();
@@ -394,7 +421,7 @@ bool use_packs(RT64::Application& app, Packs& packs, bool sharp, conker::pad_ico
         std::lock_guard lock(g_texture_packs_mutex);
         g_texture_packs = loaded ? names : std::vector<std::string>();
     }
-    return loaded && ((sharp && packs.font) || !packs.user.empty());
+    return loaded && ((sharp && packs.font) || !user_list.empty());
 }
 
 void start_texture_dump(RT64::Application& app) {
@@ -474,6 +501,9 @@ public:
 #endif
         app_->userConfig.developerMode = developer_mode;
         app_->userConfig.resolution = RT64::UserConfiguration::Resolution::WindowIntegerScale;
+        // Multisample anti-aliasing from the GRAPHICS page (4X until the player chooses); RT64's
+        // setup turns it off if the GPU cannot draw with that many samples.
+        app_->userConfig.antialiasing = rt64_antialiasing(conker::display::antialiasing());
         // Smooth motion (conker::frame_rate::smooth): RT64 draws pictures between two of the game's
         // frames by matching their draw calls and blending the transforms, at the display's refresh
         // rate, or with CONKER_REFRESH=<hz> at that rate (no faster than the display). It can be
@@ -493,6 +523,18 @@ public:
             teleport = static_cast<float>(std::atof(value));
         }
         RT64::SetInterpolationTeleportDistance(teleport);
+        // RT64 blends every camera move, so a cut to another shot (a cutscene starting, its shot
+        // changes) showed a picture from a camera halfway between the two shots: a flash of a view
+        // the game never had, often from inside a wall. A camera whose eye jumps more than this
+        // many world units, or that turns more than this many degrees, in one game frame has cut;
+        // the fastest camera moves seen are about 45 units a frame at 60 fps.
+        // CONKER_INTERP_CUT=<units>,<degrees> overrides them (0,0 blends every move again).
+        float cut_distance = 300.0f;
+        float cut_degrees = 45.0f;
+        if (const char* value = std::getenv("CONKER_INTERP_CUT"); value != nullptr && value[0] != '\0') {
+            std::sscanf(value, "%f,%f", &cut_distance, &cut_degrees);
+        }
+        RT64::SetInterpolationCameraCut(cut_distance, cut_degrees);
         // At 60 fps the game starts a frame in the retrace its predecessor was swapped in, into the
         // other of its two frame buffers, so RT64 can be drawing a newer frame (cleared to black
         // first) into the frame buffer of the picture it is presenting: whole black pictures. Each
@@ -521,6 +563,30 @@ public:
 #if defined(__linux__)
         keep_libraries_loaded();
 #endif
+        {
+            // The sample counts both of RT64's colour formats and its depth format can be drawn with.
+            // RT64 places the samples itself and draws single-sampled without programmable sample
+            // positions (SAMPLE_LOCATIONS_REQUIRED), so then there are none.
+            uint32_t counts =
+                app_->device->getSampleCountsSupported(RT64::RenderTarget::colorBufferFormat(false)) &
+                app_->device->getSampleCountsSupported(RT64::RenderTarget::colorBufferFormat(true)) &
+                app_->device->getSampleCountsSupported(RT64::RenderTarget::depthBufferFormat());
+            if (!app_->device->getCapabilities().sampleLocations) {
+                counts = 1;
+            }
+            conker::display::set_antialiasing_supported(counts);
+            // The default: 4X (no measurable cost on Apple silicon, and every GPU RT64 runs on
+            // offers it), else 2X, and off on a software renderer, where each sample is CPU work.
+            // apply_antialiasing switches to it if setup turned the 4X asked for off.
+            int fallback = 1;
+            if (app_->device->getDescription().type != plume::RenderDeviceType::CPU) {
+                fallback = (counts & 4u) != 0 ? 4 : (counts & 2u) != 0 ? 2 : 1;
+            }
+            conker::display::set_antialiasing_default(fallback);
+            std::printf("[conker] anti-aliasing %dx (default %dx, GPU sample counts mask 0x%x)\n",
+                        conker::display::antialiasing(), fallback, counts);
+            applied_samples_ = static_cast<int>(app_->userConfig.msaaSampleCount());
+        }
         start_texture_dump(*app_);
         install_object_picker();
         conker::frame_effects::use_gpu(true);
@@ -629,6 +695,7 @@ public:
             used_pad_ = conker::pad_icons::style();
             used_swap_ = conker::input::camera_swapped();
             used_shown_ = conker::pad_icons::shown(used_pad_, used_swap_);
+            used_user_ = conker::display::texture_packs();
             widen_font_rects_ = use_packs(*app_, packs_, used_sharp_, used_pad_, used_swap_, true);
         } else {
             const bool sharp = conker::display::sharp();
@@ -636,8 +703,11 @@ public:
             const bool swap = conker::input::camera_swapped();
             // The controls the pictures show change with the CONTROLS page's mapping.
             const conker::pad_icons::Shown shown = conker::pad_icons::shown(pad, swap);
-            if (sharp != used_sharp_ || pad != used_pad_ || swap != used_swap_ || shown != used_shown_) {
-                const bool new_pad = pad != used_pad_ || shown != used_shown_;
+            const bool user = conker::display::texture_packs();
+            if (sharp != used_sharp_ || pad != used_pad_ || swap != used_swap_ || shown != used_shown_ ||
+                user != used_user_) {
+                const bool new_pad = pad != used_pad_ || shown != used_shown_ || user != used_user_;
+                used_user_ = user;
                 used_sharp_ = sharp;
                 used_pad_ = pad;
                 used_swap_ = swap;
@@ -827,6 +897,47 @@ private:
         std::printf("[conker] smooth motion %s\n", smooth ? "on" : "off");
     }
 
+    static RT64::UserConfiguration::Antialiasing rt64_antialiasing(int samples) {
+        switch (samples) {
+            case 2: return RT64::UserConfiguration::Antialiasing::MSAA2X;
+            case 4: return RT64::UserConfiguration::Antialiasing::MSAA4X;
+            case 8: return RT64::UserConfiguration::Antialiasing::MSAA8X;
+            default: return RT64::UserConfiguration::Antialiasing::None;
+        }
+    }
+
+    // Anti-aliasing changed on the GRAPHICS page. RT64 remakes its shaders and render targets for
+    // the new sample count (as its own inspector does), waiting for its queues to go idle first, so
+    // this runs where updateScreen does; the frame buffers start again empty, like a new resolution.
+    int applied_samples_ = 1;
+    // See conker::display::sharp_distance: RT64's texture LOD scale.
+    void apply_sharp_distance() {
+        const bool sharp = conker::display::sharp_distance();
+        if (sharp == app_->enhancementConfig.textureLOD.scale) {
+            return;
+        }
+        app_->enhancementConfig.textureLOD.scale = sharp;
+        app_->updateEnhancementConfig();
+    }
+
+    void apply_antialiasing() {
+        int samples = conker::display::antialiasing();
+        if ((conker::display::antialiasing_supported() & static_cast<uint32_t>(samples)) == 0) {
+            samples = 1;
+        }
+        if (samples == applied_samples_) {
+            return;
+        }
+        applied_samples_ = samples;
+        app_->userConfig.antialiasing = rt64_antialiasing(samples);
+        app_->updateMultisampling();
+        app_->updateUserConfig(true);
+        char event[64];
+        std::snprintf(event, sizeof(event), "anti-aliasing %dx: render targets remade", samples);
+        conker::gpu_faults::note(event);
+        std::printf("[conker] %s\n", event);
+    }
+
     static constexpr float kPictureAspect = float(conker::display::kPictureWidth) / conker::display::kPictureHeight;
 
     // The picture's shape when Expand widens it to the swap chain's: the swap chain's shape, made up
@@ -875,23 +986,32 @@ private:
         if (conker::display::window_changing()) {
             return;
         }
+        apply_antialiasing();
+        apply_sharp_distance();
         const conker::display::Mode mode = conker::display::current();
         const bool windowed = mode == conker::display::Mode::Windowed;
         const int scale = windowed ? conker::display::window_scale() : conker::display::screen_scale();
         const bool native = !conker::display::fill(mode);
         const bool wide = conker::display::widescreen(mode);
-        if (scale == applied_scale_ && native == applied_native_ && wide == applied_wide_) {
+        const bool supersample = conker::display::supersampling();
+        if (scale == applied_scale_ && native == applied_native_ && wide == applied_wide_ &&
+            supersample == applied_supersample_) {
             return;
         }
         applied_scale_ = scale;
         applied_native_ = native;
         applied_wide_ = wide;
+        applied_supersample_ = supersample;
         conker::display::set_rendered_widescreen(wide);
         app_->userConfig.aspectRatio = wide ? RT64::UserConfiguration::AspectRatio::Expand
                                             : RT64::UserConfiguration::AspectRatio::Original;
         app_->userConfig.resolution = scale > 0 ? RT64::UserConfiguration::Resolution::Manual
                                                 : RT64::UserConfiguration::Resolution::WindowIntegerScale;
-        app_->userConfig.resolutionMultiplier = scale > 0 ? scale : 2.0;
+        // Supersampling: twice the resolution, each 2x2 block averaged down when the picture is presented
+        // (tools/patches/rt64-supersampling.patch keeps it in place).
+        const int factor = supersample ? 2 : 1;
+        app_->userConfig.resolutionMultiplier = (scale > 0 ? scale : 2.0) * factor;
+        app_->userConfig.downsampleMultiplier = factor;
         app_->enhancementConfig.presentation.nativeSize = native;
         app_->enhancementConfig.rect.extendEdgeRects = true;  // only acts on a widened picture
         // The game never draws the two frame-buffer columns at each side (in 4:3 they are the picture's
@@ -905,13 +1025,14 @@ private:
         app_->enhancementConfig.presentation.hideEdgeRows = 1;
         app_->updateUserConfig(true);  // see get_resolution_scale
         app_->updateEnhancementConfig();
-        conker::gpu_faults::note("display applied: scale " + std::to_string(scale) + (wide ? ", widescreen" : ", 4:3") +
+        conker::gpu_faults::note("display applied: scale " + std::to_string(scale) + (wide ? ", widescreen" : ", 4:3") + (supersample ? ", supersampled" : "") +
                                  (native ? ", native size" : ", filled") + "; frame buffers discarded");
     }
 
     std::unique_ptr<RT64::Application> app_;
     bool packs_loaded_ = false;      // the packs were found (with the first graphics task)
     Packs packs_;
+    bool used_user_ = true;  // display::texture_packs() when the packs were last handed over
     bool used_sharp_ = true;         // the built-in packs are in use
     conker::pad_icons::Style used_pad_ = conker::pad_icons::Style::Original;  // the button pictures in use
     bool used_swap_ = true;                                                  // and the camera swap they show
@@ -922,6 +1043,7 @@ private:
     mutable uint32_t reported_width_ = 0;
     mutable uint32_t reported_height_ = 0;
     int applied_scale_ = 0;
+    bool applied_supersample_ = false;
     std::chrono::steady_clock::time_point last_catch_up_present_{};
     static constexpr uint32_t kCatchUpDrawEvery = 8;
     uint32_t catch_up_tasks_ = 0;  // the tasks sent while catching up (send_dl)

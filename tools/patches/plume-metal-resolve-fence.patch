@@ -1,0 +1,19 @@
+diff --git a/plume_metal.cpp b/plume_metal.cpp
+index 156597d..957a728 100644
+--- a/plume_metal.cpp
++++ b/plume_metal.cpp
+@@ -3162,8 +3162,14 @@ namespace plume {
+         colorAttachment->setLoadAction(MTL::LoadActionLoad);
+         colorAttachment->setStoreAction(MTL::StoreActionMultisampleResolve);
+ 
++        // The resolve is a copy-stage operation to the barriers (RT64 barriers both textures to COPY
++        // around it), so the encoder waits on and signals the COPY fences like the blit and resolve
++        // compute encoders do. Without them a compute pass that reads the resolved texture next (RT64's
++        // box-filter downsample) could run alongside the resolve and read the previous frame in places.
+         MTL::RenderCommandEncoder *encoder = mtl->renderCommandEncoder(renderPassDescriptor);
+         encoder->setLabel(MTLSTR("Resolve Texture Encoder"));
++        barrierWait(MetalBarrierStage::COPY, encoder);
++        barrierUpdate(MetalBarrierStage::COPY, encoder);
+         encoder->endEncoding();
+     }
+ 

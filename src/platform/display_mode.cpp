@@ -20,8 +20,6 @@ namespace {
 std::atomic<int> g_current{static_cast<int>(Mode::Fullscreen)};
 std::atomic<int> g_window_scale{0};  // 0 until set_limits: the largest that fits
 std::atomic<int> g_screen_scale{0};  // 0: the largest
-std::atomic<bool> g_window_fill{false};
-std::atomic<bool> g_screen_fill{true};
 std::atomic<bool> g_window_wide{false};
 std::atomic<bool> g_screen_wide{true};
 std::atomic<int> g_window_max{kMinScale};
@@ -36,6 +34,12 @@ std::atomic<uint32_t> g_settled_requests{0};  // g_mode_requests when the window
 std::atomic<uint32_t> g_frame_copies{0};
 std::atomic<bool> g_rendered_widescreen{false};
 std::atomic<bool> g_sharp{true};
+std::atomic<int> g_antialiasing{0};          // 0 until the player chooses: the default is drawn
+std::atomic<int> g_antialiasing_default{4};  // the renderer lowers it to what the GPU can draw
+std::atomic<uint32_t> g_antialiasing_supported{1};
+std::atomic<bool> g_supersampling{false};
+std::atomic<bool> g_sharp_distance{true};
+std::atomic<bool> g_texture_packs{true};
 std::atomic<float> g_rendered_aspect{float(kPictureWidth) / kPictureHeight};
 std::mutex g_save_mutex;
 // keep_saved_picture: the widescreen and sharp settings save() writes in place of this run's.
@@ -59,9 +63,10 @@ bool parse_mode(const std::string& text, Mode* mode) {
     return false;
 }
 
-// display.cfg holds "mode=<name>", "window_scale=<n>", "screen_scale=<n>", "window_fill=<0|1>",
-// "screen_fill=<0|1>", "window_widescreen=<0|1>", "screen_widescreen=<0|1>" and "sharp=<0|1>"
-// lines; a scale of 0 is the largest.
+// display.cfg holds "mode=<name>", "window_scale=<n>", "screen_scale=<n>", "window_widescreen=<0|1>",
+// "screen_widescreen=<0|1>", "sharp=<0|1>", "antialiasing=<1|2|4|8>" (only once chosen),
+// "supersampling=<0|1>", "sharp_distance=<0|1>" and "texture_packs=<0|1>" lines; a scale of 0 is the
+// largest.
 void save() {
     std::lock_guard lock(g_save_mutex);
     const bool keep = g_keep_saved.load();
@@ -72,11 +77,17 @@ void save() {
     file << "mode=" << name(current()) << '\n'
          << "window_scale=" << g_window_scale.load() << '\n'
          << "screen_scale=" << g_screen_scale.load() << '\n'
-         << "window_fill=" << (g_window_fill.load() ? 1 : 0) << '\n'
-         << "screen_fill=" << (g_screen_fill.load() ? 1 : 0) << '\n'
          << "window_widescreen=" << (window_wide ? 1 : 0) << '\n'
          << "screen_widescreen=" << (screen_wide ? 1 : 0) << '\n'
          << "sharp=" << (sharp ? 1 : 0) << '\n';
+    // Left out until the player chooses, so the default can follow the GPU (and a better default
+    // in a later version reaches everyone who never chose).
+    if (const int samples = g_antialiasing.load(); samples != 0) {
+        file << "antialiasing=" << samples << '\n';
+    }
+    file << "supersampling=" << (g_supersampling.load() ? 1 : 0) << '\n';
+    file << "sharp_distance=" << (g_sharp_distance.load() ? 1 : 0) << '\n';
+    file << "texture_packs=" << (g_texture_packs.load() ? 1 : 0) << '\n';
     if (!file) {
         std::fprintf(stderr, "[conker] could not write %s\n", config_path().string().c_str());
     }
@@ -108,16 +119,21 @@ Mode startup_mode() {
             g_window_scale.store(std::atoi(value.c_str()));
         } else if (key == "screen_scale") {
             g_screen_scale.store(std::atoi(value.c_str()));
-        } else if (key == "window_fill") {
-            g_window_fill.store(std::atoi(value.c_str()) != 0);
-        } else if (key == "screen_fill") {
-            g_screen_fill.store(std::atoi(value.c_str()) != 0);
         } else if (key == "window_widescreen") {
             g_window_wide.store(std::atoi(value.c_str()) != 0);
         } else if (key == "screen_widescreen") {
             g_screen_wide.store(std::atoi(value.c_str()) != 0);
         } else if (key == "sharp") {
             g_sharp.store(std::atoi(value.c_str()) != 0);
+        } else if (key == "antialiasing") {
+            const int samples = std::atoi(value.c_str());
+            g_antialiasing.store(samples == 2 || samples == 4 || samples == 8 ? samples : 1);
+        } else if (key == "supersampling") {
+            g_supersampling.store(std::atoi(value.c_str()) != 0);
+        } else if (key == "sharp_distance") {
+            g_sharp_distance.store(std::atoi(value.c_str()) != 0);
+        } else if (key == "texture_packs") {
+            g_texture_packs.store(std::atoi(value.c_str()) != 0);
         }
     }
     if (const char* value = std::getenv("CONKER_DISPLAY"); value != nullptr && value[0] != '\0') {
@@ -190,7 +206,7 @@ int screen_scale() {
     return scale < kMinScale ? screen_max() : std::min(scale, screen_max());
 }
 
-bool fill(Mode mode) { return (mode == Mode::Windowed ? g_window_fill : g_screen_fill).load(); }
+bool fill(Mode mode) { return mode != Mode::Windowed; }
 
 // The largest multiple is kept as 0, "the largest", so it follows the display: another display, a
 // Retina one, or widescreen, which has its own limits.
@@ -213,14 +229,6 @@ void request_screen_scale(int scale) {
     save();
 }
 
-void request_fill(Mode mode, bool fill) {
-    if ((mode == Mode::Windowed ? g_window_fill : g_screen_fill).exchange(fill) == fill) {
-        return;
-    }
-    std::printf("[conker] %s picture: %s\n", mode == Mode::Windowed ? "window" : "screen", fill ? "fill" : "centered");
-    save();
-}
-
 void request_widescreen(Mode mode, bool widescreen) {
     if ((mode == Mode::Windowed ? g_window_wide : g_screen_wide).exchange(widescreen) == widescreen) {
         return;
@@ -240,6 +248,58 @@ void request_sharp(bool sharp) {
         return;
     }
     std::printf("[conker] sharper text and menus: %s\n", sharp ? "on" : "off");
+    save();
+}
+
+int antialiasing() {
+    const int chosen = g_antialiasing.load();
+    return chosen != 0 ? chosen : g_antialiasing_default.load();
+}
+
+void set_antialiasing_default(int samples) { g_antialiasing_default.store(samples); }
+
+void request_antialiasing(int samples) {
+    if (samples != 2 && samples != 4 && samples != 8) {
+        samples = 1;
+    }
+    if (g_antialiasing.exchange(samples) == samples) {
+        return;
+    }
+    std::printf("[conker] anti-aliasing: %s\n", samples == 1 ? "off" : (std::to_string(samples) + "x MSAA").c_str());
+    save();
+}
+
+void set_antialiasing_supported(uint32_t counts) { g_antialiasing_supported.store(counts | 1u); }
+
+uint32_t antialiasing_supported() { return g_antialiasing_supported.load(); }
+
+bool supersampling() { return g_supersampling.load(); }
+
+void request_supersampling(bool on) {
+    if (g_supersampling.exchange(on) == on) {
+        return;
+    }
+    std::printf("[conker] supersampling: %s\n", on ? "on" : "off");
+    save();
+}
+
+bool sharp_distance() { return g_sharp_distance.load(); }
+
+bool texture_packs() { return g_texture_packs.load(); }
+
+void request_texture_packs(bool on) {
+    if (g_texture_packs.exchange(on) == on) {
+        return;
+    }
+    std::printf("[conker] texture packs: %s\n", on ? "on" : "off");
+    save();
+}
+
+void request_sharp_distance(bool on) {
+    if (g_sharp_distance.exchange(on) == on) {
+        return;
+    }
+    std::printf("[conker] sharp distance: %s\n", on ? "on" : "off");
     save();
 }
 
