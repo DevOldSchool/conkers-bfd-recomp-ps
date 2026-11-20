@@ -4,7 +4,8 @@
 // func_80005020, the half steps in func_15116BAC, func_151169B4, func_151934B4 and func_8000BF60,
 // the frame counters in func_15043384 and func_151934B4, the menu repeat timers in func_151DE8F0,
 // the full steps in func_1508F9F4, the Doppler shift in func_80011624 and the heading easing in
-// func_1501B320, and the random chances, the swarm and the emitter below, in config/us.toml.
+// func_1501B320, the door states in func_1511E780, and the random chances, the swarm and the emitter
+// below, in config/us.toml.
 //
 // The game logic already steps by the retraces its frame took: func_80004F00 copies the count since
 // the last frame started (D_8003B238) to D_800BE9E4, and the logic scales by it (D_800BE9A4 =
@@ -176,6 +177,40 @@ void log_frame(uint8_t* rdram) {
 
 }  // namespace
 
+// func_1511E780 moves a door (or another sliding or turning piece) towards open or closed (+0x80: 1
+// open, 0 closed) by 3 or 6 units times the retraces of the frame, and keeps its state in the low 2
+// bits of +0x73 (0 closed, 2 opening, 3 open, 1 closing). Its sound plays when the state turns: from
+// 0 or 1 to 2 as it starts opening, from 2 or 3 to 1 as it starts closing. A door moved past either
+// end is put back at that end with the state to match, open or closed. The intro cutscene pushes a
+// door (kind 6, its open end at -82) out to -87 while the door asks to be closed, and the door steps
+// back towards closed each frame. At 30 fps that step is 6, so the door never ends a frame past -82
+// and stays closed as far as its state goes: no sound. At 60 fps the step is 3: once the cutscene has
+// it past -85 the door is put back at its open end, open, and the next frame starts closing it, with
+// its sound, every frame until the cutscene lets go: an echo. Here, at the end of func_1511E780
+// (before its epilogue; $t7 still holds +0x73 as it was on entry, $t1 as it is now), a door that
+// asks to be closed is never made open by that, nor one that asks to be open made closed: it keeps
+// the state it had, or closing (opening) if it was open (closed).
+extern "C" void conker_60fps_door_state(uint8_t* rdram, recomp_context* ctx) {
+    if (!enabled()) {
+        return;
+    }
+    constexpr int kWanted = 0x80;
+    constexpr int kStateByte = 0x73;
+    const gpr door = ctx->r4;
+    const uint32_t before = static_cast<uint32_t>(ctx->r15) & 3;
+    const uint32_t after = static_cast<uint32_t>(ctx->r9) & 3;
+    const int32_t wanted = MEM_W(kWanted, door);
+    uint32_t state = after;
+    if (wanted == 0 && after == 3) {
+        state = before <= 1 ? before : 1;  // still closed or closing
+    } else if (wanted == 1 && after == 0) {
+        state = before >= 2 ? before : 2;  // still open or opening
+    }
+    if (state != after) {
+        MEM_B(kStateByte, door) = static_cast<int8_t>((MEM_BU(kStateByte, door) & ~3u) | state);
+    }
+}
+
 // func_1501C880, after it queues a frame's task on D_8003B1E8.
 extern "C" void conker_60fps_task_queued(uint8_t* rdram, recomp_context* /*ctx*/) {
     log_frame(rdram);
@@ -320,6 +355,17 @@ extern "C" void conker_60fps_chance_float(uint8_t* rdram, recomp_context* ctx) {
 extern "C" void conker_60fps_countdown(uint8_t* rdram, gpr* count) {
     if (!conker::frame_rate::thirty_hz_step(rdram)) {
         *count = static_cast<gpr>(static_cast<int32_t>(*count) + 1);
+    }
+}
+
+// A value in a register moved by `step` once a frame: the step is taken back on a frame that takes
+// no 30 Hz step, so it moves once a step. func_151DF574 (CHAPTERS) moves its row (D_8008FDB0) while
+// the stick is held up or down, then slides the rows by D_8008FF24 from +-10 to 0 by 2 a frame and
+// moves again only once it is 0: 5 frames, 167 ms at 30 fps but 83 ms at 60, so a key tap moved
+// two rows.
+extern "C" void conker_60fps_undo_step(uint8_t* rdram, gpr* value, int32_t step) {
+    if (!conker::frame_rate::thirty_hz_step(rdram)) {
+        *value = static_cast<gpr>(static_cast<int32_t>(*value) - step);
     }
 }
 

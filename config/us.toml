@@ -837,6 +837,13 @@ func = "func_1501C880"
 before_vram = 0x1501CC00
 text = "{ void conker_60fps_task_queued(uint8_t*, recomp_context*); conker_60fps_task_queued(rdram, ctx); }"
 
+# 60 fps: a door the intro cutscene pushes past its open end restarted its closing sound every frame
+# (the step is half as long). See conker_60fps_door_state in src/enhancements/frame_rate/frame_rate.cpp.
+[[patches.hook]]
+func = "func_1511E780"
+before_vram = 0x1511EC40
+text = "{ void conker_60fps_door_state(uint8_t*, recomp_context*); conker_60fps_door_state(rdram, ctx); }"
+
 # The func_800049E0 hook also keeps the scheduler from taking a second audio task while it waits
 # for a graphics task to yield (src/fixes/scheduler_yield.cpp).
 [[patches.hook]]
@@ -1235,6 +1242,18 @@ text = "{ void conker_60fps_chance_float(uint8_t*, recomp_context*); conker_60fp
 func = "func_151607A4"
 before_vram = 0x15160864
 text = "{ void conker_60fps_chance_float(uint8_t*, recomp_context*); conker_60fps_chance_float(rdram, ctx); }"
+
+# CHAPTERS' row slide D_8008FF24, stepped 2 toward 0 once a frame before the held stick moves the
+# row again: see conker_60fps_undo_step.
+[[patches.hook]]
+func = "func_151DF574"
+before_vram = 0x151DF9C0
+text = "{ void conker_60fps_undo_step(uint8_t*, gpr*, int32_t); conker_60fps_undo_step(rdram, &ctx->r4, -2); }"
+
+[[patches.hook]]
+func = "func_151DF574"
+before_vram = 0x151DF9D8
+text = "{ void conker_60fps_undo_step(uint8_t*, gpr*, int32_t); conker_60fps_undo_step(rdram, &ctx->r4, 2); }"
 
 # A swarm insect's course countdown and wing flip, once a frame: see conker_60fps_countdown and
 # conker_60fps_toggle.

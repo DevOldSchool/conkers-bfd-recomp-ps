@@ -271,6 +271,12 @@ constexpr int kEmitterState = 0x196;
 constexpr uint8_t kEmitterOn = 0x02;
 constexpr int kMaxEmitters = 64;
 constexpr float kEmitterMatch = 2.0f;  // a saved emitter is the one now this near its place
+// Not every type 28 effect is an emitter: other scenes keep smaller ones in that list (the Heist
+// white room's, scene 64, are 0x170 to 0x17C bytes), and so does the lobby (2 beside its 16), whose
+// +0x196 is past their end, in the heap block after. Switching one "off" there cleared bit 0x02 of the next block's header, and the
+// game's heap walk then followed the damaged link out of the heap. So only an effect whose heap
+// block (the 12-byte header before it: next, prev, tag << 24 | size) holds +0x196 counts.
+constexpr uint32_t kHeapBlockHeader = 0xC;
 // The running event scripts: a list {u16 count, head, tail} of nodes {u16 key (event id in the low
 // 10 bits), ..., u16 +6 variables' size, u16 +0xA their offset in the node, ..., next +0x18}. Their
 // variables are kept per event, as the nodes are allocated anywhere.
@@ -932,10 +938,19 @@ void capture_swarms(uint8_t* rdram, Point* point) {
     }
 }
 
+// Whether the effect at `node` in the kEmitters list is a laser emitter: big enough for its state.
+bool is_emitter(uint8_t* rdram, uint32_t node) {
+    const uint32_t size = static_cast<uint32_t>(MEM_W(8, kseg0(node - kHeapBlockHeader))) & 0xFFFFFF;
+    return size > kEmitterState;
+}
+
 // Records the laser emitters (see kEmitters) in `point`, on or off.
 void capture_emitters(uint8_t* rdram, Point* point) {
     point->emitters.clear();
     for_each_effect(rdram, kEmitters, kMaxEmitters, [&](uint32_t node) {
+        if (!is_emitter(rdram, node)) {
+            return;
+        }
         Emitter emitter;
         for (int axis = 0; axis < 3; axis++) {
             emitter.position[axis] = read_float(rdram, node + kEmitterPosition + 4 * axis);
@@ -949,6 +964,9 @@ void capture_emitters(uint8_t* rdram, Point* point) {
 void restore_emitters(uint8_t* rdram, const Point& point, std::string* restored) {
     int matched = 0, on = 0;
     for_each_effect(rdram, kEmitters, kMaxEmitters, [&](uint32_t node) {
+        if (!is_emitter(rdram, node)) {
+            return;
+        }
         float position[3];
         for (int axis = 0; axis < 3; axis++) {
             position[axis] = read_float(rdram, node + kEmitterPosition + 4 * axis);

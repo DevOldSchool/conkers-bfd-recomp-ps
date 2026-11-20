@@ -270,6 +270,44 @@ a vertex behind the camera now counts the screen bounds of the part in front of
 it (clipped at a small positive w), and the backface test, which the flipped
 positions make meaningless, no longer leaves it out of the rect.
 
+`tools/patches/rt64-pack-reload.patch` (apply in `lib/rt64` after
+`rt64-sprite-rects.patch`) keeps texture packs loading again and again. Each
+load begins a command list on the copy queue, but RT64 submitted it only when
+the packs had a low mip cache. On Metal an unsubmitted list keeps its command
+buffer and a queue has only 64, so after 64 loads of a pack without one (the
+GRAPHICS page's TEXTURE PACKS row, a pad connected or changed, ORIGINAL TEXT)
+the copy queue stalled for good. The list is now always submitted and waited
+for.
+
+`tools/patches/rt64-sprite-rects.patch` (apply in `lib/rt64` after all the
+others) fixes two things on the sprites Rare projects from the world and draws as
+texture rectangles (`func_15130A9C`), seen on the karaoke ball that bounces over
+the Great Mighty Poo's subtitles (scene 53):
+
+* The sprites land between pixels, and RT64 drew their edges at those
+  fractional positions. At a higher resolution the edge pixels then showed only
+  a sliver of the texture's outer rows and columns, so the ball looked cut flat
+  on top and on its sides. The RDP draws every pixel a rectangle touches, whole
+  (Angrylion's `edgewalker_for_prims`): rows start at the top of the row the top
+  edge is in (`uly & ~3`), with T as given there, and S runs along the row from
+  where the left edge really is. `RDP::drawTexRect` now moves a regular 1- or
+  2-cycle rectangle's edges out to whole pixels that way, for 32-bit RGBA tiles
+  only, which the world sprites all are. Speech bubbles (64x64 IA8) keep their
+  exact edges, as before. The left, right and bottom edges go out only while the
+  texture coordinate stays on the tile: the console samples each pixel once, but
+  here the part of a pixel past the tile would clamp the edge texels into
+  spikes. Extended GBI rectangles keep their edges. Text, HUD and menu rectangles are already on whole pixels;
+  the pause menu's signs come out unchanged.
+* `rect.extendEdgeRects` drew a bar from off the left of the screen to the
+  4:3 edge before the ball flew in. Wholly left of the screen, the sprite comes
+  as an empty rectangle with both sides clamped to x = 0 (the console draws
+  nothing). Drawn on, it showed the ball far off screen and then the tile's last
+  column clamped all the way to the scissor. Such a rectangle now ends where its
+  texture does, unless that column is solid. The ball now flies in from the
+  widened picture's edge. The patch also corrects the "column is solid" test for
+  32-bit tiles: their TMEM line is half a row in RDRAM, so it read the wrong
+  texels and called the ball's edge columns solid.
+
 `tools/patches/rt64-grey-from-green.patch` (apply in `lib/rt64` after the
 patches above) brings back the black and white of cutscenes such as the Tediz
 war briefing in scene 6. The game greys those frames on the CPU after the RDP

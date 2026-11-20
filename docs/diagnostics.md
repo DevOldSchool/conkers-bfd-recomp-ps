@@ -126,8 +126,8 @@ recompiled functions that called it.
   OPTIONS and open it on the VOLUME row (under the sound row). Two more
   `lefty=1` lines (CONTROLS, then GRAPHICS) and an `a` open the GRAPHICS page
   on SHARP TEXT; each further `lefty=1` selects the next row (the display
-  mode, 4:3/WIDESCREEN, the resolution, FILL SCREEN/CENTERED, then FRAME
-  RATE), `leftx=1` or `leftx=-1` steps its value and `b` goes back to OPTIONS. `CONKER_ORIGINAL_SIZE=1` keeps the
+  mode, 4:3/WIDESCREEN, the resolution, ANTIALIASING, FILL SCREEN/CENTERED,
+  then FRAME RATE), `leftx=1` or `leftx=-1` steps its value and `b` goes back to OPTIONS. `CONKER_ORIGINAL_SIZE=1` keeps the
   window at 960x720, so test window sizes without it. `rightx` is the right
   stick (the C buttons), not the left stick pushed right.
 * `CONKER_TEST_NO_RIGHT_STICK=1` treats every pad as having no right stick,

@@ -1,0 +1,15 @@
+diff --git a/src/render/rt64_render_target.cpp b/src/render/rt64_render_target.cpp
+--- a/src/render/rt64_render_target.cpp
++++ b/src/render/rt64_render_target.cpp
+@@ -387,7 +498,10 @@ namespace RT64 {
+         boxFilterCB.Resolution[1] = height;
+         boxFilterCB.ResolutionScale[0] = downsampleMultiplier;
+         boxFilterCB.ResolutionScale[1] = downsampleMultiplier;
+-        boxFilterCB.Misalignment[0] = invMisalignX;
++        // invMisalignX moves the picture by whole native pixels, which only lines up when the target is
++        // brought down to native size. Supersampling (brought down by less than its scale) is presented
++        // like an undownsampled target, which is not moved.
++        boxFilterCB.Misalignment[0] = (downsampleMultiplier == uint32_t(std::lround(resolutionScale.y))) ? invMisalignX : 0;
+         boxFilterCB.Misalignment[1] = 0;
+         
+         RenderTextureBarrier filterBarriers[] = {

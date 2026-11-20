@@ -29,11 +29,14 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "hle/rt64_application.h"
+#include "common/rt64_filesystem_zip.h"
 #include "common/rt64_load_types.h"
 #include "common/rt64_tmem_hasher.h"
 #include "enhancements/pad_icons/b_pad.hpp"
@@ -232,6 +235,47 @@ std::shared_ptr<RT64::FileSystem> make_pack(Style style, const Shown& shown) {
     if (const char* dir = std::getenv("CONKER_DUMP_PAD_ICONS"); dir != nullptr && dir[0] != '\0') {
         memory_pack::write_files(*pack, dir);
     }
+    return pack;
+}
+
+std::shared_ptr<RT64::FileSystem> pack_pads(const std::shared_ptr<RT64::FileSystem>& buttons,
+                                          const std::vector<std::filesystem::path>& user_packs) {
+    const auto drawn = std::dynamic_pointer_cast<memory_pack::Pack>(buttons);
+    if (!drawn || user_packs.empty()) return nullptr;
+    // Each pack, last first (the last pack wins): a folder is read as files, an .rtz or .zip through RT64.
+    struct UserPack {
+        std::filesystem::path folder;
+        std::unique_ptr<RT64::FileSystem> zip;
+    };
+    std::vector<UserPack> packs;
+    for (auto it = user_packs.rbegin(); it != user_packs.rend(); ++it) {
+        std::error_code error;
+        if (std::filesystem::is_directory(*it, error)) {
+            packs.push_back({*it, nullptr});
+        } else if (std::unique_ptr<RT64::FileSystem> zip = RT64::FileSystemZip::create(*it, "")) {
+            packs.push_back({{}, std::move(zip)});
+        }
+    }
+    const auto read = [](const UserPack& user, const std::string& path, std::vector<uint8_t>& out) {
+        if (user.zip) return user.zip->exists(path) && user.zip->load(path, out);
+        std::ifstream file(user.folder / path, std::ios::binary);
+        if (!file) return false;
+        out.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+        return !out.empty();
+    };
+    auto pack = std::make_shared<memory_pack::Pack>();
+    std::vector<uint8_t> png;
+    for (const auto& [path, hash] : drawn->hashes) {
+        if (path.find("_pad") == std::string::npos) continue;  // the B pads only, not the buttons
+        for (const UserPack& user : packs) {
+            if (read(user, path, png)) {
+                pack->add(path, hash, std::move(png), "half");  // RT64's usual shift for a pack
+                break;
+            }
+        }
+    }
+    if (pack->files.empty()) return nullptr;
+    pack->finish();
     return pack;
 }
 

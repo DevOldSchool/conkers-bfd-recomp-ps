@@ -1,0 +1,19 @@
+diff --git a/src/render/rt64_texture_cache.cpp b/src/render/rt64_texture_cache.cpp
+--- a/src/render/rt64_texture_cache.cpp
++++ b/src/render/rt64_texture_cache.cpp
+@@ -1568,10 +1568,12 @@
+ 
+             loaderCommandList->end();
+ 
+-            if (!textureMap.replacementMap.lowMipCacheTextures.empty()) {
+-                copyWorker->commandQueue->executeCommandLists(loaderCommandList.get(), loaderCommandFence.get());
+-                copyWorker->commandQueue->waitForCommandFence(loaderCommandFence.get());
++            // Always submit the list that was begun: on Metal an unsubmitted one keeps its command buffer, and a
++            // queue has only 64, so loading packs without a low mip cache 64 times stalled the copy queue for good.
++            copyWorker->commandQueue->executeCommandLists(loaderCommandList.get(), loaderCommandFence.get());
++            copyWorker->commandQueue->waitForCommandFence(loaderCommandFence.get());
+ 
++            if (!textureMap.replacementMap.lowMipCacheTextures.empty()) {
+                 // Memory used by low mip cache is considered as permanently in used.
+                 textureMap.replacementMap.usedTexturePoolSize += totalMemory;
+                 textureMap.replacementMap.cachedTexturePoolSize += totalMemory;

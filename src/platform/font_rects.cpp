@@ -16,7 +16,9 @@
 // bilinear filtering every row is blended half into the next and the word looks doubled. Such a
 // rectangle (RGBA, clamped, exactly one texel to a pixel) is made to start on a whole texel, which
 // moves the picture by under a pixel and draws it crisp, as it is when it lands on a whole pixel
-// (in the speech bubbles). It moves toward the texture's start, so no texel is lost.
+// (in the speech bubbles). It moves toward the texture's start, so no texel is lost. In widescreen
+// the bubbles' pictures come as RT64 extended rectangles (widescreen_bubbles.cpp), which get the
+// same: unsnapped, "more..." under a thought bubble lost half the m's first column.
 //
 // Those pictures are also drawn one texel short of their tile: a 32x32 picture as 31x31 pixels,
 // from its second column, and from half a row in, so its last row never shows. Most pictures have
@@ -46,6 +48,10 @@ constexpr int kMaxCommands = 200000;
 // Texels. Shrunk text (the legal screen draws at 1.11 texels per pixel) is cut by up to about two;
 // a larger cut is left alone. Boxes clip their text with the scissor, which still applies.
 constexpr double kMaxWiden = 3.0;
+// RT64's G_EX_TEXRECT_V1 (rt64_extended_gbi.h): the command, then the corners as signed quarter
+// pixels, then s,t and the steps: three 8-byte commands, as widescreen_bubbles.cpp writes it.
+constexpr uint32_t kExTexRect = 0x64000002;
+constexpr int32_t kExBias = 0x8000;
 
 uint32_t read32(const uint8_t* rdram, uint32_t addr) {
     uint32_t value;
@@ -75,11 +81,20 @@ struct Tile {
     uint32_t uls = 0, ult = 0, lrs = 0, lrt = 0;  // 10.2
 };
 
+// An RGBA picture, clamped, drawn exactly one texel to a pixel (dsdx and dtdy 1.0 in s5.10).
+bool one_to_one_picture(const Tile& tile, uint32_t steps) {
+    return tile.fmt == 0 && (tile.cms & 2) && (tile.cmt & 2) && steps == 0x04000400;
+}
+
+// A texture coordinate (s10.5) moved to a whole texel, toward 0.
+int32_t whole_texel(int32_t v) { return v >= 0 ? v & ~31 : -(-v & ~31); }
+
 // Grows a one-to-one TEXRECT along one axis to its tile's edges, a texel at most on each side.
 // `start` is the texture coordinate at the first pixel (s10.5, on a whole texel), `first` and
 // `end` the rectangle's first and past-the-last pixel (10.2), `tile_first` and `tile_last` the
-// tile's first and last texel (10.2).
-void grow_to_tile(int32_t& start, uint32_t& first, uint32_t& end, uint32_t tile_first, uint32_t tile_last) {
+// tile's first and last texel (10.2), `limit` the furthest `end` may go.
+void grow_to_tile(int32_t& start, uint32_t& first, uint32_t& end, uint32_t tile_first, uint32_t tile_last,
+                  uint32_t limit = 0xFFF) {
     const int32_t before = start - static_cast<int32_t>(tile_first) * 8;  // s10.5
     if (before > 0 && before <= 32 && first >= static_cast<uint32_t>(before / 8)) {
         first -= before / 8;
@@ -87,7 +102,7 @@ void grow_to_tile(int32_t& start, uint32_t& first, uint32_t& end, uint32_t tile_
     }
     const int32_t reached = start + static_cast<int32_t>(end - first) * 8;
     const int32_t after = static_cast<int32_t>(tile_last) * 8 + 32 - reached;
-    if (after > 0 && after <= 32 && end + after / 8 <= 0xFFF) {
+    if (after > 0 && after <= 32 && end + after / 8 <= limit) {
         end += after / 8;
     }
 }
@@ -194,15 +209,33 @@ void widen_font_rects(uint8_t* rdram, uint32_t display_list) {
                 tile.lrt = w1 & 0xFFF;
                 break;
             }
+            case 0x64: {  // RT64 extended GBI: the widescreen bubbles' pictures (widescreen_bubbles.cpp)
+                if (w0 != kExTexRect) break;
+                const uint32_t corners0 = read32(rdram, here + 8), corners1 = read32(rdram, here + 12);
+                const uint32_t st = read32(rdram, here + 16), step = read32(rdram, here + 20);
+                const Tile& tile = tiles[w1 & 7];
+                if (!one_to_one_picture(tile, step)) break;
+                // Signed quarter pixels from the extended origin; grow_to_tile takes them unsigned, so offset.
+                const auto unsign = [](uint32_t v) { return static_cast<uint32_t>(static_cast<int16_t>(v & 0xFFFF) + kExBias); };
+                uint32_t ulx = unsign(corners0 >> 16), uly = unsign(corners0), lrx = unsign(corners1 >> 16), lry = unsign(corners1);
+                int32_t s = whole_texel(static_cast<int16_t>(st >> 16)), t = whole_texel(static_cast<int16_t>(st & 0xFFFF));
+                grow_to_tile(s, ulx, lrx, tile.uls, tile.lrs, kExBias + 0x7FFF);
+                grow_to_tile(t, uly, lry, tile.ult, tile.lrt, kExBias + 0x7FFF);
+                const auto sign = [](uint32_t v) { return static_cast<uint32_t>(static_cast<int32_t>(v) - kExBias) & 0xFFFF; };
+                write32(rdram, here + 8, (sign(ulx) << 16) | sign(uly));
+                write32(rdram, here + 12, (sign(lrx) << 16) | sign(lry));
+                write32(rdram, here + 16, (static_cast<uint32_t>(s & 0xFFFF) << 16) | static_cast<uint32_t>(t & 0xFFFF));
+                pc = here + 24;
+                break;
+            }
             case 0xE4: {  // TEXRECT, followed by RDPHALF_1 (s, t) and RDPHALF_2 (dsdx, dtdy)
                 const uint32_t h1 = read32(rdram, here + 8), h1w1 = read32(rdram, here + 12);
                 const uint32_t h2 = read32(rdram, here + 16), h2w1 = read32(rdram, here + 20);
                 if ((h1 >> 24) != 0xE1 || (h2 >> 24) != 0xF1) break;
                 const Tile& tile = tiles[(w1 >> 24) & 7];
-                if (tile.fmt == 0 && (tile.cms & 2) && (tile.cmt & 2) && h2w1 == 0x04000400) {  // RGBA, clamped, 1:1
-                    const int32_t s = static_cast<int16_t>(h1w1 >> 16), t = static_cast<int16_t>(h1w1 & 0xFFFF);
-                    const auto whole = [](int32_t v) { return v >= 0 ? v & ~31 : -(-v & ~31); };  // s10.5, toward 0
-                    int32_t whole_s = whole(s), whole_t = whole(t);
+                if (one_to_one_picture(tile, h2w1)) {
+                    int32_t whole_s = whole_texel(static_cast<int16_t>(h1w1 >> 16));
+                    int32_t whole_t = whole_texel(static_cast<int16_t>(h1w1 & 0xFFFF));
                     uint32_t ulx = (w1 >> 12) & 0xFFF, uly = w1 & 0xFFF, lrx = (w0 >> 12) & 0xFFF, lry = w0 & 0xFFF;
                     grow_to_tile(whole_s, ulx, lrx, tile.uls, tile.lrs);
                     grow_to_tile(whole_t, uly, lry, tile.ult, tile.lrt);

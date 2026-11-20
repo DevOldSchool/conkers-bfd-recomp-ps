@@ -1,12 +1,12 @@
 // VOLUME, CONTROLS and GRAPHICS rows under the sound row on the title menu's OPTIONS page. GRAPHICS
 // (A, or a step either way) turns the same page into a GRAPHICS page, the engine drawing only its
-// rows, until B: whether the sharper text and menus are drawn (SHARP TEXT or ORIGINAL TEXT), the
-// display mode (WINDOWED, BORDERLESS, FULL SCREEN), the picture's shape (4:3 or WIDESCREEN), the
-// resolution the picture is drawn at in that mode, whether it is scaled to fill the window or
-// screen or drawn at its own size, and the FRAME RATE (src/enhancements/frame_rate). B there is
+// rows, until B: the display mode (WINDOWED, BORDERLESS, FULL SCREEN), the picture's shape (4:3 or
+// WIDESCREEN), the resolution the picture is drawn at in that mode, the ANTIALIASING, whether the
+// sharper text and menus are drawn (SHARP TEXT or ORIGINAL TEXT), SHARP DISTANCE, TEXTURE PACKS, and
+// the FRAME RATE (src/enhancements/frame_rate), drawn in that order down the page. B there is
 // taken from the page's buttons (D_8008FDD4 + 0x20, read by func_151DF1BC after the engine) so
 // that it goes back to OPTIONS instead of leaving it. The GRAPHICS row borrows option 10, which
-// the GRAPHICS page's SHARP TEXT row borrows too, so the selection stays on it either way.
+// the GRAPHICS page's SHARP TEXT row borrows too; opening the page selects its first row, the mode.
 // Native helpers called from the [[patches.hook]] snippets in config/us.toml (func_151DF1BC,
 // func_151E3344); CONKER_DISPLAY_OPTIONS=0 leaves the page as it was.
 //
@@ -42,7 +42,7 @@
 //   option's record by adding up the records before it, whose lengths follow their values.
 // * The mode row borrows option 12 (GOAL: three values), one value per mode.
 // * The shape row borrows option 15 (two values): 4:3, or WIDESCREEN, where RT64 widens the view
-//   to the window's or screen's shape, kept for each mode like the fill. The game has a PICTURE 4:3/16:9 setting of its own (option
+//   to the window's or screen's shape, kept for each mode. The game has a PICTURE 4:3/16:9 setting of its own (option
 //   8), hidden on the US OPTIONS page, but nothing in the US game reads it.
 // * The resolution row borrows option 16 (AI LEVEL: five values) as a carousel, because how many
 //   sizes there are depends on the display: before each call its value is put in the middle with
@@ -50,8 +50,14 @@
 //   list. A window offers the multiples of the 292x216 picture (384x216 in widescreen) that fit
 //   the display; covering the screen it offers the multiples up to the first that covers the
 //   screen's height, as wide as the screen in widescreen.
-// * The fill row borrows option 19 (DIRECTION: two values): FILL SCREEN or CENTERED, kept for each
-//   mode (src/platform/display_mode.hpp).
+// * The anti-aliasing row borrows option 0, the volume row's, which the GRAPHICS page does not
+//   show, as the same kind of carousel: OFF, the multisample counts the GPU can draw with (2X, 4X,
+//   8X), then SUPERSAMPLING (twice the resolution averaged down, with up to 4X as well), a step
+//   either way moving along them.
+// * The sharp distance row borrows option 8, the controls row's, which the GRAPHICS page does not
+//   show: SHARP DISTANCE or BLURRY DISTANCE, as the console drew it (src/platform/display_mode.hpp).
+// * The texture pack row borrows option 19 (DIRECTION: two values): TEXTURE PACKS, the packs in
+//   conker-recomp-data/texture_packs, or N64 TEXTURES, the game's own (src/platform/display_mode.hpp).
 //
 // The two joysticks that flank the selected row are moved apart for these rows, since their
 // longer words would run under them. The engine puts every row 34 pixels below the last; with
@@ -95,6 +101,7 @@ constexpr uint16_t kMenuA = 0x10;                // A on CHEATS opens it
 constexpr uint16_t kMenuB = 0x20;                // B leaves OPTIONS (func_15007668)
 constexpr int8_t kNoLabel = -1;
 constexpr int kStickSpread = 18;                 // extra room on each side of the rows, in pixels
+constexpr int kWideWordSpread = 6;               // and more for the anti-aliasing and distance rows
 constexpr int kEngineRowSpacing = 0x22;          // func_151E3344's row pitch on this page
 constexpr int kPageTop = 0x46;                   // the top row's y, as the engine has it: the sound icon clears the heading
 constexpr int kRowYSlot = 0x138;                 // func_151E3344's stack: the row's y (low half)
@@ -125,7 +132,7 @@ struct Borrowed {
 
 Borrowed g_mode_row{12, 31, 3, {2, 28, 4, 29}, kStringArea};
 Borrowed g_scale_row{16, 42, 5, {-6, 35, 36, 37, 38, 39}, kStringArea + 3 * kStringStride};
-Borrowed g_fill_row{19, 52, 2, {-62, 43, 44}, kStringArea + 8 * kStringStride};
+Borrowed g_packs_row{19, 52, 2, {-62, 43, 44}, kStringArea + 8 * kStringStride};
 Borrowed g_shape_row{15, 39, 2, {31, 32, 33}, kStringArea + 10 * kStringStride};
 Borrowed g_sharp_row{10, 23, 5, {21, 22, 25, 23, 24, 26}, kStringArea + 12 * kStringStride};
 // Option 0 shares string 4 with option 12; string 2 is both options' label, unused while borrowed.
@@ -139,6 +146,9 @@ Borrowed g_rate_row{22, 59, 3, {-63, 127, 0, 0}, kStringArea + 23 * kStringStrid
 bool g_rate_shown = false;       // this call has the frame rate row
 int8_t g_shown_rate = 0;
 bool g_controls_shown = false;   // this call has the controls row
+bool g_distance_shown = false;   // this call has the sharp distance row (option 8 on GRAPHICS)
+int8_t g_shown_distance = 0;     // 0 on, 1 off
+int8_t g_shown_packs = 0;        // 0 on, 1 off
 bool g_a_was_held = false;       // controller 1's A at the last call, for a press on that row
 constexpr int8_t kCarouselMiddle = 2;
 constexpr int8_t kVolumeMiddle = 1;
@@ -172,8 +182,12 @@ int gap_after(int option) {
     }
 }
 
+// The GRAPHICS page's rows down the page, by option (the engine's own order is the options').
+constexpr int kGraphicsOrder[] = {12, 15, 16, 0, 10, 8, 19, 22};  // mode, shape, resolution, AA, text, distance, packs, rate
+
 // The engine places the rows in option order, which puts the volume row (option 0) and the mouse
-// speed row (8) first; they are drawn under the sound row instead, and the rest keep their order.
+// speed row (8) first; on OPTIONS they are drawn under the sound row instead, and the rest keep
+// their order. GRAPHICS has an order of its own.
 void lay_out(uint32_t mask) {
     g_row_count = 0;
     for (int option = 0; option < kMaxRows; option++) {
@@ -192,6 +206,14 @@ void lay_out(uint32_t mask) {
         g_option_y[option] = y;
         y += gap_after(option);
     };
+    if (g_graphics_open) {
+        for (const int option : kGraphicsOrder) {
+            if (mask & (1u << option)) {
+                place(option);
+            }
+        }
+        return;
+    }
     for (int row = 0; row < g_row_count; row++) {
         const int option = g_row_option[row];
         if (option == volume || option == mouse) {
@@ -255,9 +277,15 @@ int follow_page_order(int before, int after) {
 }
 int8_t g_shown_mode = 0;
 int8_t g_shown_shape = 0;
-int8_t g_shown_fill = 0;
 std::vector<int> g_scales;  // the resolution row's choices in this mode
 int g_scale_index = 0;      // the one shown
+struct AaChoice {
+    int samples;        // multisample count, 1 = none
+    bool supersample;   // SUPERSAMPLING
+};
+std::vector<AaChoice> g_aa_choices;  // the anti-aliasing row's choices
+int g_aa_index = 0;             // the one shown
+bool g_aa_shown = false;        // this call has the anti-aliasing row
 
 bool display_options_enabled() {
     static const bool enabled = [] {
@@ -286,12 +314,21 @@ bool record_matches(uint8_t* rdram, const Borrowed& row) {
     return true;
 }
 
-void write_string(uint8_t* rdram, uint32_t address, const char* text) {
-    for (uint32_t c = 0;; c++) {
-        MEM_B(c, kseg0(address)) = text[c];
-        if (text[c] == '\0') {
-            break;
+// Writes a row's words into its string slot. The menu draws them as a format string
+// (func_15042ECC): a lone % reads on past the end for its format letter, into whatever an earlier,
+// longer word left there ("VOLUME 50%" then the F of "ANTIALIASING OFF" was a %F that read a float
+// through a junk pointer and crashed). So % is written %%, and the rest of the slot is cleared.
+void write_string(uint8_t* rdram, uint32_t address, const std::string& text) {
+    std::string escaped;
+    for (const char c : text) {
+        escaped += c;
+        if (c == '%') {
+            escaped += '%';
         }
+    }
+    escaped.resize(kStringStride - 1 < escaped.size() ? kStringStride - 1 : escaped.size());
+    for (uint32_t c = 0; c < kStringStride; c++) {
+        MEM_B(c, kseg0(address)) = c < escaped.size() ? escaped[c] : '\0';
     }
 }
 
@@ -314,7 +351,7 @@ void borrow(uint8_t* rdram, Borrowed& row, int8_t value, const std::vector<std::
         const uint32_t slot = string_slot(rdram, index);
         row.saved_pointers[i] = MEM_W(0, kseg0(slot));
         const uint32_t text = row.strings + static_cast<uint32_t>(i) * kStringStride;
-        write_string(rdram, text, words[static_cast<size_t>(i)].c_str());
+        write_string(rdram, text, words[static_cast<size_t>(i)]);
         MEM_W(0, kseg0(slot)) = static_cast<int32_t>(kseg0(text));
     }
 }
@@ -380,6 +417,43 @@ int wrap(int index) {
     return ((index % count) + count) % count;
 }
 
+std::string aa_words(const AaChoice& choice) {
+    if (choice.supersample) {
+        return "SUPERSAMPLING";
+    }
+    return choice.samples <= 1 ? "ANTIALIASING OFF" : "ANTIALIASING " + std::to_string(choice.samples) + "X";
+}
+
+// The anti-aliasing row's choices on this GPU, and which one is in use.
+void list_aa() {
+    g_aa_choices.clear();
+    g_aa_index = 0;
+    const uint32_t supported = conker::display::antialiasing_supported();
+    const int current = conker::display::antialiasing();
+    const bool supersampled = conker::display::supersampling();
+    int best = 1;  // the most samples up to 4, used with supersampling
+    for (int samples : {1, 2, 4, 8}) {
+        if ((supported & static_cast<uint32_t>(samples)) != 0) {
+            if (samples == current && !supersampled) {
+                g_aa_index = static_cast<int>(g_aa_choices.size());
+            }
+            g_aa_choices.push_back({samples, false});
+            if (samples <= 4) {
+                best = samples;
+            }
+        }
+    }
+    if (supersampled) {
+        g_aa_index = static_cast<int>(g_aa_choices.size());
+    }
+    g_aa_choices.push_back({best, true});
+}
+
+const AaChoice& aa_at(int index) {
+    const int count = static_cast<int>(g_aa_choices.size());
+    return g_aa_choices[static_cast<size_t>(((index % count) + count) % count)];
+}
+
 }  // namespace
 
 // Before func_151DF1BC's `jal func_151E3344` ($a0 = the options to show).
@@ -392,7 +466,7 @@ extern "C" void conker_display_options_begin(uint8_t* rdram, recomp_context* ctx
     }
     if (!display_options_enabled() || static_cast<uint32_t>(ctx->r4) != kOptionsPageMask ||
         !record_matches(rdram, g_mode_row) || !record_matches(rdram, g_scale_row) ||
-        !record_matches(rdram, g_fill_row) || !record_matches(rdram, g_shape_row) ||
+        !record_matches(rdram, g_shape_row) || !record_matches(rdram, g_packs_row) ||
         !record_matches(rdram, g_sharp_row) || !record_matches(rdram, g_volume_row) ||
         !record_matches(rdram, g_mouse_row)) {
         return;
@@ -405,7 +479,9 @@ extern "C" void conker_display_options_begin(uint8_t* rdram, recomp_context* ctx
     }
     g_last_call = now;
     g_controls_shown = false;
+    g_distance_shown = false;
     g_rate_shown = false;
+    g_aa_shown = false;
 
     if (!g_graphics_open) {
         const int volume = conker::audio::volume();
@@ -427,7 +503,8 @@ extern "C" void conker_display_options_begin(uint8_t* rdram, recomp_context* ctx
         return;
     }
 
-    // The GRAPHICS page: only its rows, without the sound row and CHEATS.
+    // The GRAPHICS page: only its rows, without the sound row and CHEATS. The engine's options are
+    // set up in its order here; lay_out draws them in kGraphicsOrder.
     ctx->r4 = 0;
     const bool sharp = conker::display::sharp();
     const char* const same = sharp ? "SHARP TEXT" : "ORIGINAL TEXT";
@@ -451,9 +528,22 @@ extern "C" void conker_display_options_begin(uint8_t* rdram, recomp_context* ctx
 
     ctx->r4 |= (1u << g_mode_row.option) | (1u << g_shape_row.option) | (1u << g_scale_row.option);
 
-    g_shown_fill = conker::display::fill(mode) ? 0 : 1;
-    borrow(rdram, g_fill_row, g_shown_fill, {"FILL SCREEN", "CENTERED"});
-    ctx->r4 |= 1u << g_fill_row.option;
+    list_aa();
+    g_aa_shown = true;
+    if (g_aa_shown) {
+        borrow(rdram, g_volume_row, kVolumeMiddle,
+               {aa_words(aa_at(g_aa_index - 1)), aa_words(aa_at(g_aa_index)), aa_words(aa_at(g_aa_index + 1))});
+        ctx->r4 |= 1u << g_volume_row.option;
+    }
+
+    g_distance_shown = true;
+    g_shown_distance = conker::display::sharp_distance() ? 0 : 1;
+    borrow(rdram, g_mouse_row, g_shown_distance, {"SHARP DISTANCE", "BLURRY DISTANCE"});
+    ctx->r4 |= 1u << g_mouse_row.option;
+
+    g_shown_packs = conker::display::texture_packs() ? 0 : 1;
+    borrow(rdram, g_packs_row, g_shown_packs, {"TEXTURE PACKS", "N64 TEXTURES"});
+    ctx->r4 |= 1u << g_packs_row.option;
 
     // Not online: the session plays at the host's frame rate.
     g_rate_shown = !conker::net::active() && !conker::net::in_place() && record_matches(rdram, g_rate_row);
@@ -499,8 +589,9 @@ extern "C" void conker_display_options_end(uint8_t* rdram, recomp_context* /*ctx
         } else if (controls_stepped || (g_controls_shown && a_pressed && selected == g_mouse_row.option)) {
             conker::debug_menu::open_controls();
         } else if (graphics_stepped || (a_pressed && selected == g_sharp_row.option)) {
-            g_graphics_open = true;  // its first row is option 10 too, so the selection stays
+            g_graphics_open = true;
             g_page_switched = true;
+            MEM_B(0, kseg0(kSelected)) = static_cast<int8_t>(g_mode_row.option);  // its first row
             if (menu_ok) {
                 MEM_HU(kMenuButtons, kseg0(menu)) &= static_cast<uint16_t>(~(kMenuA | kMenuB));
             }
@@ -518,8 +609,18 @@ extern "C" void conker_display_options_end(uint8_t* rdram, recomp_context* /*ctx
     const int8_t mode = give_back(rdram, g_mode_row);
     const int8_t shape = give_back(rdram, g_shape_row);
     const int8_t step = static_cast<int8_t>(give_back(rdram, g_scale_row) - kCarouselMiddle);
-    const int8_t fill = give_back(rdram, g_fill_row);
     const int8_t sharp_step = static_cast<int8_t>(give_back(rdram, g_sharp_row) - kCarouselMiddle);
+    int8_t aa_step = 0;
+    if (g_aa_shown) {
+        g_aa_shown = false;
+        aa_step = static_cast<int8_t>(give_back(rdram, g_volume_row) - kVolumeMiddle);
+    }
+    const int8_t packs = give_back(rdram, g_packs_row);
+    int8_t distance = g_shown_distance;
+    if (g_distance_shown) {
+        g_distance_shown = false;
+        distance = give_back(rdram, g_mouse_row);
+    }
     if (g_rate_shown) {
         g_rate_shown = false;
         const int8_t rate = give_back(rdram, g_rate_row);
@@ -541,8 +642,14 @@ extern "C" void conker_display_options_end(uint8_t* rdram, recomp_context* /*ctx
         } else {
             conker::display::request_screen_scale(scale);
         }
-    } else if (fill != g_shown_fill) {
-        conker::display::request_fill(static_cast<Mode>(g_shown_mode), fill == 0);
+    } else if (aa_step != 0) {
+        const AaChoice& choice = aa_at(g_aa_index + (aa_step > 0 ? 1 : -1));
+        conker::display::request_antialiasing(choice.samples);
+        conker::display::request_supersampling(choice.supersample);
+    } else if (distance != g_shown_distance) {
+        conker::display::request_sharp_distance(distance == 0);
+    } else if (packs != g_shown_packs) {
+        conker::display::request_texture_packs(packs == 0);
     }
 }
 
@@ -550,10 +657,14 @@ extern "C" void conker_display_options_end(uint8_t* rdram, recomp_context* /*ctx
 extern "C" void conker_display_options_sticks(uint8_t* rdram, recomp_context* ctx) {
     const int selected = MEM_BU(0, kseg0(kSelected));
     if (g_active && (selected == g_mode_row.option || selected == g_shape_row.option ||
-                     selected == g_scale_row.option || selected == g_fill_row.option ||
+                     selected == g_scale_row.option || selected == g_packs_row.option ||
                      selected == g_sharp_row.option || selected == g_volume_row.option ||
                      selected == g_mouse_row.option || selected == g_rate_row.option)) {
         ctx->r16 += kStickSpread;
+        // SUPERSAMPLING and BLURRY DISTANCE are the widest words on these pages.
+        if (g_graphics_open && (selected == g_volume_row.option || selected == g_mouse_row.option)) {
+            ctx->r16 += kWideWordSpread;
+        }
     }
 }
 

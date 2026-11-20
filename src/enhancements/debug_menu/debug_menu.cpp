@@ -89,6 +89,7 @@
 #include "enhancements/switches.hpp"
 #include "build_version.h"
 #include "json/json.hpp"
+#include "platform/display_mode.hpp"
 #include "platform/gpu_faults.hpp"
 #include "platform/input.hpp"
 #include "net/lobby_ui.hpp"
@@ -162,7 +163,7 @@ using Clock = std::chrono::steady_clock;
 
 enum class Page { Main, DebugView, Enhancements, Controls, Mods, Teleport, Spots, Snapshots, Reports };
 enum MainRow { kDebugView, kEnhancements, kControls, kMods, kTeleport, kLoadSnapshot, kSaveReport, kLoadReport, kMainRows };
-enum DebugViewRow { kShowFps, kShowPosition, kInspect, kDebugViewRows };
+enum DebugViewRow { kShowFps, kShowPosition, kInspect, kAntialiasing, kPacks, kSharpDistance, kDebugViewRows };
 // The controls page's rows: these, then a row for each of the mapped buttons (for the keyboard, then
 // its stick, walk and zoom keys), then RESET BUTTONS.
 enum ControlsRow { kController, kInvertAim, kStickAim, kMouseAim, kInvertMouseAim, kFirstMappedRow };
@@ -742,6 +743,58 @@ void draw_controls_page(uint8_t* rdram, recomp_context* ctx) {
     draw_text(rdram, ctx, kCenterX, kInfoY + kLineHeight, kCentered, more_color, more);
 }
 
+// The GRAPHICS page's anti-aliasing choices, here too to compare them in play: OFF, each sample
+// count the GPU can draw with, then SUPERSAMPLING (with the most samples up to 4, as that page has it).
+struct AaChoice {
+    int samples;
+    bool supersample;
+};
+
+std::vector<AaChoice> antialiasing_choices() {
+    const uint32_t supported = conker::display::antialiasing_supported();
+    std::vector<AaChoice> choices;
+    int best = 1;
+    for (int samples : {1, 2, 4, 8}) {
+        if (samples == 1 || (supported & static_cast<uint32_t>(samples)) != 0) {
+            choices.push_back({samples, false});
+            if (samples <= 4) {
+                best = samples;
+            }
+        }
+    }
+    choices.push_back({best, true});
+    return choices;
+}
+
+int antialiasing_index(const std::vector<AaChoice>& choices) {
+    const bool supersample = conker::display::supersampling();
+    const int samples = conker::display::antialiasing();
+    for (size_t i = 0; i < choices.size(); i++) {
+        if (choices[i].supersample == supersample && (supersample || choices[i].samples == samples)) {
+            return static_cast<int>(i);
+        }
+    }
+    return 0;
+}
+
+std::string antialiasing_words() {
+    const std::vector<AaChoice> choices = antialiasing_choices();
+    const AaChoice& choice = choices[static_cast<size_t>(antialiasing_index(choices))];
+    if (choice.supersample) {
+        return "SUPERSAMPLING";
+    }
+    return choice.samples == 1 ? "OFF" : std::to_string(choice.samples) + "X";
+}
+
+void step_antialiasing(int direction) {
+    const std::vector<AaChoice> choices = antialiasing_choices();
+    const int count = static_cast<int>(choices.size());
+    const int index = (antialiasing_index(choices) + direction + count) % count;
+    const AaChoice& choice = choices[static_cast<size_t>(index)];
+    conker::display::request_antialiasing(choice.samples);
+    conker::display::request_supersampling(choice.supersample);
+}
+
 void draw_page(uint8_t* rdram, recomp_context* ctx) {
     char text[kTextSize];
     switch (g_page) {
@@ -757,7 +810,10 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
             draw_rows(rdram, ctx,
                       {std::string("SHOW FPS  ") + on_off(g_show_fps),
                        std::string("SHOW POSITION  ") + on_off(g_show_position),
-                       std::string("INSPECT  ") + on_off(conker::inspector::active())},
+                       std::string("INSPECT  ") + on_off(conker::inspector::active()),
+                       "AA  " + antialiasing_words(),
+                       std::string("PACKS  ") + on_off(conker::display::texture_packs()),
+                       std::string("SHARP DISTANCE  ") + on_off(conker::display::sharp_distance())},
                       g_view_row, 0, kDebugViewRows);
             break;
         case Page::Enhancements: {
@@ -1216,6 +1272,15 @@ int32_t debug_view_page(int vertical, int horizontal, bool fresh_horizontal, uin
             break;
         case kInspect:
             conker::inspector::set_active(!conker::inspector::active());
+            break;
+        case kAntialiasing:
+            step_antialiasing(horizontal < 0 ? -1 : 1);
+            break;
+        case kPacks:
+            conker::display::request_texture_packs(!conker::display::texture_packs());
+            break;
+        case kSharpDistance:
+            conker::display::request_sharp_distance(!conker::display::sharp_distance());
             break;
     }
     return kSelectSound;
