@@ -1,0 +1,39 @@
+--- a/librecomp/src/files.cpp
++++ b/librecomp/src/files.cpp
+@@ -28,6 +28,20 @@ std::ofstream recomp::open_output_file_with_backup(const std::filesystem::path&
+     return temp_file_out;
+ }
+ 
++// Copies `from` over `to`. A file the game does not own (on a PS5, one put there over FTP belongs to
++// root) can't take the copy's permissions, so the copy fails; it is then deleted and copied again.
++static bool replace_file(const std::filesystem::path& from, const std::filesystem::path& to) {
++    std::error_code ec;
++    std::filesystem::copy_file(from, to, std::filesystem::copy_options::overwrite_existing, ec);
++    if (!ec) {
++        return true;
++    }
++    std::filesystem::remove(to, ec);
++    ec.clear();
++    std::filesystem::copy_file(from, to, ec);
++    return !ec;
++}
++
+ bool recomp::finalize_output_file_with_backup(const std::filesystem::path& filepath) {
+     std::filesystem::path backup_path{filepath};
+     backup_path += backup_suffix;
+@@ -37,13 +51,11 @@ bool recomp::finalize_output_file_with_backup(const std::filesystem::path& filep
+ 
+     std::error_code ec;
+     if (std::filesystem::exists(filepath, ec)) {
+-        std::filesystem::copy_file(filepath, backup_path, std::filesystem::copy_options::overwrite_existing, ec);
+-        if (ec) {
++        if (!replace_file(filepath, backup_path)) {
+             return false;
+         }
+     }
+-    std::filesystem::copy_file(temp_path, filepath, std::filesystem::copy_options::overwrite_existing, ec);
+-    if (ec) {
++    if (!replace_file(temp_path, filepath)) {
+         return false;
+     }
+     std::filesystem::remove(temp_path, ec);

@@ -29,7 +29,7 @@ patches_for() {
                 n64modernruntime-pi-bounds.patch n64modernruntime-audio-buffer.patch \
                 n64modernruntime-function-exit.patch n64modernruntime-mods.patch \
                 n64modernruntime-mod-sandbox.patch n64modernruntime-isolated-pass.patch \
-                n64modernruntime-ps5.patch ;;
+                n64modernruntime-ps5.patch n64modernruntime-ps5-save-copy.patch ;;
         lib/rt64)
             echo rt64-f3dex2cbfd.patch rt64-native-size.patch rt64-edge-rects.patch \
                 rt64-memory-packs.patch rt64-wide-draw-rect.patch \
