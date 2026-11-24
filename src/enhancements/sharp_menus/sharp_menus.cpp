@@ -26,19 +26,25 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <future>
 #include <iterator>
+#include <map>
 #include <optional>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "hle/rt64_application.h"
+#include "common/rt64_filesystem_zip.h"
 #include "common/rt64_load_types.h"
 #include "common/rt64_tmem_hasher.h"
 #include "enhancements/sharp_menus/menu_art.hpp"
 #include "enhancements/sharp_menus/pause_signs.hpp"
 #include "platform/memory_pack.hpp"
+#include "json/json.hpp"
+#include "stb/stb_image.h"  // implemented in RT64 (rt64_texture_cache.cpp)
 
 namespace conker::sharp_menus {
 
@@ -346,24 +352,30 @@ std::optional<menu_art::Image> large_skull(std::vector<uint64_t>& hashes) {
     return whole;
 }
 
+// `large`, the 64x64 skull enlarged `scale` times, fitted over the death skull's outline on a canvas
+// of the death skull's size at that scale.
+std::optional<menu_art::Image> fit_death_skull(const menu_art::Image& large, int scale) {
+    const std::optional<menu_art::Image> small_art = menu_art::load_row(kDeathSkull, 1);
+    if (!small_art) return std::nullopt;
+    const menu_art::Box to = menu_art::opaque_box(*small_art, 100);
+    const menu_art::Box from = menu_art::opaque_box(large, 100);
+    if (to.x1 == 0 || from.x1 == 0) return std::nullopt;
+    const menu_art::Image fitted =
+        menu_art::resize(large, from, (to.x1 - to.x0) * scale, (to.y1 - to.y0) * scale);
+    menu_art::Image out(kTile * scale, kTile * scale);
+    for (int y = 0; y < fitted.height; y++) {
+        std::copy_n(fitted.at(0, y), fitted.width * 4, out.at(to.x0 * scale, to.y0 * scale + y));
+    }
+    return out;
+}
+
 // The death skull, four times larger: the large skull enlarged and fitted over the small one's
 // outline, as the small badges are, since at 32 pixels it has too little detail to enlarge well.
 std::optional<menu_art::Image> death_skull() {
-    const std::optional<menu_art::Image> small_art = menu_art::load_row(kDeathSkull, 1);
     std::vector<uint64_t> hashes;
     const std::optional<menu_art::Image> large = large_skull(hashes);
-    if (!small_art || !large) return std::nullopt;
-    const menu_art::Box to = menu_art::opaque_box(*small_art, 100);
-    const menu_art::Box from = menu_art::opaque_box(*large, 100);
-    if (to.x1 == 0 || from.x1 == 0) return std::nullopt;
-    const menu_art::Image fitted = menu_art::resize(
-        menu_art::super_xbr(*large, kScale), {from.x0 * kScale, from.x1 * kScale, from.y0 * kScale, from.y1 * kScale},
-        (to.x1 - to.x0) * kScale, (to.y1 - to.y0) * kScale);
-    menu_art::Image out(kTile * kScale, kTile * kScale);
-    for (int y = 0; y < fitted.height; y++) {
-        std::copy_n(fitted.at(0, y), fitted.width * 4, out.at(to.x0 * kScale, to.y0 * kScale + y));
-    }
-    return out;
+    if (!large) return std::nullopt;
+    return fit_death_skull(menu_art::super_xbr(*large, kScale), kScale);
 }
 
 // The skull's four tiles, enlarged together so no seams show where they meet.
@@ -491,6 +503,98 @@ std::shared_ptr<RT64::FileSystem> make_pack() {
             }
         }
     }
+    pack->finish();
+    return pack;
+}
+
+// The user's packs' own large skull fitted over the death skull, as the sharp menus fit theirs, for
+// packs that replace the large skull and not the death skull: a pack upscales a 32-pixel tile with
+// so little detail poorly or not at all. Each tile is taken from the last pack that has it, as RT64
+// takes it. Nothing if a pack has its own death skull, or no pack has all four tiles at one size.
+std::shared_ptr<RT64::FileSystem> pack_death_skull(const std::vector<std::filesystem::path>& user_packs) {
+    struct UserPack {
+        std::filesystem::path folder;
+        std::unique_ptr<RT64::FileSystem> zip;
+        std::map<uint64_t, std::string> paths;  // from its rt64.json
+    };
+    std::vector<UserPack> packs;  // last first (the last pack wins)
+    for (auto it = user_packs.rbegin(); it != user_packs.rend(); ++it) {
+        UserPack user;
+        std::error_code error;
+        if (std::filesystem::is_directory(*it, error)) {
+            user.folder = *it;
+        } else if (!(user.zip = RT64::FileSystemZip::create(*it, ""))) {
+            continue;
+        }
+        packs.push_back(std::move(user));
+    }
+    const auto read = [](const UserPack& user, const std::string& path, std::vector<uint8_t>& out) {
+        if (user.zip) return user.zip->exists(path) && user.zip->load(path, out);
+        std::ifstream file(user.folder / path, std::ios::binary);
+        if (!file) return false;
+        out.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+        return !out.empty();
+    };
+    std::vector<uint8_t> bytes;
+    for (UserPack& user : packs) {
+        if (!read(user, "rt64.json", bytes)) continue;
+        const nlohmann::json db = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
+        if (!db.is_object() || !db.contains("textures") || !db["textures"].is_array()) continue;
+        for (const nlohmann::json& texture : db["textures"]) {
+            if (!texture.is_object() || !texture.contains("path") || !texture.contains("hashes")) continue;
+            const nlohmann::json& hashes = texture["hashes"];
+            if (!hashes.is_object() || !hashes.contains("rt64") || !hashes["rt64"].is_string()) continue;
+            if (!texture["path"].is_string()) continue;
+            const std::string hex = hashes["rt64"].get<std::string>();
+            if (hex.empty()) continue;
+            user.paths[std::strtoull(hex.c_str(), nullptr, 16)] = texture["path"].get<std::string>();
+        }
+    }
+    const std::optional<menu_art::StoredTile> death_tile = menu_art::load_tile(kDeathSkull);
+    if (!death_tile) return nullptr;
+    const uint64_t death_hash = hash(*death_tile);
+    for (const UserPack& user : packs) {
+        if (user.paths.count(death_hash)) return nullptr;  // the pack's own
+    }
+    std::vector<uint64_t> hashes;
+    if (!large_skull(hashes)) return nullptr;
+    std::vector<menu_art::Image> tiles;
+    for (const uint64_t tile_hash : hashes) {
+        bool found = false;
+        for (const UserPack& user : packs) {
+            const auto path = user.paths.find(tile_hash);
+            if (path == user.paths.end() || !read(user, path->second, bytes)) continue;
+            int width = 0, height = 0, channels = 0;
+            unsigned char* rgba = stbi_load_from_memory(bytes.data(), int(bytes.size()), &width, &height, &channels, 4);
+            if (rgba == nullptr) return nullptr;
+            menu_art::Image image(width, height);
+            for (size_t i = 0; i < size_t(width) * height; i++) {
+                const float alpha = rgba[i * 4 + 3];
+                for (int c = 0; c < 3; c++) image.pixels[i * 4 + c] = rgba[i * 4 + c] * alpha / 255.0f;
+                image.pixels[i * 4 + 3] = alpha;
+            }
+            stbi_image_free(rgba);
+            tiles.push_back(std::move(image));
+            found = true;
+            break;
+        }
+        if (!found) return nullptr;
+    }
+    const int size = tiles[0].width;
+    if (size < kTile || size % kTile != 0) return nullptr;
+    for (const menu_art::Image& tile : tiles) {
+        if (tile.width != size || tile.height != size) return nullptr;
+    }
+    menu_art::Image whole(size * 2, size * 2);
+    for (int i = 0; i < 4; i++) {
+        const int x0 = (i / 2) * size, y0 = (i % 2) * size;
+        for (int y = 0; y < size; y++) std::copy_n(tiles[i].at(0, y), size * 4, whole.at(x0, y0 + y));
+    }
+    const std::optional<menu_art::Image> death = fit_death_skull(whole, size / kTile);
+    if (!death) return nullptr;
+    auto pack = std::make_shared<memory_pack::Pack>();
+    const std::vector<uint8_t> rgba = menu_art::to_rgba8(*death);
+    pack->add("menus/pack_death_skull.png", death_hash, death->width, death->height, rgba.data());
     pack->finish();
     return pack;
 }

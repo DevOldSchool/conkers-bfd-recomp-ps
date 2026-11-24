@@ -58,6 +58,10 @@ fi
 echo "==> packaging $binary ($(stat -f '%Sm' "$binary"))"
 
 version="$("$here/tools/version.sh")"
+# Finder's version: up to three numbers, so v0.1.2-beta.1 (and a build after it) shows 0.1.2; the
+# whole version is CFBundleVersion. A build with no tag before it (a bare commit) shows 0.0.0.
+short_version="$(sed -nE 's/^v([0-9]+(\.[0-9]+){0,2}).*/\1/p' <<< "$version")"
+short_version="${short_version:-0.0.0}"
 minos="$(otool -l "$binary" | awk '/LC_BUILD_VERSION/ {found = 1} found && $1 == "minos" {print $2; exit}')"
 arch="$(lipo -archs "$binary")"
 
@@ -122,7 +126,7 @@ cat > "$app/Contents/Info.plist" <<EOF
     <key>CFBundleExecutable</key><string>ConkersBadFurDayRecompiled</string>
     <key>CFBundleIdentifier</key><string>org.conkerrecomp.ConkersBadFurDayRecompiled</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.1.0</string>
+    <key>CFBundleShortVersionString</key><string>$short_version</string>
     <key>CFBundleVersion</key><string>$version</string>
     <key>LSMinimumSystemVersion</key><string>$minos</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.games</string>

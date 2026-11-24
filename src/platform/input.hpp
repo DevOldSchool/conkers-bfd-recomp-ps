@@ -76,8 +76,8 @@ enum class PadKind { None, Xbox, PlayStation, Other };
 PadKind controller_kind();
 PadKind controller_kind(int port);  // any port's
 
-// True once for each press of the debug menu button: the pad's Back (Create/Share on a
-// PlayStation pad, View on an Xbox pad) or the ` key. Safe to call from any thread.
+// True once for each press of the debug menu button: both of the pad's sticks pressed in together
+// (L3 + R3) or the ` key. Safe to call from any thread.
 bool take_debug_menu_press();
 
 // A port's rumble pak: present while that port's pad can rumble. set_rumble turns the pak's motor

@@ -34,6 +34,7 @@ std::vector<Switch> all() {
         save_snapshots(),
         surround_default(),
         mp_characters(),
+        more_bots(),
         max_detail(),
         draw_distance(),
         haptics(),

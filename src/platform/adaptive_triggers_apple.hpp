@@ -6,8 +6,9 @@
 
 namespace conker::input::apple {
 
-// Sets both triggers of a port's DualSense (0 is controller 1); false when it has none (or macOS is
-// older than 12.3). Main thread.
-bool set_dualsense_triggers(int port, const TriggerEffect& effect);
+// Sets a port's DualSense's triggers (0 is controller 1): the effect on the left and/or right one
+// (those that are Z), the other let free; false when it has none (or macOS is older than 12.3).
+// Main thread.
+bool set_dualsense_triggers(int port, const TriggerEffect& effect, bool left, bool right);
 
 }  // namespace conker::input::apple

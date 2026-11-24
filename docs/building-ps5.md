@@ -168,4 +168,5 @@ open-source encoder exists for that. The encoded file is in `tools/ps5/sce_sys/s
 | DualSense | Adaptive triggers through `scePadSetTriggerEffect`; haptics and rumble synthesised as sound on the pad's vibration port (`src/platform/dualsense_ps5.cpp`). The `ps5.` lines of `feel.cfg` shape them: pitch, punch, the thud's roughness and length. |
 | Debug menu | The console keeps the Create button for itself: L3 and R3 pressed together open the debug menu. |
 | Players | The console lists every signed-in user as a controller: one whose pad is off holds no port, so players follow the order pads are switched on. |
-| Not on the console | Mods, router port mapping. |
+| Mods | Code mods load as on a desktop: `.nrm` files in the title folder's `conker-recomp-data/mods` (copied there over FTP), and the built-in speedrun mod, which the build makes in the container. LiveRecomp's code goes in direct memory made executable with `sceKernelMprotect` (`src/platform/ps5_sljit`); the console refuses a title its JIT interface. A title cannot start itself again, so after a change the MODS page says APPLY AT NEXT START: close the game and start it again. |
+| Not on the console | Router port mapping. |

@@ -314,6 +314,10 @@ struct Packs {
     // The user's packs' pictures of the B pads in those, the same way (made while the packs are on).
     std::map<std::tuple<int, bool, conker::pad_icons::Shown>, std::shared_ptr<RT64::FileSystem>> pack_pads;
     std::vector<std::filesystem::path> user;
+    // The user's packs' large skull fitted over the death skull (sharp_menus::pack_death_skull),
+    // made when first wanted.
+    std::shared_ptr<RT64::FileSystem> pack_death_skull;
+    bool pack_death_skull_made = false;
 };
 
 Packs find_packs() {
@@ -380,6 +384,16 @@ bool use_packs(RT64::Application& app, Packs& packs, bool sharp, conker::pad_ico
     for (const std::filesystem::path& pack : user_list) {
         directories.emplace_back(pack);
         names.push_back("texture pack " + pack.filename().string());
+    }
+    if (!user_list.empty()) {
+        if (!packs.pack_death_skull_made) {
+            packs.pack_death_skull = conker::sharp_menus::pack_death_skull(user_list);
+            packs.pack_death_skull_made = true;
+        }
+        if (packs.pack_death_skull) {
+            directories.emplace_back(packs.pack_death_skull, "texture packs' death skull");
+            names.push_back("texture packs' death skull");
+        }
     }
     if (buttons && buttons_last) {
         directories.emplace_back(buttons, buttons_name);

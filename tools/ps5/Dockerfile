@@ -13,7 +13,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
         libclang-rt-18-dev libclc-18 libclc-18-dev llvm-spirv-18 libllvmspirvlib-18-dev \
         spirv-tools glslang-tools \
         cmake ninja-build make pkg-config bison flex python3 python3-venv python3-dev \
-        git curl wget unzip ca-certificates rsync ccache file xz-utils zlib1g-dev util-linux \
+        git curl wget zip unzip ca-certificates rsync ccache file xz-utils zlib1g-dev util-linux \
     && rm -rf /var/lib/apt/lists/* \
     && git config --system --add safe.directory '*' \
     && for tool in clang clang++ ld.lld llvm-ar llvm-nm llvm-ranlib llvm-objcopy llvm-strip llvm-config; do \
