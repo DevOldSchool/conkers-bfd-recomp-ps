@@ -32,6 +32,7 @@ Switch quit_game();  // src/enhancements/quit_game/quit_game.cpp
 Switch save_snapshots();
 Switch surround_default();
 Switch mp_characters();
+Switch more_bots();
 Switch max_detail();
 Switch draw_distance();
 Switch haptics();

@@ -1,0 +1,18 @@
+--- a/src/render/rt64_framebuffer_renderer.cpp
++++ b/src/render/rt64_framebuffer_renderer.cpp
+@@ -1767,6 +1767,15 @@ namespace RT64 {
+                                 }
+                             }
+ 
++                            // A stretched black over one such view (the game's own black over a player out of lives,
++                            // stretched by the port) also goes from side to side: stretched, its inset stops short.
++                            if (regularOrigins && (call.callDesc.tileCount == 0) && (call.callDesc.rectAspect == G_EX_ASPECT_STRETCH)) {
++                                if (const FixedRect *splitView = coversSplitView(call.callDesc.rect)) {
++                                    splitFill = true;
++                                    splitViewSides(*splitView, splitLeft, splitRight);
++                                }
++                            }
++
+                             if ((tileCopiesUsed || coversScissorWidth || call.callDesc.rectAspect == G_EX_ASPECT_STRETCH) && (call.callDesc.rectAspect != G_EX_ASPECT_ADJUST)) {
+                                 invRatioScale = 1.0f;
+                             }

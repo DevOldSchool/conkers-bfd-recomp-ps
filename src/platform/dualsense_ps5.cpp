@@ -427,16 +427,19 @@ bool pad_connected(const std::string& sdl_name) {
     return scePadReadState(handle, &state) != 0 || state.connected != 0;
 }
 
-bool set_dualsense_triggers(int port, const TriggerEffect& effect) {
+bool set_dualsense_triggers(int port, const TriggerEffect& effect, bool left, bool right) {
     Pad* pad = pad_of(port);
     if (pad == nullptr) return false;
     TriggerParam param{};
-    param.mask = 0x01 | 0x02;  // both triggers are Z
-    param.command[0] = param.command[1] = command_for(effect, false);
+    param.mask = 0x01 | 0x02;  // both set: the one that is not Z is let free
+    const TriggerEffect off{};
+    param.command[0] = command_for(left ? effect : off, false);
+    param.command[1] = command_for(right ? effect : off, false);
     int32_t result = scePadSetTriggerEffect(pad->handle, &param);
     if (result != 0 && (effect.mode == TriggerEffect::Mode::Feedback || effect.mode == TriggerEffect::Mode::Vibration)) {
         // Some pads refuse the multiple-position modes: the single-position ones then.
-        param.command[0] = param.command[1] = command_for(effect, true);
+        param.command[0] = command_for(left ? effect : off, true);
+        param.command[1] = command_for(right ? effect : off, true);
         result = scePadSetTriggerEffect(pad->handle, &param);
     }
     static bool reported[kPorts] = {};

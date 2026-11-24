@@ -1,5 +1,5 @@
-// The debug menu: the pad's Back button (Create/Share on a PlayStation pad, View on an Xbox pad)
-// or the ` key opens it anywhere: in play, on the title and the game's menus, in a cutscene. Native
+// The debug menu: both of the pad's sticks pressed in together (L3 + R3) or the ` key opens it
+// anywhere: in play, on the title and the game's menus, in a cutscene. Native
 // helpers called from the [[patches.hook]] snippets in config/us.toml (func_151E51EC, func_151DDC20,
 // func_151EB06C, func_1501BBB8).
 //
@@ -716,7 +716,9 @@ void draw_controls_page(uint8_t* rdram, recomp_context* ctx) {
     if (g_listening >= 0) {
         const auto left = std::chrono::duration_cast<std::chrono::seconds>(g_listen_until - Clock::now()).count() + 1;
         info = keys ? "ON THE KEYBOARD" : "ON CONTROLLER " + std::to_string(port + 1) + "'S PAD";
-        more = (keys ? "THE MENU KEY CANCELS  OR WAIT " : "BACK CANCELS  OR WAIT ") + std::to_string(std::max<long long>(left, 1));
+        // On a pad the menu's press is two sticks, and the first one in would be heard: wait to cancel.
+        more = keys ? "THE MENU KEY CANCELS  OR WAIT " + std::to_string(std::max<long long>(left, 1))
+                    : "WAIT " + std::to_string(std::max<long long>(left, 1)) + " TO CANCEL";
     } else if (g_controls_row == kController) {
         info = keys ? "EVERY KEY BUT ESC AND THE MENU KEY" : pad_line(port);
         more = "LEFT AND RIGHT CHOOSE";

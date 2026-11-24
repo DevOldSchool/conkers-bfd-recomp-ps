@@ -215,6 +215,7 @@ add_executable(ConkersBadFurDayRecompiled
     src/enhancements/sharp_menus/pause_signs.cpp
     src/enhancements/surround_default/surround_default.cpp
     src/enhancements/mp_characters/mp_characters.cpp
+    src/enhancements/more_bots/more_bots.cpp
 )
 target_include_directories(ConkersBadFurDayRecompiled PRIVATE
     "${CMAKE_SOURCE_DIR}/src"

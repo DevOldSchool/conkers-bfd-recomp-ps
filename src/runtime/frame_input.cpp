@@ -25,6 +25,7 @@
 #include "enhancements/frame_rate/frame_rate.hpp"
 #include "enhancements/frame_rate/latency.hpp"
 #include "enhancements/mp_characters/mp_characters.hpp"
+#include "enhancements/more_bots/more_bots.hpp"
 #include "enhancements/my_view/my_view.hpp"
 #include "enhancements/switches.hpp"
 #include "platform/display_mode.hpp"
@@ -882,6 +883,7 @@ extern "C" void conker_frame_input_begin(uint8_t* rdram, recomp_context* ctx) {
     }
     conker::net::frame_start(rdram);  // a session started in place turns the fixed step on here
     conker::mp_characters::frame(rdram);
+    conker::more_bots::frame(rdram);
     g_count_calls = 0;
     // The frame before's depth: func_1512B1B8, for one, scans it around the camera during the logic.
     if (fixed_on()) {

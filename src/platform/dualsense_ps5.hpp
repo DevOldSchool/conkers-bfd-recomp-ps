@@ -20,8 +20,9 @@ void close_dualsense(int port);
 // the order pads are switched on). True when it cannot tell. Main thread.
 bool pad_connected(const std::string& sdl_name);
 
-// Sets both triggers of the port's pad; false when it has none.
-bool set_dualsense_triggers(int port, const TriggerEffect& effect);
+// Sets the port's pad's triggers: the effect on the left and/or right one (those that are Z), the
+// other let free; false when it has none.
+bool set_dualsense_triggers(int port, const TriggerEffect& effect, bool left, bool right);
 
 // Plays a shaped effect on the pad's actuators; false when they cannot (the motors then do).
 bool play_dualsense_haptic(int port, const Haptic& haptic);

@@ -37,6 +37,7 @@ nlohmann::json adaptive_triggers();
 nlohmann::json consistent_controls();
 nlohmann::json surround_default(uint8_t* rdram);
 nlohmann::json mp_characters();
+nlohmann::json more_bots();
 nlohmann::json display_options();
 nlohmann::json pause_save();
 nlohmann::json quit_game();  // src/enhancements/quit_game/quit_game.cpp

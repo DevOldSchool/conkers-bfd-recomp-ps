@@ -6,13 +6,15 @@
 // Controller 1 combines its pad and the keyboard: buttons are OR-ed, and the pad's stick wins over
 // the keyboard's whenever it is outside the deadzone.
 //
-// Pad (SDL's Xbox-style names), by default: south A, west and east B, both triggers Z, LB L, RB R,
+// Pad (SDL's Xbox-style names), by default: south A, west and east B, the right trigger Z, RB and
+// the left trigger R (aim, as modern shooters have it), LB L,
 // Start Start, D-pad D-pad, Y the grenade in a match, left stick the analog stick, right stick the
 // C buttons (kDefaultMapping). The debug menu's CONTROLS page maps the buttons differently per port
 // (input.hpp's mapping; kept in input.cfg as "map<port>=<button>:<control>,...;..."). Keyboard and
 // mouse: see kKeys, the mouse below and docs/enhancements.md.
-// Back (Create/Share on a PlayStation pad, View on an Xbox pad) and the ` key open the debug menu
-// (src/enhancements/debug_menu); they are not N64 buttons.
+// Both sticks pressed in together (L3 + R3) and the ` key open the debug menu
+// (src/enhancements/debug_menu). Back (Create/Share on a PlayStation pad, View on an Xbox pad) is
+// left unmapped.
 //
 // A pad that can rumble (SDL_GameControllerHasRumble; a DualSense, DualShock 4, Xbox or Switch
 // Pro pad) counts as a rumble pak in its port, and the game's motor on/off drives both of its
@@ -95,18 +97,18 @@ static_assert(kControlCount <= 32, "a control per bit of Controls");
 
 constexpr Controls bit(int control) { return Controls{1} << control; }
 
-// Never mapped: Back opens the debug menu, the guide button is the system's.
+// Never mapped: Back (the debug menu's button before L3 + R3), and the guide button, the system's.
 constexpr Controls kUnmappable = bit(SDL_CONTROLLER_BUTTON_BACK) | bit(SDL_CONTROLLER_BUTTON_GUIDE);
 
 // The controls for each of kMappedButtons, by default.
 constexpr Controls kDefaultMapping[kMappedButtonCount] = {
     bit(SDL_CONTROLLER_BUTTON_A),                                  // A
     bit(SDL_CONTROLLER_BUTTON_X) | bit(SDL_CONTROLLER_BUTTON_B),   // B
-    // Z sits under the right hand on modern pads (R2/RT); the left trigger stays Z as well.
-    bit(kLeftTrigger) | bit(kRightTrigger),                        // Z
+    // The right trigger fires (Z) and the left one aims (R, with RB), as modern shooters have them.
+    bit(kRightTrigger),                                            // Z
     bit(SDL_CONTROLLER_BUTTON_START),                              // Start
     bit(SDL_CONTROLLER_BUTTON_LEFTSHOULDER),                       // L
-    bit(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER),                      // R
+    bit(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) | bit(kLeftTrigger),  // R
     bit(SDL_CONTROLLER_BUTTON_DPAD_UP),                            // D-pad
     bit(SDL_CONTROLLER_BUTTON_DPAD_DOWN),
     bit(SDL_CONTROLLER_BUTTON_DPAD_LEFT),
@@ -119,6 +121,13 @@ constexpr Controls kDefaultMapping[kMappedButtonCount] = {
 };
 
 std::atomic<Controls> g_mapping[kPorts][kMappedButtonCount];  // set by load_mapping()
+
+// The controls a port has for Z (kMappedButtons' third).
+constexpr int kZIndex = 2;
+static_assert(kMappedButtons[kZIndex].n64 == kZ);
+Controls z_controls(int port) {
+    return port >= 0 && port < kPorts ? g_mapping[port][kZIndex].load(std::memory_order_relaxed) : 0;
+}
 
 struct Key {
     SDL_Scancode key;
@@ -879,18 +888,22 @@ int SDLCALL virtual_pad_effect(void* userdata, const void* data, int size) {
 // Sends the effect to the port's pad: SDL's own DualSense driver takes the effect report, and on
 // macOS a pad read through Apple's framework is set there.
 bool send_triggers(Port& port, const TriggerEffect& trigger) {
+    // The effect is Z's: a trigger mapped to something else (the left one aiming) is left free.
+    const Controls z = z_controls(port.number() - 1);
+    const bool left = (z & bit(kLeftTrigger)) != 0;
+    const bool right = (z & bit(kRightTrigger)) != 0;
     DualSenseEffects effects{};
     effects.enable_bits1 = 0x04 | 0x08;
-    encode_trigger(trigger, effects.right_trigger);
-    encode_trigger(trigger, effects.left_trigger);
+    encode_trigger(right ? trigger : TriggerEffect{}, effects.right_trigger);
+    encode_trigger(left ? trigger : TriggerEffect{}, effects.left_trigger);
     // sdl2-compat reports a virtual pad's effect as failed even when the pad takes it.
     if (SDL_GameControllerSendEffect(port.pad, &effects, sizeof(effects)) == 0 || port.pad_virtual) {
         return true;
     }
 #ifdef __APPLE__
-    return apple::set_dualsense_triggers(port.number() - 1, trigger);
+    return apple::set_dualsense_triggers(port.number() - 1, trigger, left, right);
 #elif CONKER_PS5
-    return ps5::set_dualsense_triggers(port.number() - 1, trigger);
+    return ps5::set_dualsense_triggers(port.number() - 1, trigger, left, right);
 #else
     return false;
 #endif
@@ -1070,18 +1083,17 @@ void deadzone(SDL_GameController* pad, SDL_GameControllerAxis axis_x, SDL_GameCo
     }
 }
 
-// The controls a pad holds. A trigger counts once pulled past z_at; left_trigger and right_trigger
-// say which are. The right stick counts pushed half way.
-Controls held_controls(SDL_GameController* pad, float z_at, bool& left_trigger, bool& right_trigger) {
+// The controls a pad holds. A trigger counts once pulled past its point (left_at, right_at);
+// left_trigger and right_trigger say which are. The right stick counts pushed half way.
+Controls held_controls(SDL_GameController* pad, float left_at, float right_at, bool& left_trigger, bool& right_trigger) {
     Controls held = 0;
     for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; b++) {
         if (SDL_GameControllerGetButton(pad, static_cast<SDL_GameControllerButton>(b))) {
             held |= bit(b);
         }
     }
-    const auto threshold = static_cast<Sint16>(z_at * 32767.0f);
-    left_trigger = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > threshold;
-    right_trigger = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > threshold;
+    left_trigger = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > static_cast<Sint16>(left_at * 32767.0f);
+    right_trigger = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > static_cast<Sint16>(right_at * 32767.0f);
     if (left_trigger) held |= bit(kLeftTrigger);
     if (right_trigger) held |= bit(kRightTrigger);
     const Sint16 cx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX);
@@ -1106,9 +1118,9 @@ uint16_t mapped_buttons(Controls held, const Controls* mapping) {
 
 // Adds a pad's controls to `held`, and its left stick to x and y and its right stick to right_x
 // and right_y when outside the deadzone.
-void read_pad(SDL_GameController* pad, float z_at, Controls& held, float& x, float& y, float& right_x,
+void read_pad(SDL_GameController* pad, float left_at, float right_at, Controls& held, float& x, float& y, float& right_x,
               float& right_y, bool& left_trigger, bool& right_trigger) {
-    held |= held_controls(pad, z_at, left_trigger, right_trigger);
+    held |= held_controls(pad, left_at, right_at, left_trigger, right_trigger);
     deadzone(pad, SDL_CONTROLLER_AXIS_LEFTX, SDL_CONTROLLER_AXIS_LEFTY, x, y);
     deadzone(pad, SDL_CONTROLLER_AXIS_RIGHTX, SDL_CONTROLLER_AXIS_RIGHTY, right_x, right_y);
 }
@@ -1541,12 +1553,16 @@ void read_port_pad(Port& port, uint16_t& buttons, float& x, float& y, float& rig
     bool left_trigger = false;
     bool right_trigger = false;
     Controls held = 0;
-    read_pad(port.pad, z_at, held, x, y, right_x, right_y, left_trigger, right_trigger);
     Controls mapping[kMappedButtonCount];
     const int index = port.number() - 1;
     for (int i = 0; i < kMappedButtonCount; i++) {
         mapping[i] = g_mapping[index][i].load(std::memory_order_relaxed);
     }
+    // Only a trigger that is Z has the effect, so only its point moves.
+    const Controls z = z_controls(index);
+    const float left_at = (z & bit(kLeftTrigger)) != 0 ? z_at : kTriggerZ;
+    const float right_at = (z & bit(kRightTrigger)) != 0 ? z_at : kTriggerZ;
+    read_pad(port.pad, left_at, right_at, held, x, y, right_x, right_y, left_trigger, right_trigger);
     buttons |= mapped_buttons(held, mapping);
     if (menu_buttons != nullptr) {
         *menu_buttons |= mapped_buttons(held, kDefaultMapping);
@@ -1656,13 +1672,10 @@ void update() {
     update_mouse(buttons, zoom_in, zoom_out);
 
     if (g_port1.pad != nullptr) {
-        debug_menu = debug_menu || SDL_GameControllerGetButton(g_port1.pad, SDL_CONTROLLER_BUTTON_BACK);
-#if CONKER_PS5
-        // The console keeps the Create button for itself, so both sticks pressed together (L3 + R3) open the
-        // menu there.
+        // Both sticks pressed together (L3 + R3) open the menu on every pad, as on the PS5, which keeps
+        // the Create button for itself: one press to learn everywhere.
         debug_menu = debug_menu || (SDL_GameControllerGetButton(g_port1.pad, SDL_CONTROLLER_BUTTON_LEFTSTICK) &&
                                     SDL_GameControllerGetButton(g_port1.pad, SDL_CONTROLLER_BUTTON_RIGHTSTICK));
-#endif
         const float key_x = x;
         const float key_y = y;
         uint16_t pad_menu = 0;

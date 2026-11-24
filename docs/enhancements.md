@@ -220,7 +220,7 @@ too.
 
 ## Debug menu
 
-View on an Xbox pad, Create (Share) on a PlayStation pad, or the `` ` `` key opens
+Both of a pad's sticks pressed in together (L3 and R3 on a PlayStation pad), or the `` ` `` key, opens
 it anywhere: in play, in the pause menu, on the title and the game's other
 menus, and in cutscenes. In play it is the game's pause with its own page in
 place of the lever, PAUSED and the HUD, so the game stops as it does for the
@@ -270,7 +270,7 @@ button. Up and down choose a row, A or left and right change it, B goes back:
   runs, each ON or OFF, starting as its `CONKER_*` variable set it: SHARP
   TEXT (the sharper text and menus), WIDESCREEN (the current mode's shape),
   WIDESCREEN CULLING, SKIP INTRO, SKIP CUTSCENES, PAUSE SAVE AND LOAD, EXIT
-  GAME, SAVE SNAPSHOTS, SURROUND DEFAULT, MP CHARACTERS, FULL DETAIL, DRAW
+  GAME, SAVE SNAPSHOTS, SURROUND DEFAULT, MP CHARACTERS, MORE BOTS, FULL DETAIL, DRAW
   DISTANCE, HAPTICS, ADAPTIVE TRIGGERS, CONSISTENT CONTROLS, PAD BUTTONS,
   60 FPS, SMOOTH MOTION and MY VIEW (online: only your own
   view and sounds, see docs/online-play.md), in a list like LOAD REPORT's
@@ -411,6 +411,23 @@ switched off, the ones it entered go again and the ones typed stay. Online,
 the host's setting holds for everyone in the match.
 `CONKER_MP_CHARACTERS=0` leaves them to the codes.
 
+## More bots
+
+The bots page after a multiplayer match's join window allows bots up to a
+total of characters, players and bots together, that falls as players join:
+the game's limits are 10, 8, 4 and 4 characters for 1 to 4 players (8, 4, 4
+and 4 in some modes), so three players could add one bot, four none, and
+Heist's teams of three players had one player each. The console had to draw
+every character once for each view. Here every number of players gets the
+one-player total, 10 (or 8). Team modes (Heist) set the team size on that
+page instead, and players fill the teams in order; the game allowed teams of
+one with three or four players, so they could never share one. Here they get
+the two-player limits, and Heist's four teams hold up to four each (16
+characters), so up to four players can be on one team. RACE's join window
+let only two players in; here it takes four, with the other modes' four
+slots. Online the host's setting is used.
+`CONKER_MORE_BOTS=0` keeps the game's limits.
+
 ## Characters at full detail
 
 The game swaps Conker for a lower-detail model once the camera is more than
@@ -475,7 +492,7 @@ slingshot's sounds are single player's.
 
 ## Adaptive triggers
 
-A DualSense's triggers (both are Z) resist for what Conker is doing:
+A DualSense's trigger that is Z (the right one by default; the left one aims) resists for what Conker is doing:
 
 - **Peeing, drunk.** Once B starts the stream, the triggers resist
   lightly, then harder as holding Z sends it further, firmest when it
@@ -571,7 +588,7 @@ Rare's pre-rendered ones, and change when another kind of pad is connected:
 That is the default mapping; buttons mapped differently on the debug menu's
 CONTROLS page show the pad's control they are mapped to.
 
-B is also on the other side face button (X on Xbox, Circle on PlayStation) and Z on the left trigger,
+B is also on the other side face button (X on Xbox, Circle on PlayStation), R is also on the left trigger (LT, L2), which aims as in modern shooters,
 and the C pictures point the way to push the stick, which is swapped left to
 right by [consistent controls](#consistent-controls); switching those off in the debug menu turns them round. The Xbox buttons are black with coloured letters, the
 PlayStation ones black with the DualShock 4's coloured symbols. With a

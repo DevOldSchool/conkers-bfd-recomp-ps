@@ -1,0 +1,116 @@
+--- a/src/render/rt64_framebuffer_renderer.cpp
++++ b/src/render/rt64_framebuffer_renderer.cpp
+@@ -1466,6 +1466,41 @@
+             }
+         }
+ 
++        // A rect laid over most of one widened view of a split screen: that view's own full-view effects (a fade to
++        // black, the flash of a hit), which the game draws over the view's viewport, a little inside its scissor, so they
++        // reach neither the pair's sides nor the view's. They are stretched with the view, or they stay in the 4:3
++        // middle of a view twice as wide as it is tall. Smaller rects (HUD panels) are left as they are. An untextured
++        // one (a fade, the death wipe's black) is drawn across the whole widened view: stretched alone it stopped a
++        // stretched inset short of the view's sides, a thin line of the scene at each.
++        auto coversSplitView = [&](const FixedRect &rect) -> const FixedRect * {
++            for (const FixedRect &view : wideViewScissors) {
++                const bool splitView = (view.ulx > fbPair.scissorRect.ulx) || (view.lrx < fbPair.scissorRect.lrx) ||
++                    (view.uly > fbPair.scissorRect.uly) || (view.lry < fbPair.scissorRect.lry);
++                if (!splitView || rect.isEmpty()) {
++                    continue;
++                }
++
++                // Within the view top to bottom (it may run past the view's sides), across most of its width.
++                const FixedRect inside = rect.intersection(view);
++                if (inside.isEmpty() || (inside.uly != rect.uly) || (inside.lry != rect.lry)) {
++                    continue;
++                }
++
++                if ((inside.width(true, true) * 8 >= view.width(true, true) * 7) && (rect.height(true, true) * 2 >= view.height(true, true))) {
++                    return &view;
++                }
++            }
++
++            return nullptr;
++        };
++
++        // The sides of a widened split-screen view: the framebuffer's where it reaches the pair scissor's.
++        auto splitViewSides = [&](const FixedRect &view, int32_t &left, int32_t &right) {
++            const RenderRect wide = convertFixedRect(view, p.resolutionScale, p.fbWidth, 1.0f, extOriginPercentage, 0, G_EX_ORIGIN_NONE, G_EX_ORIGIN_NONE);
++            left = (view.ulx <= fbPair.scissorRect.ulx) ? 0 : wide.left;
++            right = (view.lrx >= fbPair.scissorRect.lrx) ? int32_t(std::ceil(framebuffer.viewport.width)) : wide.right;
++        };
++
+         for (uint32_t pr = 0; (pr < fbPair.projectionCount) && (globalCallIndex < p.maxGameCall); pr++) {
+             const Projection &proj = fbPair.projections[pr];
+             if (proj.scissorRect.isNull()) {
+@@ -1583,7 +1618,19 @@
+                         }
+                     }
+ 
++                    const FixedRect *splitView = nullptr;
++                    if ((invRatioScale != 1.0f) && (call.callDesc.rectLeftOrigin == G_EX_ORIGIN_NONE) && (call.callDesc.rectRightOrigin == G_EX_ORIGIN_NONE)) {
++                        splitView = coversSplitView(call.callDesc.rect);
++                        if (splitView != nullptr) {
++                            invRatioScale = 1.0f;
++                            horizontalMisalignment = 0;
++                        }
++                    }
++
+                     clearRect.rect = convertFixedRect(call.callDesc.rect, p.resolutionScale, p.fbWidth, invRatioScale, extOriginPercentage, horizontalMisalignment, call.callDesc.rectLeftOrigin, call.callDesc.rectRightOrigin);
++                    if (splitView != nullptr) {
++                        splitViewSides(*splitView, clearRect.rect.left, clearRect.rect.right);
++                    }
+                 }
+                 else if (call.callDesc.extendedType != DrawExtendedType::None) {
+                     switch (call.callDesc.extendedType) {
+@@ -1668,6 +1715,9 @@
+                         RenderRect viewEdges;
+                         bool viewInside = false;
+                         int32_t viewShift = 0;
++                        bool splitFill = false;
++                        int32_t splitLeft = 0;
++                        int32_t splitRight = 0;
+                         switch (proj.type) {
+                         case Projection::Type::Perspective:
+                         case Projection::Type::Orthographic: {
+@@ -1706,6 +1756,17 @@
+                                 coversScissorWidth = true;
+                             }
+ 
++                            // Or one laid over most of such a view, whatever its scissor.
++                            if (regularOrigins && !coversScissorWidth && (call.callDesc.rectAspect == G_EX_ASPECT_AUTO)) {
++                                if (const FixedRect *splitView = coversSplitView(call.callDesc.rect)) {
++                                    coversScissorWidth = true;
++                                    if (call.callDesc.tileCount == 0) {
++                                        splitFill = true;
++                                        splitViewSides(*splitView, splitLeft, splitRight);
++                                    }
++                                }
++                            }
++
+                             if ((tileCopiesUsed || coversScissorWidth || call.callDesc.rectAspect == G_EX_ASPECT_STRETCH) && (call.callDesc.rectAspect != G_EX_ASPECT_ADJUST)) {
+                                 invRatioScale = 1.0f;
+                             }
+@@ -1796,6 +1857,11 @@
+                                 viewportRect.width = float(viewEdges.right) - viewportRect.x;
+                             }
+ 
++                            if (splitFill) {
++                                viewportRect.x = float(splitLeft);
++                                viewportRect.width = float(splitRight - splitLeft);
++                            }
++
+                             triangles.screenScale = { viewportRect.width / framebuffer.viewport.width, viewportRect.height / framebuffer.viewport.height };
+                             triangles.screenOffset.x = halfPixelOffset.x + ((viewportRect.x + viewportRect.width / 2.0f) - halfViewportSize.x) / halfViewportSize.x;
+                             triangles.screenOffset.y = halfPixelOffset.y + (halfViewportSize.y - (viewportRect.y + viewportRect.height / 2.0f)) / halfViewportSize.y;
+@@ -1856,6 +1922,11 @@
+                         if (viewInside) {
+                             triangles.scissor.left = viewEdges.left;
+                             triangles.scissor.right = viewEdges.right;
++                        }
++
++                        if (splitFill) {
++                            triangles.scissor.left = splitLeft;
++                            triangles.scissor.right = splitRight;
+                         }
+ 
+                         bool usesViewport = (proj.type == Projection::Type::Perspective) || (proj.type == Projection::Type::Orthographic);
