@@ -43,6 +43,7 @@
 //     MODS             the mods in conker-recomp-data/mods, on and off (kept in mods.json; a new one
 //                      starts off, and the page says to trust where a mod came from); mods load
 //                      when the game starts, so after a change RESTART TO APPLY starts it again
+//                      (on the PS5, APPLY AT NEXT START: the player closes the title)
 //     TELEPORT         X, Y, Z, facing and camera yaw to move him to, and spots kept in
 //                      conker-recomp-data/debug_spots.txt
 //     LOAD SNAPSHOT    a list of saves/snapshots/; A starts one (resume_point.cpp)
@@ -853,13 +854,23 @@ void draw_page(uint8_t* rdram, recomp_context* ctx) {
             }
             const bool changed = mods_changed();
             if (changed) {
+#if CONKER_PS5
+                // A title cannot start itself again: the player closes it (net::relaunch is execv).
+                rows.push_back("APPLY AT NEXT START");
+#else
                 rows.push_back("RESTART TO APPLY");
+#endif
             }
             draw_rows(rdram, ctx, rows, g_mod_row, g_mod_top);
             const bool restart_row = g_mod_row == static_cast<int>(mods().size());
             if (restart_row) {
+#if CONKER_PS5
+                draw_text(rdram, ctx, kCenterX, kInfoY, kCentered, kOtherColor, "CLOSE THE GAME AND");
+                draw_text(rdram, ctx, kCenterX, kInfoY + kLineHeight, kCentered, kOtherColor, "START IT AGAIN");
+#else
                 draw_text(rdram, ctx, kCenterX, kInfoY, kCentered, kOtherColor, "STARTS THE GAME AGAIN");
                 draw_text(rdram, ctx, kCenterX, kInfoY + kLineHeight, kCentered, kOtherColor, "WHAT IS NOT SAVED IS LOST");
+#endif
             } else {
                 // Wrapped, ending on the line where one line would be, so the lines below stay put.
                 const std::vector<std::string> lines = wrap_lines(mods()[g_mod_row].description, 3);
@@ -1483,9 +1494,13 @@ int32_t mods_page(int vertical, int horizontal, bool fresh_horizontal, uint16_t 
             show_message("COULD NOT SAVE THE MODS");
             return kSelectSound;
         }
+#if CONKER_PS5
+        show_message("MODS SAVED");
+#else
         std::printf("[conker] debug menu: starting again for the mods\n");
         conker::net::relaunch({});
         show_message("COULD NOT START AGAIN");
+#endif
         return kSelectSound;
     }
     if (!(pressed & conker::input::kA) && !(horizontal != 0 && fresh_horizontal)) {

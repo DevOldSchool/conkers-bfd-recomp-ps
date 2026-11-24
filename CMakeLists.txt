@@ -541,6 +541,11 @@ elseif(PS5)
     target_sources(ConkersBadFurDayRecompiled PRIVATE src/platform/ps5_platform.cpp src/platform/dualsense_ps5.cpp)
     target_compile_definitions(ConkersBadFurDayRecompiled PRIVATE CONKER_PS5=1 RT64_SDL_WINDOW_VULKAN PLUME_SDL_VULKAN_ENABLED)
     target_compile_definitions(ConkerRecompiled PRIVATE CONKER_PS5=1)
+    # Mods' code (LiveRecomp's sljit) in executable memory from the SDK platform layer
+    # (src/platform/ps5_sljit).
+    target_sources(LiveRecomp PRIVATE "${CMAKE_SOURCE_DIR}/src/platform/ps5_sljit/ps5_sljit.c")
+    target_compile_definitions(LiveRecomp PRIVATE SLJIT_HAVE_CONFIG_PRE=1)
+    target_include_directories(LiveRecomp PRIVATE "${CMAKE_SOURCE_DIR}/src/platform/ps5_sljit")
     # The title link (tools/ps5/toolchain.cmake) compiles these itself: linked again when they change.
     set_property(TARGET ConkersBadFurDayRecompiled APPEND PROPERTY LINK_DEPENDS
         "${CONKER_PS5_DIR}/link-title.sh" "${CONKER_PS5_DIR}/ps5_paths.c" "${CONKER_PS5_DIR}/ps5_libc.c")

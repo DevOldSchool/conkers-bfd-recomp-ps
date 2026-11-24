@@ -34,15 +34,17 @@ Saves and settings are in `conker-recomp-data` in the title folder, and `conker.
 
 ## On the console
 
-* **Debug menu:** the console keeps the Create button for itself, so L3 and R3 pressed together open
-  the debug menu (Back on a desktop pad).
+* **Debug menu:** L3 and R3 pressed together open the debug menu, as on a desktop pad (the console
+  keeps the Create button for itself).
 * **DualSense:** adaptive triggers and haptics for the weapons, shaped by `feel.cfg` in the data
   folder (its `ps5.` lines tune the haptics).
 * **Players:** the console lists every signed-in user as a controller; one whose pad is off holds no
   port, so players follow the order pads are switched on.
 * **Online:** MULTI online works with the desktop builds of the same version. Router port mapping is
   not on the console: a host there needs its port forwarded by hand.
-* **Not on the console:** mods.
+* **Mods:** as on a desktop: copy `.nrm` files into the title folder's `conker-recomp-data/mods`
+  over FTP and turn them on in the debug menu's MODS page, then close the game and start it again.
+  The speedrun mod is built in.
 
 ## Enhancements
 

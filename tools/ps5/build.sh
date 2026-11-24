@@ -7,7 +7,8 @@
 #   deps       once per dependency volume: Mihawk's PS5_Vulkan, PS5_Mesa and PS5_PayloadSDK at their
 #              pins, the payload SDK, RADV (release), ps5-native-tool, libc.prx, PacBrew's sysroot
 #   configure  RT64's file_to_c for the build machine, then CMake with tools/ps5/toolchain.cmake
-#   build      the ConkersBadFurDayRecompiled target (the signed title, tools/ps5/link-title.sh)
+#   build      the built-in mods (mods/*, RecompModTool built in the build volume), then
+#              the ConkersBadFurDayRecompiled target (the signed title, tools/ps5/link-title.sh)
 #   package    dist/PPSA92064: eboot.bin, sce_sys (param.json, icon, home-screen pictures and music),
 #              sce_module/libc.prx
 #
@@ -186,8 +187,31 @@ check_deps() {
     done
 }
 
+# The mods the game carries built in (CMakeLists.txt, CONKER_EMBEDDED_MODS), built here as
+# tools/build_mods.sh builds them on a desktop: the container's clang has the MIPS target and ld.lld,
+# and RecompModTool (which packs the .nrm with zip) is built for the container in the build volume. The game reads them as it is
+# configured, so this runs before configure and before every build (a changed mod configures again).
+embedded_mods=/src/mods/speedrun/build/conker_speedrun.nrm
+in_mods() {
+    local tool_build="$build/host-tools/N64Recomp"
+    if [ ! -x "$tool_build/RecompModTool" ]; then
+        echo "==> [mods] RecompModTool"
+        env -u CC -u CXX cmake -S /src/lib/N64Recomp -B "$tool_build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > /dev/null
+        cmake --build "$tool_build" --target RecompModTool > /dev/null
+    fi
+    local makefile dir
+    for makefile in /src/mods/*/Makefile; do
+        dir="$(dirname "$makefile")"
+        echo "==> [mods] $(basename "$dir")"
+        make -s -C "$dir" REPO=/src LLVM_BIN= MOD_TOOL="$tool_build/RecompModTool"
+        chown -R "$HOST_UID:$HOST_GID" "$dir/build"
+    done
+}
+
 in_configure() {
     check_deps
+    in_mods
     # The build machine's file_to_c: RT64 turns its shaders into C with it, and a cross build cannot
     # run the console's.
     mkdir -p "$build/host-tools"
@@ -197,16 +221,21 @@ in_configure() {
         -DPS5_PAYLOAD_SDK="$sdk" -DPACBREW="$pacbrew" -DPS5_VULKAN="$vulkan" -DCONKER_HOST_TOOLS="$build/host-tools" \
         -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         -DCONKER_RENDERER=rt64 -DCONKER_RECOMPILED_DIR=/gen/RecompiledFuncs -DCONKER_RSP_DIR=/gen/rsp \
-        -DCONKER_PORT_MAPPING=OFF -DCONKER_EMBEDDED_MODS= -DCONKER_NET_VERSION="${CONKER_NET_VERSION:-}"
+        -DCONKER_PORT_MAPPING=OFF -DCONKER_EMBEDDED_MODS="$embedded_mods" -DCONKER_NET_VERSION="${CONKER_NET_VERSION:-}"
 }
 
 in_build() {
     check_deps
+    in_mods
     [ -f "$build/build.ninja" ] || { echo "$build is not configured: run tools/ps5/build.sh configure" >&2; exit 1; }
     # The version online play compares comes from the host on every run (on_host), so a build after a
     # merge from the main project plays as its new version without configuring again.
     if [ "$(sed -n 's/^CONKER_NET_VERSION:STRING=//p' "$build/CMakeCache.txt")" != "${CONKER_NET_VERSION:-}" ]; then
         cmake -DCONKER_NET_VERSION="${CONKER_NET_VERSION:-}" "$build" > /dev/null
+    fi
+    # A build folder configured before the title carried mods has them turned off in its cache.
+    if [ "$(sed -n 's/^CONKER_EMBEDDED_MODS:STRING=//p' "$build/CMakeCache.txt")" != "$embedded_mods" ]; then
+        cmake -DCONKER_EMBEDDED_MODS="$embedded_mods" "$build" > /dev/null
     fi
     # The recompiled code is large: a compile job per 2 GB of the container's memory.
     local memory_kb jobs
@@ -225,6 +254,9 @@ in_package() {
     check_deps
     local eboot="$build/ConkersBadFurDayRecompiled"
     [ -f "$eboot" ] || { echo "no $eboot: run tools/ps5/build.sh build" >&2; exit 1; }
+    # A release always carries the built-in mods, as the desktop packages do.
+    grep -q '^CONKER_EMBEDDED_MOD_IDS:INTERNAL=.*conker_speedrun' "$build/CMakeCache.txt" ||
+        { echo "$build has no built-in speedrun mod: run tools/ps5/build.sh build" >&2; exit 1; }
     local snd0=/src/tools/ps5/sce_sys/snd0.at9
     [ -z "${CONKER_PS5_SND0:-}" ] || snd0=/snd0.at9
     [ -f "$snd0" ] || { echo "no home-screen music ($snd0)" >&2; exit 1; }
