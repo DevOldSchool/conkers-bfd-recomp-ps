@@ -452,6 +452,15 @@ void rumble_test(const Port& port) {
 
 int virtual_pad_number(SDL_JoystickID id);
 
+#if CONKER_PS5
+// The console user a pad belongs to, as the console's SDL names its joystick (dualsense_ps5.cpp): the
+// joystick's name, since the controller's can be its mapping's, the same for every pad.
+std::string ps5_user_name(SDL_GameController* pad) {
+    const char* name = SDL_JoystickName(SDL_GameControllerGetJoystick(pad));
+    return name != nullptr ? name : "";
+}
+#endif
+
 // A port's new pad: its name, haptics and adaptive triggers, and for controller 1 its picture kind.
 void open_pad_extras(Port& port, int device_index) {
     {
@@ -486,9 +495,9 @@ void open_pad_extras(Port& port, int device_index) {
     }
 #endif
 #if CONKER_PS5
-    // The console's SDL names the pad after its user, which finds the pad's handle.
+    // The console's SDL names the joystick after its user, which finds the pad's handle.
     if (SDL_GameControllerGetType(port.pad) == SDL_CONTROLLER_TYPE_PS5 &&
-        ps5::open_dualsense(port.number() - 1, port.name) && !g_force_motors) {
+        ps5::open_dualsense(port.number() - 1, ps5_user_name(port.pad)) && !g_force_motors) {
         port.haptics_via = HapticsVia::Pad;
     }
 #endif
@@ -654,8 +663,7 @@ bool pad_present(SDL_GameController* pad) {
     }
 #if CONKER_PS5
     // The console's SDL lists every signed-in user as a controller: only one whose pad is on counts.
-    const char* name = SDL_GameControllerName(pad);
-    if (!ps5::pad_connected(name != nullptr ? name : "")) {
+    if (!ps5::pad_connected(ps5_user_name(pad))) {
         return false;
     }
 #endif

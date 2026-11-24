@@ -335,7 +335,9 @@ void mix(Pad& pad) {
     }
 }
 
-// The signed-in user SDL named a pad after (PacBrew's SDL names each pad with its user's name).
+// The signed-in user SDL named a pad after: PacBrew's SDL names each joystick with its user's name, or
+// with the user id in 8 hex digits when it has no name (SDL_JoystickName, not SDL_GameControllerName,
+// which can be the controller mapping's name). With one user signed in, that user's.
 int32_t user_named(const std::string& name) {
     int32_t users[kMaxUsers];
     if (sceUserServiceGetLoginUserIdList(users) != 0) return -1;
@@ -345,6 +347,9 @@ int32_t user_named(const std::string& name) {
         if (user == -1) continue;
         char user_name[64] = {};
         if (sceUserServiceGetUserName(user, user_name, sizeof(user_name)) == 0 && name == user_name) return user;
+        char id[16];
+        std::snprintf(id, sizeof(id), "%08x", static_cast<unsigned>(user));
+        if (name == id) return user;
         only = user;
         count++;
     }
@@ -378,18 +383,31 @@ bool open_dualsense(int port, const std::string& sdl_name) {
     if (port < 0 || port >= kPorts) return false;
     close_dualsense(port);
     Pad& pad = g_pads[port];
-    pad.user = user_named(sdl_name);
+    const int32_t user = user_named(sdl_name);
+    // One console pad for one player: a second port on the same user would play its rumble, haptics
+    // and trigger effects on the first player's pad (a local match had player 3's in player 1's hands).
+    for (int other = 0; other < kPorts; other++) {
+        if (other != port && user >= 0 && g_pads[other].handle >= 0 && g_pads[other].user == user) {
+            std::printf("[conker] controller %d (\"%s\"): user %08x's pad is controller %d's already: "
+                        "no haptics or adaptive triggers here\n", port + 1, sdl_name.c_str(),
+                        static_cast<unsigned>(user), other + 1);
+            return false;
+        }
+    }
+    pad.user = user;
     pad.handle = pad.user >= 0 ? scePadGetHandle(pad.user, kPadStandard, 0) : -1;
     if (pad.handle < 0) {
-        std::printf("[conker] controller %d: no pad handle for its user (%d)\n", port + 1, pad.handle);
+        std::printf("[conker] controller %d (\"%s\"): no pad handle for its user (user %d, %d)\n", port + 1,
+                    sdl_name.c_str(), pad.user, pad.handle);
         pad.handle = -1;
+        pad.user = -1;
         return false;
     }
     sceAudioOutInit();  // SDL's audio has done it already: harmless again
     pad.audio = sceAudioOutOpen(pad.user, kVibrationPort, 0, kGrain, kRate, kS16Stereo);
     const int32_t mode = scePadSetVibrationMode(pad.handle, pad.audio >= 0 ? kVibrationAdvanced : kVibrationCompatible);
-    std::printf("[conker] controller %d: pad handle %d, vibration port %d, vibration mode %s (%d)\n", port + 1,
-                pad.handle, pad.audio, pad.audio >= 0 ? "advanced" : "compatible", mode);
+    std::printf("[conker] controller %d: user %08x, pad handle %d, vibration port %d, vibration mode %s (%d)\n", port + 1,
+                static_cast<unsigned>(pad.user), pad.handle, pad.audio, pad.audio >= 0 ? "advanced" : "compatible", mode);
     if (pad.audio < 0) {
         pad.audio = -1;
         return false;
